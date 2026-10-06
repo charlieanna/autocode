@@ -27,7 +27,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_resolver_human as resolver_human
     from . import autocode_support as support
-    from . import autocode_workflow as workflow
+    from . import autocode_workflow as workflow, autocode_worker_quota as worker_quota
     from . import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 except ImportError:
     import autocode_job_failure as job_failure
@@ -41,6 +41,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_support as support
     import autocode_workflow as workflow
+    import autocode_worker_quota as worker_quota
     import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 
 
@@ -87,7 +88,12 @@ def normalize_human_boundary(state, run_dir):
     if public and not (milestones.recover_review_only_request(state, public, ask_user=lifecycle.wait_for_user) or milestones.release_obsolete_gate_request(state, public)):
         return
     proposal = state.get(resolver_human.PRIVATE)
-    if not proposal and state.get('status') in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL', 'PAUSED_GOAL_UNAPPROVED'):
+    # At a parallel batch's checkpoint the last stage records are the members' copied worker attempts,
+    # never the parent's. Like an uncertain serial attempt above, a member's pending request, even one a
+    # settings write left stale, is never rebuilt from them as a legacy decision (#543).
+    member_request = worker_quota.at_checkpoint(state) and resolver_human.pending_issued(state)
+    if (not proposal and not member_request
+            and state.get('status') in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL', 'PAUSED_GOAL_UNAPPROVED')):
         # Explicit locked reconciliation of legacy decisions. Read-only status
         # and dashboard projections never enter this writer path.
         request = copy.deepcopy(state.get('user_request') or {})

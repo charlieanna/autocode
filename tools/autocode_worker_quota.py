@@ -70,13 +70,21 @@ def question(state, attempt, *, family=None, **options):
     return asked
 
 
+def at_checkpoint(state):
+    """Whether the run is at its parallel batch's build checkpoint, where the parent asks for its stopped members.
+
+    The parent's last stage records there are its members' copied worker attempts, never its own (#543).
+    """
+    batch = state.get("orchestration_batch") or {}
+    return batch.get("status") == "BUILDING" and state.get("next_stage") == "orchestrator"
+
+
 def current(state, origin):
     """Find only the stopped member of this exact BUILDING batch."""
     worker = (origin or {}).get("quota_worker") or {}
-    batch = state.get("orchestration_batch") or {}
-    if batch.get("status") != "BUILDING" or state.get("next_stage") != "orchestrator":
+    if not at_checkpoint(state):
         return None
-    for row in batch.get("workers", []):
+    for row in state["orchestration_batch"].get("workers", []):
         if (row.get("milestone_id") == worker.get("milestone_id")
                 and row.get("run_dir") == worker.get("run_dir")
                 and row.get("workspace") == worker.get("workspace")
@@ -84,6 +92,21 @@ def current(state, origin):
                 and row.get("status") == worker.get("pause_status", quota_route.QUOTA_STATUS)):
             return row, worker
     return None
+
+
+def asked_again(state, error, origin):
+    """``error`` carrying the member payload of the withdrawn request ``origin``, when it asks that stop again (#542).
+
+    A settings change withdraws a member's request, and the run asks again from its saved pause, which
+    carries no payload: without it the new request would ask no route-terra question. The payload is
+    restored only for the same stop while its member is still the batch's current stop (current()).
+    """
+    worker = (origin or {}).get("quota_worker")
+    if (not worker or getattr(error, "quota_worker", None) or error.status != origin.get("pause_status")
+            or current(state, origin) is None):
+        return error
+    error.quota_worker = worker
+    return error
 
 
 def refused_retry(row, result):

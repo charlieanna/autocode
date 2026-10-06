@@ -639,6 +639,33 @@ def try_request_retry(state, run_dir, selected, *, issued=None):
     return True
 
 
+def member_retry_refusal(state, selected):
+    """Why --retry-builder may not rerun the ``selected`` members of the batch at its checkpoint, or None.
+
+    It reads the saved batch and member results only, so the run setup asks it before an invocation's
+    settings are saved too: a refused member retry saves nothing (#543). request_retry also pauses on
+    a Builder still running.
+    """
+    batch = state.get("orchestration_batch")
+    if (not batch or batch["status"] != "BUILDING" or state.get("next_stage") != "orchestrator"
+            or batch["contract_hash"] != state["goal_contract"]["hash"]):
+        return "Builder retry requires the current approved batch at its build checkpoint"
+    rows = {row["milestone_id"]: row for row in batch["workers"]}
+    if not set(selected) <= set(rows):
+        return "--retry-builder must name a milestone in the current batch"
+    for mid in selected:
+        result = Path(rows[mid]["run_dir"]) / "result.json"
+        saved = s.read(result) if result.exists() else {}
+        if saved.get("status") == "BUILT":
+            return f"Builder {mid} already completed; its work will be retained"
+        if saved.get("status") == builder_policy.SERIAL:
+            return f"Builder {mid} left its stronger attempt to a serial build after this batch"
+        refused = worker_quota.refused_retry(rows[mid], saved)
+        if refused:
+            return refused
+    return None
+
+
 def request_retry(state, run_dir, selected, *, issued=None):
     """Explicitly retry a stopped serial milestone or named parallel members."""
     goals.execution_guard(state)
@@ -660,27 +687,15 @@ def request_retry(state, run_dir, selected, *, issued=None):
         human.supersede_operational(state, 'Operator explicitly retried the stopped serial Builder')
         autocode_status.persist(run_dir / "state.json", state)
         return
-    batch = state.get("orchestration_batch")
-    if (not batch or batch["status"] != "BUILDING" or state.get("next_stage") != "orchestrator"
-            or batch["contract_hash"] != state["goal_contract"]["hash"]):
-        raise ValueError("Builder retry requires the current approved batch at its build checkpoint")
+    refusal = member_retry_refusal(state, selected)
+    if refusal:
+        raise ValueError(refusal)
+    batch = state["orchestration_batch"]
     rows = {row["milestone_id"]: row for row in batch["workers"]}
-    if not set(selected) <= set(rows):
-        raise ValueError("--retry-builder must name a milestone in the current batch")
     for row in batch["workers"]:
         if row.get("processes") and processes.live_processes(row["processes"]):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "A Builder is still running; wait before retrying")
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
-    for mid in selected:
-        result = Path(rows[mid]["run_dir"]) / "result.json"
-        saved = s.read(result) if result.exists() else {}
-        if saved.get("status") == "BUILT":
-            raise ValueError(f"Builder {mid} already completed; its work will be retained")
-        if saved.get("status") == builder_policy.SERIAL:
-            raise ValueError(f"Builder {mid} left its stronger attempt to a serial build after this batch")
-        refused = worker_quota.refused_retry(rows[mid], saved)
-        if refused:
-            raise ValueError(refused)
     try:
         from . import autocode_resolver_human as human
     except ImportError:

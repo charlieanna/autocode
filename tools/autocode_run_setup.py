@@ -301,6 +301,12 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                                              questions=published.get('questions') if entry.get('status') == 'pending' else None)
         # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
         refusal = refusal or job_route.settings_refusal(args, state, settings)
+        # A batch member retry is checked before the settings it comes with are saved, so a refused one saves
+        # nothing (#543); an accepted one runs under them. request_retry checks it again, under the same rule.
+        if not refusal and args.retry_builder and state.get('next_stage') != 'terra':
+            member = runner.dispatch.member_retry_refusal(state, args.retry_builder)
+            refusal = member and (member + " Nothing was saved, including this invocation's settings; "
+                                  "they are saved by the same command without --retry-builder.")
         if refusal:
             parser.error(refusal)
         paused_for = origin.get('pause_status')

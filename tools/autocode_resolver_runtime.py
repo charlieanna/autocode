@@ -386,6 +386,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     pending = state.get('user_request') or (state.get('agent_request') or {}).get('request')
     if pending and pending.get('kind') != 'none':
         return False
+    if request is None:
+        error = _asked_again(state, error)
     kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling', 'PAUSED_TIME_LIMIT': 'max_seconds',
             'PAUSED_PLANNING_BUDGET': 'planning_review_call_limit',
             'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
@@ -464,11 +466,36 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                 evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
     # Keep the printed stop reason on the same contract as the published request, after the cause it
     # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
-    cause = str(error).strip()
-    advice = request.get('decision_needed') or decision
-    state['stop_reason'] = advice if not cause or cause in advice else (
-        cause + ('' if cause.endswith('.') else '.') + ' ' + advice)
+    state['stop_reason'] = _stop_reason(error, request.get('decision_needed') or decision)
     return True
+
+
+def _stop_reason(cause, advice):
+    """The saved stop reason: the cause the request stops for, then its advice, which alone does not name it."""
+    cause = str(cause).strip()
+    return advice if not cause or cause in advice else cause + ('' if cause.endswith('.') else '.') + ' ' + advice
+
+
+def _asked_again(state, error):
+    """``error`` as the request withdrawn last asks it again (#542); ``error`` itself for any other stop.
+
+    A run held at a withdrawn request's pause asks again from its saved stop reason, which that request
+    composed from its cause and its advice (_stop_reason). The new request starts from the cause alone:
+    the old advice may name a command the new request refuses, such as a route-terra answer. A parallel
+    member's request keeps the member's payload, and so its model question, while that member is still
+    the batch's current stop (autocode_worker_quota.asked_again).
+    """
+    withdrawn = human.withdrawn(state)
+    if not withdrawn or (withdrawn.get('origin') or {}).get('pause_status') != error.status:
+        return error
+    asked = withdrawn.get('request') or {}
+    if asked.get('discovered') and asked.get('decision_needed') and (
+            str(error).strip() == _stop_reason(asked['discovered'], asked['decision_needed'])):
+        payload = getattr(error, 'quota_worker', None)
+        error = support.Paused(error.status, asked['discovered'])
+        if payload:
+            error.quota_worker = payload
+    return worker_quota.asked_again(state, error, withdrawn['origin'])
 
 
 def plain(value):

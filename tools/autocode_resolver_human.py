@@ -416,6 +416,31 @@ def projection(state):
             'user_request': public['request'] if public else None}
 
 
+def pending_issued(state):
+    """The published request's ledger entry while it is pending, even one a settings write left stale; else None."""
+    entry = ((state.get('resolver') or {}).get('human_escalations') or {}).get(
+        (state.get(PUBLIC) or {}).get('request_id'))
+    return entry if isinstance(entry, dict) and entry.get('status') == 'pending' else None
+
+
+def withdrawn(state):
+    """The proposal of the operational request withdrawn last, or None (#542).
+
+    Only the request issued last counts (the ledger is saved in key order, so by ``issued_at``), and
+    only while no other is published or queued: the run is then held at that request's pause, and
+    asks it again from the stop reason the request composed.
+    """
+    ledger = (state.get('resolver') or {}).get('human_escalations') or {}
+    entries = [entry for entry in ledger.values() if isinstance(entry, dict)] if isinstance(ledger, dict) else []
+    if state.get(PUBLIC) or state.get(PRIVATE) or not entries:
+        return None
+    entry = max(entries, key=lambda item: str(item.get('issued_at') or ''))
+    if entry.get('status') != 'superseded':
+        return None
+    proposal = (entry.get('identity') or {}).get('proposal') or {}
+    return copy.deepcopy(proposal) if proposal.get('scope') == 'operational_exhaustion' else None
+
+
 def stale_request_message(state):
     """How to answer after the displayed request stopped being current."""
     live = current(state)

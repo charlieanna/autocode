@@ -335,4 +335,10 @@ it runs again only on the model your answer names. A member stopped on quota can
 named with `--retry-builder M1`, which runs the same model again (for example once its quota
 has reset).
 
+A settings flag on the resume, such as `--resume-paused --sol-model MODEL`, saves that setting
+and asks the member's question again, as long as that member is still the batch's stopped
+member. With `--retry-builder M1`, the retry runs under the new settings. A retry that is
+refused, such as one for a refused member, saves nothing, settings included: run the settings
+flag without `--retry-builder`, then answer the question.
+
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

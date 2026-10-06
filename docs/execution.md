@@ -68,6 +68,8 @@ A Builder stopped by its model's quota or its provider's content filter asks you
 model instead, and the status view does not offer it a retry (see
 [A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
 `--retry-builder` refuses a refused Builder; for a quota stop it reruns the same model.
+Settings flags given with `--retry-builder` (for example `--max-parallel-builders 3`) are
+saved with an accepted retry, which runs under them; a refused retry saves nothing.
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised
