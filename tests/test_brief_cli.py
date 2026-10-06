@@ -157,6 +157,16 @@ class BriefCliTests(unittest.TestCase):
     def test_v2_selfconsistent_unbracketed_mutant_cannot_complete_after_restart(self):
         self.check_mutant_restart(("--planning-v2", "--no-adaptive-planning"))
 
+    def test_builder_report_without_evidence_gets_the_usual_report_repair(self):
+        # Live #452 run jb1acns9: after approval, AutoResolver escalated this ordinary
+        # rejection as "invalid contract or declarative input" because of brief_acceptance.
+        run, view = self.start(planning=("--no-adaptive-planning",),
+                               env={"SCENARIO_FAKE_BUILDER_NO_EVIDENCE": "1"})
+        self.assertTrue((self.root / "fake-builder-no-evidence").exists(), "The Builder report cited no evidence")
+        self.assert_reference(run, view)
+        self.assertNotIn("invalid contract", view.get("stop_reason") or "")
+        self.assertGreaterEqual(view["efficiency"]["by_category"]["report_repair"]["attempts"], 1)
+
     def test_omitted_reviewer_observations_cannot_reach_build_or_completion(self):
         run, view = self.start(planning=("--no-adaptive-planning",),
                                env={"SCENARIO_FAKE_BRIEF_OMIT": "1"})

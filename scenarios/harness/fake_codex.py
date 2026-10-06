@@ -937,6 +937,20 @@ def brief_observations(data: dict) -> list[dict]:
     return result
 
 
+def builder_evidence_repair(data: dict) -> dict:
+    """A Builder report repair: the rejected report, now citing the check it ran.
+
+    Repair packets omit the live contract and task, so the identity comes from
+    report_identity, and the citation from the original execution's checks.
+    """
+    source = data.get('rejected_report') or data.get('original_report') or {}
+    content = source.get('content') or '{}'
+    report = json.loads(content if isinstance(content, str) else json.dumps(content))
+    report.update(data.get('report_identity') or {})
+    report['evidence_refs'] = [row['evidence_ref'] for row in data.get('original_executed_checks') or []][:1]
+    return report
+
+
 def risk_observations(data: dict) -> list[dict]:
     body = (data.get('goal_contract') or {}).get('body') or {}
     criteria = [row['id'] for row in body.get('acceptance_criteria', [])] or ['C1']
@@ -1296,11 +1310,21 @@ def main() -> int:
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
-    report = cite_receipts(report_for(stage, data))
+    # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
+    no_evidence = stage == 'terra' and os.environ.get('SCENARIO_FAKE_BUILDER_NO_EVIDENCE') == '1'
+    if no_evidence and data.get('report_repair'):
+        report = builder_evidence_repair(data)
+    else:
+        report = cite_receipts(report_for(stage, data))
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_RISK_OMIT') == '1':
         report['risk_observations'] = []
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_BRIEF_OMIT') == '1':
         report['brief_observations'] = []
+    if no_evidence and not data.get('report_repair'):
+        marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-builder-no-evidence")
+        if not marker.exists():  # once: later Builder runs cite their check as usual
+            marker.touch()
+            report['evidence_refs'] = []
     if os.environ.get("SCENARIO_FAKE_SIDE"):
         # A hybrid run's witness (harness/hybrid.py): which side of the route this scripted call stood for.
         with Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-calls.jsonl").open("a") as handle:
