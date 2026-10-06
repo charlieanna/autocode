@@ -10,12 +10,12 @@ import io
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import unittest
 from unittest.mock import patch
 
 from . import test_subprocess
+from .supervision_fixture import launcher
 import autocode as runner
 import autocode_goals as goals
 import autocode_support as support
@@ -47,15 +47,19 @@ class FinalizerTimeoutTests(unittest.TestCase):
     def plan(self, silent_finals):
         """Plan with the fixed pipeline; the first ``silent_finals`` final reviews never answer."""
         self.finals = []
-        real_popen, real_wait = subprocess.Popen, runner.processes.wait_for_stage
+        real_launch, real_wait = runner.supervision.launch, runner.processes.wait_for_stage
 
-        def popen(command, *args, **kwargs):
-            prompt = Path(getattr(kwargs.get('stdin'), 'name', '') or '').name
+        @contextlib.contextmanager
+        def launch(command, **options):
+            prompt = Path(getattr(options.get('stdin'), 'name', '') or '').name
             if prompt.startswith('plan-finalize-'):
                 self.finals.append(prompt)
                 if len(self.finals) <= silent_finals:
-                    return Silent(command, **kwargs)
-            return real_popen(command, *args, **kwargs)
+                    with launcher(Silent)(command, **options) as child:
+                        yield child
+                    return
+            with real_launch(command, **options) as child:
+                yield child
 
         def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, **options):
             if not isinstance(child, Silent):
@@ -75,7 +79,7 @@ class FinalizerTimeoutTests(unittest.TestCase):
         self.patches = contextlib.ExitStack()
         self.addCleanup(self.patches.close)
         self.patches.enter_context(patch.object(support, 'local_settings', return_value=transport))
-        self.patches.enter_context(patch.object(subprocess, 'Popen', popen))
+        self.patches.enter_context(patch.object(runner.supervision, 'launch', launch))
         self.patches.enter_context(patch.object(runner.processes, 'wait_for_stage', wait))
         # Adaptive planning saves its sized allowance unmarked, which AutoResolver treats as
         # protected. The fixed pipeline keeps the runner default, so planning recovery is live.

@@ -72,7 +72,11 @@ def enforce_cross_model_verification(state):
         v_model = (roles.get(verifier) or {}).get("model")
         if not p_model or not v_model:
             return
-        if p_model == v_model:
+        # Native Codex and OpenCode spell the same exact GPT tier differently.
+        p_id, v_id = (model.removeprefix("openai/")
+                      if isinstance(model, str) and model.startswith("openai/gpt-") else model
+                      for model in (p_model, v_model))
+        if p_id == v_id:
             problems.append(f"{label}: identical model {p_model}")
             return
         p_fam, v_fam = _model_family(p_model), _model_family(v_model)

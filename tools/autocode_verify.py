@@ -67,7 +67,7 @@ TEST_NAME = re.compile(  # case-sensitive: Latest.java and Contest.kt are produc
     r"^(test_.*\.py|.*_tests?\.py|conftest\.py|.*\.(test|spec)\.[cm]?[jt]sx?|.*\.snap|.*_test\.go"
     r"|.*_(spec|test)\.rb|.*Tests?\.(java|kt|cs|swift|scala)|Test[A-Z_]\w*\.(java|kt|cs|swift|scala)"
     r"|test_.*\.(rb|sh))$")
-PYTHON_TEST_MODULE = re.compile(r"^(test_.*|.*_tests?)\.py$")
+PYTHON_TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
 CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".rs", ".rb", ".java",
                            ".kt", ".kts", ".scala", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php",
                            ".m", ".mm", ".ex", ".exs", ".erl", ".hs", ".ml", ".lua", ".pl", ".sh", ".dart", ".zig"})
