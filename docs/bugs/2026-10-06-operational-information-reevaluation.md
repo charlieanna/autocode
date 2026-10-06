@@ -52,7 +52,10 @@ never evaluates it:
   runner event marks the frontier as new, so a stop found next is a new
   request, never the answered one.
 
-Information never raises a limit, resets a count or clears history. The status
+Information never raises a limit, resets a count or clears history. An
+admitted continuation takes the ordinary resume path but, unlike an operator's
+own explicit resume, does not renew the per-incident AutoResolver attempts or
+the pending report-repair attempts. The status
 view gains `information_review`, and `needs.action` names a held decision's
 control. `leave_paused`, requirements answers, plan approval,
 `--retry-failed-stage` and `--grant-recovery` are unchanged.

@@ -420,8 +420,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                         row["seconds_by_role"] = {}
             # Renew the resolver evaluation epoch without resetting the
             # lifetime diagnostic allowance. Report repair is renewed
-            # only after exhaustion-gated retry decisions below.
-            resolver_runtime.reset_for_resume(state)
+            # only after exhaustion-gated retry decisions below. A
+            # continuation admitted on corrective information renews
+            # neither allowance: information never resets a count (#486).
+            if not information_admitted:
+                resolver_runtime.reset_for_resume(state)
             if args.retry_report:
                 try:
                     runner.retry_format_failed_report(state, run_dir, workspace, args.retry_report)
@@ -462,7 +465,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # above (which requires and archives the true attempt count)
             # already consumed it if one applied; resetting first would
             # corrupt that archived count and always fail those guards.
-            runner.reset_report_repair_for_resume(state)
+            if not information_admitted:
+                runner.reset_report_repair_for_resume(state)
         runner.reconcile_active(state, run_dir, workspace)
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.

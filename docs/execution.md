@@ -813,7 +813,9 @@ consumes it, without a provider call:
   with reserved recovery left), the request's own advice
   applies: the run continues through the normal resume path, whose admission
   checks (limits, permissions, transport, source, approval, interventions) still
-  run before any provider launches. Any other stop is held.
+  run before any provider launches. Unlike an operator's own explicit resume, it
+  does not renew the per-incident Resolver attempts or the pending report-repair
+  attempts. Any other stop is held.
 
 A repeated or restarted resume never evaluates the same response twice, and the
 same response sent again changes nothing. `leave_paused` is final. Requirements

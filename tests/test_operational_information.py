@@ -38,11 +38,11 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual('operational_exhaustion', view['needs']['resolver_scope'])
         return view
 
-    def issue_checkpoint(self, **fields):
+    def issue_checkpoint(self, edit=None, **fields):
         """#486's run: two operational recoveries, then PAUSED_RESOLVER_OPERATIONAL."""
         recoveries = [{'stage': 'terra', 'instruction': 'workspace paths only'} for _ in range(2)]
         return self.checkpoint('PAUSED_RESOLVER_OPERATIONAL', 'AutoResolver exhausted its operational recoveries',
-                               automatic_permission_recoveries=recoveries, **fields)
+                               edit, automatic_permission_recoveries=recoveries, **fields)
 
     def status(self):
         return json.loads(self.launch(['--run-dir', str(self.run), '--status'], 0).stdout)['view']
@@ -245,7 +245,9 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual('pending', self.status()['information_review']['status'])
 
     def test_an_admitted_decision_continues_through_the_guarded_admission_path(self):
-        self.inform(self.issue_checkpoint(), 'The workspace temporary directory and interpreter are valid')
+        def earlier_incident(state):
+            state.setdefault('resolver', {})['attempts'] = {'earlier-incident': 3}
+        self.inform(self.issue_checkpoint(earlier_incident), 'The workspace temporary directory and interpreter are valid')
         _, answered = self.saved()
         # AutoResolver admits a continuation, but the normal admission checks still run before a
         # launch: a changed local transport stops it with no provider call.
@@ -256,6 +258,12 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual('PAUSED_TRANSPORT_CHANGED', view['status'])
         self.assertEqual(('admitted', 'continue'), (view['information_review']['status'],
                                                     view['information_review']['decision']))
+        # Admitting information renewed no allowance: the per-incident AutoResolver attempts an
+        # operator's own resume would clear still stand.
+        _, admitted = self.saved()
+        self.assertEqual({'earlier-incident': 3}, admitted['resolver']['attempts'])
+        self.assertFalse([event for event in admitted.get('user_events', [])
+                          if event.get('kind') in ('resolver_resume_epoch', 'report_repair_resume_epoch')])
         # With the transport restored the run continues on that one decision, never evaluated again.
         self.env.pop('AUTOCODE_FIXTURE_QUOTA_STAGE')
         code, launched, output = self.resume()
