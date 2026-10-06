@@ -72,15 +72,19 @@ class WorkstreamDriver(Driver):
         return super().call(f"{kind}:{self.workstream}", *extra, **kwargs)
 
 
-def workstream_ids(manifest: dict, milestones) -> dict[str, str]:
+def workstream_ids(manifest: dict, milestones, *, named_in: str | None = None) -> dict[str, str]:
     """{scenario id: derived workstream id} for each of the scenario's ``[fake] milestones`` rows given.
 
     The scripted planner keeps those ids; a live one names its milestones itself. So a scenario id stands for
-    the one derived workstream whose ``owns`` cover every path of its milestone (the producer of the notes
-    store is whoever owns notes/store.py). When several cover them, as a skeleton that owns all of notes/ and
-    an extension that owns notes/commands/search.py both cover search.py, the most specific owner stands for it.
-    Raises DriveError when no workstream covers one, several cover it equally specifically, or two scenario
-    ids land on the same workstream: the live plan's split does not line up with the scenario's."""
+    the one derived workstream whose ``owns`` cover every path of its milestone that the brief (``named_in``)
+    names (the producer of the notes store is whoever owns notes/store.py); with no brief, or a row whose
+    paths it never names, every path of the row. A path only the reference solution has, such as a dispatcher
+    module the brief never asks for, cannot rule a live plan out (live run 12, 2026-10-06). Among the
+    workstreams that cover those, the one covering the most of the row's paths stands for it, then the most
+    specific owner, as when a skeleton that owns all of notes/ and an extension that owns
+    notes/commands/search.py both cover search.py. Raises DriveError when no workstream covers one, several
+    tie, or two scenario ids land on the same workstream: the live plan's split does not line up with the
+    scenario's."""
     rows = [(row["id"], [str(own).rstrip("/") for own in row.get("owns") or []])
             for row in manifest.get("workstreams") or []]
 
@@ -90,14 +94,16 @@ def workstream_ids(manifest: dict, milestones) -> dict[str, str]:
     ids, problems = {}, []
     for milestone in milestones:
         paths = list(milestone.get("paths") or [])
-        covers = {wid: sum(max(map(len, covering(path, owns))) for path in paths) for wid, owns in rows
-                  if paths and all(covering(path, owns) for path in paths)}
+        required = [path for path in paths if named_in and path in named_in] or paths
+        covers = {wid: (sum(1 for path in paths if covering(path, owns)),
+                        sum(max(map(len, covering(path, owns)), default=0) for path in paths))
+                  for wid, owns in rows if required and all(covering(path, owns) for path in required)}
         owners = [wid for wid, score in covers.items() if score == max(covers.values())]
         if len(owners) == 1:
             ids[milestone["id"]] = owners[0]
         else:
             problems.append((f"{len(owners)} workstreams ({', '.join(owners)}) each own" if owners
-                             else "no one workstream owns") + f" all of {milestone['id']}'s {', '.join(paths)}")
+                             else "no one workstream owns") + f" all of {milestone['id']}'s {', '.join(required)}")
     for wid in sorted(set(ids.values())):
         same = [sid for sid, found in ids.items() if found == wid]
         if len(same) > 1:
@@ -216,7 +222,8 @@ class ProgramDriver:
     def map_workstreams(self, derived: dict) -> None:
         """Rename the workstreams the scenario's [program] names to the derived manifest's (workstream_ids)."""
         named = named_workstreams(self.scenario.program_revise, self.scenario.program_changes)
-        self.ids = workstream_ids(derived, [row for row in self.scenario.fake_milestones if row["id"] in named])
+        self.ids = workstream_ids(derived, [row for row in self.scenario.fake_milestones if row["id"] in named],
+                                  named_in=self.scenario.brief)
         shared = self.edits.get("shared")
         if isinstance(shared, dict) and isinstance(shared.get("interfaces"), list):
             shared["interfaces"] = [renamed(row, self.ids) if isinstance(row, dict) else row

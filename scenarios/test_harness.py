@@ -1252,6 +1252,20 @@ class ProgramDriverTests(unittest.TestCase):
         # A skeleton that owns all of notes/ also covers search.py; the more specific owner stands for T.
         self.assertEqual({"S": "core", "T": "search"}, workstream_ids(
             derived(("core", ["notes"]), ("search", ["notes/commands/search.py"])), milestones))
+        # Only the paths the brief names must be owned: a live skeleton that dispatches from __main__.py owns no
+        # notes/cli.py, which only the reference solution has (live run 12, 2026-10-06).
+        brief = "Keep the notes through notes/store.py; search lives in notes/commands/search.py."
+        self.assertEqual({"S": "core", "T": "search"}, workstream_ids(
+            derived(("core", ["notes/store.py"]), ("search", ["notes/commands/search.py"])), milestones, named_in=brief))
+        with self.assertRaisesRegex(DriveError, "no one workstream owns all of S's notes/cli.py, notes/store.py"):
+            workstream_ids(derived(("core", ["notes/store.py"]), ("search", ["notes/commands/search.py"])), milestones)
+        # Of two that own the named paths, the one owning more of the row's paths stands for it.
+        self.assertEqual({"S": "core", "T": "search"}, workstream_ids(
+            derived(("core", ["notes/cli.py", "notes/store.py"]), ("store", ["notes/store.py"]),
+                    ("search", ["notes/commands/search.py"])), milestones, named_in=brief))
+        with self.assertRaisesRegex(DriveError, "no one workstream owns all of S's notes/store.py"):
+            workstream_ids(derived(("cli", ["notes/cli.py"]), ("search", ["notes/commands/search.py"])),
+                           milestones, named_in=brief)
         for rows, error in (
                 ([("core", ["notes/cli.py", "notes/store.py"]), ("x", ["notes/commands"]), ("y", ["notes/commands/"])],
                  "2 workstreams \\(x, y\\)"),

@@ -476,13 +476,16 @@ or serving a child's gate.
 workstreams by their `[fake] milestones` ids, which the scripted planner keeps.
 A live planner names its milestones itself, so after `program derive` the
 driver maps each id the scenario names to the derived workstream whose `owns`
-cover every path of that milestone (the store's producer is whoever owns
-`notes/store.py`), and renames the interface producers and consumers, `by` and
-`after = "merged:<id>"` accordingly (`result.json` `program.workstream_ids`). When
-the live plan's split does not line up with the scenario's (a milestone's
-paths owned by no single workstream, by several, or two milestones landing on
-one workstream), the driver stops before approving anything and the run is
-`ERROR`.
+cover every path of that milestone the brief names (the store's producer is
+whoever owns `notes/store.py`). A path only the reference solution has, such
+as its `notes/cli.py` dispatcher, cannot rule a live plan out. Of several such
+workstreams, the one owning the most of the milestone's paths stands for it,
+then the most specific owner. The driver renames the interface producers and
+consumers, `by` and `after = "merged:<id>"` accordingly (`result.json`
+`program.workstream_ids`). When the live plan's split does not line up with
+the scenario's (those paths owned by no single workstream, a tie, or two
+milestones landing on one workstream), the driver stops before approving
+anything and the run is `ERROR`.
 
 ```toml
 [program]
