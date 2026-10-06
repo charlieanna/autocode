@@ -51,9 +51,10 @@ while not view["done"]:
 
 `TaskRun.start` works directly in the given workspace (`--in-place`): the caller
 owns the workspace, typically a worktree it created, so start one run per
-workspace at a time. `options` (engine and model flags) are passed whenever the
-run starts or advances. Any rejected command raises `TaskRunError` with
-AutoCode's message.
+workspace at a time. Files uncommitted or untracked there at the start are the
+code the run starts from (`base_commit`), not part of its change. `options`
+(engine and model flags) are passed whenever the run starts or advances. Any
+rejected command raises `TaskRunError` with AutoCode's message.
 
 Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),

@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -130,6 +131,7 @@ def resolve(runner, args, parser):
                          "To continue a saved run, run autocode without new-run options from its project "
                          "or task worktree, or name it with --run-dir")
         task = args.task
+        created = False
         if not (workspace / ".git").exists():
             if args.dry_run or args.status:
                 parser.error(f"workspace is not a Git repository: {workspace}")
@@ -139,7 +141,7 @@ def resolve(runner, args, parser):
                 parser.error(str(error))
             # A new task project is already private to this task. Avoid a
             # second hidden worktree so users can find the generated files.
-            args.in_place = True
+            args.in_place = created = True
             print(f"Created task project: {workspace}", flush=True)
         if not args.in_place and not args.dry_run and not args.status:
             isolated = task_workspaces.create(workspace, task)
@@ -154,8 +156,14 @@ def resolve(runner, args, parser):
         isolated = task_workspaces.metadata(workspace)
         if isolated:
             state.update(project_workspace=isolated["project_workspace"], task_branch=isolated["branch"])
-        # The revision a bug fix is proven against (autocode_regression).
-        state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
+        # The revision a bug fix is proven against (autocode_regression). In place, files the checkout
+        # held uncommitted or untracked at launch are part of it; a project created just now has none.
+        try:
+            state["base_commit"] = (isolated or {}).get("base_commit") or (
+                regression.head(workspace) if created or args.dry_run or args.status
+                else regression.launch_base(workspace, run_dir))
+        except (RuntimeError, subprocess.CalledProcessError) as error:
+            parser.error(f"cannot record the checkout's uncommitted and untracked files as the run's start: {error}")
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None and args.max_iterations is not None:

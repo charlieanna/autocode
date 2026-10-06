@@ -165,6 +165,18 @@ def head(workspace):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def launch_base(workspace, run_dir):
+    """The base_commit of a new in-place run: HEAD, or, when the checkout holds uncommitted or
+    untracked files, a child commit of HEAD that holds them (verify.commit_worktree). The proof
+    then runs them as original code instead of counting them as the change. A ref named after the
+    run keeps that commit from Git's garbage collection."""
+    commit = verify.commit_worktree(workspace)
+    if commit and commit != head(workspace):
+        subprocess.run(["git", "-C", str(workspace), "update-ref", f"refs/autocode/launch/{Path(run_dir).name}",
+                        commit], check=True, capture_output=True)
+    return commit
+
+
 def settings(state):
     return state.get("settings", {}).get("regression") or {}
 

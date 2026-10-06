@@ -363,7 +363,11 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
 - **Runner-owned proof, no model call.** Just before the Tester runs, the
   runner executes `regression_proof` against the run's base commit (the commit
   the run started from; for a run created before that commit was saved, the
-  commit its first stage recorded, if the source still descends from it). Each
+  commit its first stage recorded, if the source still descends from it). An
+  in-place run started with uncommitted or untracked files starts from a commit
+  of HEAD plus those files, kept under `refs/autocode/launch/RUN`, so they count
+  as original code rather than as the change; HEAD, the index and the files stay
+  as they were. Each
   suite run may take as long as the run's tool-call limit, at least 900 seconds
   and with no limit when the run turned that limit off;
   `settings.regression.test_timeout` overrides it. The new or changed tests
