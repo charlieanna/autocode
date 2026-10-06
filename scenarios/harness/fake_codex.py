@@ -808,6 +808,21 @@ def brief_observations(data: dict) -> list[dict]:
     return result
 
 
+def risk_observations(data: dict) -> list[dict]:
+    body = (data.get('goal_contract') or {}).get('body') or {}
+    criteria = [row['id'] for row in body.get('acceptance_criteria', [])] or ['C1']
+    existing = {row['declaration']['id']: row['proposal']
+                for row in (body.get('risk_acceptance') or {}).get('manifest', {}).get('observations', [])}
+    result = []
+    for declaration in data.get('risk_declaration_inventory') or []:
+        if declaration['id'] in existing:
+            result.append(existing[declaration['id']])
+        elif declaration.get('supported') and declaration.get('allowed_modules'):
+            result.append({'declaration_id': declaration['id'], 'criterion_ids': criteria,
+                           'module': declaration['allowed_modules'][0]})
+    return result
+
+
 def report_for(stage: str, data: dict) -> dict:
     if stage == 'requirements':
         requirements_body = contract()
@@ -822,7 +837,7 @@ def report_for(stage: str, data: dict) -> dict:
             value['contract'] = contract(final=True)
         allowed = {'summary', 'contract', 'responses', 'decisions', 'concerns', 'progressive_proposal'}
         if stage == 'plan_finalize':
-            allowed |= {'brief_observations', 'brief_observation_changes'}
+            allowed |= {'brief_observations', 'brief_observation_changes', 'risk_observations', 'risk_observation_changes'}
         return {key: value for key, value in value.items() if key in allowed}
     if PROGRESSIVE and data.get("report_repair"):
         # A report-only repair may preserve its original proposal/checklist, not
@@ -919,7 +934,7 @@ def report_for(stage: str, data: dict) -> dict:
                 "evidence_refs": ["task"], "requested_change": f"Run {CHECK} as the acceptance check",
                 "acceptance_test": CHECK, "blocking": True}]}
         return {"summary": "Scripted plan review: no concerns", "concerns": [],
-                "brief_observations": brief_observations(data), "brief_observation_changes": brief_observation_changes(data)}
+                "brief_observations": brief_observations(data), "brief_observation_changes": brief_observation_changes(data), "risk_observations": risk_observations(data), "risk_observation_changes": []}
     if stage == "glm_revise":
         responses = [{"concern_id": row["id"], "response": "Adopted", "evidence_refs": ["task"],
                       "change": row["requested_change"], "acceptance_test": row["acceptance_test"]}
@@ -930,7 +945,7 @@ def report_for(stage: str, data: dict) -> dict:
         final = {key: value for key, value in planning.items() if key != "code_refs"}
         decisions = [{"concern_id": row["id"], "decision": "Accepted as revised", "rationale": "Adopted",
                       "acceptance_test": row["acceptance_test"], "resolved": True} for row in reviewed]
-        return {"summary": "Scripted final plan", "contract": contract(final=True), "decisions": decisions, "brief_observations": brief_observations(data), "brief_observation_changes": brief_observation_changes(data), **final}
+        return {"summary": "Scripted final plan", "contract": contract(final=True), "decisions": decisions, "brief_observations": brief_observations(data), "brief_observation_changes": brief_observation_changes(data), "risk_observations": risk_observations(data), "risk_observation_changes": [], **final}
     if stage == "terra" and MILESTONES:
         row = milestone_row((data.get("current_task") or {}).get("milestone_id"))
         applied = []
@@ -1149,6 +1164,8 @@ def main() -> int:
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
     report = cite_receipts(report_for(stage, data))
+    if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_RISK_OMIT') == '1':
+        report['risk_observations'] = []
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_BRIEF_OMIT') == '1':
         report['brief_observations'] = []
     if os.environ.get("SCENARIO_FAKE_SIDE"):
@@ -1160,7 +1177,7 @@ def main() -> int:
         schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
         # Runner-owned brief fields exist only for protected human declarations.
         # Match this call's schema, including report repairs with a smaller packet.
-        for field in ('brief_observations', 'brief_observation_changes'):
+        for field in ('brief_observations', 'brief_observation_changes', 'risk_observations', 'risk_observation_changes'):
             if field not in schema.get('properties', {}):
                 report.pop(field, None)
         complete(report, schema)
