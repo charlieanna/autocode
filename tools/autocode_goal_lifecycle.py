@@ -26,7 +26,7 @@ try:
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
-    from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -37,7 +37,7 @@ except ImportError:
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
-    import autocode_brief_obligations as brief_obligations
+    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -50,6 +50,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
     schema = PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA
     s.validate_schema(body, design_plan.body_schema(schema, (state.get("settings") or {}).get("design_manifest")))
     brief_obligations.validate_body(state, body, ready=ready)
+    risk_obligations.validate_body(state, body, ready=ready)
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
         first = body["initial_task"]
         verification_plan.require_scaffolding(state.get("workspace"), first["affected_paths"], first["validation_plan"])
@@ -160,6 +161,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
+    body = risk_obligations.prepare_body(state, body, origin, record)
     validate_body(state, body, allow_legacy=allow_legacy)
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
@@ -251,7 +253,7 @@ def migrate(state, *, fresh=False):
     # come from planning; inventing a blocking question here makes models ask
     # for redundant migration permission. Saved legacy runs remain conservative.
     if not fresh:
-        body = {k: [] for k in BODY_SCHEMA["properties"] if k not in ("task_kind", "brief_acceptance")}
+        body = {k: [] for k in BODY_SCHEMA["properties"] if k not in ("task_kind", "brief_acceptance", "risk_acceptance")}
         body.update(intended_outcome=state["task"], intended_user="Unconfirmed",
                     acceptance_criteria=[{"id": c["id"], "criterion": c["criterion"],
                         "verification_method": "Unconfirmed; reconstruct from saved evidence", "human_review": False}
