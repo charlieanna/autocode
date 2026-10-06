@@ -515,7 +515,6 @@ def review_operational_response(state):
     resolver['human_response_frontier'] = {'binding': _binding(state), 'pause_status': state['status'],
                                          'request_id': event['request_id']}
     if information.schedule(state, event, entry, resolver['human_response_frontier']):
-        resolution['reevaluation'] = 'pending'
         resolution['reason'] = ('Corrective information is retained for one AutoResolver re-evaluation at the next '
                                 'resume; this response did not authorize another attempt or new limits.')
     return copy.deepcopy(resolution)
