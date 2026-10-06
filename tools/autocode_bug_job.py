@@ -210,8 +210,11 @@ def check(value: dict, changed_files) -> None:
         raise ValueError(f"note_path must be a .json file under {NOTES_PREFIX}: {note!r}")
     if not value["reproduction"].strip():
         raise ValueError("An investigation must say what it ran to reproduce the report")
-    if any(not question.strip() for question in value["questions"]):
+    questions = [question.strip() for question in value["questions"]]
+    if any(not question for question in questions):
         raise ValueError("Investigator questions must be nonempty")
+    if len(questions) != len(set(questions)):
+        raise ValueError("Investigator questions must be distinct after trimming surrounding whitespace")
     if value["outcome"] == "reproduced":
         missing = [field for field in ("root_cause", "affected_paths", "test_paths", "invariant") if not value[field]]
         if missing or value["fix_size"] == "none":
