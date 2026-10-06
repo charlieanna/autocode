@@ -193,7 +193,9 @@ class RecoveryViewTests(unittest.TestCase):
         state = self.state('PAUSED_ORCHESTRATOR_WORKER', next_stage='orchestrator', orchestration_batch={
             'status': 'BUILDING', 'contract_hash': 'approved', 'workers': [
                 {'milestone_id': 'M1', 'status': 'BUILT'}, {'milestone_id': 'M2', 'status': 'INTERRUPTED'},
-                {'milestone_id': 'M3', 'status': 'SERIAL_ESCALATION'}]})
+                {'milestone_id': 'M3', 'status': 'SERIAL_ESCALATION'},
+                # Stopped on their model: asked for another one, never offered the same model again (#465).
+                {'milestone_id': 'M4', 'status': 'PAUSED_CONTENT_FILTER'}, {'milestone_id': 'M5', 'status': 'PAUSED_BUDGET'}]})
         actions = [row for row in self.card(state)['actions'] if row['kind'] == 'retry_builder']
         self.assertEqual([['M2']], [row['milestone_ids'] for row in actions])
         state['orchestration_batch']['workers'][0]['status'] = 'RUNNING'

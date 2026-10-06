@@ -24,7 +24,7 @@ try:
     from . import autocode_support as s, autocode_goals as goals
     from . import autocode_milestones as milestones, autocode_process as processes
     from . import autocode_interventions as interventions, autocode_worktrees as worktrees
-    from . import autocode_builder_policy as builder_policy
+    from . import autocode_builder_policy as builder_policy, autocode_worker_quota as worker_quota
     from .autocode_assignment import contains
 except ImportError:
     import autocode_support as s
@@ -34,6 +34,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_worktrees as worktrees
     import autocode_builder_policy as builder_policy
+    import autocode_worker_quota as worker_quota
     from autocode_assignment import contains
 
 
@@ -442,10 +443,9 @@ def collect(state, workspace, run_dir, batch):
         if result.get("status") == builder_policy.SERIAL:
             deferred.append((row, deferred_worker(batch, row)))
             continue
-        if result.get("status") == "PAUSED_BUDGET" and result.get("quota_worker"):
-            error = s.Paused("PAUSED_BUDGET", f"PAUSED_BUDGET: Builder {row['milestone_id']} stopped on quota; {directory}")
-            error.quota_worker = result["quota_worker"]
-            raise error
+        stopped = worker_quota.stop(state, row, result, directory)  # quota or a refusal: route-terra (#458, #465)
+        if stopped:
+            raise stopped
         if result.get("status") != "BUILT":
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']}: {result.get('reason', 'paused')}; {directory}")
         child = s.read(directory / "state.json")
@@ -669,11 +669,14 @@ def request_retry(state, run_dir, selected, *, issued=None):
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
     for mid in selected:
         result = Path(rows[mid]["run_dir"]) / "result.json"
-        status = s.read(result).get("status") if result.exists() else None
-        if status == "BUILT":
+        saved = s.read(result) if result.exists() else {}
+        if saved.get("status") == "BUILT":
             raise ValueError(f"Builder {mid} already completed; its work will be retained")
-        if status == builder_policy.SERIAL:
+        if saved.get("status") == builder_policy.SERIAL:
             raise ValueError(f"Builder {mid} left its stronger attempt to a serial build after this batch")
+        refused = worker_quota.refused_retry(rows[mid], saved)
+        if refused:
+            raise ValueError(refused)
     try:
         from . import autocode_resolver_human as human
     except ImportError:

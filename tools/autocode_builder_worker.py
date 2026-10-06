@@ -138,7 +138,7 @@ def main(directory, mode="start"):
                 state.update(status=getattr(error, "status", "PAUSED_ORCHESTRATOR_WORKER"), stop_reason=reason)
                 runner.write_json(directory / "state.json", state)
                 result = {"status": state["status"], "reason": reason}
-                if state["status"] == quota_route.QUOTA_STATUS:
+                if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)
                     worker = worker_quota.payload(state, directory, workspace)
                     if worker:
                         result["quota_worker"] = worker
