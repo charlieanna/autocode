@@ -4,10 +4,12 @@ Pure functions over a saved state, no processes: a stop that needs an operator c
 names only a control the CLI accepts there (#288); only an allow-list of causes outside the run
 continues. The CLI paths are in test_operational_information (slow: it runs real processes).
 """
+import copy
 import unittest
 
 import autocode as runner
 import autocode_operational_information as information
+import autocode_run_view as run_view
 
 
 class OperatorControlTests(unittest.TestCase):
@@ -64,6 +66,25 @@ class OperatorControlTests(unittest.TestCase):
             self.assertEqual(('hold', None), (action, flags), cause)
             self.assertIn('report-only repairs for this attempt are spent', reason)
             self.assertEqual('continue', information.decide(runner, state(1), '/run', '/ws', cause)[0], cause)
+
+
+class HeldDecisionViewTests(unittest.TestCase):
+    """The status view names a held decision's control wherever the run is paused."""
+
+    def held(self, status, view_action):
+        record = {'request_id': 'r1', 'status': 'held', 'cause': status, 'evaluated_status': status,
+                  'decision': {'action': 'hold', 'view_action': view_action, 'message': 'held'}}
+        return {'status': status, 'stop_reason': 'held',
+                'resolver': {'human_response_frontier': {'request_id': 'r1'}, 'information_reviews': {'r1': record}}}
+
+    def test_a_held_planning_decision_names_its_control_in_needs(self):
+        action = '--planning-review-call-limit N then --resume-paused'
+        for status, kind in (('PAUSED_PLANNING_BUDGET', 'planning_budget'), ('PAUSED_RESOLVER_OPERATIONAL', 'resume')):
+            view = run_view.view(copy.deepcopy(self.held(status, action)))
+            self.assertEqual((kind, action, action),
+                             (view['needs']['kind'], view['needs'].get('action'), view['information_review']['action']))
+        # Without a held decision the planning-budget need stays as it was.
+        self.assertNotIn('action', run_view.needs({'status': 'PAUSED_PLANNING_BUDGET', 'stop_reason': 'm'}))
 
 
 if __name__ == '__main__':

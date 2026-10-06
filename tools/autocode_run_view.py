@@ -300,7 +300,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      when the view carries one); with `route` set, a
                                                      role's quota ran out: --answer route-ROLE=MODEL
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
-    planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
+    planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N;
+                                                     after AutoResolver held corrective information,
+                                                     `action` is the control it requires
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
@@ -397,7 +399,12 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return {"kind": "approve_plan", "token": state["displayed_goal"]} if state.get("displayed_goal") else {"kind": "continue"}
     if status == "PAUSED_PLANNING_BUDGET":
-        return {"kind": "planning_budget", "reason": state.get("stop_reason")}
+        need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
+        # AutoResolver evaluated corrective information and held: name the control it requires (#486).
+        review = operational_information.projection(state) or {}
+        if review.get("status") == "held" and review.get("action"):
+            need["action"] = review["action"]
+        return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).

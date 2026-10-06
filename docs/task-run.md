@@ -332,7 +332,8 @@ call. A run that left the pause first (through another control, or to a newer
 request) never evaluates it, and `status` reads `superseded`. Otherwise
 it is `held` (still paused, `action` and `needs.action` name the control it
 requires, such as `--resume-paused --grant-recovery N`, a raised bound or
-`--abandon-stage ATTEMPT`), `admitted` (the run continued through the normal
+`--abandon-stage ATTEMPT`; at `PAUSED_PLANNING_BUDGET` that is the
+`planning_budget` need's `action`), `admitted` (the run continued through the normal
 admission checks) or `stale` (the run, request, response or evidence changed after
 the response, so it was not evaluated and Resolver asks a fresh request). Information never raises a limit, resets
 a count or approves anything; a later resume repeats a held decision without
