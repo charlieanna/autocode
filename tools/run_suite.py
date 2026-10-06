@@ -26,9 +26,11 @@ Usage:
 By default each test module runs in its own interpreter, one per CPU at a time.
 Most of the suite's time is spent waiting on subprocesses and timeouts, so
 running modules side by side cuts the wall time several times over. A failing
-module's whole output (a failing test's traceback, with --jobs 1) is printed as
-soon as it finishes, so a slow or hung module still running cannot hide it; the
-end of the run names each failure again, without repeating its output.
+module's whole output is printed as soon as it finishes, so a slow or hung
+module still running cannot hide it, and its failures (unittest's report from
+the first FAIL or ERROR on) are printed again at the end, beside the summary,
+where a CI log opens. --jobs 1 runs everything in this process with unittest's
+own report, which AutoCode's verifier parses: tracebacks after the last test.
 
 --changed runs the tests for the files changed since a base (committed,
 staged, unstaged and untracked): a changed test module, the tests named after a
@@ -256,9 +258,25 @@ def run_module(module: str, verbosity: int) -> dict:
             "tests": int(ran.group(1)) if ran else 0, "output": completed.stdout + completed.stderr}
 
 
+# Where unittest's report of failures starts in a module's output: the separator above its first one.
+FAILURE_REPORT = re.compile(rf"^{'=' * 70}\n(?:FAIL|ERROR|UNEXPECTED SUCCESS): ", re.MULTILINE)
+
+
+def failure_report(output: str) -> str:
+    """A failed module's output from unittest's first FAIL, ERROR or UNEXPECTED SUCCESS on, or all of it
+    when there is none (the module crashed or exited early): what the end of the run shows again."""
+    found = FAILURE_REPORT.search(output)
+    return output[found.start():] if found else output
+
+
 def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "modules") -> bool:
-    """Run each module in its own process, ``jobs`` at a time; print a failing module's whole output as
-    soon as it finishes, so a slow or hung module still running cannot hide it (#545)."""
+    """Run each module in its own process, ``jobs`` at a time. A failing module's whole output is printed
+    as soon as it finishes, so a slow or hung module still running cannot hide it (#545), and its failure
+    report again at the end, so the tracebacks sit above the summary rather than under every later module's
+    output. The repeat holds no per-test result line and its own headers name modules, not tests, so a
+    reader of unittest's report finds the same tests; each traceback's last copy is followed only by its
+    module's footer and the next failure or the summary, which is how AutoCode's verifier bounds one
+    (``autocode_test_setup.failure_details``)."""
     started = time.monotonic()
     failed = []
     tests = 0
@@ -273,49 +291,13 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
                 print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{row['output']}", flush=True)
             elif verbosity > 1:
                 print(row["output"], flush=True)
+    if failed:
+        print("\nThe failures again:")
+    for row in failed:
+        print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{failure_report(row['output'])}")
     print(f"\nRan {tests} tests in {len(modules)} {unit}, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
           + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK"))
     return not failed
-
-
-class PromptTextTestResult(unittest.TextTestResult):
-    """unittest's text result for the one-process run, except that an error's or failure's traceback is
-    written, and flushed, as soon as it happens rather than after every remaining test, so a slow or hung
-    later test cannot hide it (#545). The end of the run names each one again without its traceback."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._shown = {"ERROR": 0, "FAIL": 0}
-
-    def _show_new(self):
-        for flavour, errors in (("ERROR", self.errors), ("FAIL", self.failures)):
-            if len(errors) > self._shown[flavour]:
-                if self.dots:
-                    self.stream.writeln()  # end the line of dots
-                super().printErrorList(flavour, errors[self._shown[flavour]:])
-                self._shown[flavour] = len(errors)
-
-    def addError(self, test, err):
-        super().addError(test, err)
-        self._show_new()
-
-    def addFailure(self, test, err):
-        super().addFailure(test, err)
-        self._show_new()
-
-    def addSubTest(self, test, subtest, err):
-        super().addSubTest(test, subtest, err)
-        self._show_new()
-
-    def printErrors(self):
-        self._show_new()
-        super().printErrors()
-
-    def printErrorList(self, flavour, errors):
-        """What the stock printErrors prints at the end: one line per error, its traceback already shown."""
-        for test, _ in errors:
-            self.stream.writeln(f"{flavour}: {self.getDescription(test)}")
-        self.stream.flush()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -407,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if run_parallel(modules, args.jobs, args.verbosity) else 1
 
     options = {"durations": args.durations} if args.durations else {}
-    runner = unittest.TextTestRunner(verbosity=args.verbosity, resultclass=PromptTextTestResult, **options)
+    runner = unittest.TextTestRunner(verbosity=args.verbosity, **options)
     result = runner.run(kept)
     return 0 if result.wasSuccessful() else 1
 

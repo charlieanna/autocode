@@ -10,6 +10,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import threading
@@ -17,6 +18,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import autocode_test_setup as test_setup
 import run_suite
 
 
@@ -212,12 +214,29 @@ class _FlushWatch(io.StringIO):
             self.marker_flushed.set()
 
 
+class _SerialFixtures:
+    """Test cases for the one-process run; not a TestCase itself, so discovery never runs them."""
+
+    class Fails(unittest.TestCase):
+        def test_fails(self):
+            self.fail("boom-545")
+
+    class RunsNext(unittest.TestCase):
+        def test_runs_next(self):
+            sys.stderr.write("later-545\n")
+
+
 class PromptFailureOutputTests(unittest.TestCase):
-    """A failure's output is printed, and flushed, as soon as it finishes, while other modules or tests
-    still run; a slow or hung one cannot hide it (#545). Counting and the final summary are unchanged."""
+    """A failed module's output is printed, and flushed, as soon as it finishes, while other modules
+    still run, so a slow or hung one cannot hide it (#545). The end of the run shows each failure again
+    beside the summary. Counting, the per-module rows and the final summary are unchanged."""
 
     FAILURE = "AssertionError: boom-545"
     TRACEBACK = f"Traceback (most recent call last):\n  File \"x.py\", line 1\n{FAILURE}\n"
+    # What `python -m unittest` writes after its last test when tests.test_bad fails.
+    SECTION = (f"{'=' * 70}\nFAIL: test_x (tests.test_bad.C.test_x)\n{'-' * 70}\n{TRACEBACK}\n"
+               f"{'-' * 70}\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n")
+    RESULT_LINES = {1: "F\n", 2: "test_x (tests.test_bad.C.test_x) ... FAIL\n\n"}
     # Seconds the still-running module waits for the failure to appear; reached only if it never does.
     GUARD = 10
 
@@ -230,8 +249,9 @@ class PromptFailureOutputTests(unittest.TestCase):
                 # Completes only once the other module's failure is visible, so it is still running then.
                 out.marker_flushed.wait(self.GUARD)
                 seen_while_running.append(out.flushed)
-                return {"module": module, "ok": True, "seconds": 0.0, "tests": 2, "output": "slow output\n"}
-            return {"module": module, "ok": False, "seconds": 0.0, "tests": 1, "output": self.TRACEBACK}
+                return {"module": module, "ok": True, "seconds": 0.0, "tests": 2, "output": "later-545\n"}
+            return {"module": module, "ok": False, "seconds": 0.0, "tests": 1,
+                    "output": self.RESULT_LINES[verbosity] + self.SECTION}
 
         with mock.patch.object(run_suite, "run_module", run_module), contextlib.redirect_stdout(out):
             ok = run_suite.run_parallel(["tests.test_slow", "tests.test_bad"], 2, verbosity)
@@ -242,15 +262,37 @@ class PromptFailureOutputTests(unittest.TestCase):
             with self.subTest(verbosity=verbosity):
                 ok, seen_while_running, output = self.run_parallel(verbosity)
                 self.assertIn("FAIL    0.0s  tests.test_bad (1 tests)\n", seen_while_running[0])
-                self.assertIn(f"{'=' * 70}\nFAIL: tests.test_bad\n{'=' * 70}\n{self.TRACEBACK}",
-                              seen_while_running[0])
+                self.assertIn(f"{'=' * 70}\nFAIL: tests.test_bad\n{'=' * 70}\n"
+                              f"{self.RESULT_LINES[verbosity]}{self.SECTION}", seen_while_running[0])
                 self.assertNotIn("tests.test_slow", seen_while_running[0])
                 self.assertFalse(ok)
-                self.assertEqual(1, output.count(self.FAILURE))
                 self.assertIn("ok      0.0s  tests.test_slow (2 tests)\n", output)
-                self.assertEqual(verbosity > 1, "slow output" in output)
+                self.assertEqual(verbosity > 1, "later-545" in output)
                 self.assertRegex(output, r"\n\nRan 3 tests in 2 modules, 2 at a time, in \d+s: "
                                          r"1 module\(s\) FAILED: tests\.test_bad\n$")
+
+    def test_the_end_of_the_run_shows_each_failure_again_beside_the_summary(self):
+        # A CI log opens at its end; a failure that finished early must not end up buried there.
+        for verbosity in (1, 2):
+            with self.subTest(verbosity=verbosity):
+                _, _, output = self.run_parallel(verbosity)
+                after_the_last_module = output[output.index("tests.test_slow (2 tests)"):]
+                self.assertRegex(after_the_last_module, re.escape(self.SECTION) + r"\n\nRan 3 tests in 2 modules")
+                self.assertEqual(2, output.count(self.FAILURE))
+                self.assertEqual(1, output.count(self.RESULT_LINES[verbosity]))  # per-test results once
+
+    def test_each_failure_last_appears_with_only_its_own_traceback(self):
+        # AutoCode's verifier reads a unittest failure's traceback as the text up to the next FAIL:/ERROR:
+        # header (autocode_test_setup.failure_details), so the last copy must not run into later output.
+        for verbosity in (1, 2):
+            with self.subTest(verbosity=verbosity):
+                _, _, output = self.run_parallel(verbosity)
+                found = list(test_setup.failure_details(output))
+                self.assertEqual({("test_x", "tests.test_bad.C.test_x")}, {(name, owner) for name, owner, _ in found})
+                details = [detail for _, _, detail in found]
+                self.assertIn(self.TRACEBACK, details[-1])
+                self.assertNotIn("later-545", details[-1])
+                self.assertNotIn("tests.test_slow", details[-1])
 
     def test_passing_modules_still_pass(self):
         for verbosity in (1, 2):
@@ -267,37 +309,26 @@ class PromptFailureOutputTests(unittest.TestCase):
                 self.assertEqual(verbosity > 1, "tests.test_a output" in output)
                 self.assertRegex(output, r"\n\nRan 3 tests in 2 modules, 2 at a time, in \d+s: OK\n$")
 
-    def run_serial(self, verbosity):
-        err = _FlushWatch(self.FAILURE)
-        seen_while_running = []
-
-        class Fails(unittest.TestCase):
-            def test_fails(self):
-                self.fail("boom-545")
-
-        class RunsNext(unittest.TestCase):
-            def test_runs_next(self):
-                seen_while_running.append(err.flushed)
-
-        suite = unittest.TestSuite([Fails("test_fails"), RunsNext("test_runs_next")])
-        with mock.patch.object(run_suite, "discover", return_value=suite), \
-                contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            code = run_suite.main(["--jobs", "1", "--verbosity", str(verbosity),
-                                   "--exclusions", "/nonexistent/exclusions.json"])
-        return code, seen_while_running, err.getvalue()
-
-    def test_the_serial_run_shows_a_failure_before_the_next_test_runs(self):
+    def test_the_one_process_run_keeps_unittest_s_own_report(self):
+        # `--jobs 1 --verbosity 2` is the per-test result stream AutoCode's verifier parses
+        # (docs/bugs/saved-verification-commands.md): a traceback must not run into a later test's output.
         for verbosity in (1, 2):
             with self.subTest(verbosity=verbosity):
-                code, seen_while_running, output = self.run_serial(verbosity)
-                self.assertRegex(seen_while_running[0], rf"FAIL: test_fails \(.*\)\n-{{70}}\nTraceback "
-                                                        rf"[^=]*{self.FAILURE}\n")
+                err = io.StringIO()
+                suite = unittest.TestSuite([_SerialFixtures.Fails("test_fails"),
+                                            _SerialFixtures.RunsNext("test_runs_next")])
+                with mock.patch.object(run_suite, "discover", return_value=suite), \
+                        contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                    code = run_suite.main(["--jobs", "1", "--verbosity", str(verbosity),
+                                           "--exclusions", "/nonexistent/exclusions.json"])
+                output = err.getvalue()
                 self.assertEqual(1, code)
-                self.assertEqual(1, output.count(self.FAILURE))
-                end = output[output.index(self.FAILURE):]
-                self.assertRegex(end, r"\nFAIL: test_fails \(.*\)\n-{70}\nRan 2 tests in .*\n\nFAILED \(failures=1\)\n$")
-                if verbosity > 1:
-                    self.assertIn("test_runs_next", end)
+                self.assertIn("later-545", output)
+                details = [detail for name, _, detail in test_setup.failure_details(output)]
+                self.assertEqual(1, len(details))
+                self.assertIn(self.FAILURE, details[0])
+                self.assertNotIn("later-545", details[0])
+                self.assertRegex(output, r"\nRan 2 tests in .*\n\nFAILED \(failures=1\)\n$")
 
 
 if __name__ == "__main__":
