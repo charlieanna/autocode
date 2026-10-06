@@ -562,10 +562,12 @@ def run_role(
             state["sessions"][route_role] = thread
             record["thread_id"] = thread
         if not any(e.get("type") == "turn.completed" for e in support.events(events)):
+            refused_at_clean_exit(state, record, role, events)
             raise support.Paused("PAUSED_UNCERTAIN_STAGE", output_cap.explain(
                 support.terminal_failure_reason(events), record.get('output_token_cap'))
                 or "Process exited without turn.completed")
     elif not output.is_file():
+        refused_at_clean_exit(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = support.snapshot(workspace)
     write_json(base.with_suffix(".after.json"), after)
@@ -922,6 +924,12 @@ def refusal_reason(state, record):
                                     model=(record.get("launch_route") or {}).get("model"))
 
 
+def refused_at_clean_exit(state, record, role, events):
+    """A content-filter refusal names the stop even when the provider exited 0 (#464); any other stop stays uncertain."""
+    if refused := refusal_reason(state, record):
+        raise support.Paused(provider_refusal.STATUS, f"{refused}. {role} exited 0; reconcile {events}, no automatic replay")
+
+
 def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
@@ -940,21 +948,34 @@ def reconcile_active(state, run_dir, workspace):
             'This completed attempt was already rejected. Explicitly retry planning with autocode resume; do not recover the rejected output.')
     assert_stage_stopped(record)
     supports_sessions = stage_supports_sessions(state, record)
+    thread = format_correction.event_thread_id(Path(record["events"])) if supports_sessions else None
+    unexpected = supports_sessions and (("expected_session" in record and not thread)
+                                        or (record.get("expected_session") and thread != record["expected_session"]))
+    unexpected_session = support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
-        reason = refusal_reason(state, record) or output_cap.explain(
+        reason = refusal_reason(state, record)
+        # As in run_role, a timeout names the stop before the response is read (and recovers on its own),
+        # whatever session it came from. A refusal in a response from a session the run did not expect, or
+        # naming none, is typed only for a provider that exited with an error; after a clean, unsaved or
+        # signalled (interrupted) exit it is never typed or answered with a model (#464).
+        if reason and record.get("timed_out"):
+            timeout = record.get("timeout_reason") or "Stage timed out"
+            raise support.Paused("PAUSED_PROVIDER_TIMEOUT",
+                                 f"{record['role']}: {timeout}; partial work and logs retained at {record['events']}")
+        exit_code = record.get("exit_code")
+        if reason and unexpected and not (type(exit_code) is int and exit_code > 0):
+            raise unexpected_session
+        reason = reason or output_cap.explain(
             support.terminal_failure_reason(record["events"]), record.get('output_token_cap'))
         raise support.Paused(support.failure_status(record["events"]),
             (f"{reason.rstrip('.')}. " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
-    if supports_sessions:
-        thread = format_correction.event_thread_id(Path(record["events"]))
-        if (("expected_session" in record and not thread)
-                or (record.get("expected_session") and thread != record["expected_session"])):
-            raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
-        if thread and not record.get('report_only'):
-            state["sessions"][record.get("route_role", record["role"])] = thread
-            record["thread_id"] = thread
+    if unexpected:
+        raise unexpected_session
+    if thread and not record.get('report_only'):
+        state["sessions"][record.get("route_role", record["role"])] = thread
+        record["thread_id"] = thread
     record["metrics"] = support.event_metrics(record["events"])
     account_stage(state, record)
     if not record.get('before_ref'):

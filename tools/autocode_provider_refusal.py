@@ -8,9 +8,12 @@ Nothing retries the refused model on its own.
 
 Only the provider's error events classify (``error`` and ``turn.failed`` rows, as
 ``autocode_support.events`` returns them): an OpenCode ``ContentFilterError``, a
-``content_filter`` code or type, or an error message naming the content filter. The model's
-own text ("The request was rejected ...") never does. Pure functions over event rows;
-imports nothing from AutoCode.
+``content_filter`` code or type, or an error message naming the content filter. A stream
+whose final step finished with reason ``content-filter`` classifies too, with or without an
+error event, because the OpenCode adapter normalizes that finish into a ``turn.failed`` row
+with code ``content_filter`` (``providers.opencode.normalized_events``). The model's own
+text ("The request was rejected ...") never does. Pure functions over event rows; imports
+nothing from AutoCode.
 """
 from __future__ import annotations
 

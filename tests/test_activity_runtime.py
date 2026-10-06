@@ -332,6 +332,29 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertTrue(Path(archived['events']).is_file())
         self.assertEqual(['greet.py'], archived['changed_files'])
 
+    def test_a_timeout_that_exited_0_before_any_session_row_recovers_on_resume(self):
+        # A provider that handles the stop signal exits 0. With no output there is no session row, which is
+        # still a timeout to recover, not a response from an unexpected session (#464).
+        for saved in (None, 'expired-session'):
+            with self.subTest(saved_session=saved):
+                self.setUp()
+                self.start_task()
+                source, record = self.interrupted_attempt()
+                Path(record['events']).write_text('')
+                record.update(exit_code=0, supports_sessions=True, expected_session=saved)
+                if not saved:
+                    self.state['sessions'].pop('terra')
+                original_source = source.read_bytes()
+                with self.assertRaises(support.Paused) as caught:
+                    runner.reconcile_active(self.state, self.run, self.root)
+                self.assertEqual('PAUSED_PROVIDER_UNCERTAIN', caught.exception.status, str(caught.exception))
+                with patch.object(runner, 'run_role', side_effect=AssertionError('Recovery must not replay the writer')):
+                    self.assertTrue(runner.automatically_recover_timed_out_stage(
+                        self.state, self.run, self.root, caught.exception))
+                self.assertNotIn('active_stage', self.state)
+                self.assertNotIn('terra', self.state['sessions'])
+                self.assertEqual(original_source, source.read_bytes())
+
     def test_uncertain_recovery_requires_a_durable_timeout_not_just_an_error_label(self):
         self.start_task()
         _, record = self.interrupted_attempt()
