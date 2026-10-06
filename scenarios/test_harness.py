@@ -662,6 +662,18 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 call = attempts.read(call_path)
                 self.assertEqual(cli.pid, call["cli"]["pid"])
                 self.assertEqual("running", call["phase"])
+                # Retain the enclosing keeper's provider-discovery barrier (#555).
+                # The former startup-probe fixture could fault before its first
+                # sample and leave an unrecorded SIGTERM-immune child. Require outer
+                # discovery as well as the armed stage receipt before either fault.
+                deadline = time.monotonic() + 10
+                while True:
+                    recorded = attempts.read(call["receipt"])
+                    if any(row["pid"] == event["provider"] for row in recorded.get("processes", ())):
+                        break
+                    if time.monotonic() > deadline:
+                        self.fail(f"Keeper never recorded the provider process: {recorded}")
+                    time.sleep(.02)
                 stage_receipts = [attempts.read(path) for path in evidence.rglob('*.supervision.json')]
                 stage_receipt, = [receipt for receipt in stage_receipts
                                   if receipt.get('provider', {}).get('pid') == event['provider']]
@@ -677,7 +689,15 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                     cli.kill()
                 output, errors = harness.communicate(timeout=15)
                 processes.psutil.wait_procs(owned, timeout=12)
-                self.assertFalse([process.pid for process in owned if self.live(process)], errors)
+                survivors = []
+                for process in owned:
+                    if self.live(process):
+                        try:
+                            survivors.append(f"pid={process.pid} ppid={process.ppid()} status={process.status()}"
+                                             f" cmdline={process.cmdline()}")
+                        except processes.psutil.Error as error:
+                            survivors.append(f"pid={process.pid} inspect failed: {error}")
+                self.assertFalse(survivors, (errors or "") + "; survivors: " + "; ".join(survivors))
                 self.assertFalse(self.live(provider_process))
                 self.assertTrue(self.live(sentinel_birth), "An unrelated sentinel was signalled")
                 if target == "harness":

@@ -1011,7 +1011,8 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=()) -> dict:
+           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=(),
+           test_only_allowed=False) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1025,6 +1026,12 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
     ``preserve_only`` is coverage of behavior the product already implements: the diff may
     be test files alone, and each new test must pass on the base and on the candidate.
+
+    ``test_only_allowed`` covers a contract whose criteria are all test criteria without
+    saying whether product code must change (a coverage or characterization build): when
+    the diff turns out to be test files alone, the proof runs in that same preserve mode
+    instead of failing "a fix must change product code". A test that does not pass on the
+    base then still blocks it, as a mis-tagged case or a failing regression.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1032,6 +1039,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     changes = changed_files(workspace, base, source_paths=source_paths)
     tests = [p for p in changes if is_test_path(p)]
     sources = [p for p in changes if not is_test_path(p)]
+    preserve = preserve_only or (test_only_allowed and not sources)
     test_changes = {p: changes[p] for p in tests}
     fail, unverified, notes, review_reasons = [], [], [], []
     checks: dict[str, dict] = {}  # command receipts only
@@ -1042,7 +1050,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     notes += commands["notes"]
     if not changes:
         fail.append("No change: the candidate is identical to the base revision")
-    elif not sources and not preserve_only:
+    elif not sources and not preserve:
         fail.append("Only test files changed; a fix must change product code")
     deleted = [p for p in tests if changes[p] == "deleted"]
     if deleted:
@@ -1065,7 +1073,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
         if changes and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
                                            dependencies_from=dependencies_from)
-        if trees and runnable_tests and (sources or preserve_only):
+        if trees and runnable_tests and (sources or preserve):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
                                                  patch=base_patch)
@@ -1080,7 +1088,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "regression-on-base", timeout=timeout)
                 checks["regression_on_base"] = on_base
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
-                              new_behavior=new_behavior, preserve_only=preserve_only, known_failures=lambda: _pre_existing(
+                              new_behavior=new_behavior, preserve_only=preserve, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
                                   timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
                               seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
@@ -1094,13 +1102,13 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "suite-on-base-with-tests", timeout=timeout)
                 checks["regression_on_base"] = on_base
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
-                if on_base["exit_code"] == 0 and not preserve_only:
+                if on_base["exit_code"] == 0 and not preserve:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
         elif tests and sources:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
-        if "candidate" in trees and (sources or preserve_only) and commands["suite"]:
+        if "candidate" in trees and (sources or preserve) and commands["suite"]:
             reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
             on_candidate = reuse or run_suite(framework, commands["suite"], trees["candidate"], run_dir,
                                               "suite-on-candidate", timeout=timeout)
@@ -1109,12 +1117,12 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             # A positively identified document-only project may introduce its
             # first source and suite. Filename heuristics cannot rule out old
             # behavior: empty collection can hide a filtered existing program.
-            allow_empty_base = bool(new_behavior and not preserve_only and not base_patch
+            allow_empty_base = bool(new_behavior and not preserve and not base_patch
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base)
-        elif sources or preserve_only:
+        elif sources or preserve:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
     finally:

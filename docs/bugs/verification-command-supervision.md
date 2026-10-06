@@ -46,3 +46,6 @@ without enough actor detail to establish its cause. The fixture now completes
 login setup and requires an armed stage receipt with fresh native birth identities
 before either fault. Startup authentication/version probes still need separate
 owner-loss supervision and qualification under #454.
+
+The integration with #555 preserves the enclosing keeper's bounded provider-discovery
+barrier and survivor diagnostics before the fresh stage identity checks.
