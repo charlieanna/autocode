@@ -166,6 +166,29 @@ class OperationalInformationCLITests(unittest.TestCase):
         # AutoResolver runs the admission guard itself and finds the spent automatic-recovery allowance.
         self.assert_held_for_a_grant_once(self.issue_checkpoint(automatic_recoveries_since_resume=3))
 
+    def test_a_spent_report_repair_allowance_is_held_for_the_operator(self):
+        def spent_repair(state):
+            state['settings']['report_repair'] = {'max_attempts': 2}
+            state['pending_report_repair'] = {
+                'attempts': 2, 'contract_hash': (state.get('goal_contract') or {}).get('hash'), 'pins': {},
+                'original': {'stage': 'terra', 'role': 'terra', 'iteration': state.get('iteration', 1)}}
+            state.update(next_stage='terra')
+            state.setdefault('sessions', {})['terra'] = 'spent-builder-session'
+        view = self.checkpoint('PAUSED_REPORT_REPAIR_LIMIT', 'Bounded report-only repair attempts exhausted', spent_repair)
+        self.env.pop('AUTOCODE_FIXTURE_QUOTA_STAGE')
+        _, before = self.saved()
+        self.inform(view, 'The workspace is fine now')
+        # A report that failed validation twice is not a cause outside the run: information cannot
+        # buy the fresh Builder attempt the spent repair allowance stopped.
+        code, launched, output = self.resume()
+        self.assertEqual((2, False), (code, launched), output)
+        view = self.status()
+        self.assertEqual(('PAUSED_REPORT_REPAIR_LIMIT', 'held'), (view['status'], view['information_review']['status']))
+        self.assertIn('report-only repairs for this attempt are spent', view['stop_reason'])
+        _, after = self.saved()
+        for key in ('pending_report_repair', 'report_repair_archive', 'sessions'):
+            self.assertEqual(before.get(key), after.get(key), key)
+
     def test_an_explicit_control_leaves_pending_information_unevaluated(self):
         self.inform(self.checkpoint(
             'PAUSED_TIMEOUT_RECOVERY', 'Automatic recovery budget exhausted; no further provider will launch.',

@@ -57,6 +57,9 @@ OPERATOR_ONLY = {
     'PAUSED_BUILDER_RETRY_LIMIT': 'the Builder used its configured attempts for this task',
     'PAUSED_ORCHESTRATOR_WORKER': 'a parallel Builder member stopped and needs an explicit retry',
     'PAUSED_MILESTONE_STALLED': 'the milestone still fails after its bounded replanning',
+    # A report that failed validation within its bounded repairs is the run's own bound, not an outside
+    # cause; a fresh attempt is an operator decision (autocode_stuck_job.DIAGNOSE_ONLY).
+    'PAUSED_REPORT_REPAIR_LIMIT': 'the bounded report-only repairs for this attempt are spent',
 }
 
 # Stops whose cause is outside the run (a provider, a process, a recovery the runner could not prove),
@@ -65,7 +68,7 @@ OPERATOR_ONLY = {
 INFORMATION_CAUSES = frozenset({
     'PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_RESOLVER', 'PAUSED_PROVIDER_CAPACITY', 'PAUSED_RATE_LIMIT',
     'PAUSED_BUDGET', 'PAUSED_CONTENT_FILTER', 'PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE',
-    'PAUSED_WORKSPACE_BUSY', 'PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_PLANNING_BUDGET'})
+    'PAUSED_WORKSPACE_BUSY', 'PAUSED_PLANNING_BUDGET'})
 
 
 class Outcome:

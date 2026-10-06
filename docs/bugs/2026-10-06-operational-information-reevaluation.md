@@ -29,7 +29,10 @@ never evaluates it:
 - `stale`: something it is bound to changed, or the records were altered. It is
   retired and the existing fail-closed path runs (hold, or a fresh request for
   the changed run).
-- `held`: the stop needs a control information cannot supply. The decision
+- `held`: the stop needs a control information cannot supply (a spent
+  recovery allowance, a reached bound, a repeated failure, a Builder retry
+  limit, a stopped parallel member, a stalled milestone, spent report-only
+  repairs, an unreconciled attempt). The decision
   names the exact command (`--grant-recovery N` for a spent recovery allowance,
   the bound flag for a reached limit, `--retry-failed-stage`, `--retry-builder`,
   `--abandon-stage ATTEMPT`, `--planning-review-call-limit N`), and only where
@@ -40,8 +43,8 @@ never evaluates it:
   evaluated or asked again.
 - `admitted`: the stop's cause lies outside the run (an allow-list: provider
   capacity, rate limit, quota or refusal, a busy workspace, an unproven
-  recovery, an exhausted report repair, a planning stop with reserved recovery
-  left) and no bound or operator-only control holds it. The run takes the
+  recovery, a planning stop with reserved recovery left) and no bound or
+  operator-only control holds it. The run takes the
   ordinary resume path; every admission check (limits, permissions,
   transport, source, approval, interventions) still runs before a launch. A
   runner event marks the frontier as new, so a stop found next is a new
@@ -63,3 +66,8 @@ control. `leave_paused`, requirements answers, plan approval,
 - A planning stop whose reserved recovery is exhausted
   (`PAUSED_RESOLVER_OPERATIONAL` at a plan review) is held without a command:
   `--planning-review-call-limit` accepts only `PAUSED_PLANNING_BUDGET`.
+- Spent report-only repairs (`PAUSED_REPORT_REPAIR_LIMIT`) with an
+  operational request are held without a command: no CLI control accepts that
+  pause while the request stands (`--retry-report` and `--retry-failed-stage`
+  need `PAUSED_REPEATED_FAILURE`). Before this fix the information admitted a
+  fresh Builder there, archiving the spent repair and rotating its session.
