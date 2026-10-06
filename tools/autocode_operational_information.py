@@ -59,6 +59,14 @@ OPERATOR_ONLY = {
     'PAUSED_MILESTONE_STALLED': 'the milestone still fails after its bounded replanning',
 }
 
+# Stops whose cause is outside the run (a provider, a process, a recovery the runner could not prove),
+# where the request itself advised "provide information, then autocode resume". Only these continue,
+# and only through the ordinary admission checks; any other stop is held.
+INFORMATION_CAUSES = frozenset({
+    'PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_RESOLVER', 'PAUSED_PROVIDER_CAPACITY', 'PAUSED_RATE_LIMIT',
+    'PAUSED_BUDGET', 'PAUSED_CONTENT_FILTER', 'PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE',
+    'PAUSED_WORKSPACE_BUSY', 'PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_PLANNING_BUDGET'})
+
 
 class Outcome:
     """What this invocation does about a scheduled review: hold, continue, pending or stale."""
@@ -197,6 +205,8 @@ def _decide(runner, state, run_dir, workspace, cause):
         return 'hold', 'a partial stage remains unreconciled: ' + str(state['uncertain_artifacts']), None, None
     if cause in OPERATOR_ONLY:
         return 'hold', OPERATOR_ONLY[cause], _operator_flags(state, cause), None
+    if cause not in INFORMATION_CAUSES:
+        return 'hold', f'no rule lets information release a {cause} stop', None, None
     probe = copy.deepcopy(state)
     try:
         if cause == 'PAUSED_PLANNING_BUDGET':

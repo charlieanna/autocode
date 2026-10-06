@@ -807,9 +807,12 @@ consumes it, without a provider call:
   parallel member, an unreconciled attempt), the run stays paused and the stop
   reason and status name that exact command. Later resumes repeat the decision
   without evaluating again.
-- Otherwise the request's own advice applies: the run continues through the
-  normal resume path, whose admission checks (limits, permissions, transport,
-  source, approval, interventions) still run before any provider launches.
+- If the cause lies outside the run (provider capacity, a rate limit, quota or
+  refusal, a busy workspace, an unproven automatic recovery, an exhausted report
+  repair, a planning stop with reserved recovery left), the request's own advice
+  applies: the run continues through the normal resume path, whose admission
+  checks (limits, permissions, transport, source, approval, interventions) still
+  run before any provider launches. Any other stop is held.
 
 A repeated or restarted resume never evaluates the same response twice, and the
 same response sent again changes nothing. `leave_paused` is final. Requirements

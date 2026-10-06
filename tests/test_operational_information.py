@@ -241,6 +241,13 @@ class OperatorControlTests(unittest.TestCase):
                                      orchestration_batch={'status': 'BUILDING', 'workers': []}))
         self.assertIsNone(self.flags('PAUSED_MILESTONE_STALLED'))
 
+    def test_only_a_known_information_cause_can_continue(self):
+        decide = lambda cause, **state: information._decide(runner, state, '/run', '/ws', cause)
+        self.assertEqual(('hold', None), decide('PAUSED_UNKNOWN_FUTURE_STOP')[::2])
+        held = decide('PAUSED_RATE_LIMIT', active_stage={'iteration': 3, 'output': '/run/iterations/003/builder-01.json'})
+        self.assertEqual(('hold', '--abandon-stage 003/builder-01'), held[::2])
+        self.assertEqual('hold', decide('PAUSED_PROVIDER_UNCERTAIN', uncertain_artifacts=['/run/x'])[0])
+
 
 if __name__ == '__main__':
     unittest.main()

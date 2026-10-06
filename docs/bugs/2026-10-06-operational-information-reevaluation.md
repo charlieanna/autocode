@@ -35,8 +35,11 @@ recovery flag consumes it once, with no provider call:
   `PAUSED_TIMEOUT_RECOVERY`, the status that guard would have set, so the named
   grant is accepted. Later invocations repeat the decision; nothing is
   evaluated or asked again.
-- `admitted`: no bound or operator-only control holds the stop. The run takes
-  the ordinary resume path; every admission check (limits, permissions,
+- `admitted`: the stop's cause lies outside the run (an allow-list: provider
+  capacity, rate limit, quota or refusal, a busy workspace, an unproven
+  recovery, an exhausted report repair, a planning stop with reserved recovery
+  left) and no bound or operator-only control holds it. The run takes the
+  ordinary resume path; every admission check (limits, permissions,
   transport, source, approval, interventions) still runs before a launch. A
   runner event marks the frontier as new, so a stop found next is a new
   request, never the answered one.
