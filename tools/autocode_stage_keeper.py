@@ -80,6 +80,29 @@ def report_path(base) -> Path:
     return base.with_name(base.name + REPORT_SUFFIX)
 
 
+def unadoptable(record):
+    """Why a crash-left attempt's output must not be adopted on resume, or None.
+
+    Owner decision (#454): when the keeper had to stop the provider after its controller
+    was lost, anything that provider finished was finished unsupervised (a graceful
+    provider completes its report on SIGTERM), so it is never adopted; the attempt
+    pauses for an explicit abandon instead. A keeper still stopping the tree means wait.
+    """
+    supervision = record.get("supervision") or {}
+    keeper = supervision.get("keeper")
+    if isinstance(keeper, dict) and processes.live_processes([keeper]):
+        raise util.Paused("PAUSED_WORKSPACE_BUSY", "The stage keeper is still stopping this attempt's provider; wait for it")
+    try:
+        report = json.loads(Path(supervision["report"]).read_text())
+        stopped = report["target"]["pid"] in report["live_at_detection"]
+    except (KeyError, TypeError, OSError, ValueError):
+        return None
+    if not stopped:
+        return None
+    return (f"The stage keeper stopped this provider after its controller was lost ({report.get('cause')}), "
+            "so nothing it finished is adopted")
+
+
 class Lifeline:
     """The controller's side of one attempt's keeper.
 

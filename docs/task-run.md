@@ -418,10 +418,13 @@ supervises it. Who stops its process tree, and when:
   a CLI it loses (#454); a CLI whose caller died alone keeps running until its next stop.
 
 `active_stage.pid` and `active_stage.supervision` (the keeper's identity and report
-path) are saved before the controller starts watching the provider. A provider stopped
-by its keeper never finished, so resuming pauses for reconciliation and nothing is
-replayed automatically. A report that an orphaned provider finished is adopted only when
-its keeper was lost as well. Status does not read the keeper's report yet (#454): after
+path) are saved before the controller starts watching the provider. Resuming never
+adopts anything from a provider its keeper had to stop, not even a report it finished on
+the way out (a graceful provider may complete one on SIGTERM): the attempt pauses for an
+explicit `--abandon-stage`, and nothing is replayed automatically. While the keeper is
+still stopping the tree, resuming pauses as `PAUSED_WORKSPACE_BUSY`. A report that an
+orphaned provider finished is adopted only when its keeper was lost as well (no keeper
+report). Resume reads the keeper's report this way, but status does not yet (#454): after
 the controller dies, `view.status` keeps the saved `RUNNING`, and the CLI's top-level
 `stale` turns true once the keeper has stopped the provider. Parallel Builder worker
 processes and runner check commands are not kept this way yet; each worker's own

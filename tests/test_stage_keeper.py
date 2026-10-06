@@ -299,6 +299,21 @@ class StageKeeperTests(unittest.TestCase):
         self.assertNotIn(unrelated.pid, [pid for row in report["signals"] for pid in row["pids"]])
         self.assertIsNone(unrelated.poll(), "a pid whose birth identity differs is never signalled")
 
+    def test_output_of_a_provider_the_keeper_stopped_is_never_adoptable(self):
+        keeper, record, child, _, hold = self.held("0")
+        with self.assertRaisesRegex(stage_keeper.util.Paused, "still stopping"):
+            stage_keeper.unadoptable(record)  # a live keeper: resume waits for it
+        keeper.close()
+        self.assertEqual(-signal.SIGTERM, child.wait(timeout=15))
+        self.report(record)
+        self.await_condition(lambda: gone(self.keeper_pid(record)), "the keeper to finish")
+        self.assertIn("stopped this provider", stage_keeper.unadoptable(record))
+        released, released_record, released_child, _, released_hold = self.held("0")
+        os.write(released_hold, b"x")
+        self.assertEqual(0, released.supervise(subprocess.Popen.wait, released_child, timeout=15))
+        self.await_condition(lambda: gone(self.keeper_pid(released_record)), "the released keeper to exit")
+        self.assertIsNone(stage_keeper.unadoptable(released_record), "no keeper report: adoption rules unchanged")
+
     def test_receipt_for_another_provider_is_ignored(self):
         keeper, record, child, _, hold = self.held("0")
         unrelated = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"],

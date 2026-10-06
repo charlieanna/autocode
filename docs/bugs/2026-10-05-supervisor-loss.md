@@ -59,9 +59,14 @@ left an orphaned provider.
 - `active_stage.pid` and `active_stage.supervision` are saved before supervision
   starts, which also shrinks the window in which status could not see the provider.
 
-A report finished by an orphan is no longer possible once the keeper stops it, so
-`test_finished_orphan_report_resumes_without_second_builder` now kills the keeper
-too; adoption stays covered as the second line of defence.
+A provider can still finish its report after its controller died: in the moment
+before the keeper freezes it, or because it completes the report when the keeper's
+SIGTERM asks it to stop. Resume therefore refuses to adopt anything from a provider
+the keeper stopped (`stage_keeper.unadoptable`); before that check a fake provider
+that finishes on SIGTERM had its report adopted and the run went on to
+`TASK_COMPLETE`. `test_finished_orphan_report_resumes_without_second_builder` kills
+the keeper too, so adoption of a report whose keeper was also lost stays covered as
+the second line of defence.
 
 ## Still open (#454)
 

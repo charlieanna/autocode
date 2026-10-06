@@ -49,7 +49,7 @@ class LifecycleAttacks(AdversarialCase):
         return barrier, controller, parent, provider
 
     def clear_barrier_environment(self):
-        for key in ("LIFECYCLE_HOLD_STAGE", "LIFECYCLE_READY_FIFO", "LIFECYCLE_RELEASE_FIFO"):
+        for key in ("LIFECYCLE_HOLD_STAGE", "LIFECYCLE_READY_FIFO", "LIFECYCLE_RELEASE_FIFO", "LIFECYCLE_FINISH_ON_TERM"):
             self.env.pop(key, None)
 
     def supervision_report(self):
@@ -181,6 +181,27 @@ class LifecycleAttacks(AdversarialCase):
         self.await_gone(provider, timeout=10, message="the stage keeper to stop the orphaned provider")
         self.assert_keeper_stopped(report, provider)
         self.assert_not_replayed()
+
+    def test_report_finished_by_a_stopped_orphan_is_not_adopted(self):
+        # #454 owner decision: a report that an orphan finished after losing its controller
+        # is not adopted. This provider, like a graceful one, finishes its report on SIGTERM.
+        self.env["LIFECYCLE_FINISH_ON_TERM"] = "1"
+        barrier, controller, parent, provider = self.held_builder()
+        report = self.supervision_report()
+        parent.kill()
+        self.assertLess(controller.wait(timeout=10), 0)
+        self.await_gone(provider, timeout=10, message="the stage keeper to stop the orphaned provider")
+        self.assert_keeper_stopped(report, provider)
+        self.assertEqual(1, len(self.trace("stage_exit", "terra")), "Asked to stop, the orphan finished its report")
+        self.clear_barrier_environment()
+        launched = len(self.trace("stage_enter"))
+        result = self.invoke("--resume-paused", timeout=45)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertIn("stage keeper stopped", result.stdout + result.stderr)
+        self.assertEqual(launched, len(self.trace("stage_enter")), "The stopped orphan's report must not be adopted")
+        status = json.loads(self.invoke("--status").stdout)
+        self.assertFalse(status["view"]["done"])
+        self.assertEqual("001/builder-01", status["attempt_id"], "The attempt stays active for an explicit abandon")
 
     def test_controller_crash_does_not_allow_live_orphan_to_race(self):
         barrier, controller, parent, provider = self.held_builder()

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import selectors
+import signal
 import time
 
 
@@ -35,14 +36,28 @@ def hold_provider(stage: str) -> None:
         return
     ready = os.environ["LIFECYCLE_READY_FIFO"]
     release = os.environ["LIFECYCLE_RELEASE_FIFO"]
+    if os.environ.get("LIFECYCLE_FINISH_ON_TERM"):
+        # A graceful provider: asked to stop, it finishes the report it was writing.
+        signal.signal(signal.SIGTERM, _finish)
     # Open the release FIFO first. The test keeps both ends open, so announcing
     # readiness guarantees that a release can never be lost between opens.
     with open(release, "rb", buffering=0) as waiter:
         with open(ready, "w") as announcer:
             announcer.write(json.dumps({"stage": stage, "pid": os.getpid()}) + "\n")
             announcer.flush()
-        if waiter.read(1) != b"R":
-            raise RuntimeError("lifecycle provider barrier closed without release")
+        try:
+            if waiter.read(1) != b"R":
+                raise RuntimeError("lifecycle provider barrier closed without release")
+        except _Finish:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+
+class _Finish(Exception):
+    pass
+
+
+def _finish(signum, frame):
+    raise _Finish
 
 
 class ProviderBarrier:
