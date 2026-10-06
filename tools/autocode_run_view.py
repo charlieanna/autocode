@@ -89,8 +89,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         "routes": quota_route.routes(state),
         "route_assignments": quota_route.assignments(state),
         # AutoResolver's one re-evaluation of corrective information sent to an operational request
-        # (autocode_operational_information, #486): status pending, held, admitted or stale; the
-        # decision, its reason and, when held, the exact next action. None when no response is current.
+        # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
+        # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next
+        # action. None when no response is current.
         "information_review": operational_information.projection(state),
     }
     result["efficiency"] = autocode_efficiency.summary(

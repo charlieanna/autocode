@@ -381,11 +381,14 @@ def projection(state):
     if record is None:
         return None
     decision = record.get('decision') if isinstance(record.get('decision'), dict) else {}
-    return {'request_id': record.get('request_id'), 'status': record.get('status'), 'cause': record.get('cause'),
+    status, reason = record.get('status'), decision.get('message') or record.get('retired_reason')
+    if status == 'pending' and state.get('status') != record.get('pause_status'):
+        # The run left that pause first (another control, or a newer request): reevaluate never takes it.
+        status, reason = 'superseded', f"the run left {record.get('pause_status')} before the information was evaluated"
+    return {'request_id': record.get('request_id'), 'status': status, 'cause': record.get('cause'),
             'scheduled_at': record.get('scheduled_at'), 'evaluated_at': record.get('evaluated_at'),
-            'decision': decision.get('action'), 'reason': decision.get('message') or record.get('retired_reason'),
+            'decision': decision.get('action'), 'reason': reason,
             'action': (decision.get('view_action') if record.get('status') == 'held'
                        and state.get('status') == record.get('evaluated_status')
-                       else '--resume-paused' if record.get('status') == 'pending'
-                       and state.get('status') == record.get('pause_status') else None),
+                       else '--resume-paused' if status == 'pending' else None),
             'receipt': record.get('receipt_output')}

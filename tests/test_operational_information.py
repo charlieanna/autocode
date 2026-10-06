@@ -242,7 +242,9 @@ class OperationalInformationCLITests(unittest.TestCase):
             self.assertEqual((0, False), (code, launched), output)
             self.assertNotIn('re-evaluate', output)
         self.assertEqual([], self.evaluations())
-        self.assertEqual('pending', self.status()['information_review']['status'])
+        # The view does not call it pending: no resume will ever evaluate it.
+        review = self.status()['information_review']
+        self.assertEqual(('superseded', None), (review['status'], review['action']))
 
     def test_an_admitted_decision_continues_through_the_guarded_admission_path(self):
         def earlier_incident(state):

@@ -321,19 +321,20 @@ role after its quota ran out or its provider's content filter refused it: `kind`
 `request_id` it answered. It is empty for runs that never stopped on quota or a refusal.
 
 <a id="operational-information"></a>
-`information_review` describes Resolver's one re-evaluation of corrective
-information sent to its current operational request (`--resolver-response
+`information_review` describes Resolver's one re-evaluation of the corrective
+information last sent to an operational request (`--resolver-response
 provide_information`), or is `null`: `request_id`, `status`, `cause` (the pause
 the request was for), `scheduled_at`, `evaluated_at`, `decision` (`hold` or
 `continue`), `reason`, `action` and `receipt` (the runner-owned decision record).
 `status` is `pending` until the next resume at that pause (`autocode resume` or
 `--resume-paused` with no other recovery flag) evaluates it once, with no provider
-call; a run that left the pause through another control never evaluates it. Then
+call. A run that left the pause first (through another control, or to a newer
+request) never evaluates it, and `status` reads `superseded`. Otherwise
 it is `held` (still paused, `action` and `needs.action` name the control it
 requires, such as `--resume-paused --grant-recovery N`, a raised bound or
 `--abandon-stage ATTEMPT`), `admitted` (the run continued through the normal
 admission checks) or `stale` (the run, request, response or evidence changed after
-the response, so it was not evaluated). Information never raises a limit, resets
+the response, so it was not evaluated and Resolver asks a fresh request). Information never raises a limit, resets
 a count or approves anything; a later resume repeats a held decision without
 evaluating again.
 
