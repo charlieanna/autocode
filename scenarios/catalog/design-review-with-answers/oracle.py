@@ -19,13 +19,15 @@ SAYS = ("Ordering is per-domain.", "Per-registry is fine.")
 # What a concern is about: its area label decides, else its summary; the first match wins.
 AREAS = (
     ("migration", r"rollback|roll back|revert|switch(ing|es)? back|reconcil|dual[- ]?writ|cut ?over|migrat"),
-    ("dlq", r"\bdlq\b|dead[- ]letter"),
+    # The DLQ's gap is that a poison event stops its partition and nobody owns getting it going again.
+    ("dlq", r"\bdlq\b|dead[- ]letter|poison|stop(s|ped|ping)? consuming|stop(s|ped|ping)? (the|that|a) partition"),
     ("ordering", r"\border(ing|ed)?\b(?! to\b)|out of order|sequenc|\bseq\b|per[- ](domain|registry)|partition key"
                  r"|keyed by"),
     ("idempotency", r"idempot|duplicat|dedup|twice|double[- ]charg|exactly[- ]once|redeliver"),
     ("throughput", r"throughput|events/s|per second|capacity|sizing|headroom|hot partition|\bskew"),
 )
-# Covered by the design and the code: event_id dedupe in billing and notifications, per-key sizing.
+# Covered by the design and the code: durable event_id dedupe in billing and notifications (a rare
+# duplicate notification is accepted), an idempotent producer, and per-key sizing.
 INVENTED = ("idempotency", "throughput")
 # A reply runs the recognizer and the Architect (and the Architect's report repair) and nothing else.
 ARCHITECT_ONLY = ("recognize_workflow", "review_design", "review_design_report_repair")

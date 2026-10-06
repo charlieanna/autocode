@@ -70,6 +70,8 @@ class PrepareTests(unittest.TestCase):
         self.assertIn("whether strict ordering is required", text)
         self.assertIn("ask it here rather than assuming one interpretation", text)
         self.assertIn("already settles", text)
+        # A concern that hinges on the unanswered choice waits for the answer before it blocks (issue #185).
+        self.assertIn("a problem only under one answer, is advisory until the requester answers", " ".join(text.split()))
 
     def test_architect_effort_is_capped_at_medium_but_never_raised(self):
         for given, expected in (("max", "medium"), ("xhigh", "medium"), ("high", "medium"),

@@ -122,7 +122,8 @@ the message lists that run, and the command that continues the finished one anyw
 
 A design review never waits for its questions: the run completes with them in
 `review/design-review.json`, and you answer with `--follow-up` ("Ordering is per-domain."). A
-reply recognized as design makes the Architect revise the same review instead of writing a new
+concern that is a problem only under one answer to a question stays advisory until you answer.
+A reply recognized as design makes the Architect revise the same review instead of writing a new
 one:
 
 - Every earlier concern keeps its id, open or resolved; none is dropped or renumbered.

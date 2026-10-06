@@ -11,9 +11,16 @@ category = "conversation"
 # rollback or reconciliation), notes the unowned DLQ as advisory, and asks which
 # ordering consumers need instead of assuming one. Turn 2 answers "per-domain":
 # ordering becomes a blocking concern. Turn 3 accepts per-registry order: that
-# concern is resolved, kept under its id. Idempotency (event_id dedupe in the
-# code) and throughput (sized with per-key numbers) are covered, so a blocker
-# about them is invented. Each turn follows a completed review: a design review
+# concern is resolved, kept under its id. Idempotency (durable event_id dedupe
+# in the code, an idempotent producer) and throughput (sized with per-key
+# numbers) are covered, so a blocker about them is invented.
+#
+# The first live run (Claude, 2026-10-06) found two real gaps in an earlier seed:
+# its dedupe was held in process memory, lost on a restart, and the design did
+# not say how the producer keeps a key's order through retries. Both are now
+# settled in the seed. It also blocked on ordering before any answer while asking
+# about it; the Architect's prompt now keeps such a concern advisory until the
+# user answers. Each turn follows a completed review: a design review
 # never waits for its questions, and the reply is a --follow-up.
 
 [fake]

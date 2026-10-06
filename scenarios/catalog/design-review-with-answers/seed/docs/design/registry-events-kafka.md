@@ -14,13 +14,20 @@ Status: proposed. Author: platform team.
 
 **Producer.** The registry gateway publishes one message per registry event to
 the topic `registry-events` (12 partitions), keyed by `registry_id` with the
-default partitioner (a hash of the key).
+default partitioner (a hash of the key). It reads each registry's feed on one
+thread and publishes that registry's events in the order the registry sent
+them. The producer runs with `enable.idempotence=true` and `acks=all`, so a
+retried publish never duplicates or reorders messages with the same key.
 
 **Consumers.** Each service is its own consumer group: `billing`,
 `notifications`, `audit`. Delivery is at-least-once: a consumer commits its
-offset after processing an event. Billing and notifications already skip a
-redelivered event by its `event_id` (`events/billing.py`,
-`events/notifications.py`); audit records every delivery, duplicates included.
+offset after processing an event. Billing and notifications keep the
+`event_id`s they have handled in Postgres (the `charges` and
+`notifications_sent` tables, keyed by `event_id`: `events/billing.py`,
+`events/notifications.py`), so an event redelivered after a crash, restart or
+rebalance is skipped. A crash between sending a notification and recording it
+can send that notification twice; notifications are informational, and a rare
+duplicate is accepted. Audit records every delivery, duplicates included.
 
 **Failures.** A consumer retries a failing event in place, with backoff, up to
 5 times. After that it copies the event to `registry-events.dlq` and stops

@@ -141,9 +141,11 @@ First decide the mode:
    runs every probe in a scratch copy and rejects the review if one fails, so only probe what you have
    checked. A concern about the design text alone (a missing rollback step) has probe "".
 5. questions: decisions only the requester can make because the design leaves a requirement choice open
-   (for example whether strict ordering is required and for which consumers). When a blocking concern
-   can be resolved only by that choice, ask it here rather than assuming one interpretation; give each
-   the realistic options. Do not ask about a choice the design or the code already settles.
+   (for example whether strict ordering is required and for which consumers). When a concern can be
+   resolved only by that choice, ask it here rather than assuming one interpretation; give each the
+   realistic options. Such a concern, a problem only under one answer, is advisory until the requester
+   answers: say in it which answer would make it blocking. Do not ask about a choice the design or the
+   code already settles; a concern about a requirement they already state is judged as usual.
 verdict: request_changes when there is at least one blocking concern, otherwise approve.
 
 Return JSON only, matching the schema the runner gives you. The runner saves your report as
