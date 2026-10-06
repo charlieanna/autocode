@@ -47,17 +47,7 @@ def _binding(state):
             source = {'revision': source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)['revision']}
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             source = {'unavailable': type(error).__name__ + ': ' + str(error)}
-    interruptions = {'pending': [], 'pause_requested': False}
-    if state.get('run_dir') and Path(state['run_dir']).is_dir():
-        try:
-            try:
-                from . import autocode_interventions as inbox
-            except ImportError:
-                import autocode_interventions as inbox
-            interruptions['pending'] = inbox.pending(Path(state['run_dir']))
-            interruptions['pause_requested'] = (Path(state['run_dir']) / 'pause-requested').exists()
-        except (OSError, RuntimeError, ValueError) as error:
-            interruptions['error'] = type(error).__name__ + ': ' + str(error)
+    interruptions = pending_interruptions(state.get('run_dir'))
     binding = {
         'task_id': state.get('task_id'), 'workspace': state.get('workspace'),
         'run_dir': state.get('run_dir'), 'conversation_id': state.get('conversation_id'),
@@ -86,6 +76,26 @@ def _binding(state):
             'automatic_permission_recoveries', 'no_progress_batches')},
     }
     return copy.deepcopy(binding)
+
+
+def pending_interruptions(run_dir):
+    """Accepted input not yet applied (queued interventions, a requested pause), bound into every request.
+
+    While any is pending evaluate() defers, so a request staged now could never be published: its
+    receipt would be bound to an inbox that applying the input empties (#486).
+    """
+    interruptions = {'pending': [], 'pause_requested': False}
+    if run_dir and Path(run_dir).is_dir():
+        try:
+            try:
+                from . import autocode_interventions as inbox
+            except ImportError:
+                import autocode_interventions as inbox
+            interruptions['pending'] = inbox.pending(Path(run_dir))
+            interruptions['pause_requested'] = (Path(run_dir) / 'pause-requested').exists()
+        except (OSError, RuntimeError, ValueError) as error:
+            interruptions['error'] = type(error).__name__ + ': ' + str(error)
+    return interruptions
 
 
 def queue(state, scope, origin, *, request=None, questions=None, evidence=None,
@@ -470,6 +480,32 @@ def supersede_operational(state, reason):
         previous = proposal['origin'].get('pause_status') or proposal.get('previous_status')
         state.update(status=previous if str(previous).startswith('PAUSED_') else 'PAUSED_RESOLVER',
                      phase='PAUSED_OR_BLOCKED')
+    return True
+
+
+def release_stranded_operational(state):
+    """Return a queued operational request that can never be published to its pause; True if it did.
+
+    Its resolver receipt is bound to a frontier that has since moved (an earlier version staged it
+    while input was pending, #486), so evaluate() defers it for good and the run would sit in
+    RESOLVER_PENDING, which a plain resume admits. Back at its pause, it is asked again under a fresh
+    receipt. A scheduled internal diagnosis, or input still pending, leaves it alone.
+    """
+    proposal = state.get(PRIVATE) or {}
+    pause = str((proposal.get('origin') or {}).get('pause_status') or '')
+    if (proposal.get('scope') != 'operational_exhaustion' or state.get('status') != 'RESOLVER_PENDING'
+            or not pause.startswith('PAUSED_')
+            or (state.get('next_stage') == 'astra_resolve' and state.get('resolution_request'))):
+        return False
+    binding = _binding(state)
+    if any(binding['interruptions'].values()):
+        return False
+    resolver = state.get('resolver') or {}
+    receipt = resolver.get('operational_receipts', {}).get((proposal.get('evidence') or {}).get('resolver_receipt_id'))
+    if isinstance(receipt, dict) and receipt.get('receipt', {}).get('evaluation_binding') == binding:
+        return False
+    state.pop(PRIVATE, None)
+    state.update(status=pause, phase='PAUSED_OR_BLOCKED')
     return True
 
 

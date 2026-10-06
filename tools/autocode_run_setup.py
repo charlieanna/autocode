@@ -27,6 +27,7 @@ try:
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
+    from . import autocode_pause_authority as pause_authority
     from . import model_catalogue
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
     import autocode_milestones as milestones
+    import autocode_pause_authority as pause_authority
     import model_catalogue
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
@@ -324,7 +326,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
                 if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
-        retain_time_pause = False
+        retained = None
         # Preserve actions that validate the operational request themselves. Other
         # settings writes retire its stale binding without authorizing continuation.
         if (published.get('scope') == 'operational_exhaustion' and paused_for
@@ -332,9 +334,12 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
             withdrawn = resolver_human.supersede_operational(
                 state, 'Settings changed without changing the exhausted bound')
-            retain_time_pause = (withdrawn and paused_for == 'PAUSED_TIME_LIMIT'
-                and 'max_seconds' not in args._explicit_budget_flags
-                and not state.get('_authorized_bound_change'))
+            # Every pause, not only the active-time limit (#394): the request is asked again under
+            # the new settings, never left for the writer boundary to rebuild as a legacy blocker.
+            if (withdrawn and not state.get('_authorized_bound_change')
+                    and not pause_authority.changes_held_bound(args._explicit_budget_flags, origin)):
+                cause = (entry.get('identity', {}).get('proposal', {}).get('request') or {}).get('discovered')
+                retained = support.Paused(paused_for, cause or 'Pause retained; other settings do not acknowledge it')
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:
@@ -363,12 +368,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         # A grant validates the original request before its writer publishes
         # the corrected settings. Normalizing here would replace that request
         # with a different resolver decision before the grant can be checked.
-        if retain_time_pause:
-            # Re-publish under the new settings. Merely leaving PAUSED_TIME_LIMIT here
-            # is insufficient: unrelated explicit budget flags bypass generic escalation.
-            runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
-                support.Paused('PAUSED_TIME_LIMIT',
-                    'Active-time pause retained; unrelated settings do not acknowledge it'))
+        if retained:
+            runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, retained)
         if args.grant_recovery is None:
             runner.write_json(state_path, state)
     state["settings"] = settings

@@ -255,17 +255,28 @@ if __name__ == '__main__':
 
 
 class BoundChangeSupersede(unittest.TestCase):
-    def test_explicit_budget_flags_count_as_recovery(self):
+    def test_only_the_paused_bounds_flag_counts_as_recovery(self):
+        # Raising the exhausted bound is recovery (#301); a flag for another bound is only a
+        # settings write and never releases the pause (#379, #486).
         from types import SimpleNamespace
         import autocode_run_actions as run_actions
-        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(
-            _explicit_budget_flags=set(), grant_recovery=None, retry_builder=None,
-            retry_failed_stage=False, retry_report=None, abandon_stage=None,
-            diagnose_failed_stage=False)))
-        self.assertTrue(run_actions.explicit_recovery_requested(SimpleNamespace(
-            _explicit_budget_flags={'max_seconds'}, grant_recovery=None, retry_builder=None,
-            retry_failed_stage=False, retry_report=None, abandon_stage=None,
-            diagnose_failed_stage=False)))
+
+        def requested(flags, state):
+            return run_actions.explicit_recovery_requested(SimpleNamespace(
+                _explicit_budget_flags=flags, grant_recovery=None, retry_builder=None,
+                retry_failed_stage=False, retry_report=None, abandon_stage=None,
+                diagnose_failed_stage=False), state)
+        time_pause = {'status': 'PAUSED_TIME_LIMIT'}
+        self.assertFalse(requested(set(), time_pause))
+        self.assertTrue(requested({'max_seconds'}, time_pause))
+        self.assertFalse(requested({'max_stage_seconds'}, time_pause))
+        self.assertFalse(requested({'max_seconds'}, {'status': 'PAUSED_RESOLVER_OPERATIONAL'}))
+        self.assertTrue(requested({'max_milestone_seconds'}, {'status': 'PAUSED_MILESTONE_BUDGET'}))
+        # Matched by the request's budget kind as well as its pause status.
+        queued = {'status': 'RESOLVER_PENDING', 'resolver_human_proposal': {
+            'scope': 'operational_exhaustion',
+            'origin': {'pause_status': 'PAUSED_TIMEOUT_RECOVERY', 'budget': {'kind': 'max_seconds'}}}}
+        self.assertTrue(requested({'max_seconds'}, queued))
 
     def test_bound_flags_match_budget_kind_not_only_pause_status(self):
         # An operational-exhaustion request after burn-out may name a different

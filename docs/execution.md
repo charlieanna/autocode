@@ -597,7 +597,15 @@ Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
 explicitly override them. For example, resume a run paused at its iteration ceiling with
 `--resume-paused --max-iterations 25` to set the total ceiling to 25. Changing a limit
-does not approve a draft brief.
+does not approve a draft brief. Only a flag for the bound the pause exhausted
+acknowledges it. A flag for any other limit is still saved, even when it restates the
+default, but it is only a settings change. The pause stays in force, and AutoResolver
+asks its operational request again under the new settings, answered or not. For
+example, `--max-stage-seconds` on a run paused for exhausted recoveries changes the
+stage limit and launches nothing. A pause intervention submitted while a run is already
+paused does not replace that pause either: `--resume-paused` acknowledges the
+intervention and returns the run to the earlier pause, whose own rules then apply. See
+`docs/bugs/2026-10-06-operational-pause-authority.md`.
 
 Provider stages track their subprocesses, including detached tool processes. On normal
 exit, timeout or interruption, Autocode stops tracked workers before taking the final

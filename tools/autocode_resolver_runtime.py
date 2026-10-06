@@ -381,7 +381,9 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                              'PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY',
                              'PAUSED_NO_PROGRESS', quota_route.REFUSAL_STATUS)
             or state.get('pending_questions')
-            or (Path(run_dir) / 'pause-requested').exists()):
+            # Input still to apply (a requested pause, a queued intervention) goes first: a request
+            # staged now would be bound to it and could never be published (#486).
+            or any(human.pending_interruptions(run_dir).values())):
         return False
     pending = state.get('user_request') or (state.get('agent_request') or {}).get('request')
     if pending and pending.get('kind') != 'none':

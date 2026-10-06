@@ -36,6 +36,7 @@ try:
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
+    import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
@@ -80,10 +82,14 @@ except ImportError:
     import autocode_worktrees as worktrees
 
 
-def explicit_recovery_requested(args):
-    """Whether this invocation carries a scoped operator recovery action."""
-    # An explicit bound change is a recovery action (#301): it must not be held
-    # behind an unchanged operational frontier.
+def explicit_recovery_requested(args, state):
+    """Whether this invocation carries a scoped operator recovery action for the pause holding ``state``.
+
+    An explicit change to the bound that pause exhausted is one (#301): it must not be held behind an
+    unchanged operational frontier. A budget flag for any other bound is only a settings write, never
+    authority to release the pause (#379, #486). ``state`` is required so that no caller counts a
+    budget flag without naming the pause; None counts none.
+    """
     budget_flags = getattr(args, '_explicit_budget_flags', None) or set()
     return any((getattr(args, 'retry_builder', None),
                 getattr(args, 'retry_failed_stage', False),
@@ -91,29 +97,8 @@ def explicit_recovery_requested(args):
                 getattr(args, 'abandon_stage', None),
                 getattr(args, 'diagnose_failed_stage', False),
                 getattr(args, 'grant_recovery', None) is not None,
-                bool(budget_flags)))
-
-
-PAUSE_BUDGET_KIND = {
-    'PAUSED_TIME_LIMIT': 'max_seconds',
-    'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
-    'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
-    'PAUSED_MILESTONE_BUDGET': 'milestone_max_seconds',
-    'PAUSED_NO_PROGRESS': 'no_progress_batches',
-}
-BUDGET_FLAGS = {
-    'max_seconds': ('max_seconds',),
-    'iteration_ceiling': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
-    'milestone_max_seconds': ('max_milestone_seconds',),
-    'no_progress_batches': ('no_progress_limit',),
-}
-
-
-def _explicit_budget_change(args, origin):
-    """True when this invocation explicitly resets the bound the request exhausted."""
-    kind = (origin.get('budget') or {}).get('kind') or PAUSE_BUDGET_KIND.get(origin.get('pause_status'))
-    explicit = getattr(args, '_explicit_budget_flags', None) or set()
-    return any(flag in explicit for flag in BUDGET_FLAGS.get(kind, ()))
+                bool(budget_flags) and state is not None
+                and pause_authority.changes_held_bound(budget_flags, pause_authority.held_origin(state))))
 
 
 def next_command(state, issued, run_dir, workspace):
@@ -203,6 +188,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
         print(f"{state['status']}: {state['stop_reason']}")
         return 2
+    # A pause intervention that landed on a held run, or a request it stranded, leaves that pause in
+    # force: the checks below apply its own authority, never the generic resume (#486).
+    if ((args.resume_paused and stop.resume_interrupted(state, runner.now()))
+            or resolver_human.release_stranded_operational(state)):
+        runner.write_json(state_path, state)
     if args.revise_figma_manifest:
         try:
             metadata = runner.intervention_metadata(workspace, run_dir, state)
@@ -260,7 +250,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
                            args.planning_review_call_limit is not None, bool(args.close_finding)))
-    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args, state)
             and recovery_progress.reconcile(state, issued=resolver_human.current(state),
                 approved=goals.approved(state), supersede=resolver_human.supersede_operational,
                 now=runner.now)):
@@ -294,7 +284,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 state['status'] = published_status
     # A source-only stale repair is already a recognized recovery. Do not let
     # an answered operational request hide it or publish the same request again.
-    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args, state)
             and runner.stale_report_repair(state, workspace)):
         specific_recovery = True
     acknowledged_planning_extension = (args.resume_paused and state.get('status') == 'PAUSED_PLANNING_BUDGET'
@@ -316,7 +306,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     # Corrective information is re-evaluated once by AutoResolver at an explicit resume (#486).
     review = None
     if (not decision_action and not specific_recovery and not acknowledged_bound_change
-            and not explicit_recovery_requested(args)):
+            and not explicit_recovery_requested(args, state)):
         review = operational_information.reevaluate(runner, state, run_dir, workspace, resume=args.resume_paused)
         if review is not None:
             print(review.message, flush=True)
@@ -351,7 +341,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
     if (not decision_action and not specific_recovery and not information_admitted
-            and not explicit_recovery_requested(args) and state.get('status') != 'RUNNING'
+            and not explicit_recovery_requested(args, state) and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')
             and not resolver_human.current(state) and not state.get(resolver_human.PRIVATE)):
@@ -402,7 +392,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.'
               + (' It re-evaluates the response once at the next autocode resume.' if scheduled else ''))
         return 0
-    if (not decision_action and not explicit_recovery_requested(args)
+    if (not decision_action and not explicit_recovery_requested(args, state)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'
                      and resolver_human.current(state))
             and (state.get(resolver_human.PUBLIC) or {}).get('scope') == 'operational_exhaustion'):
@@ -706,15 +696,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             print(f"{state['status']}: {state.get('stop_reason', f'explicit resume required: {word}')}")
             return 2
         else:
-            resumed_at = runner.now()
-            if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
-                state["pause_intent"]["acknowledged_at"] = resumed_at
-            for receipt in state.get("applied_interventions", []):
-                # Pause receipts acknowledge their resume; a stop receipt is
-                # terminal and never receives a resumed_at stamp.
-                if (isinstance(receipt, dict) and not receipt.get("resumed_at")
-                        and not stop.is_stop_receipt(receipt)):
-                    receipt["resumed_at"] = resumed_at
+            stop.acknowledge_pause(state, runner.now())  # never stamps a stop receipt
             state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, state["next_stage"])
                          else "DISCOVERING" if state["next_stage"] == "astra_discovery" else "READY_TO_EXECUTE")
             state.pop('stop_reason', None)

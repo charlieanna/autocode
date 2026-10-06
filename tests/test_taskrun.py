@@ -36,8 +36,8 @@ FIXTURE_OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gp
 
 class RunViewTests(unittest.TestCase):
     def test_explicit_report_retry_bypasses_automatic_escalation(self):
-        self.assertTrue(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report='001/sol_report_repair-02')))
-        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report=None)))
+        self.assertTrue(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report='001/sol_report_repair-02'), None))
+        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",

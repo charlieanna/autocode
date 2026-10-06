@@ -147,6 +147,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if metrics["estimated_prompt_tokens"] > metrics["soft_budget_tokens"]:
             print("Context soft budget exceeded; preserving complete requirements", flush=True)
         runner.write_json(state_path, current)
+        if current.get("status") != "RUNNING":
+            # Saving adjudicated a queued resolver request (published or deferred it): launch nothing.
+            return runner.orchestrator.SKIP
         schema_value = request.schema
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
         runner.write_json(schema_path, support.model_output_schema(schema_value))

@@ -54,7 +54,10 @@ blocks goal approval, artifact approval and completion until the owner consumes 
 
 A pause-only request preserves the selected next stage and any valid goal approval. It
 pauses at the next safe boundary with a `pause_intent`; `--resume-paused` records its
-acknowledgement and resumes that selected stage. `--pause-after-stage` and the existing
+acknowledgement and resumes that selected stage. If the run was already held at another
+pause (an operational pause, with or without its AutoResolver request), the intent
+records that pause as `held_pause`. `--resume-paused` then acknowledges the intervention
+and returns the run to that pause, which is released only by its own authority. `--pause-after-stage` and the existing
 run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
