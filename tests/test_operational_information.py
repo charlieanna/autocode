@@ -202,6 +202,29 @@ class OperationalInformationCLITests(unittest.TestCase):
         for key in ('pending_report_repair', 'report_repair_archive', 'sessions'):
             self.assertEqual(before.get(key), after.get(key), key)
 
+    def test_a_held_content_filter_stop_names_a_model_change(self):
+        # The content filter refused the Tester's model; it would likely refuse again (#464/#465).
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_QUOTA_STAGE='sol',
+                        AUTOCODE_FIXTURE_QUOTA_MODEL='gpt-5.6-sol',
+                        AUTOCODE_FIXTURE_QUOTA_MESSAGE="The response was blocked by the provider's content filter")
+        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
+        self.run, stopped = self.saved()
+        attempt = runner.attempt_id(stopped['active_stage'])
+        self.inform(self.status(), 'The refusal was transient')
+        code, launched, output = self.resume()
+        self.assertEqual((2, False), (code, launched), output)
+        view = self.status()
+        self.assertEqual('held', view['information_review']['status'])
+        self.assertIn(f'--abandon-stage {attempt} ', view['stop_reason'])
+        self.assertIn(', then autocode resume --sol-model MODEL', view['stop_reason'])
+        self.assertEqual(f'--abandon-stage {attempt} then --resume-paused --sol-model MODEL', view['needs']['action'])
+        # The commands it names are accepted and run the Tester on another model.
+        self.assertEqual(0, self.invoke('--abandon-stage', attempt)[0])
+        code, launched, output = self.invoke('resume', '--sol-model', 'gpt-6-luna')
+        self.assertTrue(launched, output)
+        self.assertIn('Tester: started; model=gpt-6-luna', output)
+        self.assertNotIn('Tester: started; model=gpt-5.6-sol', output)
+
     def test_an_explicit_control_leaves_pending_information_unevaluated(self):
         self.inform(self.checkpoint(
             'PAUSED_TIMEOUT_RECOVERY', 'Automatic recovery budget exhausted; no further provider will launch.',

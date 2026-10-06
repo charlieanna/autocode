@@ -35,9 +35,10 @@ import shlex
 from pathlib import Path
 
 try:
-    from . import autocode_util as util
+    from . import autocode_util as util, autocode_quota_route as quota_route
 except ImportError:
     import autocode_util as util
+    import autocode_quota_route as quota_route
 
 VERSION = 1
 KEY = 'information_reviews'
@@ -233,7 +234,20 @@ def _decide(runner, state, run_dir, workspace, cause):
     return 'continue', None, None, None
 
 
-def _message(record, action, reason, flags, run_dir, workspace):
+def _resume_after(state, cause):
+    """The resume that follows setting a stopped attempt aside.
+
+    After a content-filter refusal it names a model change, since the same model would likely refuse
+    again (quota_route.advice; #464/#465). A quota stop keeps the plain resume: the quota can reset.
+    """
+    active = state.get('active_stage') or {}
+    role = active.get('route_role') or active.get('role')
+    if cause == quota_route.REFUSAL_STATUS and role in quota_route.ROLES:
+        return f'--resume-paused {quota_route.flag(role)} MODEL'
+    return '--resume-paused'
+
+
+def _message(record, action, reason, flags, after, run_dir, workspace):
     rid = record['request_id'][:12]
     if action == 'continue':
         return (f"AutoResolver re-evaluated the information sent for request {rid}: no exhausted bound or "
@@ -244,17 +258,17 @@ def _message(record, action, reason, flags, run_dir, workspace):
             "paused and no provider launched.")
     if flags:
         where = f"--workspace {shlex.quote(str(workspace))} --run-dir {shlex.quote(str(run_dir))}"
-        then = '.' if flags.startswith('--resume-paused') else ', then autocode resume.'
+        then = '.' if flags.startswith('--resume-paused') else f", then autocode resume{after[len('--resume-paused'):]}."
         text += f" Next command: autocode {flags} {where}{then}"
     else:
         text += ' Change the cause it names; AutoResolver then asks again for the changed run.'
     return text
 
 
-def _view_action(flags):
+def _view_action(flags, after):
     if not flags:
         return None
-    return flags if flags.startswith('--resume-paused') else flags + ' then --resume-paused'
+    return flags if flags.startswith('--resume-paused') else f'{flags} then {after}'
 
 
 def _current_record(state):
@@ -314,8 +328,9 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
             candidate = copy.deepcopy(state)
             saved = _current_record(candidate)
             action, reason, flags, adopted = _decide(runner, candidate, run_dir, workspace, record['cause'])
-            message = _message(saved, action, reason, flags, run_dir, workspace)
-            decision = {'action': action, 'reason': reason, 'flags': flags, 'view_action': _view_action(flags),
+            after = _resume_after(candidate, record['cause'])
+            message = _message(saved, action, reason, flags, after, run_dir, workspace)
+            decision = {'action': action, 'reason': reason, 'flags': flags, 'view_action': _view_action(flags, after),
                         'message': message}
             evaluated = {'scope': 'operational_information_review', 'request_id': saved['request_id'],
                          'response': saved['response'], 'cause': saved['cause'], 'binding': saved['binding'],
