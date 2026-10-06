@@ -349,6 +349,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if routed is not None:
         return routed
     if args.resolver_response:
+        answered = ((state.get('resolver') or {}).get('human_escalations') or {}).get(args.resolver_request) or {}
+        replay = isinstance(answered, dict) and answered.get('status') == 'consumed'
         candidate = copy.deepcopy(state)
         try:
             resolver_human.respond_operational(candidate, args.resolver_request, args.resolver_token,
@@ -363,6 +365,17 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 return 2
             resolver_human.respond_operational(candidate, fresh['request_id'], fresh['request_token'],
                                                args.resolver_response, args.resolver_message)
+        if replay:
+            # The same response sent again (respond_operational refuses a different one): nothing changes.
+            live = resolver_human.current(state)
+            review = operational_information.projection(state) or {}
+            print(f'AutoResolver already received this response to request {args.resolver_request[:12]}; nothing '
+                  'changed and no provider launched.'
+                  + (' It re-evaluates the response once at the next autocode resume.'
+                     if review.get('request_id') == args.resolver_request and review.get('status') == 'pending' else '')
+                  + (f" A newer AutoResolver request is waiting: answer request {live['request_id']} with its own token."
+                     if live and live['request_id'] != args.resolver_request else ''))
+            return 0
         resolver_human.review_operational_response(candidate)
         scheduled = (operational_information.projection(candidate) or {}).get('status') == 'pending'
         runner.commit_user_action(state, candidate, run_dir)

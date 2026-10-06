@@ -368,14 +368,44 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
     return Outcome(action, message)
 
 
-def retired(state):
-    """Why the current review was retired as stale, or None.
+def _unscheduled(state):
+    """The request ID of corrective information accepted without a scheduled review, or None.
 
-    autocode_run_actions asks again when the run still holds the answered frontier (only the records or
-    evidence the answer was bound to changed): holding on that consumed request would be #486 again.
+    An AutoCode from before #486 consumed `provide_information` and saved the frontier but no review.
+    """
+    resolver = state.get('resolver') if isinstance(state.get('resolver'), dict) else {}
+    frontier = resolver.get('human_response_frontier') if isinstance(resolver.get('human_response_frontier'), dict) else {}
+    rid = frontier.get('request_id')
+    reviews = resolver.get(KEY) if isinstance(resolver.get(KEY), dict) else {}
+    ledger = resolver.get('human_escalations') if isinstance(resolver.get('human_escalations'), dict) else {}
+    entry = ledger.get(rid) if isinstance(rid, str) else None
+    if not isinstance(entry, dict) or rid in reviews:
+        return None
+    response = entry.get('response') if isinstance(entry.get('response'), dict) else {}
+    identity = entry.get('identity') if isinstance(entry.get('identity'), dict) else {}
+    proposal = identity.get('proposal')
+    if (entry.get('status') == 'consumed' and response.get('action') == 'provide_information'
+            and isinstance(proposal, dict) and proposal.get('scope') == 'operational_exhaustion'):
+        return rid
+    return None
+
+
+def retired(state):
+    """Why the current information can no longer be re-evaluated, or None.
+
+    That is a review retired as stale, or information an older AutoCode accepted without scheduling
+    one. autocode_run_actions asks again when the run still holds the answered frontier (only the
+    records or evidence the answer was bound to changed, or no review exists): holding on that consumed
+    request, which cannot be answered again, would be #486 again.
     """
     record = _current_record(state)
-    if record is None or record.get('status') != 'stale':
+    if record is None:
+        rid = _unscheduled(state)
+        if rid is None:
+            return None
+        return (f"AutoResolver did not re-evaluate the information sent for request {rid[:12]}: it was "
+                "accepted before AutoResolver re-evaluated corrective information, so it was never scheduled.")
+    if record.get('status') != 'stale':
         return None
     return (f"AutoResolver did not re-evaluate the information sent for request "
             f"{str(record.get('request_id'))[:12]}: {record.get('retired_reason')}.")

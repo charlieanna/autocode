@@ -141,7 +141,37 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual((2, False), (code, launched), output)
         self.assertEqual(view['needs'], self.status()['needs'])
         self.assertEqual([], self.evaluations())
+        # Sending the old answer again changes nothing and points at the request that is waiting.
+        state_file = self.run / 'state.json'
+        before = state_file.read_bytes()
+        result = self.inform(answered, 'The temporary directory is valid')
+        self.assertIn('already received this response', result.stdout)
+        self.assertIn(f"answer request {view['needs']['resolver_request_id']}", result.stdout)
+        self.assertNotIn('re-evaluates the response once', result.stdout)
+        self.assertEqual(before, state_file.read_bytes())
         # The fresh request takes information like any other and schedules its own one evaluation.
+        self.inform(view, 'The temporary directory is valid')
+        review = self.status()['information_review']
+        self.assertEqual((view['needs']['resolver_request_id'], 'pending'), (review['request_id'], review['status']))
+
+    def test_information_accepted_before_reevaluation_existed_is_asked_again(self):
+        # The issue's own run: an older AutoCode consumed the response and scheduled no review. The
+        # consumed request cannot be answered again, so holding on it would be #486 again.
+        answered = self.issue_checkpoint()
+        self.inform(answered, 'The temporary directory is valid')
+        run, older = self.saved()
+        del older['resolver']['information_reviews']
+        runner.write_json(run / 'state.json', older)
+        for args in (('--resume-paused',), ()):
+            code, launched, output = self.invoke(*args)
+            self.assertEqual((2, False), (code, launched), output)
+            self.assertNotIn('retained the human guidance', output)
+            view = self.status()
+            self.assertEqual('answer', view['needs']['kind'], view['needs'])
+            self.assertNotEqual(answered['needs']['resolver_request_id'], view['needs']['resolver_request_id'])
+            self.assertIn('did not re-evaluate', view['stop_reason'])
+        self.assertEqual([], self.evaluations())
+        # The fresh request takes the information again and schedules its one evaluation.
         self.inform(view, 'The temporary directory is valid')
         review = self.status()['information_review']
         self.assertEqual((view['needs']['resolver_request_id'], 'pending'), (review['request_id'], review['status']))

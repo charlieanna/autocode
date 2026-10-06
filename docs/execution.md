@@ -800,7 +800,9 @@ evidence pins. The next `autocode resume` (or `--resume-paused` without another
 recovery flag) consumes it, without a provider call:
 
 - If anything it is bound to changed, it is retired as stale, the run stays
-  paused and Resolver asks a fresh request for the current run.
+  paused and Resolver asks a fresh request for the current run. Information
+  an AutoCode release from before this re-evaluation accepted has no scheduled
+  evaluation; Resolver asks a fresh request for it the same way.
 - If the stop needs an operator control that information cannot supply (a spent
   automatic-recovery allowance, a reached time, iteration, milestone or
   no-progress bound, a repeated failure, a Builder retry limit, a stopped
@@ -825,7 +827,8 @@ recovery flag) consumes it, without a provider call:
   an explicit resume at other pauses renews. Any other stop is held.
 
 A repeated resume never evaluates the same response twice, and the same response
-sent again changes nothing. A resume killed after writing its decision record but
+sent again changes nothing (the CLI says so, and names a newer request if one is
+waiting). A resume killed after writing its decision record but
 before saving the run state evaluates the response again, still without a
 provider call; the record the saved state names is the decision that took
 effect. `leave_paused` is final.

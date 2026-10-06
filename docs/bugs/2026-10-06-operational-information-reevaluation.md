@@ -32,7 +32,8 @@ never evaluates it:
   retired and AutoResolver asks a fresh request for the current run, launching
   nothing. That includes a run whose frontier is unchanged because only the
   request's records or evidence changed; holding on the consumed request there
-  was this bug again.
+  was this bug again. Information an older AutoCode accepted (the issue's own
+  paused run) has no review record at all; it is asked again the same way.
 - `held`: the stop needs a control information cannot supply (a spent
   recovery allowance, a reached bound, a repeated failure, a Builder retry
   limit, a stopped parallel member, a stalled milestone, spent report-only
