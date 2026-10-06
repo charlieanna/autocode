@@ -310,4 +310,27 @@ view's `needs.action` is that answer and the recovery card offers no retry. The
 job's own retry token still replays the refused model if you retry without naming
 one.
 
+## A parallel Builder stopped on its model
+
+A Builder in a parallel batch that stops on its quota or on a content-filter refusal asks
+the same question, naming its milestone:
+
+```text
+[route-terra] Builder (milestone M1)'s model was refused by its provider's content filter; name another model to continue on
+```
+
+Answer it the same way, with `--answer route-terra=MODEL`. The answer sets that member's
+stopped attempt aside, runs only that milestone's Builder again on the model you name, and
+keeps the other Builders' results. As for a serial Builder, it also moves the run's Builder
+route, so later Builders (the next serial milestone, later batches) run on that model too.
+The answer is checked against the model that member ran on, even when another member's
+answer already moved the route, and it must not share that model's GLM or MiMo family. The
+models a refusal's question lists pass the same checks. When two members stop, AutoCode asks
+about them one at a time.
+
+A member its provider's content filter refused never runs on that model again: the status
+view offers no per-member retry for it, and `--retry-builder M1` is refused until the answer
+has named another model. A member stopped on quota keeps its per-member retry, which runs the
+same model again (for example once its quota has reset).
+
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

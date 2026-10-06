@@ -64,6 +64,8 @@ Repeat `--retry-builder` to select additional failed milestones. Successful sibl
 are retained rather than rerun. A Builder that needs the stronger model its batch's
 checkers run does not pause the run and cannot be retried this way: its milestone is
 built serially later (see [Builder retry policy](models.md#builder-retry-policy)).
+A Builder its provider's content filter refused is not retried this way either: the run asks
+for another model for it (see [A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised
