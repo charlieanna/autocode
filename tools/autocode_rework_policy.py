@@ -31,12 +31,34 @@ def _run_root(output):
                  and parent.parent.parent.name == '.autocode'), None)
 
 
-def _captures(state, workspace):
-    """Where check captures outside the run directory may live: the workspace-shared area, and
-    the tool-containment scratch this run's own launches recorded, where a contained stage is
-    told to capture (#419). Another run's scratch is not in this run's stage records."""
+def _captures(record, workspace):
+    """Where a Validator's captures outside the run directory may live: the workspace-shared area, and
+    the tool-containment scratch its own launch record names, the only place under .autocode/ a contained
+    stage can write (#419). Another stage's or another run's scratch is not in that record."""
     return (workspace / '.autocode' / 'evidence',
-            *containment.recorded_scratch(state.get('stages', []), workspace))
+            *containment.recorded_scratch([record], workspace))
+
+
+def require_own_scratch(pins, record, workspace):
+    """Refuse, when a Validator report is accepted, a pin in tool-containment storage its own launch did not make.
+
+    route() re-verifies the accepted Validator's pins and owns contained evidence only through that
+    Validator's launch record. Refused only then, the pin would pause every REWORK, and the Completion
+    Reviewer cannot change the Validator's pins. Other .autocode/ areas keep route()'s existing handling:
+    runner-written ones such as .autocode/captures/ are cited legitimately and route() does not list them.
+    """
+    private = Path(workspace) / '.autocode'
+    own = containment.recorded_scratch([record], workspace)
+    for path in pins:
+        target = Path(path)
+        if (target.is_relative_to(private) and target != private
+                and containment.CONTROL_NAME.fullmatch(target.relative_to(private).parts[0])
+                and not any(target.is_relative_to(root) for root in own)):
+            raise ValueError(
+                f'Evidence belongs to another stage\'s tool containment: {path}. A later repair re-verifies every '
+                'evidence pin, so cite contained captures only from '
+                + (f'this stage\'s own tool_containment.scratch ({own[0]})' if own else 'a stage\'s own scratch')
+                + ', or this run directory or .autocode/evidence/.')
 
 
 def _owned(path, workspace, run_dir, *, artifact=False, captures=()):
@@ -243,7 +265,8 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         ('task_id', task.get('id')), ('contract_hash', state['goal_contract']['hash']),
         ('contract_revision', state['goal_contract']['revision']), ('source_revision', record.get('source_revision'))))
     pins = validation.get('evidence_hashes') or {}
-    captures = _captures(state, workspace)
+    # Pins are re-verified only through a sealed accepted Validator, whose own launch names its scratch.
+    captures = _captures(accepted or {}, workspace)
     if report is not None and current_validation:
         for path, digest in pins.items():
             _require(_hash(_owned(path, workspace, root, captures=captures)) == digest,
