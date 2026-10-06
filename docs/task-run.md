@@ -326,9 +326,10 @@ information sent to its current operational request (`--resolver-response
 provide_information`), or is `null`: `request_id`, `status`, `cause` (the pause
 the request was for), `scheduled_at`, `evaluated_at`, `decision` (`hold` or
 `continue`), `reason`, `action` and `receipt` (the runner-owned decision record).
-`status` is `pending` until the next resume (`autocode resume` or
+`status` is `pending` until the next resume at that pause (`autocode resume` or
 `--resume-paused` with no other recovery flag) evaluates it once, with no provider
-call; then `held` (still paused, `action` and `needs.action` name the control it
+call; a run that left the pause through another control never evaluates it. Then
+it is `held` (still paused, `action` and `needs.action` name the control it
 requires, such as `--resume-paused --grant-recovery N`, a raised bound or
 `--abandon-stage ATTEMPT`), `admitted` (the run continued through the normal
 admission checks) or `stale` (the run, request, response or evidence changed after

@@ -177,6 +177,11 @@ def _operator_flags(state, cause):
     if cause == 'PAUSED_REPEATED_FAILURE' and any(
             state.get(key) for key in ('pending_report_repair', 'active_runner_check')):
         return None  # --retry-failed-stage refuses until the pending repair is reconciled.
+    if cause == 'PAUSED_BUILDER_RETRY_LIMIT' and not (
+            state.get('next_stage') == 'terra' and any(
+                isinstance(lane, dict) and lane.get('action') == 'pause' and lane.get('failures')
+                for lane in (state.get('builder_retries') or {}).values())):
+        return None  # --retry-builder needs the stopped serial Builder lane.
     return resume_flags(state, cause)
 
 
@@ -341,5 +346,6 @@ def projection(state):
             'decision': decision.get('action'), 'reason': decision.get('message') or record.get('retired_reason'),
             'action': (decision.get('view_action') if record.get('status') == 'held'
                        and state.get('status') == record.get('evaluated_status')
-                       else '--resume-paused' if record.get('status') == 'pending' else None),
+                       else '--resume-paused' if record.get('status') == 'pending'
+                       and state.get('status') == record.get('pause_status') else None),
             'receipt': record.get('receipt_output')}

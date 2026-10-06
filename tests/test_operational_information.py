@@ -10,6 +10,7 @@ import unittest
 
 from . import test_subprocess
 import autocode as runner
+import autocode_operational_information as information
 import autocode_support as support
 
 
@@ -209,6 +210,35 @@ class OperationalInformationCLITests(unittest.TestCase):
             self.assertEqual(answered.get(key), resumed.get(key), key)
         self.assertEqual(answered['settings']['limits'], resumed['settings']['limits'])
         self.assertFalse(resumed.get('recovery_grants'))
+
+
+class OperatorControlTests(unittest.TestCase):
+    """A held decision names only a control the CLI accepts at that stop (#288)."""
+
+    def flags(self, cause, **state):
+        return information._operator_flags(state, cause)
+
+    def test_each_operator_only_stop_names_its_control(self):
+        self.assertEqual('--resume-paused --grant-recovery N', self.flags('PAUSED_TIMEOUT_RECOVERY'))
+        self.assertEqual('--resume-paused --max-seconds N', self.flags('PAUSED_TIME_LIMIT'))
+        self.assertEqual('--resume-paused --no-progress-limit N', self.flags('PAUSED_NO_PROGRESS'))
+        self.assertEqual('--resume-paused --retry-failed-stage', self.flags('PAUSED_REPEATED_FAILURE'))
+        lane = {'terra': {'action': 'pause', 'failures': ['out.json']}}
+        self.assertEqual('--resume-paused --retry-builder M2', self.flags(
+            'PAUSED_BUILDER_RETRY_LIMIT', next_stage='terra', builder_retries=lane,
+            current_task={'milestone_id': 'M2'}))
+        batch = {'status': 'BUILDING', 'workers': [{'milestone_id': 'M1', 'status': 'PAUSED_BUDGET'},
+                                                   {'milestone_id': 'M2', 'status': 'COMPLETE'},
+                                                   {'milestone_id': 'M3', 'status': 'FAILED'}]}
+        self.assertEqual('--resume-paused --retry-builder M1 --retry-builder M3', self.flags(
+            'PAUSED_ORCHESTRATOR_WORKER', next_stage='orchestrator', orchestration_batch=batch))
+
+    def test_a_control_the_cli_would_refuse_is_not_named(self):
+        self.assertIsNone(self.flags('PAUSED_REPEATED_FAILURE', pending_report_repair={'attempts': 2}))
+        self.assertIsNone(self.flags('PAUSED_BUILDER_RETRY_LIMIT', next_stage='terra'))
+        self.assertIsNone(self.flags('PAUSED_ORCHESTRATOR_WORKER', next_stage='terra',
+                                     orchestration_batch={'status': 'BUILDING', 'workers': []}))
+        self.assertIsNone(self.flags('PAUSED_MILESTONE_STALLED'))
 
 
 if __name__ == '__main__':
