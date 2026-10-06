@@ -259,6 +259,41 @@ class BuildBlackbox(unittest.TestCase):
                                      capture_output=True, text=True)
             self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
 
+    def test_ignored_document_completes_and_edit_invalidates_completion(self):
+        ignored = self.project / '.gitignore'
+        ignored.write_text('docs/\n')
+        for args in [('add', '.gitignore'), ('-c', 'user.name=Fixture', '-c',
+                     'user.email=f@example.test', 'commit', '-qm', 'Ignore documentation output')]:
+            subprocess.run(['git', *args], cwd=self.project, check=True, capture_output=True)
+        content = '# Deployment checklist\n- Check the service.\n'
+        spec = plan([([], 'Write the deployment checklist', ['docs/checklist.md'])],
+                    {'M1': {'docs/checklist.md': content}},
+                    {'M1': "from pathlib import Path; assert Path('docs/checklist.md').read_text() == " + repr(content)},
+                    'Deliver the specified deployment checklist')
+        spec['complete_product'] = True
+        self.seed(spec, max_parallel=1)
+        index = (self.project / '.git/index').read_bytes()
+        self.build()
+        identity = ['--run-dir', str(self.run)]
+        for _ in range(2):
+            self.invoke('autoreview', [*identity, '--no-chat'])
+            status = json.loads(self.invoke('autocode', [*identity, '--status']).stdout)
+            if status['status'] == 'TASK_COMPLETE':
+                break
+        self.assertEqual('TASK_COMPLETE', status['status'])
+        self.assertTrue(status['completion_current'])
+        self.assertEqual(1, len(self.events()), 'An ignored deliverable must not trigger Builder retries')
+        document = self.project / 'docs/checklist.md'
+        self.assertEqual(content, document.read_text())
+        self.assertEqual('docs/\n', ignored.read_text())
+        self.assertEqual(index, (self.project / '.git/index').read_bytes())
+        self.assertEqual(0, subprocess.run(['git', 'check-ignore', '-q', 'docs/checklist.md'],
+                                         cwd=self.project).returncode)
+        document.write_text('# Changed after completion\n')
+        stale = json.loads(self.invoke('autocode', [*identity, '--status', '--inspect-evidence']).stdout)
+        self.assertFalse(stale['completion_current'])
+        self.assertEqual('stale_or_unverified', stale['view']['verification']['freshness'])
+
     def test_06_hidden_ownership_escape_rejected(self):
         self.seed(); self.env['BUILD_AUDIT_FAULT']='escape'; self.build(2)
         self.assertFalse((self.project/'unauthorized.txt').exists())

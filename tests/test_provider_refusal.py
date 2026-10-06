@@ -20,6 +20,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from .supervision_fixture import launcher
+
 import autocode as runner
 import autocode_dispatch as dispatch
 import autocode_goals as goals
@@ -28,6 +30,7 @@ import autocode_provider_refusal as provider_refusal
 import autocode_quota_route as quota_route
 import autocode_run_view as run_view
 import autocode_support as support
+import autocode_worker_quota as worker_quota
 from goal_fixtures import approve_fixture
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
@@ -169,6 +172,33 @@ class ContentFilterRouteTests(unittest.TestCase):
         self.assertEqual("Configured models that pass the launch rules for the Builder: anthropic/claude-sonnet-5-5.",
                          asked["recommendation"])
 
+    def test_a_batch_member_lists_and_accepts_only_models_its_answer_takes(self):
+        # #465: Builder M2 of a parallel batch was refused on MiMo after a sibling's answer had moved the
+        # Builder route to another provider's model. Its question and answer are about the model M2 ran on,
+        # and the answer must also leave that worker's model family (#458): a MiMo elsewhere is not listed.
+        moved, mimo_elsewhere = "openai/gpt-6-luna", "openrouter/xiaomi/mimo-v2.6"
+        state = self.state(plan_reviewer=mimo_elsewhere)
+        state["settings"]["roles"]["terra"]["model"] = moved
+        member = {"role": "terra", "stage": "terra", "milestone_id": "M2", "model": MIMO,
+                  "pause_status": "PAUSED_CONTENT_FILTER", "active": True}
+        asked = worker_quota.question(state, member, cross_check=dispatch.enforce_cross_model_verification,
+                                      family=dispatch._model_family)
+        self.assertEqual(("Builder (milestone M2)", MIMO, MIMO, [moved]),
+                         (asked["job"], asked["current_model"], asked["stopped_model"], asked["candidates"]))
+        self.assertEqual([mimo_elsewhere, moved], worker_quota.question(
+            state, member, cross_check=dispatch.enforce_cross_model_verification)["candidates"])
+        # Every listed model passes the parallel answer path's checks; the unlisted MiMo fails one.
+        for model in asked["candidates"]:
+            quota_route.validate(state, "terra", model, configured_tool=False, current=MIMO,
+                                 cross_check=dispatch.enforce_cross_model_verification)
+            worker_quota.validate_model(model, member, dispatch._model_family)
+        quota_route.validate(state, "terra", mimo_elsewhere, configured_tool=False, current=MIMO,
+                             cross_check=dispatch.enforce_cross_model_verification)
+        with self.assertRaisesRegex(ValueError, "choose another model family"):
+            worker_quota.validate_model(mimo_elsewhere, member, dispatch._model_family)
+        record = quota_route.assign(state, "terra", moved, at="t", via="answer", attempt=member, current=MIMO)
+        self.assertEqual((MIMO, moved, "PAUSED_CONTENT_FILTER"), (record["from"], record["to"], record["pause_status"]))
+
     def test_the_view_answer_and_record_carry_the_refusal(self):
         state = self.state()
         attempt, asked = self.question(state)
@@ -260,7 +290,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
              patch.object(runner.opencode, "CONFIGURED", bool(saved_session), create=True), \
              patch.object(runner.opencode, "NAME", "kilo", create=True), \
              patch.object(runner.readonly_events, "prepare_opencode_snapshots"), \
-             patch.object(runner.subprocess, "Popen", Child), \
+             patch.object(runner.supervision, "launch", launcher(Child)), \
              patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
              patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=exited), \
@@ -307,32 +337,41 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         self.assertEqual(("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file"), (stop.status, str(stop)))
 
     def test_session_provenance_is_checked_before_the_refusal(self):
-        # A refusal from a session the run did not expect, or naming none, is not typed or answered with a
-        # model: not at the first stop, and not when --resume-paused reconciles the same saved attempt,
-        # including one whose exit the runner never saved because it stopped while the provider ran, or
-        # one it interrupted (a signal exit, as child.poll() saves it after an interrupt or a cleanup).
+        # Refusals from an unexpected or unnamed session are never typed or answered with a model.
+        # A supervised attempt without a collected exit first needs verified ownership; legacy
+        # attempts and collected exits retain the original session-provenance stop.
         missing = "Provider returned a missing or unexpected session ID"
         recovered = "Recovered response belongs to an unexpected session"
         human = runner.resolver_runtime.human
         for saved, written in self.unexpected_refusals():
-            for saved_exit in (0, None, -2, -15):
-                with self.subTest(saved_session=saved, saved_exit=saved_exit):
-                    stop, state = self.build(written, saved_session=saved)
-                    self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
-                    self.assertEqual((0, saved), (state["active_stage"]["exit_code"],
-                                                  state["active_stage"]["expected_session"]))
-                    thread = runner.format_correction.event_thread_id(Path(state["active_stage"]["events"]))
-                    self.assertTrue(thread != saved if saved else thread is None, thread)
-                    self.assertEqual("PAUSED_CONTENT_FILTER", support.failure_status(state["active_stage"]["events"]))
-                    state["active_stage"]["exit_code"] = saved_exit
-                    resumed = self.reconcile(state)
-                    self.assertEqual(("PAUSED_UNCERTAIN_STAGE", recovered), (resumed.status, str(resumed)))
-                    self.assertIn("active_stage", state)
-                    self.assertEqual({"terra": saved} if saved else {}, state["sessions"])
-                    # The request the resumed stop stages asks no model question.
-                    self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed))
-                    self.assertEqual("PAUSED_UNCERTAIN_STAGE", state[human.PRIVATE]["origin"]["pause_status"])
-                    self.assertEqual([], human.internal_questions(state))
+            for supervised in (True, False):
+                for saved_exit in (0, None, -2, -15):
+                    with self.subTest(saved_session=saved, supervised=supervised, saved_exit=saved_exit):
+                        stop, state = self.build(written, saved_session=saved)
+                        self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
+                        self.assertEqual((0, saved), (state["active_stage"]["exit_code"],
+                                                      state["active_stage"]["expected_session"]))
+                        thread = runner.format_correction.event_thread_id(Path(state["active_stage"]["events"]))
+                        self.assertTrue(thread != saved if saved else thread is None, thread)
+                        self.assertEqual("PAUSED_CONTENT_FILTER", support.failure_status(state["active_stage"]["events"]))
+                        state["active_stage"]["exit_code"] = saved_exit
+                        if not supervised:
+                            state["active_stage"].pop("supervision")
+                            state["active_stage"].pop("owner")
+                        resumed = self.reconcile(state)
+                        if supervised and saved_exit is None:
+                            self.assertEqual("PAUSED_UNCERTAIN_STAGE", resumed.status)
+                            self.assertIn("lacks a verified uninterrupted result", str(resumed))
+                            self.assertIn("--abandon-stage 001/builder-01", str(resumed))
+                            self.assertIn("No provider call or recovered report is automatically accepted", str(resumed))
+                        else:
+                            self.assertEqual(("PAUSED_UNCERTAIN_STAGE", recovered), (resumed.status, str(resumed)))
+                        self.assertIn("active_stage", state)
+                        self.assertEqual({"terra": saved} if saved else {}, state["sessions"])
+                        # The retained stop asks no model question for either ownership route.
+                        self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed))
+                        self.assertEqual("PAUSED_UNCERTAIN_STAGE", state[human.PRIVATE]["origin"]["pause_status"])
+                        self.assertEqual([], human.internal_questions(state))
 
     def test_a_resumed_refusal_from_an_unexpected_session_keeps_the_first_stop(self):
         # As in run_role, a timeout names the stop before the session or the response is read, and the

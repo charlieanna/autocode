@@ -3,13 +3,12 @@
 Only the checked-in fake OpenCode/Codex bundle may run through this transport.
 Nothing in production imports this module or selects it from fixture env vars.
 """
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import importlib
 import os
 from pathlib import Path
 import runpy
 import shutil
-import subprocess
 import sys
 from unittest.mock import patch
 
@@ -70,18 +69,23 @@ def main():
     sys.argv = [target, *sys.argv[2:]]
     sys.path.insert(0, str(TOOLS))
     modules = [importlib.import_module("autocode_provider_launch")]
+    supervision_modules = [importlib.import_module("autocode_supervision")]
     # Installed CLI scripts import the package namespace instead of tools/ scripts.
     if Path(target).resolve() != (TOOLS / "autocode.py").resolve():
         modules.append(importlib.import_module("autocode_cli.autocode_provider_launch"))
-    popen = subprocess.Popen
+        supervision_modules.append(importlib.import_module("autocode_cli.autocode_supervision"))
 
-    def offline_popen(args, *positional, **kwargs):
-        if isinstance(args, (list, tuple)) and Path(str(args[0])).name == "opencode":
-            fake = checked_fixture(args[0], env=kwargs.get("env"))
-            # Resolve again at the actual process boundary; never fall back to PATH.
-            args = [str(fake), *args[1:]]
-            kwargs["executable"] = str(fake)
-        return popen(args, *positional, **kwargs)
+    def offline_launch(original):
+        @contextmanager
+        def launch(args, *positional, **kwargs):
+            if isinstance(args, (list, tuple)) and Path(str(args[0])).name == "opencode":
+                fake = checked_fixture(args[0], env=kwargs.get("env"))
+                # Authenticate and resolve the provider before the real guard
+                # admits its bootstrap; the bootstrap executes this exact path.
+                args = [str(fake), *args[1:]]
+            with original(args, *positional, **kwargs) as child:
+                yield child
+        return launch
 
     def simulated_prepare(original):
         def prepare(**kwargs):
@@ -101,7 +105,8 @@ def main():
 
     print("TEST-ONLY simulated OpenCode transport; no kernel containment", file=sys.stderr)
     with ExitStack() as stack:
-        stack.enter_context(patch.object(subprocess, "Popen", offline_popen))
+        for module in supervision_modules:
+            stack.enter_context(patch.object(module, "launch", offline_launch(module.launch)))
         for module in modules:
             stack.enter_context(patch.object(module, "prepare", simulated_prepare(module.prepare)))
         runpy.run_path(target, run_name="__main__")

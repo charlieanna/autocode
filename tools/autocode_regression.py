@@ -32,6 +32,12 @@ criteria of its own milestone and of those already accepted
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import subprocess
 import time
 from pathlib import Path
@@ -231,12 +237,16 @@ def prove(state, workspace, run_dir):
     """Run (or reuse) the proof for the current source; return its summary. Launches no model."""
     workspace = Path(workspace)
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
-    current = util.snapshot(workspace)["revision"]
+    current = source_scope.snapshot(workspace, state)["revision"]
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state))
     options = settings(state)
-    python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
-    framework = verify.detect_framework(workspace, python=python)
+    command = options.get("test_command")
+    # A trusted explicit collector chooses the result parser and targeted tests.
+    framework = verify.command_framework(command) if command else None
+    python = ((framework.python if framework and framework.name in ("pytest", "unittest") else None)
+              or options.get("python") or verify.python_for(state.get("project_workspace") or workspace))
+    framework = framework or verify.detect_framework(workspace, python=python)
     base = base_commit(state, workspace)
     operator = operator_patch.pinned(state)
     # Stored only in regression_proof; prove reads it before reusing evidence.
@@ -250,7 +260,7 @@ def prove(state, workspace, run_dir):
         "timeout": suite_timeout(state),
         "identity": verify.execution_identity(workspace, command=options.get("test_command") or
                                                (framework.suite if framework else None),
-                                               dependencies_from=state.get("project_workspace")) if base else
+                                               dependencies_from=state.get("project_workspace"), source_paths=source_scope.paths(state)) if base else
                     {"source_revision": current, "reuse_supported": False},
         "base": base,
         "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
@@ -327,7 +337,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                reported=None, base_suite=base_suite, dependencies_from=dependencies,
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
-                               preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch)
+                               preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
+                               source_paths=source_scope.paths(state))
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
@@ -342,7 +353,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                            for label, receipt in result["checks"].items()}
     after = verify.execution_identity(workspace, command=options.get("test_command") or
                                        (framework.suite if framework else None),
-                                       dependencies_from=state.get("project_workspace")) if path else execution_context["identity"]
+                                       dependencies_from=state.get("project_workspace"), source_paths=source_scope.paths(state)) if path else execution_context["identity"]
     if after != execution_context["identity"]:
         proof["verdict"] = verify.UNVERIFIED
         proof.setdefault("unverified", []).append("Execution context changed while proving the candidate")

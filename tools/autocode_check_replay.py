@@ -22,6 +22,12 @@ imports nothing from the runner.
 """
 from __future__ import annotations
 
+from functools import partial
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import datetime as dt
 import json
 from pathlib import Path
@@ -29,11 +35,11 @@ import uuid
 
 try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence
+    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     from . import autocode_util as util, autocode_verification_schedule as schedule
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence
+    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     import autocode_util as util, autocode_verification_schedule as schedule
 
 PASS, FAIL = "PASS", "FAIL"
@@ -44,7 +50,7 @@ CHECKS IN A PASS: every check in a PASS report must exit 0; the runner re-runs e
 refuses the report otherwise. To show that something fails as it should (a negative control), write a check
 that exits 0 exactly when the failure happens, for example sh -c '! python3 -m unittest tests/test_x.py' or a
 test that asserts the error. Never cite a check that exits non-zero in a PASS.
-The clean copy is the repository's source only: no ignored files and no .autocode/. A check that reads run files
+The clean copy is the repository's source, including explicitly approved ignored deliverables; no .autocode/. A check that reads run files
 (state.json, regression/proof-*/verification.json) cannot pass there. regression_proof in your handoff is the
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
 Replay uses a clean Git worktree: .git may be a file or a directory. Exclude .git in either form
@@ -84,12 +90,18 @@ def evidence_pins(result):
         if receipt.get("receipt") and receipt.get("receipt_sha256"):
             pins[receipt["receipt"]] = receipt["receipt_sha256"]
     pins.update(brief_evidence.evidence_pins((result or {}).get("brief_acceptance")))
+    pins.update(risk_evidence.evidence_pins((result or {}).get("risk_acceptance")))
     return pins
 
 
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
-            required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False) -> dict:
+            required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False, all_risk_observations=False) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    selected = source_scope.paths(approved_state or {})
+    if selected:
+        scratch_run = partial(scratch_run, source_paths=selected)
+        if execution_identity:
+            execution_identity = partial(execution_identity, source_paths=selected)
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     # Report stems repeat across iterations, repairs and retries of one attempt.
     # Allocate before any scratch/protected-test writes so old citations stay intact.
@@ -172,9 +184,12 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     brief = brief_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
                                   source_revision=record.get("source_revision"), progressive_context=progressive_context,
                                   all_observations=all_brief_observations)
+    risk = risk_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
+                               source_revision=record.get("source_revision"), progressive_context=progressive_context,
+                               all_observations=all_risk_observations)
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
-              "protected_tests": protected, "brief_acceptance": brief, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+              "protected_tests": protected, "brief_acceptance": brief, "risk_acceptance": risk, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     decisions = [row for row in seen.values() if row.get("scheduling")]
     result["scheduling"] = {
         "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),

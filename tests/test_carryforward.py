@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import test_milestone_checkpoints as fixtures
 import autocode_carryforward as cf
+import autocode_findings as findings
 import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
 import autocode_milestones as m
@@ -90,6 +91,62 @@ class CarryForwardTests(unittest.TestCase):
         (self.root / 'unrelated.txt').write_text('New M2 work')
         self.revise(lambda body: body['acceptance_criteria'][2].update(verification_method='New Unicode test'))
         self.assertEqual({'M1'}, m.accepted_ids(self.state))
+
+    def validate_again(self, milestone='M1'):
+        self.assign(milestone, next_task={**self.decision(milestone)['next_task'], 'kind': 'validate'})
+
+    def test_an_open_blocking_finding_its_own_review_can_close_revalidates_an_accepted_milestone(self):
+        # Only M1's review covers the finding's criteria (#447); revalidating M1 makes the run review it first.
+        self.start(); self.accept_fixture()
+        baseline = copy.deepcopy(self.state)
+        for name, blocking, criteria, result in (('blocking', True, None, 'revalidate'),
+                                                 ('not blocking', False, None, 'carried'),
+                                                 ('not M1 criteria', True, ['C1', 'C3'], 'carried')):
+            with self.subTest(name):
+                self.state = copy.deepcopy(baseline)
+                findings.record_validation(self.state, {'findings': [
+                    {'severity': 'high', 'finding': 'Empty input crashes', 'evidence': 'event:check', 'blocking': blocking}]},
+                    {'output': 'sol-recheck.json'})
+                if criteria:  # A stale scope M1's review could not close: revalidating M1 would not help.
+                    findings.open_entries(self.state)[0]['scope']['criteria'] = criteria
+                self.revise()
+                [outcome] = self.state['milestone_carry_forward'][-1]['outcomes']
+                self.assertEqual(result, outcome['result'])
+                self.assertEqual({'carried': {'M1'}, 'revalidate': set()}[result], m.accepted_ids(self.state))
+
+    def test_milestones_depending_on_a_revalidated_one_are_carried_and_count_once_it_is_accepted_again(self):
+        self.start(dependent=True); self.accept_fixture(); self.assign('M2'); self.accept_fixture('M2')
+        self.validate_again('M1')
+        findings.record_validation(self.state, {'findings': [
+            {'severity': 'high', 'finding': 'Empty input crashes', 'evidence': 'event:check'}]}, {'output': 'sol-recheck.json'})
+        [fid] = [row['id'] for row in findings.open_entries(self.state)]
+        self.revise()
+        self.assertEqual({'M1': 'revalidate', 'M2': 'carried'},
+                         {row['milestone_id']: row['result'] for row in self.state['milestone_carry_forward'][-1]['outcomes']})
+        self.assertEqual(set(), m.accepted_ids(self.state))
+        with self.assertRaisesRegex(ValueError, 'prerequisites are accepted: M1'):
+            self.validate_again('M2')
+        self.validate_again('M1')
+        self.validate()
+        findings.record_validation(self.state, {'findings': [], 'finding_dispositions': [
+            {'id': fid, 'disposition': 'resolved', 'evidence': 'Empty input now exits with an error'}],
+            'criterion_results': [{'id': cid, 'status': 'PASS', 'evidence_refs': ['event:check']} for cid in ('C1', 'C2')]},
+            {'output': 'sol-close.json'})
+        self.validate_again('M2')
+        self.assertEqual('M2', self.state['current_task']['milestone_id'])
+        self.assertEqual({'M1', 'M2'}, m.accepted_ids(self.state))
+
+    def test_a_carried_milestone_reviewed_again_counts_once_accepted_again(self):
+        # Accepting it again on fresh validation drops its reuse manifest; it used to stay unaccepted for good.
+        self.start(dependent=True); self.accept_fixture(); self.revise()
+        self.validate_again('M1')
+        self.validate()
+        self.assign('M2')
+        self.assertEqual('M2', self.state['current_task']['milestone_id'])
+        self.assertEqual({'M1'}, m.accepted_ids(self.state))
+        row = self.state['milestone_progress'][self.state['goal_contract']['hash'] + ':M1']
+        self.assertNotIn('reuse_manifest', row)
+        self.assertTrue(row['carried_from'])
 
     def test_material_contract_changes_revalidate(self):
         self.start(); self.accept_fixture()

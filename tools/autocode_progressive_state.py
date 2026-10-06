@@ -19,6 +19,12 @@ resumes or a model's assertion.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 import json
 import math
@@ -342,7 +348,7 @@ def prepare_seal(state, contract_token):
     planner_witness, planner_session = repair_provenance.witness(state, planner, prior["output"])
     if planner_witness.get("role") == witness.get("role") or planner_session == reviewer_session:
         raise ValueError("initial progressive reviewer must be independent of the accepted Planner")
-    snapshot = util.snapshot(Path(state["workspace"]))
+    snapshot = source_scope.snapshot(Path(state["workspace"]), state)
     if any(row.get("source_revision") != snapshot["revision"] for row in (witness, planner_witness)):
         raise ValueError("source changed after initial progressive plan review")
     prepared["required_checks"] = product_checklist(body, rules.cumulative_checks(candidate["proposal"]))
@@ -1037,7 +1043,7 @@ def apply_revision(state, stage, value, record, *, product_findings):
         return False
     ledger = view(state)
     transition = ledger["transition"]
-    current = util.snapshot(Path(state["workspace"]))
+    current = source_scope.snapshot(Path(state["workspace"]), state)
     if current != transition["source"] or record.get("source_revision") != current["revision"]:
         raise ValueError("source changed during progressive slice review")
     token = goals.token(state["goal_contract"])

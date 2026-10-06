@@ -176,7 +176,7 @@ class HumanPublicationTests(unittest.TestCase):
         args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
             ['--run-dir', self.state['run_dir'], '--abandon-stage', '001/terra-01', '--no-chat'])
         fake_runner = Mock()
-        fake_runner.abandon_stage.side_effect = lambda state, *_: state.update(
+        fake_runner.abandon_stage.side_effect = lambda state, *_, **__: state.update(
             status='PAUSED_STAGE_ABANDONED', stop_reason='Stage set aside')
         with patch.object(run_actions.dependency, 'apply', return_value=None), \
                 patch.object(run_actions.resolver_runtime, 'record_operational_exhaustion', return_value=True) as publish:

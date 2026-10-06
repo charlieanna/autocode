@@ -4,6 +4,12 @@ Checks coverage and capture provenance. Pixel comparison remains the independent
 reviewer's obligation; a valid capture receipt never supplies a PASS verdict.
 """
 from __future__ import annotations
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 from pathlib import Path
 try:
@@ -74,7 +80,7 @@ def report_refs(state, report, *, stage=None):
     references = {str((Path(record["root"]) / artifact["path"]).resolve())
                   for case in cases.values() for artifact in case["artifacts"].values()}
     refs, candidates = [], set()
-    current = util.snapshot(root) if any(row['status'] == 'PASS' for row in rows) else None
+    current = source_scope.snapshot(root, state) if any(row['status'] == 'PASS' for row in rows) else None
     for row in rows:
         mapped = row["criterion_ids"]
         if len(mapped) != len(set(mapped)) or not set(mapped) <= criteria:
@@ -140,7 +146,7 @@ def reusable_results(state):
             if row['id'] not in cases or row['status'] != 'PASS':
                 continue
             try:
-                current = current or util.snapshot(state['workspace'])
+                current = current or source_scope.snapshot(state['workspace'], state)
                 _, refs = visual.verify(state,row['capture_ref'],row['capture_sha256'],case=cases[row['id']],current=current)
                 refs += [str(Path(state['workspace']) / row['comparison_ref']) if not Path(row['comparison_ref']).is_absolute() else row['comparison_ref']]
                 if not all(pins.get(path) == util.file_hash(path) for path in refs):

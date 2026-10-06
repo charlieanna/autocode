@@ -65,7 +65,7 @@ def progress(state: dict, *, accepted, stage: str | None, needs: dict | None,
         requirements["label"] = "no requirements yet for this request"
     problems = _problems(state, _rows(state.get("turns")))
     kind = (needs or {}).get("kind")
-    asked = _asked(needs)
+    asked = _asked(needs, state)
     if done:
         headline = "Complete"
     elif stopped:
@@ -219,7 +219,7 @@ def _problems(state, turns):
     return {"open": total, "items": items, "reports": reports}
 
 
-def _asked(needs):
+def _asked(needs, state=None):
     kind = (needs or {}).get("kind")
     if kind == "answer":
         return f"{_count(len(needs.get('questions') or []), 'question')} to answer"
@@ -231,6 +231,13 @@ def _asked(needs):
         return "plan review budget used up"
     if kind == "resume":
         return "inspect the pause, then resume"
+    if kind == "retry_job" and needs.get("route"):
+        route = needs["route"]
+        job = route.get("job") or "job"
+        # Once a person named the model (job_failure.route_assignment), only the retry is left (#463).
+        if _mapping(_mapping((state or {}).get("job_failure")).get("route_assignment")):
+            return f"retry the {job} on {route.get('current_model')}"
+        return f"name another model for the {job}, then retry it"
     if kind == "retry_job":
         return "inspect the failed job, then retry"
     if kind == "dependency":

@@ -12,10 +12,11 @@ from pathlib import PurePath
 
 try:
     from .autocode_role_names import role_name
-    from . import autocode_builder_policy as builder_policy
+    from . import autocode_builder_policy as builder_policy, autocode_quota_route as quota_route
 except ImportError:
     from autocode_role_names import role_name
     import autocode_builder_policy as builder_policy
+    import autocode_quota_route as quota_route
 
 ACTIVE = {'RUNNING', 'DISCOVERING', 'EXECUTING', 'TASK_COMPLETE', 'COMPLETE'}
 # These inputs bind the displayed stopped frontier. Polling timestamps and
@@ -95,6 +96,51 @@ def _explanation(status, role):
     return f'{role or "The task"} stopped before starting another step. Inspect the saved reason before continuing.'
 
 
+# The stop of a job_failure saved before #463, which has its kind but no pause_status.
+_JOB_STOP_CAUSE = {'content_filter': 'PAUSED_CONTENT_FILTER', 'quota': 'PAUSED_BUDGET'}
+
+
+def _job_model_stop(state, role):
+    """What happened to a workflow job its provider refused or ran out of quota on (#463), or None.
+
+    Once a person named another model (``route_assignment``), the next step is only the retry
+    with the token issued for it; a job without a route keeps only its exact retry.
+    """
+    if state.get('status') not in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
+        return None
+    failure = _dict(state.get('job_failure'))
+    route = _dict(failure.get('route'))
+    cause = failure.get('pause_status') or _JOB_STOP_CAUSE.get(failure.get('kind'))
+    job = route.get('job') or role or 'job'
+    on = f" on {route['stopped_model']}" if route.get('stopped_model') else ''
+    assigned = _dict(failure.get('route_assignment')).get('to') if route else None
+    now = f"The {job} now runs on {assigned}; retry it once with the new token." if assigned else ''
+    if cause == 'PAUSED_CONTENT_FILTER':
+        refused = f"The provider's content filter refused the {job}'s response{on}. The same model is likely to refuse it again"
+        if now:
+            return f"{refused}. {now}"
+        return refused + ("; name another model for this job, then retry it with the new token." if route
+                          else "; this stop keeps only its exact retry.")
+    if cause == 'PAUSED_BUDGET':
+        spent = f"The {job}'s provider reported its quota, usage limit or credits used up{on}."
+        if now:
+            return f"{spent} {now}"
+        return spent + (" Name another model for this job, or retry it unchanged once the quota resets."
+                        if route else " Retry it once the quota resets.")
+    return None
+
+
+def _awaits_model(state, need):
+    """A workflow job its provider's content filter refused, with no other model named yet (#463).
+
+    Its exact retry would replay the refused model, so the card offers it only once a person named
+    another model (``route_assignment``, retried with the new token). A quota stop keeps it (the
+    quota resets), and so does a refusal with no model question (the exact retry is its only way on).
+    """
+    return (_dict(need.get('route')).get('cause') == 'content_filter'
+            and not isinstance(_dict(state.get('job_failure')).get('route_assignment'), dict))
+
+
 def _action(kind, label, effect, **fields):
     return {'id': kind + (':' + ','.join(fields['milestone_ids']) if fields.get('milestone_ids') else ''), 'kind': kind, 'label': label, 'effect': effect, **fields}
 
@@ -123,8 +169,12 @@ def _parallel_members(state):
     workers = _rows(batch.get('workers'))
     if any(row.get('status') in ('RUNNING', 'PENDING') for row in workers):
         return []
+    # A member stopped on its model (quota or its provider's content filter) is asked route-terra, never
+    # offered a retry on the same model (#465). --retry-builder still reruns a quota-stopped member when
+    # named explicitly; it refuses a refused one (autocode_worker_quota.refused_retry).
     return [row['milestone_id'] for row in workers
             if isinstance(row.get('milestone_id'), str) and row.get('milestone_id')
+            and row.get('status') not in quota_route.STATUSES
             and (str(row.get('status', '')).startswith(('PAUSED_', 'FAILED', 'BLOCKED'))
                  or row.get('status') == 'INTERRUPTED')]
 
@@ -159,7 +209,7 @@ def project(state, need=None):
     result = {'version': 1, 'token': token(state), 'status': status, 'cause': cause, 'role': role,
               'title': 'Stopped at your request' if terminal else 'Review checkpoint' if decision else 'Task paused',
               'category': 'stopped' if terminal else 'request' if decision else 'recovery',
-              'what_happened': 'The current step finished and saved. This conversation will launch no more stages.' if terminal else _explanation(cause, role),
+              'what_happened': 'The current step finished and saved. This conversation will launch no more stages.' if terminal else (_job_model_stop(state, role) or _explanation(cause, role)),
               'retained': f'{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.',
               'saved_reason': state.get('stop_reason'),
               'context': {'role': role, 'task': _dict(state.get('current_task')),
@@ -189,7 +239,8 @@ def project(state, need=None):
     if attempt is not None and (uncertain or prescribed):
         actions.append(_action('abandon', 'Recover saved work', 'Reconcile this exact interrupted attempt and keep its partial work. Resume is a separate action.', attempt_id=attempt))
     elif need.get('kind') == 'retry_job' and need.get('job_retry_token'):
-        actions.append(_action('retry_job', 'Retry the inspected step', 'Allow one fresh attempt at this recorded failure. Existing scope, model settings and verification gates still apply.', job_retry_token=need['job_retry_token']))
+        if not _awaits_model(state, need):
+            actions.append(_action('retry_job', 'Retry the inspected step', 'Allow one fresh attempt at this recorded failure. Existing scope, model settings and verification gates still apply.', job_retry_token=need['job_retry_token']))
     elif (members := _builder_members(state, cause)):
         actions.append(_action('retry_builder', 'Retry the stopped Builder', 'Grant one attempt for the listed task after inspection, preserving failure history and model pins. This does not approve a different plan.', milestone_ids=members))
     elif need.get('action') == '--resume-paused' and state.get('pending_report_repair'):
