@@ -15,13 +15,15 @@ spec.loader.exec_module(prepare)
 
 
 class CatalogTests(unittest.TestCase):
-    def test_catalog_lists_three_real_pinned_projects_without_preparing(self):
+    def test_catalog_lists_real_pinned_projects_without_preparing(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.assertEqual(0, prepare.main(['--list']))
         cases = json.loads(output.getvalue())
-        self.assertEqual({'Boltons', 'Humanize', 'More Itertools'}, {c['project'] for c in cases})
+        self.assertEqual({'Boltons', 'Humanize', 'More Itertools', 'SymPy', 'Django', 'pytest'},
+                         {c['project'] for c in cases})
         self.assertEqual({'development', 'regression', 'holdout'}, {c['split'] for c in cases})
+        self.assertEqual({'starter', 'hard'}, {c['tier'] for c in cases})
         for case in cases:
             for field in ('base_commit', 'reference_commit'):
                 self.assertRegex(case[field], r'^[0-9a-f]{40}$')
@@ -58,7 +60,7 @@ class CatalogTests(unittest.TestCase):
             case = dict(id='demo', repository=str(repo), base_commit=base, reference_commit=fixed,
                         issue_ref='example/demo#1', split='development', checks=['output'])
             destination = root / 'arena'
-            prepare.prepare(destination, [case], catalog_root=root)
+            prepare.prepare(destination, [case], catalog_root=root, oracle_timeout=5)
             catalog = json.loads((destination / 'catalog.json').read_text())
             self.assertEqual(['demo'], [row['id'] for row in catalog['cases']])
             controls = json.loads((destination / 'cases/demo/controls.json').read_text())

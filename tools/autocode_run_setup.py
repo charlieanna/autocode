@@ -20,6 +20,7 @@ from pathlib import Path
 
 try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
+    from . import autocode_containment_policy as containment_policy
     from . import autocode_task_preflight as task_preflight
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_goal_lifecycle as lifecycle
@@ -31,6 +32,7 @@ try:
     from . import autocode_registry as registry
     from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
     from . import autocode_recovery_view as recovery_view
@@ -39,6 +41,7 @@ try:
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
+    import autocode_containment_policy as containment_policy
     import autocode_task_preflight as task_preflight
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_goal_lifecycle as lifecycle
@@ -50,6 +53,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_regression as regression, autocode_verify as verify
     import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
     import autocode_recovery_view as recovery_view
@@ -199,6 +203,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     # Preserve only this locked invocation's pre-change settings for grant validation.
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     settings = runner.configure(args, state)
+    # Before any stage: refuse a run whose built-in OpenCode stages cannot be kernel-contained, or save
+    # the explicit --allow-uncontained-tools opt-out (#413).
+    containment_policy.configure(state, settings, allow=bool(getattr(args, "allow_uncontained_tools", False)),
+                                 configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+                                 workspace=workspace, now=runner.now)
     settings = protected_oracles.reconcile(state, settings, args, workspace, run_dir,
         is_test_path=verify.is_test_path,
         discover_command=lambda: (verify.detect_framework(workspace,
@@ -256,14 +265,18 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         if (live_pause and resolver_human.supersede_operational(state, reason)) or consumed_pause:
             state['_authorized_bound_change'] = {'pause_status': pause, 'at': runner.now()}
     if state.get("settings") and settings != state["settings"]:
-        # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184).
-        refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
-                                             abandoning=args.abandon_stage)
-        if refusal:
-            parser.error(refusal)
         published = state.get(resolver_human.PUBLIC) or {}
         entry = state.get('resolver', {}).get('human_escalations', {}).get(published.get('request_id'), {})
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
+        # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184),
+        # naming --answer only when the pending request asks that model question.
+        refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
+                                             abandoning=args.abandon_stage, origin=origin,
+                                             questions=published.get('questions') if entry.get('status') == 'pending' else None)
+        # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
+        refusal = refusal or job_route.settings_refusal(args, state, settings)
+        if refusal:
+            parser.error(refusal)
         paused_for = origin.get('pause_status')
         retiring_token_pause = retired_token_budget.retired_pause(origin)
         if retiring_token_pause and resolver_human.supersede_operational(state, 'Cumulative token budgets were removed'):

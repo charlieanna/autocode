@@ -6,6 +6,12 @@ reaches every caller) and imports nothing from autocode.py, which re-exports the
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 import time
 from pathlib import Path
@@ -66,7 +72,7 @@ def recover_legacy_report_repair(state, run_dir, workspace):
             and not record.get("timed_out") and not record.get("interrupted")):
         return False
     required = ("events", "before_ref", "after_ref", "schema")
-    if (support.snapshot(workspace)["revision"] != record["source_revision"]
+    if (source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"] != record["source_revision"]
             or record.get("contract_hash") != (state.get("goal_contract") or {}).get("hash")
             or any(not record.get(key) or not Path(record[key]).is_file() for key in required)
             or not records.stage_completed(state, record)):
@@ -95,18 +101,22 @@ def _stopped_on_route(record):
         return False
 
 
-def abandon_stage(state, run_dir, workspace, selected):
-    """Explicitly discard an uncertain response, retaining its edits and evidence."""
+def abandon_stage(state, run_dir, workspace, selected, *, launch=None):
+    """Explicitly discard an uncertain response, retaining its edits and evidence.
+
+    ``launch`` is the runner: a workflow job set aside here that stopped on its model lists the
+    configured models its launch rules (``dispatch``, ``opencode``) let it take (#463).
+    """
     record = state.get("active_stage")
     if not record or selected != records.attempt_id(record):
         raise ValueError("--abandon-stage must match the active attempt_id shown by --status")
     records.assert_stage_stopped(record)
-    if job_failure.recover(records, state, run_dir, workspace, abandoned=True):
+    if job_failure.recover(records, state, run_dir, workspace, abandoned=True, launch=launch):
         return
     record["metrics"] = support.event_metrics(record["events"])
     records.account_stage(state, record)
     before = records.read_json(Path(record["before_ref"]))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     after_path = Path(record["output"]).with_suffix(".after.json")
     records.write_json(after_path, after)
     record.update(after_ref=str(after_path), source_revision=after["revision"],
@@ -191,7 +201,7 @@ def automatically_recover_report_repair_timeout(state, run_dir, workspace, error
                 or (not records.stage_supports_sessions(state, record) and Path(record['output']).is_file())):
             stop('a terminal response raced the timeout; retain it for reconciliation')
         before = records.read_json(Path(record['before_ref']))
-        after = support.snapshot(workspace)
+        after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
         pins = pending.get('pins') or {}
         required = ('events', 'before_ref', 'after_ref', 'schema')
         if (not original.get('source_revision') or before['revision'] != after['revision']
@@ -286,7 +296,7 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
             "work remain saved; the task is incomplete and no further calls will launch.")
 
     before = records.read_json(Path(record["before_ref"]))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     record["metrics"] = support.event_metrics(record["events"])
     records.account_stage(state, record)
     after_path = Path(record["output"]).with_suffix(".after.json")
@@ -363,7 +373,7 @@ def automatically_recover_truncated_review(state, run_dir, workspace, error):
     except support.Paused:
         return False
     before = records.read_json(Path(record['before_ref']))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if before.get('revision') != after.get('revision'):
         return False
     pending = state.get('pending_report_repair')
@@ -419,7 +429,7 @@ def reconcile_rate_limited_stage(state, run_dir, workspace):
         return False
     records.assert_stage_stopped(record)
     before = records.read_json(Path(record['before_ref']))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if support.changed_paths(before, after):
         raise support.Paused('PAUSED_PROVIDER_UNCERTAIN',
             'Rate-limited attempt changed source; AutoResolver retained it for reconciliation and will not replay it')
@@ -477,7 +487,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
         return False
 
     before = records.read_json(Path(record["before_ref"]))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     record["metrics"] = support.event_metrics(record["events"])
     records.account_stage(state, record)
     after_path = Path(record["output"]).with_suffix(".after.json")
@@ -572,7 +582,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
             f"Cannot provision workspace-contained permission diagnostics: {error}. "
             "The stopped attempt and partial work remain for reconciliation; no retry was launched.") from error
     before = records.read_json(Path(record["before_ref"]))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     record["metrics"] = support.event_metrics(event_path)
     records.account_stage(state, record)
     after_path = Path(record["output"]).with_suffix(".after.json")
@@ -629,7 +639,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
 
 
 def prepare_planning_retry(state, run_dir):
-    """Explicitly retry an exhausted planning report; retain rejected evidence."""
+    """Explicitly retry a planning report whose repair is spent or cannot launch; retain rejected evidence."""
     # Older runs may already have archived a repair under its internal stage
     # name. Recover only the exact abandoned attempt on an explicit resume.
     if (state.get('status') == 'PAUSED_INVALID_OUTPUT' and not state.get('active_stage')
@@ -649,9 +659,15 @@ def prepare_planning_retry(state, run_dir):
     # The caller checks unchanged repeated failures before reaching this point.
     # After the cause changes, planning needs the same explicit fresh attempt
     # path as ordinary invalid output, retaining the exhausted repair artifacts.
-    if state.get('status') not in ('PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE', 'PAUSED_REPORT_REPAIR_LIMIT'):
+    # A repair whose saved inputs exceed the handoff limits can never launch, so
+    # it is as spent as an exhausted one; planning stages do not edit the workspace.
+    status = state.get('status')
+    if status not in ('PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE', 'PAUSED_REPORT_REPAIR_LIMIT',
+                      'PAUSED_REPORT_REPAIR_INPUT'):
         return False
     pending = state.get('pending_report_repair')
+    if status == 'PAUSED_REPORT_REPAIR_INPUT' and not pending:
+        return False
     active = state.get('active_stage')
     stage = (pending or {}).get('original', {}).get('stage', state.get('next_stage'))
     if stage != state.get('next_stage') or not (stage == 'astra_discovery' or planning.is_planning(state, stage)):
@@ -670,7 +686,9 @@ def prepare_planning_retry(state, run_dir):
         state.pop('active_stage', None)
     if pending:
         state.setdefault('report_repair_archive', []).append({
-            'at': records.now(), 'reason': 'Explicit fresh planning retry after rejected output',
+            'at': records.now(), 'reason': ('Explicit fresh planning retry: the report repair cannot launch from its saved inputs'
+                                            if status == 'PAUSED_REPORT_REPAIR_INPUT'
+                                            else 'Explicit fresh planning retry after rejected output'),
             'repair': state.pop('pending_report_repair')})
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'reason': 'Explicit fresh planning retry; rejected reports retained'})
@@ -680,9 +698,12 @@ def prepare_planning_retry(state, run_dir):
 
 
 def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, allow_repeated=False):
-    """Allow an explicit fresh execution report after bounded repairs fail."""
-    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
+    """Allow an explicit fresh execution report after bounded repairs fail or cannot launch."""
+    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_REPORT_REPAIR_INPUT', 'PAUSED_INVALID_OUTPUT',
+                                   'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
         return False
+    # A repair whose saved inputs exceed the handoff limits can never launch: it is spent.
+    unlaunchable = state['status'] == 'PAUSED_REPORT_REPAIR_INPUT'
     pending = state.get('pending_report_repair')
     original = pending.get('original') if isinstance(pending, dict) else None
     if not isinstance(original, dict):
@@ -697,11 +718,11 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
                 for record in state.get('stages', [])))
     if ((stage != state.get('next_stage') and not reroute_abandoned_sol) or stage == 'astra_discovery'
             or planning.is_planning(state, stage)
-            or not (pending.get('attempts') == records.repair_limit(state)
+            or not (unlaunchable or pending.get('attempts') == records.repair_limit(state)
                     or allow_repeated and report_retry.bounded_failure(state, records.repair_limit(state)))):
         return False
     repeated = failures.repeated(state, original)
-    if repeated and not allow_repeated and (workspace is None or support.snapshot(workspace)['revision'] == original.get('source_revision')):
+    if repeated and not allow_repeated and (workspace is None or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] == original.get('source_revision')):
         message = ("The same stage failed the same way at this source "
                    f"{repeated.get('streak', repeated['count'])} consecutive times. Inspect failure_history and saved output; "
                    "change the cause before another execution request.")
@@ -710,15 +731,15 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
         raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     if reroute_abandoned_sol:
         state['next_stage'] = 'sol'
+    reason = ('Explicit fresh execution retry: the report repair cannot launch from its saved inputs'
+              if unlaunchable else 'Explicit fresh execution retry after bounded report failures')
     state.setdefault('report_repair_archive', []).append({
-        'at': records.now(), 'reason': 'Explicit fresh execution retry after bounded report failures',
-        'repair': state.pop('pending_report_repair')})
+        'at': records.now(), 'reason': reason, 'repair': state.pop('pending_report_repair')})
     role = original.get('route_role') or original.get('role')
     old = state.setdefault('sessions', {}).pop(role, None) if role else None
     if old:
         state.setdefault('session_rotations', []).append({
-            'role': role, 'old_session': old, 'at': records.now(),
-            'reason': 'Explicit fresh execution retry after bounded report failures'})
+            'role': role, 'old_session': old, 'at': records.now(), 'reason': reason})
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'iteration': original.get('iteration'),
         'reason': 'Explicit fresh execution retry; rejected reports retained'})
@@ -746,7 +767,7 @@ def stale_report_repair(state, workspace):
     if (not checked or original.get('stage') != state.get('next_stage')
             or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')):
         return None
-    revision = support.snapshot(workspace)['revision']
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']
     if (checked == revision
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending.get('pins', {}).items())):
         return None
@@ -805,7 +826,7 @@ def retry_format_failed_report(state, run_dir, workspace, selected):
     if stale_report_repair(state, workspace):
         raise ValueError('The source changed after this report was rejected, so it cannot be retried; '
                          'use --resume-paused to archive the stale repair and validate the current source afresh')
-    if (support.snapshot(workspace)['revision'] != original['source_revision']
+    if (source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
             or any(not Path(p).is_file() or support.file_hash(p) != h
                    for p, h in pending.get('pins', {}).items())):
@@ -841,7 +862,7 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
                        for e in state.get('user_events', []))
             or not any(v.get('reason') == 'Uncertain stage abandoned' for v in state.get('validation_archive', []))):
         return False
-    revision = support.snapshot(workspace)['revision']
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']
     if abandoned.get('source_revision') != revision or recovery.get('source_revision') != revision:
         return False
     # Only failed completion requests (and their runner-owned repair routing)
@@ -900,7 +921,7 @@ def authorize_failure_retry(state, run_dir, workspace):
     if not repeated:
         raise ValueError('No unchanged repeated failure to authorize; fix the cause, then resume')
     selected = record.get('failure_key')
-    revision = support.snapshot(workspace)['revision']
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']
     identity = repeated['identity']
     if ((state.get('failure_history') or {}).get(selected) is not repeated
             or failures.key(identity) != selected

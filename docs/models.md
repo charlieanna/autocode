@@ -177,8 +177,10 @@ default route; see [CLI](cli.md).
 ## When a role's quota runs out
 
 A provider that reports a used-up quota, usage limit or credits stops the stage with
-`PAUSED_BUDGET`. The stopped attempt is kept, never replayed, and AutoCode asks you
-which model the role should continue on, for example:
+`PAUSED_BUDGET`, and so does a used-up daily, weekly or monthly plan limit sent as an
+HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
+The stopped attempt is kept, never replayed, and AutoCode asks you which model the
+role should continue on, for example:
 
 ```text
 [route-sol] Tester's quota is exhausted; name the model to continue on
@@ -226,12 +228,44 @@ There is no fallback list, configuration table or automatic switch: a quota stop
 always your decision. Capacity errors retry the same model, rate limits pause as
 before, and authentication failures never ask for a model.
 
+### When the stopped role is a workflow job
+
+A workflow job (the Code Reviewer, Designer, Design Reviewer, Analyst, bug-fix
+Investigator or Design inventory) that stops on quota pauses differently: its attempt is set aside at
+once and the job takes one exact retry, bound to the run's configuration
+(`PAUSED_JOB_FAILURE`, `needs.kind` `retry_job`; see [CLI](cli.md#waiting-or-finished)).
+The stop names the job, the model and the provider's words, and the status view's
+`needs.route` carries the same model question. You answer it with the job's retry
+token instead of a resolver token, then retry with the new token it issues:
+
+```sh
+autocode --run-dir RUN --answer route-sol=gpt-6-luna --job-retry-token TOKEN
+autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN
+```
+
+The answer applies the same checks and records the same `route_assignment`. The old
+token stops working, so the job never runs again on the model that stopped without
+your saying so. `--abandon-stage` and a `--sol-model` flag are refused at this stop
+(the flag would make the exact retry stale; only putting back the model the retry is
+bound to is saved), and so is the flag next to an `--abandon-stage` that sets the
+job's uncertain attempt aside: set it aside on its own, then answer. The answer
+itself changes nothing but the job's model; given with another setting it is refused
+and nothing is saved, and so is the answer next to the retry (`--resume-paused
+--retry-failed-stage`), since the retry needs the new token. Once you have named a
+model, the status line and recovery card ask only for the retry on it. The Architect
+(Designer, Design Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
+way to move them. After a quota stop the shown token also retries the job unchanged,
+once the quota resets. The stuck-stage Investigator (`investigate_stuck`) is the
+exception: its route is rebuilt for every investigation, so its stop keeps only the
+exact retry (`--investigator-model` pins the model of the next investigation).
+
 ## When a provider's content filter refuses a response
 
 A provider whose content filter refuses a stage's response (OpenCode's
-`ContentFilterError`, or a `content_filter` error code) stops the stage with
-`PAUSED_CONTENT_FILTER`. The stop names the job, the refused model and the
-provider's words:
+`ContentFilterError`, a `content_filter` error code, or an OpenCode or Kilo stream
+whose last step finished with reason `content-filter`) stops the stage with
+`PAUSED_CONTENT_FILTER`, whether the provider exited with an error or exited 0. The
+stop names the job, the refused model and the provider's words:
 
 ```text
 Builder: the provider's content filter refused the response on xiaomi-token-plan-sgp/mimo-v2.6-pro (ContentFilterError: The response was blocked by the provider's content filter); the same model is likely to refuse it again.
@@ -249,7 +283,56 @@ would pass the launch rules above, or says that none does (in the GLM/MiMo profi
 only other model is the Tester's GLM, which the cross-model rule refuses for the
 Builder). The list is advice, never a default. Setting the attempt aside never raises
 the role's reasoning effort, and the `route_assignment` records `PAUSED_CONTENT_FILTER`
-as its `pause_status`. Only the provider's error event classifies the stop: the model's
-own text ("The request was rejected ...") never does.
+as its `pause_status`. Only the provider's error event or a final `content-filter`
+finish reason classifies the stop: the model's own text ("The request was rejected ...")
+never does. When no error event follows the finish, the provider's words in the stop are
+`content_filter: OpenCode's last step finished with reason content-filter`.
+
+A refusal in a response the provider returned with exit 0 from a session the run did not
+expect, or one that names no session, stays `PAUSED_UNCERTAIN_STAGE` ("Provider returned a
+missing or unexpected session ID") and asks no model question. `--resume-paused` keeps it
+uncertain ("Recovered response belongs to an unexpected session"), and so does a resume
+after AutoCode stopped before it saved the provider's exit or interrupted it. A workflow
+job stopped this way names the session, not a refusal. Only a provider that exited with an
+error has such a refusal typed, as at its first stop. A stage that timed out stays
+`PAUSED_PROVIDER_TIMEOUT` on resume, from any session, as at its first stop, and the
+automatic timeout recovery may set it aside.
+`--answer route-ROLE=MODEL` is accepted only where the request asks it, so while such a
+stop is open (or one a run paused on before a finish-only refusal was typed), the role's
+model flag alone (`--terra-model`) is refused and names only the other route:
+`--abandon-stage ATTEMPT`, then `--resume-paused --terra-model MODEL`.
+
+A refused workflow job pauses for its exact retry, as a quota stop of a job does
+([above](#when-the-stopped-role-is-a-workflow-job)): name another model with
+`--answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry with the new token.
+That answer refuses the model that was refused. Until you name one, the status
+view's `needs.action` is that answer and the recovery card offers no retry. The
+job's own retry token still replays the refused model if you retry without naming
+one.
+
+## A parallel Builder stopped on its model
+
+A Builder in a parallel batch that stops on its quota or on a content-filter refusal asks
+the same question, naming its milestone:
+
+```text
+[route-terra] Builder (milestone M1)'s model was refused by its provider's content filter; name another model to continue on
+```
+
+Answer it the same way, with `--answer route-terra=MODEL`. The answer sets that member's
+stopped attempt aside, runs only that milestone's Builder again on the model you name, and
+keeps the other Builders' results. As for a serial Builder, it also moves the run's Builder
+route, so later Builders (the next serial milestone, later batches) run on that model too.
+The answer is checked against the model that member ran on, even when another member's
+answer already moved the route, and it must not share that model's GLM or MiMo family. The
+models a refusal's question lists pass the same checks. When two members stop, AutoCode asks
+about them one at a time.
+
+The status view offers no per-member retry for a member stopped either way: the question is
+the next step. AutoCode never reruns a member its provider's content filter refused on the
+model that refused it: `--retry-builder M1` is refused while its route is still that model, so
+it runs again only on the model your answer names. A member stopped on quota can still be
+named with `--retry-builder M1`, which runs the same model again (for example once its quota
+has reset).
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

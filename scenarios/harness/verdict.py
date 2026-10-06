@@ -20,6 +20,8 @@ HONEST_BLOCKER = "HONEST_BLOCKER"    # AutoCode stopped and said why, without cl
 ERROR = "ERROR"                      # the run or the oracle broke; no judgement possible
 SKIPPED = "SKIPPED"                  # a required tool or capability is missing
 NOT_EXERCISED = "NOT_EXERCISED"      # the run never reached a stage the scenario exists to test
+INTERRUPTED_UNGRADED = "INTERRUPTED_UNGRADED"  # supervision stopped; no final delivery/usage judgement exists
+PENDING_UNGRADED = "PENDING_UNGRADED"  # an admitted harness owner has not published a final result
 
 # An oracle may also define diagnosis(project, run): how a stage judged the failure the scenario plants
 # (issue #59), scored apart from the run verdict above. Its verdicts, besides NOT_EXERCISED (the planted

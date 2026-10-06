@@ -15,6 +15,12 @@ them.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 
 try:
@@ -301,7 +307,7 @@ def record_decision(state, decision, record):
         required = {row["id"] for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
                     if row.get("human_review") and row["id"] in (report_scope(state) or {}).get("criteria", [])}
         if (not review_gate.review_only_permission(decision, decision.get("user_request", {}), required)
-                or not milestone_scope.fresh_validation(state, s.snapshot(state["workspace"]))):
+                or not milestone_scope.fresh_validation(state, source_scope.snapshot(state["workspace"], state, base_snapshot=s.snapshot))):
             return
     _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
                         report_scope(state),

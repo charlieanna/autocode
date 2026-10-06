@@ -179,14 +179,23 @@ test, and in the three real 2026-10-04 Resolver calls the Completion Owner's rev
 the cause first (`review_already_named_cause`). A `CORRECT` therefore shows that AutoResolver
 confirms the cause, writes a bounded repair that works and stays read-only; it does not show
 unaided discovery of a product-logic defect. The scripted runs prove only the route and the
-scoring. In six natural live `claude-tiers` runs (2026-10-05) no Builder wrote the vacuous
-tests, so none reached the trap. A hybrid run (`run --profile NAME --hybrid`, see
-[the scenario harness](../scenarios/README.md#hybrid-runs)) scripts planning and the first
-Builder, which delivers the vacuous tests, and keeps the Validator, Completion Owner, Resolver
-and repair Builder live; its results have their own mode (`NAME-hybrid`) and its diagnosis
-counts only the live Resolver's calls. `tools/live_diagnosis_trial.py` exercises
-`astra_diagnose` only: a different stage, for repeated Builder report rejections, that writes
-no repair task. Its results never count toward #59.
+scoring. In eight natural live runs on 2026-10-05 (seven `claude-tiers`, one OpenCode) no
+Builder wrote the vacuous tests, so none reached the trap. A hybrid run
+(`run --profile NAME --hybrid`, see [the scenario harness](../scenarios/README.md#hybrid-runs))
+scripts planning and the first Builder, which delivers the vacuous tests, and keeps the
+Validator, Completion Owner, Resolver and repair Builder live; its results have their own mode
+(`NAME-hybrid`) and its diagnosis counts only the live Resolver's calls. The live results and
+their limits are in
+[AutoResolver's live diagnosis](bugs/2026-10-05-autoresolver-live-diagnosis.md). In the 12
+hybrid runs of #59's batches, a hand read found that the Resolver named the vacuous tests and
+the cause in all 12; in 11 of them the Completion Owner had already named the cause (by word
+match). On the fixed product the scorer gave 2 of 6 `CORRECT` at run time and 6 of 6 once it
+was revised on those answers. #59 was closed on the owner's decision: the plan's
+pre-registered criterion (at least 3 scored attempts from one pre-registered natural
+`claude-tiers` batch) was not met.
+`tools/live_diagnosis_trial.py` exercises `astra_diagnose` only: a different stage, for
+repeated Builder report rejections, that writes no repair task. Its results never count
+toward #59.
 
 ## Legacy migration — opt-in only
 

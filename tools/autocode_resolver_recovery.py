@@ -7,6 +7,12 @@ There is no controller, process termination, model call, or acceptance shortcut.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import base64
 import copy
 from dataclasses import asdict
@@ -26,6 +32,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_quota_route as quota_route
     from . import autocode_tool_containment as containment
+    from . import autocode_retained_work as retained
 except ImportError:
     import autocode_recovery_novelty as novelty
     import autocode_util as util
@@ -39,6 +46,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_quota_route as quota_route
     import autocode_tool_containment as containment
+    import autocode_retained_work as retained
 
 
 def _stale(reason):
@@ -88,12 +96,10 @@ def _run_root(state, record):
 
 def _artifact_owned(path, workspace, run, state):
     path = _owned(path, workspace)
-    private = workspace / ".autocode"
-    shared = private / "evidence"
-    scratch = private / "recovery-evidence" / util.digest(str(run))
-    # A contained stage captures in the tool-containment scratch its own launch recorded (#419).
-    contained = containment.recorded_scratch(state.get("stages", []), workspace)
-    if path.is_relative_to(private) and not any(path.is_relative_to(root) for root in (run, shared, scratch, *contained)):
+    # The rule acceptance and Completion routing apply. Pins here come from several stages, so a
+    # contained stage's capture is owned through any launch record of this run (#419).
+    if not rework.owned(path, workspace, run, settings=state.get("settings"),
+                        scratch=containment.recorded_scratch(state.get("stages", []), workspace)):
         _stale("evidence belongs to another run")
     return path
 
@@ -135,6 +141,19 @@ def _scope(state):
     return {"task_id": contract.get("task_id"), "contract_hash": contract.get("hash"),
             "milestones": sorted(task.get("milestone_ids") or [task.get("milestone_id") or ""]),
             "criteria": sorted(task.get("acceptance_criteria") or [])}
+
+
+def _source_revision(state, stage, pointer, packet, workspace):
+    """The source revision a dispatch is bound at: the current one, or for a Builder the packet's own
+    when every file holds its bound content or what this packet's latest Builder attempt left, at an
+    unmoved HEAD (retained_work.own_repair_source says exactly what it admits). Anything else binds
+    the current revision, so other content, such as a person's new edit or a further change after
+    the last attempt, remains a stale handoff."""
+    current, bound = source_scope.snapshot(workspace, state), packet["binding"]["source_revision"]
+    if (stage == "terra" and current["revision"] != bound
+            and retained.own_repair_source(state.get("stages", []), pointer, bound, current)):
+        return bound
+    return current["revision"]
 
 
 def _narrows(failed, scope):
@@ -259,7 +278,7 @@ def prepare_resolution(state, decision, record):
         request["recovery_novelty_skipped"] = "parallel_or_integrated_scope_uses_existing_resolver_bounds"
         return
     run, workspace = _run_root(state, record), Path(state["workspace"]).resolve()
-    current = util.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state)
     if current["revision"] != request["source_revision"]:
         _stale("source changed during incident capture")
     if "recovery_packet" in record:
@@ -349,15 +368,25 @@ def load_packet(pointer, run):
         _stale(f"unavailable or malformed evidence: {error}")
 
 
-def _change(packet, change):
+def _attest(packet, change):
+    """``(identity, None)`` for a proposed change the packet attests, else ``(None, why)`` (#418).
+
+    recovery_change is optional model advice. The packet attests a proposal bounded by its
+    sources, or an observed input transition, with the original discriminating check, that
+    cites pinned originals. Its identity is still None when it proves no structural novelty
+    (an unsupported grammar or unchanged structure). Any other proposal is unproven, exactly
+    like recovery_change=null: it buys no novelty and is never a stale handoff; ``why`` names
+    the check it failed. Tampered retained evidence still raises in load_packet.
+    """
     if not change:
-        return None
+        return None, None
     if not isinstance(change, dict):
-        _stale("proposed change is not an object")
+        return None, "not an object"
     operations = {row["operation"] for row in packet["incidents"]}
     allowed = set(packet["sources"]) - set(packet["protected_tests"].get("files", {}))
     ident = None
-    if change.get("target") in packet.get("permitted_controls", []):
+    is_input = change.get("target") in packet.get("permitted_controls", [])
+    if is_input:
         incident_ids = {novelty.Incident(**row).id for row in packet["incidents"]}
         for prior in reversed(packet["prior_receipts"]):
             if incident_ids.intersection(prior.get("incident_ids", [])) and prior.get("packet"):
@@ -371,11 +400,12 @@ def _change(packet, change):
                                         operations=operations, wrappers=packet["wrappers"])
     if not ident and not novelty.bounded_change(change, sources=packet["sources"], allowed_paths=allowed,
                                                 operations=operations, wrappers=packet["wrappers"]):
-        _stale("proposed change is not a bounded attested source change with the original discriminating check")
+        bounds = "an attested input transition" if is_input else "a bounded attested source change"
+        return None, f"not {bounds} with the original discriminating check"
     refs = change.get("evidence_refs", [])
     available = {row["original_path"] for row in packet["originals"]}
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
-        _stale("proposed change must cite pinned originals")
+        return None, "evidence_refs do not cite pinned originals"
     validation = packet.get("validation") or {}
     event_refs = {row.get("evidence_ref") for row in validation.get("checks", [])}
     streams = {row["events"] for row in packet["prior_attempts"] if row.get("stage") == "sol" and row.get("events")
@@ -383,20 +413,38 @@ def _change(packet, change):
     resolved_refs = {next(iter(streams)) if ref.startswith("event:") and ref in event_refs and len(streams) == 1
                      else ref for ref in refs}
     if not resolved_refs <= available:
-        _stale("proposed change must cite pinned originals")
-    if change.get("target") in packet.get("permitted_controls", []) and not resolved_refs.intersection(packet["input_pins"]):
-        _stale("changed input must cite its attested input evidence")
-    return ident
+        return None, "evidence_refs do not cite pinned originals"
+    if is_input and not resolved_refs.intersection(packet["input_pins"]):
+        return None, "changed input does not cite its attested input evidence"
+    return ident, None
+
+
+def _sort_change(packet, change):
+    """``(change, None)`` for a proposal the packet attests, else ``(None, unattested)``.
+
+    ``unattested`` is ``{"change", "reason"}``: advice a repair plan passes to the Builder,
+    never a ``recovery_change`` (#418, #422).
+    """
+    _, why = _attest(packet, change)
+    if why:
+        return None, {"change": copy.deepcopy(change), "reason": f"Recovery packet: proposed change is unproven ({why})"}
+    return copy.deepcopy(change), None
 
 
 def validate_decision(state, value, record):
+    """Record a Resolver or Completion decision's proposed change and its identity.
+
+    An unproven proposal is kept with recovery_change_id None, like an unsupported grammar:
+    admit_dispatch then grants it no novelty, route_known_change does not route it, and
+    finish_resolution_packet passes it to the Builder only as unattested_change.
+    """
     request = state.get("resolution_request") or {}
     if not request.get("recovery_packet"):
         return
     packet = load_packet(request["recovery_packet"], _run_root(state, record))
     if value.get("recovery_change"):
         change = copy.deepcopy(value["recovery_change"])
-        ident = _change(packet, change)
+        ident, _ = _attest(packet, change)
         request["recovery_change"] = change
         request["recovery_change_id"] = ident
 
@@ -413,7 +461,7 @@ def diagnosis_change(request, change, run_dir):
     guidance, and neither voids the retry nor counts as a new experiment.
 
     The caller has already loaded this packet (finish_resolution_packet), so a stale packet
-    raises as it did there. _change's refusal of the proposal is recorded, not raised.
+    raises as it did there. An unproven proposal is recorded with the check it failed (#418).
     """
     if not change:
         return None, None
@@ -422,10 +470,13 @@ def diagnosis_change(request, change, run_dir):
                       "reason": "No incident packet attests a proposal in parallel or integrated scope"}
     packet = load_packet(request["recovery_packet"], run_dir)
     try:
-        _change(packet, change)
+        return _sort_change(packet, change)
     except (util.Paused, ValueError, KeyError, TypeError, AttributeError) as error:
+        # An unproven proposal no longer raises (#418). What still can is a changed earlier
+        # packet that an input transition cites, or an unexpected error. finish_operational_diagnosis
+        # must not raise after its evaluation, so this is recorded as advice, not a stale handoff.
+        # It grants nothing: admit_dispatch never reads unattested_change.
         return None, {"change": copy.deepcopy(change), "reason": str(error)}
-    return copy.deepcopy(change), None
 
 
 def prepare_diagnosis(state, request, record, run_dir):
@@ -580,6 +631,40 @@ def _diagnosis_grant(state, packet, request, record):
     return util.digest({"diagnosis_retry": retry["receipt"], "packet": pointer}) if accepted else None
 
 
+# Pauses for a stage output the runner rejected; an Investigator's retry of one runs the stage once more.
+REJECTED_OUTPUT = ("PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
+
+
+def _investigation_grant(state, request, record):
+    """The one Builder attempt an Investigator's retry of this packet's rejected Builder output promises.
+
+    The runner rejected what a Builder this packet admitted returned (it also wrote outside its
+    assignment, say) before any check of the incident, and the stuck-stage Investigator verified a
+    cause and recommended a retry (autocode_stuck_job), which for these pauses runs the stage once
+    more. As with an accepted operational diagnosis (#422), the verified guidance in the Builder's
+    prompt is the new information. Bound to that investigation, while its guidance is in force, and to
+    the packet; novelty spends it on one attempt that returns a result. An investigation of any other
+    pause, such as a novelty hold (PAUSED_NO_PROGRESS), grants nothing.
+    """
+    pointer, current = request.get("recovery_packet"), state.get("stuck_investigation") or {}
+    if (record["stage"] != "terra" or not current.get("in_force") or current.get("stage") != "terra"
+            or current.get("status") not in REJECTED_OUTPUT):
+        return None
+    entry = next((row for row in reversed(state.get("stuck_investigations") or [])
+                  if row.get("identity") == current.get("identity")), {})
+    # The rejected attempt it followed is the latest that returned a result: a relaunch automatic
+    # recovery archived without a report (a provider timeout) neither replaces it nor spends the grant.
+    last = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"
+                 and not row.get("report_only") and not row.get("dry_run") and not _returned_nothing(row)), {})
+    asked, rejected = _time(entry.get("requested_at")), _time(last.get("finished_at"))
+    if (entry.get("outcome") != "retried" or entry.get("trigger") != "rejected_output" or not last.get("rejected")
+            or (last.get("recovery_novelty") or {}).get("packet") != pointer
+            or not asked or not rejected or asked < rejected):
+        return None
+    return util.digest({"stuck_investigation": entry["identity"], "requested_at": entry["requested_at"],
+                        "packet": pointer})
+
+
 def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
@@ -587,9 +672,13 @@ def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _builder_grant(state, packet, request, record, prior)
     if ident is not None:
         return ident, "builder"
-    # One use is decided by novelty against attempts that returned a result.
+    # One use is decided by novelty against attempts that returned a result. A diagnosis grant
+    # one of those already carries is spent; it must not hide an Investigator's later grant.
     ident = _diagnosis_grant(state, packet, request, record)
-    return ident, "diagnosis" if ident is not None else None
+    if ident is not None and not any(row.get("grant_id") == ident for row in receipts(state, returned=True)):
+        return ident, "diagnosis"
+    ident = _investigation_grant(state, request, record)
+    return ident, "investigation" if ident is not None else None
 
 
 def finish_resolution_packet(state, request, plan):
@@ -599,6 +688,15 @@ def finish_resolution_packet(state, request, plan):
     if request.get("recovery_packet"):
         run = Path(state.get("run_dir") or Path(request["recovery_packet"]["path"]).parents[2]).resolve()
         packet = load_packet(request["recovery_packet"], run)
+        # A plan's recovery_change is one the packet attests. An unproven proposal reaches the
+        # Builder only as advice with the check it failed, as a diagnosis's does (#418, #422);
+        # Builder admission then weighs only the reviewed decision's own proposal, as when the
+        # Resolver proposes none.
+        _, unattested = _sort_change(packet, request.get("recovery_change"))
+        if unattested:
+            plan.pop("recovery_change", None)
+            plan.pop("recovery_change_id", None)
+            plan["unattested_change"] = unattested
         admission = {"packet": request["recovery_packet"], "binding": _binding(state, packet["binding"]["source_revision"]),
                      "scope": _scope(state), "retry_charge": copy.deepcopy(state.get("builder_retry_decisions", [])[-1:])}
         path = _owned(run / "resolver" / "recovery" / (util.digest(admission) + ".json"), run)
@@ -666,7 +764,8 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     change = decision.get("recovery_change")
     request = state.get("resolution_request") or {}
     if ((decision.get("next_task") or {}).get("kind") != "implement"
-            or not change or change.get("question", "").strip() or not request.get("recovery_packet")
+            or not isinstance(change, dict) or not change or change.get("question", "").strip()
+            or not request.get("recovery_packet")
             or any(state.get(key) for key in ("parent_run", "active_runner_check", "uncertain_artifacts",
                                             "orchestration_batch", "pending_report_repair", "user_request", "pending_questions"))
             or state.get("settings", {}).get("workflow") or not retry_policy.enabled(state)):
@@ -701,12 +800,14 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     validate_decision(state, decision, record)
     ident = request["recovery_change_id"]
     if ident is None:
-        return False  # Unknown grammar/cosmetic bounds are not autonomous progress.
+        # Unknown grammar, cosmetic or unproven bounds are not autonomous progress (#418): the
+        # queued Resolver route stays, and its admission decides without novelty.
+        return False
     prior = [row for row in receipts(state, returned=True) if row.get("action") == "repair"]
     if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
                          expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
         return False
-    current = runtime.support.snapshot(state["workspace"])
+    current = source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)
     if _binding(state, current["revision"]) != packet["binding"]:
         _stale("known correction changed scope or source before assignment")
     failed = [check for check in validation.get("checks", []) if type(check.get("exit_code")) is int and check["exit_code"]]
@@ -718,7 +819,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     except ValueError as error:
         _stale("known correction lacks an executed independent failure: " + str(error))
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the failed evidence")
     candidate = copy.deepcopy(state)
     candidate["iteration"] += 1
@@ -730,7 +831,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         if not error.status.startswith("PAUSED_MILESTONE_"):
             raise
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the proposed correction")
     action = retry_policy.failure(candidate, record["output"], "Attested bounded correction: " + change["hypothesis"])
     if action in ("pause", "defer"):
@@ -762,7 +863,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     candidate.update(status="RUNNING", phase="EXECUTING", next_action=decision["next_objective"],
                      next_stage=runtime.dispatch.build_stage(candidate))
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed before committing the proposed correction")
     state.clear()
     state.update(candidate)
@@ -778,7 +879,8 @@ def authorize_retry(runner, state, run_dir, workspace):
     if any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "orchestration_batch", "pending_report_repair")):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
-    if held.get("binding") != _binding(state, util.snapshot(workspace)["revision"]) or held.get("scope") != _scope(state):
+    revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
+    if held.get("binding") != _binding(state, revision) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
     if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
         raise ValueError("Scoped recovery retry requires its no-progress hold")
@@ -909,7 +1011,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
             _stale(str(error))
         if current_inputs != packet["inputs"] or current_pins != packet["input_pins"]:
             _stale("external input changed after incident capture")
-    bound = _binding(state, util.snapshot(workspace)["revision"])
+    bound = _binding(state, _source_revision(state, stage, pointer, packet, workspace))
     # A repair has a newly assigned task, but the approved stable scope must match;
     # a pinned repair task may only narrow the failed task's criteria (#423).
     expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]
@@ -941,8 +1043,11 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if record["recovery_novelty"].get("dispatch_id") != dispatch_id:
             _stale("saved dispatch receipt changed")
         return
-    change = request.get("recovery_change") or packet["current_error"].get("recovery_change") or {}
-    change_id = _change(packet, change)
+    proposal = request.get("recovery_change") or packet["current_error"].get("recovery_change")
+    # An unproven proposal is treated like none: it buys no novelty, and is never a stale
+    # handoff (#418). It is still named in a hold, with the check it failed.
+    change_id, unproven = _attest(packet, proposal)
+    change = proposal if isinstance(proposal, dict) else {}
     action = "repair" if stage == "terra" else "diagnosis"
     considered = [row for row in receipts(state, returned=True) if action != "repair" or row.get("action") == "repair"]
     if (action == "repair" and packet["current_error"].get("operational_diagnosis")
@@ -964,8 +1069,9 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if decision.action in ("hold", "request"):
             reason = (f"Incident {incident.id[:12]} ({incident.operation}): {decision.reason}. Exact packet: {pointer['path']}. "
                       "After inspection, --resume-paused --retry-failed-stage authorizes one attempt under existing limits")
-            if change and change_id is None:
-                reason += ". Proposed source novelty is unproven (unsupported grammar or unchanged structure), not accepted as a new experiment"
+            if proposal and change_id is None:
+                reason += (f". Proposed change is unproven ({unproven or 'unsupported grammar or unchanged structure'}), "
+                           "not accepted as a new experiment")
             request["novelty_hold"] = {"binding": bound, "scope": _scope(state), "stage": stage,
                                        "incident_id": incident.id, "reason": reason}
             efficiency.record_observation(state, event_id="recovery-hold:" + util.digest({"packet": pointer, "incident": incident.id}),

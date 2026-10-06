@@ -39,6 +39,17 @@ def project_file(project, path):
     return (project.root / path).read_text()
 
 
+def isolated_python(test_case):
+    """A real no-pip stdlib runtime without the mutable controller editable install."""
+    import venv
+
+    temporary = tempfile.TemporaryDirectory(prefix="verification-command-runtime-")
+    test_case.addCleanup(temporary.cleanup)
+    root = Path(temporary.name)
+    venv.EnvBuilder(with_pip=False).create(root)
+    return str(root / "bin" / "python")
+
+
 class Project:
     """A committed BUGFIX-01 seed; tests overlay candidate files on the working tree."""
 
@@ -487,6 +498,108 @@ class VerifyCase(unittest.TestCase):
         self.addCleanup(project.close)
         return project
 
+    def proof_python(self, *, pytest=False):
+        """A real isolated runtime without this controller's editable install."""
+        import importlib.metadata
+        import importlib.util
+
+        python = isolated_python(self)
+        if pytest:
+            site = Path(subprocess.check_output(
+                [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True).strip())
+            # Copy only already-installed pytest runtime packages. No install,
+            # external plugin or editable controller is needed by these tests.
+            packages = ("pytest", "_pytest", "pluggy", "packaging", "iniconfig", "pygments", "py")
+            for package in packages:
+                spec = importlib.util.find_spec(package)
+                if spec is None and package == "pygments":
+                    continue  # optional on older installed pytest versions
+                source = Path(spec.origin)
+                if spec.submodule_search_locations:
+                    shutil.copytree(source.parent, site / package, ignore=shutil.ignore_patterns("__pycache__"))
+                else:
+                    shutil.copy2(source, site / source.name)
+            for package in ("pytest", "pluggy", "packaging", "iniconfig", "pygments", "py"):
+                if not (site / package).is_dir() and not (site / (package + ".py")).is_file():
+                    continue
+                try:
+                    distribution = importlib.metadata.distribution(package)
+                except importlib.metadata.PackageNotFoundError:
+                    continue  # pytest may supply py.py without a py distribution
+                metadata = next(file for file in distribution.files if file.name == "METADATA")
+                source = Path(distribution.locate_file(metadata)).parent
+                shutil.copytree(source, site / source.name)
+            probe = subprocess.run([python, "-m", "pytest", "--version"], capture_output=True, text=True,
+                                   timeout=30, env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
+            self.assertEqual(0, probe.returncode, probe.stdout + probe.stderr)
+        return python
+
+    @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
+    def test_explicit_pytest_proves_modified_tests_module_in_a_unittest_repository(self):
+        import autocode_regression as regression
+
+        python = self.proof_python(pytest=True)
+        existing = ("import unittest\nfrom app import value\n"
+                    "class Existing(unittest.TestCase):\n"
+                    "    def test_one(self):\n        self.assertEqual(2, value(1))\n")
+        lifecycle = ("import unittest\nfrom app import value\n"
+                     "class Lifecycle(unittest.TestCase):\n"
+                     "    def test_one(self):\n        self.assertEqual(2, value(1))\n")
+        project = self.project({"app.py": "def value(n):\n    return n + 1\n",
+                                "tests/__init__.py": "", "tests/lifecycle/__init__.py": "",
+                                "tests/test_existing.py": existing,
+                                "tests/lifecycle/tests.py": lifecycle})
+        self.assertEqual("unittest", verify.detect_framework(project.root, python=python).name)
+        project.write({"app.py": "def value(n):\n    return 4 if n == 2 else n + 1\n",
+                       "tests/lifecycle/tests.py": lifecycle +
+                       "    def test_t1_two_is_fixed(self):\n        self.assertEqual(4, value(2))\n"})
+        suite = (f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider "
+                 "tests/test_existing.py tests/lifecycle/tests.py")
+        state = {"goal_contract": {"body": {"task_kind": "bugfix"}}, "base_commit": project.base,
+                 "settings": {"regression": {"test_command": suite, "test_timeout": 30,
+                                              "python": "/missing/detected-python"}}}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual("pytest", proof["framework"]["name"])
+        self.assertEqual(python, proof["framework"]["python"])
+        self.assertEqual("derived:pytest", proof["commands"]["regression_source"])
+        self.assertEqual(["tests.lifecycle.tests.Lifecycle::test_t1_two_is_fixed"], proof["fail_to_pass"])
+        self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
+        self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
+        receipt = json.loads(Path(proof["path"]).read_text())
+        for label in ("regression_on_base", "regression_on_candidate", "suite_on_candidate"):
+            self.assertTrue(receipt["checks"][label]["results"]["complete"], label)
+        self.assertTrue(regression.complete(state, proof["source_revision"]))
+
+        project.write({"app.py": "def value(n):\n    return n + 1  # still broken\n"})
+        broken = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.FAIL, broken["verdict"], broken)
+        self.assertEqual(1, broken["checks"]["regression_on_candidate"]["exit_code"])
+        self.assertFalse(regression.complete(state, broken["source_revision"]))
+
+    def test_proof_framework_detection_survives_absent_or_unknown_explicit_command(self):
+        import autocode_regression as regression
+
+        python = self.proof_python()
+        for suite in (None, f"{shlex.quote(python)} -m unittest discover -v && true"):
+            with self.subTest(suite=suite):
+                project = self.project()
+                project.write(REFERENCE)
+                options = {"python": python, "test_timeout": 30}
+                if suite:
+                    options["test_command"] = suite
+                    self.assertIsNone(verify.command_framework(suite))
+                state = {"goal_contract": {"body": {"task_kind": "bugfix"}},
+                         "base_commit": project.base, "settings": {"regression": options}}
+                proof = regression.prove(state, project.root, project.evidence)
+                self.assertEqual(verify.PASS, proof["verdict"], proof)
+                self.assertEqual("unittest", proof["framework"]["name"])
+                self.assertEqual("derived:unittest", proof["commands"]["regression_source"])
+                self.assertTrue(proof["fail_to_pass"])
+                self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
+                self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
+                self.assertTrue(regression.complete(state, proof["source_revision"]))
+
     @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
     def test_node_named_case_flip_preserves_original_custom_suite(self):
         import autocode_regression as regression
@@ -855,6 +968,16 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(("make check", "explicit", "make one", "explicit"),
                          (chosen["suite"], chosen["suite_source"], chosen["regression"], chosen["regression_source"]))
 
+    def test_targeted_python_commands_include_django_tests_modules(self):
+        for name in ("pytest", "unittest"):
+            with self.subTest(framework=name):
+                framework = verify.Framework(name, "unused suite", python=sys.executable)
+                command = framework.targeted(["tests/constraints/tests.py", "tests/constraints/helpers.py",
+                                              "tests/constraints/conftest.py"])
+                self.assertIn("tests/constraints/tests.py", command)
+                self.assertNotIn("helpers.py", command)
+                self.assertNotIn("conftest.py", command)
+
     def test_test_path_classification(self):
         for path in ("tests/test_x.py", "pkg/test_x.py", "x_test.go", "src/a.test.ts", "spec/a_spec.rb",
                      "src/test/java/FooTest.java", "__tests__/a.js", "pkg/testdata/in.txt", "conftest.py",
@@ -917,8 +1040,8 @@ class VerifyCase(unittest.TestCase):
             framework = verify.Framework("unittest", "python -m unittest", python="python")
             results = verify.per_test_results(framework, {"output": str(log)}, Path(temp) / "none.xml")
             self.assertEqual({"passed": ["m.C.test_a", "m.C.test_d"], "failed": ["m.C.test_b", "m.C::test_c"],
-                              "skipped": ["m.C.test_e", "m.C.test_f"], "collection_errors": [], "total": 6,
-                              "complete": True}, results)
+                              "skipped": ["m.C.test_e", "m.C.test_f"], "collection_errors": [], "uncollected": [],
+                              "total": 6, "complete": True}, results)
 
     def test_skipping_a_test_that_passed_on_base_is_a_regression(self):
         """Review r1: break greet(), skip the test that would catch it, add a real regression test."""
@@ -1075,6 +1198,145 @@ class SuitePreservationTests(unittest.TestCase):
                 finally:
                     project.close()
 
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for a real hook-failure suite')
+    def test_a_pre_existing_hook_failure_does_not_block_preservation(self):
+        """#503: a failed beforeEach executed, so it is judged like a test that already failed on base."""
+        suite_test = ("const {test, describe, beforeEach} = require('node:test');\n"
+                      "const assert = require('node:assert/strict');\n"
+                      "const {add} = require('./calc.cjs');\n"
+                      "test('add_works', () => assert.equal(3, add(1, 2)));\n"
+                      "describe('broken_fixture', () => {\n"
+                      "  beforeEach(() => { throw new Error('broken fixture'); });\n"
+                      "  test('sub_works', () => {});\n"
+                      "});\n")
+        regression_test = ("const {test} = require('node:test');\n"
+                           "const assert = require('node:assert/strict');\n"
+                           "const {sub} = require('./calc.cjs');\n"
+                           "test('sub_subtracts', () => assert.equal(1, sub(2, 1)));\n")
+        files = {'calc.cjs': 'function add(a, b) { return a + b; }\n'
+                             'function sub(a, b) { return a + b; }\n'  # the bug: sub does not subtract
+                             'module.exports = {add, sub};\n',
+                 'a.test.cjs': suite_test}
+        project = Project(files)
+        try:
+            framework = verify.Framework('node', 'node --test a.test.cjs')
+            suite = 'node --test a.test.cjs'
+            regression = 'node --test test_sub.test.cjs'
+            base = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                   suite_command=suite, timeout=30)
+            base_hook = base['receipt']['results']['collection_errors']
+            self.assertTrue(base_hook, base)
+            self.assertEqual([], base['receipt']['results']['uncollected'], base)
+            project.write({'calc.cjs': 'function add(a, b) { return a + b; }\n'
+                                       'function sub(a, b) { return a - b; }\n'
+                                       'module.exports = {add, sub};\n',
+                           'test_sub.test.cjs': regression_test})
+            result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                                   suite_command=suite, regression_command=regression,
+                                   base_suite=base, timeout=30)
+            self.assertEqual(['test_sub.test.cjs::sub_subtracts'], result['fail_to_pass'], result)
+            self.assertEqual('PASS', result['verdict'], result['failures'] + result['unverified'])
+            self.assertTrue(any('already failed on base' in note for note in result['notes']), result)
+        finally:
+            project.close()
+
+
+class IncompleteEvidenceRegressionTests(unittest.TestCase):
+    """#421/#503: incompleteness and hook failures neither hide nor invent a named regression."""
+
+    @staticmethod
+    def suite_results(*, passed=(), failed=(), skipped=(), collection=(), uncollected=None,
+                      total=None, complete=True):
+        results = {"passed": list(passed), "failed": list(failed), "skipped": list(skipped),
+                   "collection_errors": list(collection),
+                   "total": total if total is not None else len(passed) + len(failed) + len(skipped),
+                   "complete": complete}
+        if uncollected is not None:
+            results["uncollected"] = list(uncollected)
+        return results
+
+    def judge_suite(self, candidate, base_results, *, base_timed_out=False):
+        fail, unverified, notes = [], [], []
+        base_suite = {"command": "suite", "base": "b", "health": "failing_tests",
+                      "receipt": {"timed_out": base_timed_out, "exit_code": 1,
+                                  "results_expected": True, "results": base_results}}
+        verify._judge_suite({"timed_out": False, "exit_code": 1, "results_expected": True,
+                             "results": candidate}, base_suite, fail, unverified, notes)
+        return fail, unverified, notes
+
+    def test_an_incomplete_base_suite_does_not_hide_a_named_regression(self):
+        for base_timed_out in (False, True):
+            with self.subTest(base_timed_out=base_timed_out):
+                base = self.suite_results(passed=["t_keep", "t_break"], failed=["t_old"], complete=False)
+                candidate = self.suite_results(passed=["t_keep"], failed=["t_break"])
+                fail, unverified, _ = self.judge_suite(candidate, base, base_timed_out=base_timed_out)
+                self.assertTrue(any("t_break" in reason and "fail on the candidate" in reason
+                                    for reason in fail), (fail, unverified))
+                self.assertTrue(any("base suite was incomplete" in reason for reason in unverified))
+
+    def test_a_test_that_never_ran_on_an_incomplete_base_is_not_a_regression(self):
+        base = self.suite_results(passed=["t_keep"], complete=False)
+        candidate = self.suite_results(passed=["t_keep"], failed=["t_never_ran"], total=2)
+        fail, unverified, _ = self.judge_suite(candidate, base)
+        self.assertEqual([], fail, unverified)  # the absence of a failure stays unproven
+        self.assertTrue(any("base suite was incomplete" in reason for reason in unverified))
+
+    def test_incomplete_candidate_results_still_judge_observed_failures(self):
+        base = self.suite_results(passed=["t_keep", "t_break"])
+        candidate = self.suite_results(passed=["t_keep"], failed=["t_break"], total=1, complete=False)
+        fail, unverified, _ = self.judge_suite(candidate, base)
+        self.assertTrue(any("t_break" in reason and "fail on the candidate" in reason
+                            for reason in fail), (fail, unverified))
+        self.assertTrue(any("incomplete" in reason for reason in unverified))
+
+    def test_a_failed_hook_is_an_executed_failure_not_an_uncollected_module(self):
+        # A Node/Vitest hook failure sits in collection_errors but never collected nothing;
+        # only results saved before the ``uncollected`` split stay unproven (fail closed).
+        base = self.suite_results(passed=["t_keep"], failed=["t_hooked"], collection=["t_hooked"])
+        candidate = self.suite_results(passed=["t_keep"], failed=["t_hooked"], collection=["t_hooked"])
+        fail, unverified, notes = self.judge_suite(candidate, base)
+        self.assertEqual([], fail, (fail, unverified))
+        self.assertTrue(any("already failed on base" in note for note in notes), notes)
+        self.assertEqual(["The base suite has collection errors; preservation is unproven: t_hooked",
+                          "The candidate suite has collection errors; preservation is unproven: t_hooked"],
+                         [reason for reason in unverified if "collection errors" in reason])
+        for results in (base, candidate):
+            results["uncollected"] = []
+        fail, unverified, notes = self.judge_suite(candidate, base)
+        self.assertEqual([], fail, (fail, unverified))
+        self.assertEqual([], unverified, unverified)
+
+    def test_an_uncollected_candidate_module_keeps_preservation_unproven(self):
+        base = self.suite_results(passed=["t_keep"], uncollected=[])
+        candidate = self.suite_results(passed=["t_keep"], failed=["m::[collection]"],
+                                       collection=["m::[collection]"], uncollected=["m::[collection]"],
+                                       total=2)
+        fail, unverified, _ = self.judge_suite(candidate, base)
+        self.assertTrue(any("candidate suite has collection errors" in reason for reason in unverified))
+        self.assertTrue(any("m::[collection]" in reason for reason in fail), (fail, unverified))
+
+    def judge_regression(self, candidate_results, known):
+        fail, unverified, notes, proof, review_reasons = [], [], [], {}, []
+        on_candidate = {"timed_out": False, "exit_code": 1, "results_expected": True,
+                        "results": candidate_results}
+        verify._judge_regression(on_candidate, None, fail, unverified, notes, proof, review_reasons,
+                                 known_failures=lambda: known)
+        return fail, unverified, notes
+
+    def test_incomplete_regression_results_still_fail_named_candidate_failures(self):
+        candidate = self.suite_results(failed=["test_greet.Case.test_empty"], total=1, complete=False)
+        fail, unverified, _ = self.judge_regression(candidate, None)
+        self.assertTrue(any("The regression tests fail on the candidate" in reason
+                            and "test_greet.Case.test_empty" in reason for reason in fail), (fail, unverified))
+        self.assertTrue(any("incomplete" in reason for reason in unverified))
+
+    def test_incomplete_regression_results_keep_known_failures_as_notes(self):
+        candidate = self.suite_results(failed=["test_flaky"], total=1, complete=False)
+        fail, unverified, notes = self.judge_regression(candidate, {"test_flaky"})
+        self.assertEqual([], fail, (fail, unverified))
+        self.assertTrue(any("already fail on base" in note for note in notes), notes)
+        self.assertTrue(any("incomplete" in reason for reason in unverified))
+
 
 class GoResultTests(unittest.TestCase):
     """Go's per-test results come from `go test -json` (a live Go port could not be proven without them)."""
@@ -1101,6 +1363,7 @@ class GoResultTests(unittest.TestCase):
         self.assertEqual(["m/a::TestLater"], results["skipped"])
         self.assertEqual(["m/a::TestTable", "m/a::TestTable/case_1", "m/b::[build failed]"], results["failed"])
         self.assertEqual(["m/b::[build failed]"], results["collection_errors"])
+        self.assertEqual(["m/b::[build failed]"], results["uncollected"])
         self.assertTrue(results["complete"])
 
     def test_a_test_that_never_ended_makes_the_results_incomplete_and_no_events_give_none(self):

@@ -14,7 +14,7 @@ try:
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
-    from .. import autocode_design_plan as design_plan
+    from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -30,6 +30,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_brief_literals as brief_literals
     import autocode_design_plan as design_plan
+    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -410,6 +411,15 @@ SCHEMAS.update({
     "plan_finalize": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S,
                            "decisions": {"type": "array", "items": DECISION}}),
 })
+# Only independent reviewers may propose executable observations; the runner seals their provenance.
+BRIEF_OBSERVATION_CHANGE = obj({"previous_hash": S, "declaration_id": S, "source_event_id": S})
+for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
+    SCHEMAS[_stage]["properties"]["brief_observations"] = brief_obligations.PROPOSALS_SCHEMA
+    SCHEMAS[_stage]["properties"]["risk_observations"] = risk_obligations.PROPOSALS_SCHEMA
+    SCHEMAS[_stage]["properties"]["risk_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
+    SCHEMAS[_stage]["properties"]["brief_observation_changes"] = {
+        "type": "array", "items": BRIEF_OBSERVATION_CHANGE}
+
 # Live planning reports were rejected, each costing a report repair, for a contract whose deliverables,
 # required_behaviors or permission_boundaries was an empty list (VALIDATION.md 2026-09-26; two Claude-model
 # trials, 2026-09-29). The field was present, so requiring it changes nothing, and a hard minItems would refuse a
@@ -688,15 +698,21 @@ def charge(state, stage, record=None, workspace=None):
 
 
 def _coverage(rows, concerns):
-    # A row for something that is not a concern (a question ID, say) answers nothing and is not an
-    # error; every concern still needs exactly one row.
+    """Return the rows that answer plan-review concerns: exactly one substantive row per concern.
+
+    A row for something that is not a concern (a question ID, or an empty placeholder row) answers
+    nothing. It is neither an error nor checked, and callers keep only the returned rows, so no
+    later step (unresolved decisions, progressive activation, the plan shown for approval) reads it.
+    """
     concern_ids = {c["id"] for c in concerns}
-    ids = [row["concern_id"] for row in rows if row["concern_id"] in concern_ids]
+    answers = [row for row in rows if row["concern_id"] in concern_ids]
+    ids = [row["concern_id"] for row in answers]
     if len(ids) != len(set(ids)) or set(ids) != concern_ids:
         raise ValueError("Every plan-review concern needs exactly one response/decision using its ID")
-    for row in rows:
+    for row in answers:
         if any(isinstance(value, str) and not value.strip() for value in row.values()):
             raise ValueError("Planning responses and decisions must be substantive")
+    return answers
 
 
 PROMPTS = {
@@ -1037,6 +1053,42 @@ def capture_command():
     return shlex.join([sys.executable, str(Path(s.__file__).with_name("autocode.py")), "capture"])
 
 
+BRIEF_OBSERVATION_REVIEW_RULE = """
+BRIEF DECLARATIONS. brief_declaration_inventory comes from the user's authenticated brief.
+Check every supported declaration against the plan. When this report schema includes
+brief_observations, cover every supported declaration with an observation: declaration_id,
+criterion_ids from the contract, steps with argv, observe_step, and bindings with placeholder,
+step and argument. Propose commands that exercise the declared program and match its literal arguments and output;
+do not weaken an expectation or invent an observation the brief does not support. Reuse the
+existing observation for an unchanged declaration. Changes require brief_observation_changes
+entries naming previous_hash, declaration_id and the authenticated source_event_id that
+changes that declaration. A concern-only review reports any coverage gap as a blocking
+concern; the final reviewer supplies the complete observations before user approval.
+"""
+BRIEF_ACCEPTANCE_CARRY_RULE = """
+brief_acceptance in a contract is runner-owned. Omit it from model reports; the runner
+carries the existing value unchanged. Never create or edit its source, expectation,
+observation, or reviewer provenance fields. Planner
+stages cannot author brief_observations or brief_observation_changes. The independent Plan
+Reviewer proposes observations in those report fields; the runner seals their binding.
+"""
+
+
+RISK_OBSERVATION_REVIEW_RULE = """
+LIFECYCLE DECLARATIONS. risk_declaration_inventory derives explicit durability and
+fencing promises from authenticated human source and initial public modules.
+When the schema includes risk_observations, cover each supported declaration with
+{declaration_id, criterion_ids, module}. Select an allowed original public module;
+never invent expected values, API aliases, scripts or protocol schedules. Missing
+source facts are blocking concerns, not permission to assume a stronger contract.
+Reuse unchanged observations. A genuine later human amendment needs an exact
+risk_observation_changes entry with previous_hash, declaration_id, source_event_id.
+The runner executes a fixed bounded process-lifecycle protocol in clean replay;
+ordinary unit tests or callback exceptions cannot replace actual process death.
+risk_acceptance is runner-owned: omit it from model contracts, never create/edit it.
+"""
+
+
 def context(state, stage, state_path):
     predecessor = None
     if stage in V2_STAGES:
@@ -1072,6 +1124,9 @@ def context(state, stage, state_path):
                          "only an explicit operator action can extend the allowance; "
                          "separate one-use AutoResolver operational recovery grants do not reset this allowance",
                 "recovery_context": state.get('recovery_context')}
+    if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
+        packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
+        packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
@@ -1157,12 +1212,44 @@ def context(state, stage, state_path):
         design_rule += REQUIREMENT_TRACE_RULE
     literals = brief_literals.literals(goals.scan_texts(state)) if stage in TRACE_STAGES else []
     design_rule += brief_literals.rule(literals) if literals else ""
+    if stage != "requirements_gather":
+        design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
+    if packet.get("brief_declaration_inventory"):
+        design_rule += BRIEF_OBSERVATION_REVIEW_RULE
+    if packet.get("risk_declaration_inventory"):
+        design_rule += RISK_OBSERVATION_REVIEW_RULE
     design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
     prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
               + json.dumps(packet, indent=2))
     return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
                     "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}
+
+
+def _model_report_schema(schema, state):
+    """Protected contract provenance is retained by the runner, never generated by a model."""
+    result = copy.deepcopy(schema)
+    for field in ("contract", "requirements"):
+        body = result.get("properties", {}).get(field, {})
+        for protected in ("brief_acceptance", "risk_acceptance"):
+            body.get("properties", {}).pop(protected, None)
+            if protected in body.get("required", []):
+                body["required"].remove(protected)
+    if not brief_obligations.inventory(state) and not (
+            (state.get('goal_contract') or {}).get('body') or {}).get(brief_obligations.KEY):
+        # Strict model output schemas require every included property. Unrelated
+        # tasks retain their existing report protocol; no empty feature fields.
+        for field in ('brief_observations', 'brief_observation_changes'):
+            result.get('properties', {}).pop(field, None)
+            if field in result.get('required', []):
+                result['required'].remove(field)
+    if not risk_obligations.inventory(state) and not (
+            (state.get('goal_contract') or {}).get('body') or {}).get(risk_obligations.KEY):
+        for field in ('risk_observations', 'risk_observation_changes'):
+            result.get('properties', {}).pop(field, None)
+            if field in result.get('required', []):
+                result['required'].remove(field)
+    return result
 
 
 def prepare(state, stage, state_path, schema_dir):
@@ -1205,10 +1292,14 @@ def prepare(state, stage, state_path, schema_dir):
         if stage in V2_STAGES:
             raise s.Paused("PAUSED_INVALID_PREDECESSOR", str(error)) from error
         raise
+    if not joint:
+        prompt = BRIEF_ACCEPTANCE_CARRY_RULE + prompt
+        metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     role = role_for(state, stage)
+    schema = (schema_for(state, stage) if joint else design_plan.report_schema(
+        goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest")))
     return ModelRequest(role, route_for(state, stage, role), prompt, metrics,
-                        schema_for(state, stage) if joint else design_plan.report_schema(
-                            goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest")), False)
+                        _model_report_schema(schema, state), False)
 
 
 def schema_for(state, stage):
@@ -1243,7 +1334,11 @@ def after_challenge(state, value, record):
     except ImportError:
         import autocode_goal_lifecycle as lifecycle
     # The same path a final review takes: install the approved body and queue the user's approval.
-    lifecycle.install_draft(state, copy.deepcopy(contract["body"]), origin="adaptive_review_approval", record=record)
+    body = brief_obligations.reviewed_body(state, contract["body"],
+        value.get("brief_observations") or [], record, changes=value.get("brief_observation_changes") or [])
+    body = risk_obligations.reviewed_body(state, body, value.get("risk_observations") or [],
+        record, changes=value.get("risk_observation_changes") or [])
+    lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(approved_at=f"astra_challenge#{planning['adaptive']['challenges']}",
                                 final_stage="astra_challenge")

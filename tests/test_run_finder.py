@@ -682,6 +682,20 @@ class CommandLine(Fixture):
                               self.parse_error("Some task", *argv), "no run named or found")
         self.assertIn("--job-retry-token requires --resume-paused --retry-failed-stage",
                       self.parse_error("--job-retry-token", "T"))
+        # The token also binds a stopped job's model answer, alone (#463); never another answer.
+        args, _ = self.parse("--answer", "route-sol=gpt-6-luna", "--job-retry-token", "T")
+        self.assertEqual(("T", ["route-sol=gpt-6-luna"]), (args.job_retry_token, args.answer))
+        for argv in (["--answer", "Q1=yes"], ["--answer", "route-sol=m", "--answer", "Q1=yes"],
+                     ["--answer", "route-sol=m", "--resume-paused"]):
+            with self.subTest(argv=argv):
+                self.assertIn("--job-retry-token requires --resume-paused --retry-failed-stage",
+                              self.parse_error(*argv, "--job-retry-token", "T"))
+        # The answer issues a new token, so it never retries in the same command (nor saves a setting with it).
+        for argv in (["--answer", "route-sol=m"], ["--delegate", "route-sol"]):
+            with self.subTest(argv=argv):
+                self.assertIn("names a stopped job's model on its own and issues a new token",
+                              self.parse_error(*argv, "--resume-paused", "--retry-failed-stage",
+                                               "--max-stage-seconds", "60", "--job-retry-token", "T"))
         message = self.parse_error("--resolver-response", "leave_paused").split("error: ", 1)[1]
         self.assertIn("--resolver-response requires --resolver-request and --resolver-token", message)
         self.assertNotIn("--run-dir", message)
@@ -735,6 +749,7 @@ class InProcessCli(Fixture):
              patch.object(Path, "cwd", return_value=cwd or self.project), \
              patch.object(autocode, "run_role", side_effect=AssertionError("No provider may launch")), \
              patch.object(opencode_provider, "local_settings", return_value={"engine": "opencode"}), \
+             patch.object(opencode_provider.tool_containment, "unavailable", return_value=None), \
              contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 code = autocode.main()

@@ -18,10 +18,39 @@ import uuid
 
 
 SUPPORTED_VERSION = "1.18.33"
+SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 SYSTEM_READ_ROOTS = ("/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib",
                      "/usr/share", "/System/Library", "/Library/Apple/System/Library")
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile('tool-containment-[0-9a-f]{32}')
+
+
+def unavailable(workspace=None, environment=None):
+    """Why strict containment cannot be established on this machine, or None.
+
+    Cheap run-setup check of what every launch's configure() refuses first: the
+    platform, sandbox-exec and the installed OpenCode version. It runs no
+    conformance; None is not a proof, and each launch still runs configure().
+    """
+    if sys.platform != 'darwin':
+        return f'strict tool containment requires macOS sandbox-exec; this machine is {sys.platform}'
+    if not Path(SANDBOX_EXEC).is_file():
+        return f'strict tool containment requires macOS sandbox-exec, which is missing at {SANDBOX_EXEC}'
+    env = dict(os.environ if environment is None else environment)
+    executable = shutil.which('opencode', path=env.get('PATH', ''))
+    if not executable:
+        return 'strict tool containment cannot find the opencode executable on PATH'
+    try:
+        result = subprocess.run([executable, '--version'], env=env, cwd=workspace,
+                                capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f'strict tool containment could not read the OpenCode version: {error}'
+    version = result.stdout.strip()
+    if result.returncode or version != SUPPORTED_VERSION:
+        found = version if version and not result.returncode else f'unknown (exit {result.returncode})'
+        return (f'strict tool containment is qualified only for OpenCode {SUPPORTED_VERSION}; '
+                f'this machine has OpenCode {found}')
+    return None
 
 
 def _path(value):
@@ -95,7 +124,7 @@ def _reject_loopback_request(checks, authority):
 
 
 def prepare(workspace, *, allow_write=False, read_roots=(), protected_paths=(), environment=None,
-            loopback_checks=(), loopback_authority=None, verification_copy=False):
+            loopback_checks=(), loopback_authority=None, verification_copy=False, source_paths=()):
     """Create a fresh runner-owned policy and shell; return only nonsecret metadata."""
     _reject_loopback_request(loopback_checks, loopback_authority)
     if sys.platform != 'darwin' or not Path('/usr/bin/sandbox-exec').is_file():
@@ -117,7 +146,7 @@ def prepare(workspace, *, allow_write=False, read_roots=(), protected_paths=(), 
             from . import autocode_verification_copy as copies
         except ImportError:
             import autocode_verification_copy as copies
-        verification = copies.create(root, scratch)
+        verification = copies.create(root, scratch, source_paths=source_paths)
         protected_paths = [*protected_paths, *verification['protected_paths']]
     profile = control / 'policy.sb'
     profile.write_text(policy(root, scratch, allow_write=allow_write, read_roots=read_roots,
@@ -202,7 +231,7 @@ def configure(command, environment, workspace, *, allow_write, request):
     if sys.platform != 'darwin':
         raise RuntimeError('Strict native tool containment requires macOS; no provider launched')
     if not isinstance(request, dict) or set(request) - {
-            'read_roots', 'protected_paths', 'loopback_checks', 'loopback_authority', 'tool_commands'}:
+            'read_roots', 'protected_paths', 'loopback_checks', 'loopback_authority', 'tool_commands', 'source_paths'}:
         raise ValueError('Unsupported strict tool containment request')
     _reject_loopback_request(request.get('loopback_checks', ()), request.get('loopback_authority'))
     if '--session' in command:
@@ -245,7 +274,7 @@ def configure(command, environment, workspace, *, allow_write, request):
                        protected_paths=request.get('protected_paths', ()),
                        loopback_checks=request.get('loopback_checks', ()),
                        loopback_authority=request.get('loopback_authority'),
-                       verification_copy=not allow_write)
+                       verification_copy=not allow_write, source_paths=request.get('source_paths', ()))
     config['shell'] = boundary['shell']
     definition['permission'] = permissions
     definition.pop('tools', None)

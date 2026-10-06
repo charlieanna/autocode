@@ -23,17 +23,19 @@ Missing evidence is UNVERIFIED, never PASS.
 """
 from __future__ import annotations
 
-import hashlib
+try:
+    from . import autocode_source_snapshot as source_snapshot
+except ImportError:
+    import autocode_source_snapshot as source_snapshot
+
 import json
 import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import tempfile
 import sys
-import time
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
@@ -47,6 +49,8 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
+    from . import autocode_first_suite as first_suite
+    from . import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
@@ -57,6 +61,8 @@ except ImportError:
     import autocode_scratch_overlay as scratch_overlay
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
+    import autocode_first_suite as first_suite
+    import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -67,7 +73,7 @@ TEST_NAME = re.compile(  # case-sensitive: Latest.java and Contest.kt are produc
     r"^(test_.*\.py|.*_tests?\.py|conftest\.py|.*\.(test|spec)\.[cm]?[jt]sx?|.*\.snap|.*_test\.go"
     r"|.*_(spec|test)\.rb|.*Tests?\.(java|kt|cs|swift|scala)|Test[A-Z_]\w*\.(java|kt|cs|swift|scala)"
     r"|test_.*\.(rb|sh))$")
-PYTHON_TEST_MODULE = re.compile(r"^(test_.*|.*_tests?)\.py$")
+PYTHON_TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
 CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".rs", ".rb", ".java",
                            ".kt", ".kts", ".scala", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php",
                            ".m", ".mm", ".ex", ".exs", ".erl", ".hs", ".ml", ".lua", ".pl", ".sh", ".dart", ".zig"})
@@ -160,7 +166,7 @@ def _ignored(path: str) -> bool:
             or path.endswith(".pyc") or path in DEPENDENCY_DIRS)
 
 
-def changed_files(workspace, base) -> dict[str, str]:
+def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
     """Every path whose content differs from ``base``: committed, staged, dirty or untracked."""
     changes: dict[str, str] = {}
     tokens = _git(workspace, "diff", "--name-status", "-z", "--no-renames", base, "--").split("\0")
@@ -170,6 +176,15 @@ def changed_files(workspace, base) -> dict[str, str]:
     for path in _git(workspace, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
         if path:
             changes[path] = "added"
+    if source_paths:
+        tracked = set(filter(None, _git(workspace, 'ls-files', '-z', '--cached').split('\0')))
+        selected = source_snapshot.snapshot(workspace, paths=source_paths)
+        for path, identity in selected['files'].items():
+            if identity.startswith(('submodule:', 'uninitialized-submodule')):
+                changes.pop(path, None)
+        for path, identity in source_snapshot.inventory(workspace, paths=source_paths).items():
+            if path not in tracked and identity != 'deleted':
+                changes[path] = 'added'
     return {path: status for path, status in sorted(changes.items()) if not _ignored(path)}
 
 
@@ -344,13 +359,6 @@ def detect_framework(root, *, python=None) -> Framework | None:
 
 # --- execution --------------------------------------------------------------
 
-def _kill_group(process):
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
 def test_environment(tree, env=None):
     """Environment for a command run in ``tree``.
 
@@ -374,30 +382,10 @@ def test_environment(tree, env=None):
     return environment
 
 
-def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None) -> dict:
-    """Run one shell command in its own process group and return a receipt."""
-    log_path = Path(log_path)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    timed_out = False
-    with log_path.open("wb") as output:
-        process = subprocess.Popen(["/bin/sh", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
-                                   stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
-                                   env=test_environment(cwd, env))
-        try:
-            exit_code = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _kill_group(process)
-            process.wait()
-            exit_code = None
-        finally:
-            _kill_group(process)  # descendants that outlived the shell, or an interrupted run
-    data = log_path.read_bytes()
-    return {"command": command, "exit_code": exit_code, "timed_out": timed_out,
-            "duration_seconds": round(time.monotonic() - started, 2), "output": str(log_path),
-            "output_sha256": hashlib.sha256(data).hexdigest(),
-            "tail": data[-TAIL_CHARS:].decode("utf-8", "replace")}
+def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, checkpoint=None) -> dict:
+    """Run one owned shell command and return its collected execution receipt."""
+    return command_supervision.run(command, cwd, log_path, timeout=timeout,
+                                   env=test_environment(cwd, env), checkpoint=checkpoint)
 
 
 def _go_test(command):
@@ -470,7 +458,8 @@ def _go_results(text):
     # A test that started but never ended (the binary panicked or timed out) is not attributed.
     complete = all(action is not None for action in outcome.values())
     return {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
-            "collection_errors": sorted(collection), "total": len(outcome) + len(collection), "complete": complete}
+            "collection_errors": sorted(collection), "uncollected": sorted(collection),
+            "total": len(outcome) + len(collection), "complete": complete}
 
 
 def _unittest_id(name, owner):
@@ -481,7 +470,10 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     """Passed, failed and skipped test ids, or None when the run produced no parseable results.
 
     ``collection_errors`` are failures of a module to import or collect; they are
-    failures, but they never name a test that ran.
+    failures, but they never name a test that ran. ``uncollected`` is the subset
+    that never imported, collected or built at all: a failed hook or fixture that
+    Node and Vitest report as a collection error executed and is judged like any
+    other failing test, so it is not in ``uncollected``.
     """
     if str(xml_path).endswith(".node.jsonl"):
         return node_tests.results(xml_path)
@@ -555,7 +547,8 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         collection = {test for test in failed if COLLECTION_ERROR.search(test)}
         complete = len(passed) + len(skipped) + len(failed) >= total
     results = {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
-               "collection_errors": sorted(collection), "total": total, "complete": complete}
+               "collection_errors": sorted(collection), "uncollected": sorted(collection),
+               "total": total, "complete": complete}
     if setup_errors:
         results["setup_errors"] = setup_errors
     return results
@@ -795,7 +788,7 @@ def command_framework(command):
     return None
 
 
-def execution_identity(workspace, *, command=None, dependencies_from=None, full=True):
+def execution_identity(workspace, *, command=None, dependencies_from=None, full=True, source_paths=()):
     """Conservative observable source/runtime/environment identity for receipts.
 
     Full dependency bytes are included, not only manifests or changed paths.
@@ -803,11 +796,11 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
     remote service, wall clock or provider sandbox; those remain fresh checks.
     """
     workspace = Path(workspace)
-    source_snapshot = util.snapshot(workspace)
-    source_symlinks = [name for name, value in source_snapshot.get("files", {}).items()
+    source_snapshot_value = source_snapshot.snapshot(workspace, paths=source_paths)
+    source_symlinks = [name for name, value in source_snapshot_value.get("files", {}).items()
                        if value.startswith("symlink:") and name not in DEPENDENCY_DIRS]
     source_metadata = {}
-    for name in source_snapshot.get("files", {}):
+    for name in source_snapshot_value.get("files", {}):
         path = workspace / name
         if path.is_file() and not path.is_symlink():
             stat = path.stat()
@@ -889,7 +882,7 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                  _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split("\0")
                  if p and not p.endswith("/") and PurePosixPath(p).suffix in CODE_SUFFIXES
                  and not _ignored(p) and not any(part in DEPENDENCY_DIRS for part in PurePosixPath(p).parts)}
-    return {"source_revision": source_snapshot["revision"], "source_metadata": util.digest(source_metadata),
+    return {"source_revision": source_snapshot_value["revision"], "source_metadata": util.digest(source_metadata),
             "unbound_source_symlinks": source_symlinks,
             "reuse_supported": python_command and full, "cache_binding_complete": full,
             "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
@@ -953,7 +946,7 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
 
 
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
-                files=None, links=None) -> dict:
+                files=None, links=None, source_paths=()) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
 
     The copy is HEAD plus every uncommitted change (so files a stage just delivered are there),
@@ -968,7 +961,7 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     head = _git(workspace, "rev-parse", "HEAD").strip()
-    tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace, changed_files(workspace, head),
+    tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace, changed_files(workspace, head, source_paths=source_paths),
                      dependencies_from=workspace)
     try:
         if patch:
@@ -1010,7 +1003,7 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
                     ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
                     if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
                         return {**receipt, "error": "Test command reported zero tests or incomplete output"}
-        return {**receipt, "error": ""}
+        return {**receipt, "error": receipt.get("error") or ""}
     finally:
         remove_tree(workspace, tree)
 
@@ -1033,6 +1026,8 @@ def suite_health(receipt) -> str:
     results = receipt.get("results")
     if receipt["timed_out"]:
         return "timeout"
+    if not command_receipt.completed(receipt):
+        return "broken"  # interrupted ownership cannot establish passing tests
     if receipt["exit_code"] in (126, 127):
         return "broken"  # the command itself could not run
     if receipt.get("results_expected") and results is None:
@@ -1049,7 +1044,7 @@ def suite_health(receipt) -> str:
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
            independent_dependencies=None, allow_no_test=False, new_behavior=False, preserve_only=False,
-           base_patch=None, guards=()) -> dict:
+           base_patch=None, source_paths=(), test_only_allowed=False, guards=()) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1078,13 +1073,20 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     from. ``independent_dependencies=False`` says an earlier Builder of this run worked in
     it, so it may no longer show the ignored code the base had; None compares it with
     ``workspace`` (see _document_only_base, the only reader).
+
+    ``test_only_allowed`` covers a contract whose criteria are all test criteria without
+    saying whether product code must change (a coverage or characterization build): when
+    the diff turns out to be test files alone, the proof runs in that same preserve mode
+    instead of failing "a fix must change product code". A test that does not pass on the
+    base then still blocks it, as a mis-tagged case or a failing regression.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
-    before = util.snapshot(workspace)["revision"]
-    changes = changed_files(workspace, base)
+    before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
+    changes = changed_files(workspace, base, source_paths=source_paths)
     tests = [p for p in changes if is_test_path(p)]
     sources = [p for p in changes if not is_test_path(p)]
+    preserve = preserve_only or (test_only_allowed and not sources)
     test_changes = {p: changes[p] for p in tests}
     fail, unverified, notes, review_reasons = [], [], [], []
     checks: dict[str, dict] = {}  # command receipts only
@@ -1098,7 +1100,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     existing_guards = preserve_only and not runnable_tests
     if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
-    elif not sources and not preserve_only:
+    elif not sources and not preserve:
         fail.append("Only test files changed; a fix must change product code")
     deleted = [p for p in tests if changes[p] == "deleted"]
     if deleted:
@@ -1120,7 +1122,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
         if (changes or existing_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
                                            dependencies_from=dependencies_from)
-        if trees and runnable_tests and (sources or preserve_only):
+        if trees and runnable_tests and (sources or preserve):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
                                                  patch=base_patch)
@@ -1135,7 +1137,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "regression-on-base", timeout=timeout)
                 checks["regression_on_base"] = on_base
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
-                              new_behavior=new_behavior, preserve_only=preserve_only, known_failures=lambda: _pre_existing(
+                              new_behavior=new_behavior, preserve_only=preserve, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
                                   timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
                               seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
@@ -1149,13 +1151,13 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "suite-on-base-with-tests", timeout=timeout)
                 checks["regression_on_base"] = on_base
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
-                if on_base["exit_code"] == 0 and not preserve_only:
+                if on_base["exit_code"] == 0 and not preserve:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
         elif tests and sources:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
-        if "candidate" in trees and (sources or preserve_only) and commands["suite"]:
+        if "candidate" in trees and (sources or preserve) and commands["suite"]:
             reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
             on_candidate = reuse or run_suite(framework, commands["suite"], trees["candidate"], run_dir,
                                               "suite-on-candidate", timeout=timeout)
@@ -1169,7 +1171,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             # rule out old behavior: empty collection can hide a filtered
             # existing program, so any other base file or copied ignored code
             # still counts.
-            allow_empty_base = bool(new_behavior and not preserve_only and not base_patch
+            allow_empty_base = bool(new_behavior and not preserve and not base_patch
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base,
                                                             dependencies_from=dependencies_from,
@@ -1190,15 +1192,18 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                 checks.setdefault("regression_on_base" if not commands["regression"] else
                                   "suite_on_base_with_tests", with_tests)
             _suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
-        elif sources or preserve_only:
+        elif sources or preserve:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
     finally:
         for tree in trees.values():
             remove_tree(workspace, tree)
-    after = util.snapshot(workspace)["revision"]
+    after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
+    for label, receipt in checks.items():
+        if not command_receipt.completed(receipt):
+            unverified.append(f"{label} has no complete owned-command evidence")
     stats = diff_stats(workspace, base, changes)
     if stats["binary_files"]:
         review_reasons.append("binary files changed: " + ", ".join(stats["binary_files"][:5]))
@@ -1234,6 +1239,15 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
     """
     candidate = on_candidate.get("results")
     base = (on_base or {}).get("results")
+    if (not command_receipt.completed(on_candidate)
+            or on_base is not None and not command_receipt.completed(on_base)):
+        unverified.append("Command ownership was interrupted; no complete regression proof exists")
+        failed = set((candidate or {}).get("failed") or [])
+        if failed:
+            unexplained = sorted(failed - (known_failures() or set()))
+            if unexplained:
+                fail.append("The regression tests fail on the candidate: " + ", ".join(unexplained[:20]))
+        return
     if on_candidate["timed_out"]:
         fail.append("The regression tests timed out on the candidate")
         return
@@ -1249,7 +1263,17 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         if candidate["complete"]:
             passed = set(candidate["passed"])
         else:
+            # Incompleteness only makes the absence of a failure unproven (#421): a named
+            # failure is judged first, and the fail-to-pass proof is given up after it.
             unverified.append("Per-test results of the regression run were incomplete")
+            if failed:
+                known = known_failures() or set()
+                unexplained = sorted(failed - known)
+                if unexplained:
+                    fail.append("The regression tests fail on the candidate: " + ", ".join(unexplained[:20]))
+                else:
+                    notes.append("Tests in the changed files that already fail on base were not counted: "
+                                 + ", ".join(sorted(failed)[:20]))
             return
         if candidate["complete"] and not passed:
             fail.append("The regression command ran no passing tests")
@@ -1387,7 +1411,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     finally:
         remove_tree(workspace, tree)
     checks["regression_files_on_base"] = receipt
-    return set(receipt["results"]["failed"]) if receipt.get("results") else None
+    return (set(receipt["results"]["failed"])
+            if command_receipt.completed(receipt) and receipt.get("results") else None)
 
 
 def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
@@ -1398,19 +1423,38 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
-    # A collection error is not an executed test. Keep comparison below so a
-    # separately observed regression still wins over incomplete preservation.
+    candidate_owned = command_receipt.completed(on_candidate)
+    base_owned = command_receipt.completed(base_receipt)
+    if not candidate_owned or not base_owned:
+        unverified.append("Command ownership was interrupted; preservation is unproven")
+        failed = set((candidate or {}).get("failed") or [])
+        if base_owned and (base_results or {}).get("complete"):
+            new = sorted(failed - set(base_results["failed"]))
+        else:
+            new = sorted(failed & set((base_results or {}).get("passed") or []))
+        if new:
+            fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
+        return
+    # A module that never imported, collected or built is not an executed test; a failed
+    # hook or cancellation is (Node and Vitest report both as collection errors, so only
+    # ``uncollected`` carries the rule, #503). Keep comparison below so a separately
+    # observed regression still wins over incomplete preservation. Results saved by
+    # parsers without ``uncollected`` fall back to collection_errors and fail closed.
     for label, results in (("base", base_results), ("candidate", candidate)):
-        collection = (results or {}).get("collection_errors") or []
+        collection = (results or {}).get("uncollected", (results or {}).get("collection_errors")) or []
         if collection:
             unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
                               + ", ".join(collection[:5]))
+    # Incompleteness only makes the absence of a failure unproven (#421): a candidate
+    # failure that was observed passing on base stays FAIL below.
     if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
-        return
-    if candidate is not None and (not candidate.get("complete") or not candidate.get("total")):
+    if candidate is not None and not candidate.get("total"):
         unverified.append("The project suite reported zero tests or incomplete per-test results")
         return
+    if candidate is not None and not candidate.get("complete"):
+        unverified.append("The project suite's per-test results were incomplete; "
+                          "only its observed failures are judged")
     if on_candidate.get("results_expected") and candidate is None:
         if on_candidate["exit_code"] == 0:
             unverified.append("The project suite exited 0 without reporting any test result "
@@ -1443,9 +1487,18 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             unverified.append("The base suite provided no complete passing-test evidence; "
                               "preservation of existing behavior is unproven")
     elif base_suite is not None and base_suite.get("health") == "broken":
-        unverified.append("The base suite could not run; preservation of existing behavior is unproven")
+        if first_suite.absent_base_suite(base_receipt, on_candidate, document_only=allow_empty_base):
+            notes.append("The pinned documentation-only base has no existing behavior to preserve; "
+                         "its new suite is absent on base and passes completely on the candidate")
+        else:
+            unverified.append("The base suite could not run; preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
-        new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
+        if base_results.get("complete") and not base_receipt.get("timed_out"):
+            new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
+        else:
+            # The base run stopped early, so a test absent from its failures may simply
+            # never have run: only a failure that was observed passing on base is a FAIL.
+            new = sorted(set(candidate["failed"]) & set(base_results["passed"]))
         if new:
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         if candidate["complete"] and base_results["complete"]:
@@ -1453,7 +1506,7 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             if lost:
                 fail.append("Tests that pass on base did not pass on the candidate (skipped, deselected, "
                             "renamed or missing): " + ", ".join(lost[:20]))
-        elif candidate["total"] < base_results["total"]:
+        elif candidate.get("complete") and candidate["total"] < base_results["total"]:
             fail.append(f"Fewer tests ran on the candidate ({candidate['total']}) than on base "
                         f"({base_results['total']})")
         if base_results["failed"] and not new:

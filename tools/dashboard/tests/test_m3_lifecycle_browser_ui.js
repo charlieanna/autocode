@@ -5,7 +5,12 @@ const {spawn, execFileSync} = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const {dashboardReadinessExpression, waitForReadiness} = require('./browser_readiness');
+const {
+  dashboardReadinessExpression,
+  waitForReadiness,
+  holdBackgroundRefreshExpression,
+  releaseBackgroundRefreshExpression,
+} = require('./browser_readiness');
 
 const root = path.resolve(__dirname, '../../..');
 const fixture = path.join(__dirname, 'unified_browser_fixture.py');
@@ -130,6 +135,11 @@ function waitForCondition(expression, label, attempts = 48) {
   assert.fail(label + ' did not become true within ' + attempts * 250 + ' ms: ' + expression + '; final rendered state=' + JSON.stringify(last));
 }
 
+function holdBackgroundRefresh(label) {
+  data(holdBackgroundRefreshExpression());
+  waitForCondition('refreshPromise===null', label + ' in-flight refresh settled');
+}
+
 function waitForText(selector, phrase, label, attempts = 12) {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const text = data('()=>document.querySelector(' + JSON.stringify(selector) + ')?.textContent||""');
@@ -169,6 +179,10 @@ function openScenario(info, name, width, height) {
     ? 'unavailable saved planning model'
     : 'interrupted build';
   waitForCondition('document.querySelector("#task-title")?.textContent.includes(' + JSON.stringify(expected) + ')', name + ' scenario render');
+  // The page loads its own model catalogue at start. The checks below replace
+  // it with syncModelOptions, and a load still in flight would land on top of
+  // that, or leave no last usable catalogue to judge the saved model by (#314).
+  waitForCondition('typeof modelCatalogue==="object"&&modelCatalogue.loading===false&&modelCatalogue.usable===true&&(modelCatalogue.models||[]).length>0', name + ' page model catalogue load');
   data('()=>{[document.scrollingElement,...document.querySelectorAll(".page,.thread-scroll")].filter(Boolean).forEach(e=>{e.scrollTop=0;e.scrollLeft=0;});return true;}');
 }
 
@@ -376,6 +390,10 @@ function creationCatalogueEvidence(snapshot) {
     // An uncertain response is not retried blindly. Retry status performs an
     // authoritative read that reconciles the original request and its receipt.
     openScenario(info, 'flow-model-uncertain-desktop', 1440, 1024);
+    // The fixture reconciles on the next task read after the action's own, and
+    // the dashboard re-reads every 2 s. Hold that background read so only
+    // Retry status can reconcile, however slow the browser bridge is (#314).
+    holdBackgroundRefresh('uncertain model replacement');
     data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-sol"]});document.querySelector("#composer-models").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-sol";select.dispatchEvent(new Event("change",{bubbles:true}));return true;}');
     browser('click', '#task-model-settings button.primary');
     browser('wait', '--fn', 'document.querySelector("#task-model-settings")?.textContent.includes("Confirmation is unconfirmed")');
@@ -384,6 +402,11 @@ function creationCatalogueEvidence(snapshot) {
     assert.equal(uncertainModel.action?.status, 'launch_failed', 'uncertain confirmation records an unconfirmed action response');
     assert.equal(uncertainModel.retry, false, 'uncertain confirmation keeps status reconciliation available');
     capture(captures, 'model-supported-unconfirmed-action-desktop', {width: 1440, height: 1024});
+    // At this viewport the bottom composer covers Retry status, so a coordinate
+    // click lands on the composer; the background read used to reconcile in its
+    // place. Centre the button and require it to be the click target.
+    const retryTarget = data('()=>{const button=[...document.querySelectorAll("#task-model-settings button")].find(b=>b.textContent.trim()==="Retry status");button.scrollIntoView({block:"center"});const box=button.getBoundingClientRect();return document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)===button;}');
+    assert.equal(retryTarget, true, 'Retry status receives the click rather than the composer');
     browser('click', '#task-model-settings button.text-button');
     browser('wait', '--fn', 'latestRun.model_settings?.roles?.astra==="openai/gpt-5.6-sol"');
     const reconciledModel = data('()=>({saved:latestRun.model_settings.roles.astra,text:document.querySelector("#task-model-settings").textContent,receipt:(latestRun.actions||[]).find(action=>action.label?.includes("Confirm model replacement"))?.id||""})');
@@ -392,6 +415,7 @@ function creationCatalogueEvidence(snapshot) {
     assert.match(reconciledModel.text, /Receipt: fixture-model-uncertain-/);
     assert.match(reconciledModel.receipt, /fixture-model-uncertain-/);
     capture(captures, 'model-supported-reconciled-desktop', {width: 1440, height: 1024});
+    data(releaseBackgroundRefreshExpression());
     observations.push({name: 'model failed and uncertain action responses', failed: failedModel, uncertain: uncertainModel, reconciled: reconciledModel});
 
     // Catalogue loading, empty, failure, and recovery stay visible beside the

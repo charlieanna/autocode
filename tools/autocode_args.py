@@ -92,6 +92,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--provider", default=None,
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
+    parser.add_argument("--allow-uncontained-tools", action="store_true",
+                        help="Built-in OpenCode runs: launch the Builder, Validator and other non-planning stages with "
+                             "OpenCode's own permission checks only, without the kernel tool boundary (macOS "
+                             "sandbox-exec, conformance-tested OpenCode). Saved with the run and recorded; new run or resume")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Separate requirements, planning, and independent review; default for new OpenCode runs, opt-in for Codex")
     parser.add_argument("--adaptive-planning", action=argparse.BooleanOptionalAction, default=None,
@@ -153,8 +157,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--headroom", choices=["off","on"], default=None,
                         help="Off by default; on fails closed until compatibility is verified")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--verbose", action="store_true",
-                        help="Stream each stage's live model activity (tools started/finished, new provider text) to stderr")
+    parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=None,
+                        help="Stream each stage's live model activity (tools started/finished, new provider text) to stderr "
+                             "(default: on; --no-verbose or AUTOCODE_VERBOSE=0 turns it off)")
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--pause-after-stage", action="store_true")
@@ -191,7 +196,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument('--resolver-response', choices=('provide_information', 'leave_paused'),
                         help='Respond to AutoResolver without authorizing execution or increasing limits')
     parser.add_argument('--resolver-message', default='', help='Corrective information for AutoResolver')
-    parser.add_argument("--job-retry-token", help="Exact retry_job token for a stopped workflow job; requires --resume-paused --retry-failed-stage")
+    parser.add_argument("--job-retry-token", help="Exact retry_job token for a stopped workflow job; requires --resume-paused --retry-failed-stage, "
+                        "or --answer route-ROLE=MODEL to name the model of a job stopped on quota or a content-filter refusal")
     parser.add_argument("--retry-failed-stage", action="store_true",
                         help="Authorize one fresh attempt for the recorded unchanged repeated failure after inspecting it; requires --resume-paused")
     parser.add_argument("--diagnose-failed-stage", action="store_true",
@@ -316,11 +322,25 @@ def parse(unit, argv, default_models):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change:
         _requires_resume(parser, args, "--accept-transport-change")
+    if args.allow_uncontained_tools and (args.status or args.dry_run):
+        parser.error("--allow-uncontained-tools is saved with the run; it cannot be combined with --status or --dry-run")
     if args.retry_report:
         _requires_resume(parser, args, "--retry-report")
-    if args.job_retry_token and not (args.retry_failed_stage and args.resume_paused and args.run_dir):
-        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage" if not args.run_dir
-                     else "--job-retry-token requires --resume-paused --retry-failed-stage")
+    # The token also binds a stopped job's model answer to the stop a person inspected (#463).
+    names_job_model = (bool(args.answer) and all(item.startswith("route-") for item in args.answer)
+                       and not (args.resume_paused or args.retry_failed_stage))
+    if args.job_retry_token and not args.run_dir:
+        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage")
+    if args.job_retry_token and not names_job_model and not (args.retry_failed_stage and args.resume_paused):
+        parser.error("--job-retry-token requires --resume-paused --retry-failed-stage, "
+                     "or --answer route-ROLE=MODEL alone to name a stopped job's model")
+    # The answer issues a new token, so it never retries in the same invocation; refusing that
+    # form here also keeps any other setting given with it from being saved (#463 review).
+    if (args.job_retry_token and args.resume_paused and args.retry_failed_stage
+            and any(item.partition("=")[0].startswith("route-") for item in [*args.answer, *args.delegate])):
+        parser.error("--answer route-ROLE=MODEL --job-retry-token TOKEN names a stopped job's model on its own "
+                     "and issues a new token; then retry with --resume-paused --retry-failed-stage "
+                     "--job-retry-token NEW_TOKEN")
     if args.retry_failed_stage:
         _requires_resume(parser, args, "--retry-failed-stage")
     if args.diagnose_failed_stage:
@@ -344,12 +364,15 @@ def parse(unit, argv, default_models):
         parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
-    if args.verbose:
+    if args.verbose is not None:
         try:
             from . import autocode_verbose as verbose
         except ImportError:
             import autocode_verbose as verbose
-        verbose.enable()
+        if args.verbose:
+            verbose.enable()
+        else:
+            verbose.disable()
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")

@@ -12,10 +12,11 @@ import shutil
 import tempfile
 from pathlib import Path
 try:
-    from . import autocode_util as util, autocode_jobs as jobs
+    from . import autocode_util as util, autocode_jobs as jobs, autocode_source_snapshot as source_snapshot
 except ImportError:
     import autocode_util as util
     import autocode_jobs as jobs
+    import autocode_source_snapshot as source_snapshot
 
 
 def _path(root, name):
@@ -41,18 +42,21 @@ def _entry(root, name):
     return {'kind': 'unsupported'}
 
 
-def identity(workspace):
+def identity(workspace, *, source_paths=()):
     root = Path(workspace)
-    snap = util.snapshot(root)
-    return {'head': snap['head'], 'files': {name: _entry(root, name) for name in snap['files']}}
+    snap = source_snapshot.snapshot(root, paths=source_paths)
+    files = source_snapshot.inventory(root, paths=source_paths) if source_paths else snap['files']
+    return {'head': snap['head'], 'files': {name: _entry(root, name) for name in files},
+            **({'source_paths': snap['source_paths'], 'source_revision': snap['revision']}
+               if snap.get('source_paths') else {})}
 
 
-def matches_original(workspace, expected):
+def matches_original(workspace, expected, *, source_paths=()):
     """Compare against the identity saved before admission; never infer one now."""
     if not expected:
         return False
     try:
-        return util.digest(identity(workspace)) == expected
+        return util.digest(identity(workspace, source_paths=source_paths)) == expected
     except (OSError, ValueError):
         return False
 
@@ -61,8 +65,9 @@ def capture(workspace, base, record, before):
     if record.get('stage') not in jobs.STAGES or record.get('report_only'):
         return
     root, base = Path(workspace), Path(base)
-    original = identity(root)
-    if util.snapshot(root)['revision'] != before['revision']:
+    selected = before.get('source_paths', ())
+    original = identity(root, source_paths=selected)
+    if source_snapshot.snapshot(root, paths=selected)['revision'] != before['revision']:
         raise util.Paused('PAUSED_STALE_VALIDATION', 'Source changed before workflow-job admission')
     directory = base.with_suffix('.source')
     directory.mkdir(mode=0o700)
@@ -76,12 +81,12 @@ def capture(workspace, base, record, before):
             if util.file_hash(blob) != entry['sha256']:
                 raise util.Paused('PAUSED_STALE_VALIDATION', 'Source changed while capturing ' + name)
             blobs[name] = str(blob)
-    if original != identity(root):
+    if original != identity(root, source_paths=selected):
         raise util.Paused('PAUSED_STALE_VALIDATION', 'Source changed during workflow-job capture')
     manifest = base.with_suffix('.source.json')
     util.atomic_json(manifest, {'original': original, 'blobs': blobs})
     record['job_source'] = {'capture': str(manifest), 'capture_hash': util.file_hash(manifest),
-                            'paths': sorted(original['files']), 'before_identity': util.digest(original)}
+                            'source_paths': list(selected), 'paths': sorted(original['files']), 'before_identity': util.digest(original)}
 
 
 def stopped(workspace, base, record):
@@ -89,8 +94,9 @@ def stopped(workspace, base, record):
     if not capture or capture.get('witness'):
         return
     root, base = Path(workspace), Path(base)
-    after = util.snapshot(root)
-    witness = identity(root)
+    selected = capture.get('source_paths', ())
+    after = source_snapshot.snapshot(root, paths=selected)
+    witness = identity(root, source_paths=selected)
     # Include pre-existing untracked files that the attempt deleted.
     for name in capture['paths']:
         witness['files'].setdefault(name, _entry(root, name))
@@ -144,7 +150,7 @@ def restore(workspace, record):
     capture = record.get('job_source') or {}
     # No restoration needs capture bytes or a stopped witness when every current
     # path, mode and Git HEAD already matches the pre-admission identity.
-    if matches_original(workspace, capture.get('before_identity')):
+    if matches_original(workspace, capture.get('before_identity'), source_paths=capture.get('source_paths', ())):
         result['original_identity_verified'] = True
         return result
     if not capture and not (record.get('changed_files') or []):

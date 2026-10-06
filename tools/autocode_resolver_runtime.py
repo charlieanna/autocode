@@ -3,6 +3,12 @@
 Only runner-observed conditions get automatic proposals. Agent prose cannot
 authorize a retry, mutate the contract, grant permission, or declare success.
 """
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 from dataclasses import fields, is_dataclass
 from collections.abc import Mapping
 from pathlib import Path
@@ -73,7 +79,7 @@ def _planning_binding(state, stage, workspace):
     return {'cycle': cycle, 'discovery_record_hash': support.digest(accepted),
             'stage': stage, 'contract_token': goals.token(contract),
             'contract_hash': contract['hash'], 'contract_digest': support.digest(contract),
-            'source_revision': support.snapshot(workspace)['revision'],
+            'source_revision': source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'],
             'settings_hash': support.digest(state['settings']), 'inputs': inputs,
             'ordinary_limit': planning.get('review_call_limit', 2),
             'astra_calls': planning['astra_calls'],
@@ -406,8 +412,11 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         'recovery_calls_used': state.get('planning', {}).get('recovery_review_calls_used', 0)})
     attempts = sum(len(state.get(name, [])) for name in ('automatic_timeout_recoveries', 'automatic_capacity_recoveries',
                                                        'automatic_permission_recoveries')) + sum(bool(r.get('startup_recovery')) for r in state.get('stages', []))
-    decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational recoveries. '
-                'Provide corrective information or leave the run paused.')
+    # Never "after 0 recoveries" (#511): with none recorded, say none ran.
+    decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational '
+                f'recover{"y" if attempts == 1 else "ies"}. ' if attempts else
+                f'AutoResolver could not resolve {category}; no automatic operational recovery ran. '
+                ) + 'Provide corrective information or leave the run paused.'
     options = ['Provide corrective information', 'Leave paused']
     count = (runner.recovery_count(state) if callable(getattr(runner, 'recovery_count', None))
              else attempts)
@@ -425,18 +434,21 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         attempt = (f"{active['iteration']:03d}/{Path(active['output']).stem}"
                    if active.get('output') and isinstance(active.get('iteration'), int) else None)
         decision += ' ' + recovery_limits.advice(allow_grant=False, pause_status=error.status,
-                                                 attempt=attempt)
+                                                 attempt=attempt, state=state, cause=str(error))
+        if error.status == 'PAUSED_NO_PROGRESS' and recovery_limits.no_progress_bound_holds(state, str(error)):
+            options.append('Acknowledge the pause with autocode resume --no-progress-limit N')
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
     # A quota or content-filter stop of one routable role asks the person to name a model (#184); never a default.
     parallel = worker_quota.stopped(state, error) if request is None else None
     stopped = parallel or (quota_route.stopped_attempt(state, failure_status=support.failure_status)
                            if error.status in quota_route.STATUSES and request is None else None)
-    route = quota_route.question(
-        state, stopped, cross_check=getattr(getattr(runner, 'dispatch', None), 'enforce_cross_model_verification', None),
-        configured_tool=getattr(getattr(runner, 'opencode', None), 'CONFIGURED', False)) if stopped and stopped['active'] else None
-    if parallel and route:
-        route = worker_quota.question(state, parallel)
+    dispatch = getattr(runner, 'dispatch', None)
+    rules = {'cross_check': getattr(dispatch, 'enforce_cross_model_verification', None),
+             'configured_tool': getattr(getattr(runner, 'opencode', None), 'CONFIGURED', False)}
+    # A batch member's answer must also leave its worker's model family; the models it lists do too (#458, #465).
+    route = ((worker_quota.question(state, stopped, family=getattr(dispatch, '_model_family', None), **rules)
+              if parallel else quota_route.question(state, stopped, **rules)) if stopped and stopped['active'] else None)
     if route:
         decision += ' ' + quota_route.advice(route, None if parallel else stopped['attempt_id'])
         options.insert(0, quota_route.option(route))
@@ -678,7 +690,7 @@ def boundary(runner, state, run_dir, workspace):
         proposal = policy.Proposal('escalate', {'reason': description}, 'User decision boundary')
     elif pending:
         failed = pending['original']
-        if (support.snapshot(workspace)['revision'] != failed.get('source_revision')
+        if (source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != failed.get('source_revision')
                 or pending.get('contract_hash') != state['goal_contract']['hash']
                 or any(not Path(path).is_file() or support.file_hash(path) != digest
                        for path, digest in pending.get('pins', {}).items())):
@@ -691,7 +703,7 @@ def boundary(runner, state, run_dir, workspace):
     elif (validation.get('verdict') == 'BLOCKED' and failed
           and validation.get('output') == failed.get('output')):
         if (not Path(validation['output']).is_file()
-                or support.snapshot(workspace)['revision'] != failed.get('source_revision')):
+                or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != failed.get('source_revision')):
             raise support.Paused('PAUSED_STALE_VALIDATION', 'Failed validation artifact changed before resolution')
         kind, description = 'validation', 'Independent validation could not complete'
         evidence = [validation['output']]
@@ -836,7 +848,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
         return
     request = state.get('diagnosis_request') or {}
     if (request.get('contract_hash') != state['goal_contract']['hash']
-            or request.get('source_revision') != support.snapshot(workspace)['revision']):
+            or request.get('source_revision') != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']):
         raise support.Paused('PAUSED_STALE_HANDOFF', 'Diagnosis needs the current source and approved contract')
     for path, digest in request.get('evidence_hashes', {}).items():
         if not Path(path).is_file() or support.file_hash(path) != digest:

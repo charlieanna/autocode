@@ -5,15 +5,23 @@ user_events and content-addressed bundles preserve explicit revisions. The
 caller supplies test classification, framework discovery and scratch execution.
 """
 from __future__ import annotations
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 from pathlib import Path
 import uuid
 try:
     from . import autocode_util as util
+    from . import autocode_command_receipt as command_receipt
     from . import autocode_protected_paths as paths, autocode_protected_store as store
     from .autocode_protected_paths import identity, path_in
 except ImportError:
     import autocode_util as util
+    import autocode_command_receipt as command_receipt
     import autocode_protected_paths as paths
     import autocode_protected_store as store
     from autocode_protected_paths import identity, path_in
@@ -133,7 +141,7 @@ def replay(state, workspace, out, scratch_run, *, timeout):
     if not record:
         return None  # compatibility: do not invent an original binding for old runs
     verify_binding(record)
-    revision = util.snapshot(workspace)['revision']
+    revision = source_scope.snapshot(workspace, state)['revision']
     changed = []
     for name, expected in record['files'].items():
         try:
@@ -161,10 +169,11 @@ def replay(state, workspace, out, scratch_run, *, timeout):
             result['original'] = scratch_run(workspace, directory / 'original', command=record['command'], timeout=timeout,
                                             **overlays)
         receipts = (result['candidate'], result['original'])
-        if any(row.get('exit_code') != 0 or row.get('error') or row.get('timed_out') for row in receipts):
+        if any(row.get('exit_code') != 0 or row.get('error') or row.get('timed_out')
+               or not command_receipt.completed(row) for row in receipts):
             result['verdict'] = 'FAIL'
     verify_binding(record)
-    if util.snapshot(workspace)['revision'] != revision:
+    if source_scope.snapshot(workspace, state)['revision'] != revision:
         result.update(verdict='NOT_VERIFIED', error='Candidate changed during protected-test replay')
     directory.mkdir(parents=True, exist_ok=True)
     receipt = directory / 'receipt.json'
@@ -186,6 +195,8 @@ def ready(state, current_revision):
     try:
         verify_binding(record)
         proof = (state.get('validation') or {}).get('check_replay') or {}
+        if proof.get('verdict') != 'PASS' or proof.get('source_revision') != current_revision:
+            return False
         result = proof.get('protected_tests') or {}
         if result.get('receipt'):
             receipt = Path(result['receipt'])
@@ -193,6 +204,14 @@ def ready(state, current_revision):
                     or util.read_object(receipt) != {key: value for key, value in result.items()
                                                     if key not in ('receipt', 'receipt_sha256')}):
                 return False
+        if (result.get('changed_tests')
+                or any(result.get(name) is not None for name in ('candidate', 'original'))):
+            for name in ('candidate', 'original'):
+                row = result.get(name)
+                if (not isinstance(row, dict) or type(row.get('exit_code')) is not int
+                        or row['exit_code'] != 0 or row.get('timed_out') or row.get('error')
+                        or not command_receipt.completed(row)):
+                    return False
         return (result.get('verdict') == 'PASS' and result.get('binding_hash') == record['binding_hash']
                 and result.get('source_revision') == current_revision)
     except (OSError, ValueError, TypeError, KeyError):

@@ -1,4 +1,5 @@
 """Offline runner coverage for activity timeouts, durable status, and recovery."""
+from .supervision_fixture import launcher
 import contextlib
 import copy
 import io
@@ -160,7 +161,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                     observed.append(support.read(run / 'state.json')['active_stage']['activity'])
                     return -15, True
 
-                with patch.object(runner.subprocess, 'Popen', Child), \
+                with patch.object(runner.supervision, 'launch', launcher(Child)), \
                      patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
                      patch.object(runner.processes, 'preflight', return_value=None), \
                      patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
@@ -226,7 +227,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch.object(runner, 'ActivityMonitor', monitor), \
-             patch.object(runner.subprocess, 'Popen', Child), \
+             patch.object(runner.supervision, 'launch', launcher(Child)), \
              patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
              patch.object(runner.processes, 'preflight', return_value=None), \
              patch.object(runner.processes, 'process_table', return_value={}), \
@@ -331,6 +332,29 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual('idle', archived['timeout_kind'])
         self.assertTrue(Path(archived['events']).is_file())
         self.assertEqual(['greet.py'], archived['changed_files'])
+
+    def test_a_timeout_that_exited_0_before_any_session_row_recovers_on_resume(self):
+        # A provider that handles the stop signal exits 0. With no output there is no session row, which is
+        # still a timeout to recover, not a response from an unexpected session (#464).
+        for saved in (None, 'expired-session'):
+            with self.subTest(saved_session=saved):
+                self.setUp()
+                self.start_task()
+                source, record = self.interrupted_attempt()
+                Path(record['events']).write_text('')
+                record.update(exit_code=0, supports_sessions=True, expected_session=saved)
+                if not saved:
+                    self.state['sessions'].pop('terra')
+                original_source = source.read_bytes()
+                with self.assertRaises(support.Paused) as caught:
+                    runner.reconcile_active(self.state, self.run, self.root)
+                self.assertEqual('PAUSED_PROVIDER_UNCERTAIN', caught.exception.status, str(caught.exception))
+                with patch.object(runner, 'run_role', side_effect=AssertionError('Recovery must not replay the writer')):
+                    self.assertTrue(runner.automatically_recover_timed_out_stage(
+                        self.state, self.run, self.root, caught.exception))
+                self.assertNotIn('active_stage', self.state)
+                self.assertNotIn('terra', self.state['sessions'])
+                self.assertEqual(original_source, source.read_bytes())
 
     def test_uncertain_recovery_requires_a_durable_timeout_not_just_an_error_label(self):
         self.start_task()
@@ -466,6 +490,13 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(runner.MAX_AUTOMATIC_RECOVERIES, runner.recovery_count(self.state))
         with self.assertRaises(support.Paused):
             runner.timeout_recovery_guard(self.state)
+
+    def test_unchanged_builder_batches_never_exhaust_the_recovery_budget(self):
+        # #511: no recovery ran, so the guard must leave the run to its own no-progress stop.
+        self.state.update(no_progress_batches=runner.MAX_AUTOMATIC_RECOVERIES)
+        self.state.pop('automatic_recoveries_since_resume', None)
+        self.assertEqual(0, runner.recovery_count(self.state))
+        runner.timeout_recovery_guard(self.state)
 
     def test_legacy_recovered_history_does_not_exhaust_a_new_resume(self):
         self.state.update(consecutive_timeout_recoveries=0, no_progress_batches=0,

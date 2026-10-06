@@ -10,16 +10,19 @@ import copy
 import json
 from pathlib import Path
 try:
-    from .. import autocode_util as util, autocode_goals as goals, autocode_bug_job as bug_job
+    from .. import autocode_util as util, autocode_source_scope as source_scope, autocode_goals as goals, autocode_bug_job as bug_job
     from .. import autocode_goal_lifecycle as lifecycle
+    from .. import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
     from .. import autocode_providers, autocode_verify as verify
     from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
 except ImportError:
     import autocode_verify as verify
     import autocode_util as util
+    import autocode_source_scope as source_scope
     import autocode_goals as goals
     import autocode_goal_lifecycle as lifecycle
+    import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     import autocode_bug_job as bug_job
     import autocode_discuss_job as discuss_job
     import autocode_stuck_job as stuck_job
@@ -82,6 +85,11 @@ def apply_job(stage, state, value, record, workspace):
     bug_job.apply(state, value, record, workspace, run_probe=lambda command: verify.scratch_run(
         workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
         timeout=PROBE_TIMEOUT))
+    if bug_questions.has_questions(state):
+        human.queue(state, 'clarification', {'stage': bug_job.STAGE, 'output': record.get('output'),
+                    'source_revision': record.get('source_revision')}, questions=bug_questions.questions(state),
+                    evidence=bug_questions.evidence(state), phase='INVESTIGATING', next_stage=bug_job.STAGE)
+        return
     if bug_job.small_correction(state):
         start_small_correction(state, workspace)
 
@@ -140,7 +148,7 @@ def start_small_correction(state, workspace):
     contract.update(approval_status="approved", approval_event=event)
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", pending_questions=[])
     decision = goals.initial_decision(body)
-    lifecycle.assign_task(state, decision, util.snapshot(Path(workspace)))
+    lifecycle.assign_task(state, decision, source_scope.snapshot(Path(workspace), state))
     state.update(next_action=decision["next_objective"], affected_paths=decision["affected_paths"],
                  next_stage=dispatch.build_stage(state))
     goals.record_decision(state, decision)
@@ -155,7 +163,7 @@ def guard(state, workspace):
             or request.get('contract_hash') != state['goal_contract']['hash']
             or request.get('task_id') != state.get('current_task', {}).get('id')
             or not output or output not in request.get('evidence_hashes', {})
-            or request.get('source_revision') != util.snapshot(workspace)['revision']):
+            or request.get('source_revision') != source_scope.snapshot(workspace, state)['revision']):
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Repair diagnosis needs the current reviewed source and task')
     if request.get('diagnosis_output'):
         raise util.Paused('PAUSED_RESOLVER', 'The saved blocker already has a diagnosis; reconcile it before another resolver call')
@@ -280,7 +288,7 @@ def diagnosis_guard(state, workspace):
     goals.execution_guard(state)
     request = state.get('diagnosis_request') or {}
     if (request.get('contract_hash') != state['goal_contract']['hash']
-            or request.get('source_revision') != util.snapshot(workspace)['revision']):
+            or request.get('source_revision') != source_scope.snapshot(workspace, state)['revision']):
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Diagnosis needs the current source and approved contract')
     for path, digest in request.get('evidence_hashes', {}).items():
         if not Path(path).is_file() or util.file_hash(path) != digest:

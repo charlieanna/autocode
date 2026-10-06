@@ -11,12 +11,19 @@ selected for this invocation (runner.opencode) is the one used. It never imports
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 import sys
 from pathlib import Path
 
 try:
     from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
+    from . import autocode_job_route as job_route
     from . import autopilot
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
@@ -43,6 +50,7 @@ try:
     from . import autocode_worktrees as worktrees
 except ImportError:
     import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
+    import autocode_job_route as job_route
     import autopilot
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
@@ -170,7 +178,7 @@ def revalidate_on_resume(state, workspace):
     """A validation older than the workspace cannot support completion (#302)."""
     validation = state.get('validation') or {}
     revision = validation.get('source_revision')
-    if not revision or revision == support.snapshot(workspace)['revision']:
+    if not revision or revision == source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']:
         return False
     state.setdefault('validation_archive', []).append({
         'reason': 'Validation is non-current: the workspace revision changed after it ran',
@@ -212,14 +220,18 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print(f'Input rejected: {error}', file=sys.stderr)
         return 2
     dependency_result = dependency.apply(args, state, run_dir, resolver_human.current(state), runner.write_json,
-                                         lambda: support.snapshot(workspace)["revision"])
+                                         lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"])
     if dependency_result is not None:
         return dependency_result
     if not args.abandon_stage and job_failure.recover(runner, state, run_dir, workspace):
         if not args.retry_failed_stage:
             print(state['stop_reason'])
             return 2
-    if state.get('job_failure') and (state.get('status') in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') or args.job_retry_token):
+    # A job stopped on quota or a content-filter refusal takes another model with its retry token (#463).
+    routed = job_route.answer(runner, args, state, run_dir, workspace)
+    if routed is not None:
+        return routed
+    if state.get('job_failure') and (state.get('status') in job_failure.PAUSES or args.job_retry_token):
         if not (args.resume_paused and args.retry_failed_stage):
             print(state.get('stop_reason', 'Inspect the retained workflow-job attempt before retrying.'))
             return 2
@@ -362,7 +374,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         return 2
     if args.abandon_stage is not None:
         try:
-            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage)
+            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
         except ValueError as error:
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2
@@ -571,13 +583,13 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if args.approve_goal:
                 lifecycle.approve(candidate, args.approve_goal)
             for criterion in args.approve_review:
-                goals.approve_review(candidate, criterion, args.review_token, support.snapshot(workspace))
+                goals.approve_review(candidate, criterion, args.review_token, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
             if args.reconcile_review:
                 criterion, separator, answer_id = args.reconcile_review.partition("=")
                 if not separator or not criterion or not answer_id:
                     raise ValueError("--reconcile-review uses CRITERION_ID=ANSWER_ID")
                 goals.reconcile_legacy_review(candidate, criterion, answer_id,
-                                              args.review_token, support.snapshot(workspace))
+                                              args.review_token, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
             if args.accept_completion:
                 runner.accept_completion(candidate, workspace)
             if args.close_finding:
@@ -704,8 +716,11 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             raise ValueError('A model question has no default to delegate; name the model yourself')
         asked, model = quota_route.parse_answer(args.answer, published['questions'], proposal['origin'])
         role = asked['route_role']
+        parallel = worker_quota.current(candidate, proposal['origin'])
+        # A batch member ran on its own model; a sibling's earlier answer may have moved the route (#465).
+        ran_on = parallel[1].get('model') if parallel else None
         quota_route.validate(candidate, role, model, configured_tool=getattr(runner.opencode, 'CONFIGURED', False),
-                             cross_check=dispatch.enforce_cross_model_verification, job=asked.get('job'))
+                             cross_check=dispatch.enforce_cross_model_verification, job=asked.get('job'), current=ran_on)
         if quota_route.engine(candidate['settings'], role) == 'opencode':
             try:
                 runner.opencode.check_models({role: {'model': model}}, workspace)
@@ -713,13 +728,12 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):
             raise ValueError('Apply the queued intervention before answering')
-        parallel = worker_quota.current(candidate, proposal['origin'])
         if proposal['origin'].get('quota_worker') and not parallel:
             raise ValueError('The quota-stopped Builder is no longer current; inspect the batch before retrying')
         if parallel:
             row, stopped_worker = parallel
             worker_quota.validate_model(model, stopped_worker, dispatch._model_family)
-            attempt = {**stopped_worker, 'stage': 'terra', 'pause_status': quota_route.QUOTA_STATUS}
+            attempt = {**stopped_worker, 'stage': 'terra', 'pause_status': row['status']}
             worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
         else:
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
@@ -728,7 +742,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             runner.abandon_stage(candidate, run_dir, workspace, attempt['attempt_id'])
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
         record = quota_route.assign(candidate, role, model, at=runner.now(), via='answer', attempt=attempt,
-                                    request_id=published['request_id'])
+                                    request_id=published['request_id'], current=ran_on)
         runner.finish_human_action(candidate, published)
     except (ValueError, KeyError) as error:
         print(f'Input rejected: {error}', file=sys.stderr)

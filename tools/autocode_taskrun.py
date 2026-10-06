@@ -226,17 +226,30 @@ class TaskRun:
                                    "advance the run to publish one, then answer")
         return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
 
-    def assign_model(self, role: str, model: str, *, resolver_token: str | None = None) -> dict:
+    def assign_model(self, role: str, model: str, *, resolver_token: str | None = None,
+                     job_retry_token: str | None = None) -> dict:
         """Name the model a role stopped on quota or a refusal continues on (``needs.route``), then resume_paused().
 
         The same answer as ``answer(f"route-{role}", model)``: AutoCode refuses a model the launch
         would refuse (engine, format, availability, cross-model) and leaves the run paused. A
         ``--<role>-model`` in ``options`` is updated, so advancing never passes the old model back.
+
+        At a stopped workflow job (``needs.kind`` ``retry_job`` with ``route``) the answer carries
+        the job retry token instead (``job_retry_token``, or the current view's) and issues a new
+        one: continue with ``retry_job(view["needs"]["job_retry_token"])``.
         """
-        view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
+        if job_retry_token is None and resolver_token is None:
+            need = self.status()["needs"] or {}
+            if need.get("kind") == "retry_job" and (need.get("route") or {}).get("role") == role:
+                job_retry_token = need.get("job_retry_token")
+        if job_retry_token is not None:
+            view = self._act("assign model", "--answer", f"route-{role}={model}", "--job-retry-token", job_retry_token)
+        else:
+            view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
         flag = "--" + role.replace("_", "-") + "-model"
         options = list(self.options)
-        if flag in options[:-1]:
+        # --investigator-model pins the stuck-stage Investigator, not the bug Investigator's route.
+        if flag in options[:-1] and role != "investigator":
             options[options.index(flag) + 1] = model
             self.options = tuple(options)
         return view

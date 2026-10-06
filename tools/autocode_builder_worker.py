@@ -1,4 +1,10 @@
 """Internal isolated Builder entry point, supervised by the Orchestrator."""
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 from pathlib import Path
 import sys
 import uuid
@@ -19,6 +25,7 @@ except ImportError:
 def execute(state, directory, workspace, mode):
     runner.goals.execution_guard(state)
     runner.autopilot.builder_policy.guard(state)
+    runner.autopilot.regression.before_review(state, None, workspace, directory)
     runner.opencode = runner.autocode_providers.resolve(state["settings"].get("provider", "opencode"))
     if (mode == "recover" and not state.get("active_stage") and not state.get("stages")
             and not state.get("implementation") and not (directory / "iterations").exists()
@@ -29,7 +36,7 @@ def execute(state, directory, workspace, mode):
         parent = runner.read_json(Path(state["parent_run"]) / "state.json")
         batch = parent.get("orchestration_batch") or {}
         row = next((r for r in batch.get("workers", []) if r.get("task") == state["current_task"]), None)
-        current = runner.support.snapshot(workspace)
+        current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
         expected = {p: h for p, h in batch.get("baseline", {}).get("files", {}).items() if h != "deleted"}
         if (not row or batch.get("id") != state.get("parent_batch")
                 or batch.get("contract_hash") != state["goal_contract"]["hash"]
@@ -47,7 +54,8 @@ def execute(state, directory, workspace, mode):
             runner.reconcile_active(state, directory, workspace)
         except runner.ReportRepairQueued:
             pass
-        except runner.support.Paused:
+        except runner.support.Paused as error:
+            runner.result_application.raise_if_uncertain(error)
             if mode != "retry" or not state.get("active_stage"):
                 raise
             runner.abandon_stage(state, directory, workspace, runner.attempt_id(state["active_stage"]))
@@ -107,7 +115,7 @@ def execute(state, directory, workspace, mode):
     request = implementation.get("user_request", {})
     if request.get("kind") != "none":
         raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER", request.get("decision_needed", "Builder needs a user decision"))
-    if implementation.get("source_revision") != runner.support.snapshot(workspace)["revision"]:
+    if implementation.get("source_revision") != source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)["revision"]:
         raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed after its result")
     state.update(status="BUILT", next_stage=None)
     runner.write_json(directory / "state.json", state)
@@ -132,7 +140,7 @@ def main(directory, mode="start"):
                 state.update(status=getattr(error, "status", "PAUSED_ORCHESTRATOR_WORKER"), stop_reason=reason)
                 runner.write_json(directory / "state.json", state)
                 result = {"status": state["status"], "reason": reason}
-                if state["status"] == quota_route.QUOTA_STATUS:
+                if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)
                     worker = worker_quota.payload(state, directory, workspace)
                     if worker:
                         result["quota_worker"] = worker

@@ -90,10 +90,17 @@ class EvidenceTests(unittest.TestCase):
         result = self.read(self.report)
         self.assertEqual(['a.test.js::group > test_c1_case'], result['failed'])
         self.assertEqual([], result['collection_errors'])
+        self.assertEqual([], result['uncollected'])
         test['collection_error'] = True
         result = self.read(self.report)
         self.assertEqual(result['failed'], result['collection_errors'])
         self.assertEqual([], result['passed'])
+        # A failed fixture executed its test; only a file that never collected is uncollected (#503).
+        self.assertEqual([], result['uncollected'])
+        self.report['files'][0]['collection_error'] = True
+        result = self.read(self.report)
+        self.assertEqual(['a.test.js::[collection]'], result['uncollected'])
+        self.assertIn('a.test.js::[collection]', result['failed'])
 
     def test_duplicate_names_files_bad_counts_and_incomplete_results_are_rejected(self):
         variants = []
@@ -136,3 +143,4 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(self.read(self.report))
         self.report['reason'] = 'failed'
         self.assertIn('[vitest runtime error]', self.read(self.report)['collection_errors'])
+        self.assertEqual([], self.read(self.report)['uncollected'])

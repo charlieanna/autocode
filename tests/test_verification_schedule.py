@@ -12,6 +12,7 @@ from unittest import mock
 
 from .test_verify import Project
 import autocode_check_replay as replay
+import autocode_command_receipt as command_receipt
 import autocode_util as util
 import autocode_verification_plan as plan
 import autocode_verification_schedule as schedule
@@ -99,28 +100,91 @@ class ReceiptPolicyTests(unittest.TestCase):
                 self.assertEqual("execute", second["scheduling"]["action"])
                 self.assertNotEqual(first["output"], second["output"])
 
-    def test_interrupted_launch_pauses_instead_of_double_launch(self):
-        def crash(out):
-            self.execute(out)
-            raise KeyboardInterrupt()
-        with self.assertRaises(KeyboardInterrupt):
-            self.run_check(execute=crash)
-        with self.assertRaisesRegex(util.Paused, "no completed receipt"):
-            self.run_check()
-        self.assertEqual(1, len(self.calls))
+    def test_only_entries_that_never_collected_break_attribution(self):
+        # A failed hook or fixture executed its test; a module that never collected did
+        # not. Results saved before the split have no ``uncollected`` list and fail closed.
+        hook_failure = {"passed": ["a"], "failed": ["b"], "skipped": [], "collection_errors": ["b"],
+                        "uncollected": [], "total": 2, "complete": True}
+        self.assertTrue(schedule.complete_results({"results": dict(hook_failure)}))
+        legacy = {key: value for key, value in hook_failure.items() if key != "uncollected"}
+        self.assertFalse(schedule.complete_results({"results": legacy}))
+        uncollected_module = {**hook_failure, "collection_errors": ["c"], "uncollected": ["c"]}
+        self.assertFalse(schedule.complete_results({"results": uncollected_module}))
 
-    def test_changed_identity_cannot_evade_an_uncertain_launch(self):
+    def test_an_exception_during_verification_records_a_failed_attempt_and_reruns_fresh(self):
+        # Issue #414: an exception unwinding in-process (a scratch error, Ctrl-C, the
+        # source changing under the obligation) is known-failed state, unlike a hard
+        # crash. It leaves a failed receipt and no pending launch, so the next attempt
+        # runs a fresh check instead of pausing forever.
+        def scratch_error(out):
+            raise RuntimeError("git rev-parse failed")
+        def interrupted(out):
+            self.execute(out)
+            raise KeyboardInterrupt()
+        def source_changed(out):
+            return self.execute(out)
+        def stale_obligation():
+            raise ValueError("The source changed since this Validator obligation; fresh validation is required")
+        cases = (("scratch error", scratch_error, lambda: self.identity),
+                 ("interrupted", interrupted, lambda: self.identity),
+                 ("source changed", source_changed, stale_obligation))
+        for name, execute, current in cases:
+            with self.subTest(case=name):
+                self.identity["obligation"] = name
+                with self.assertRaises((RuntimeError, KeyboardInterrupt, ValueError)):
+                    schedule.run(self.root, copy.deepcopy(self.identity), execute, reuse_allowed=True,
+                                 reason="new_obligation", current_identity=current)
+                schedule.guard(self.root)
+                directory = self.root / util.digest(self.identity)
+                reference = util.read(directory / "completed.json")
+                saved = util.read(directory / reference["name"])
+                self.assertTrue(saved["runner_owned"])
+                self.assertFalse(schedule.reusable(saved["result"]))
+                self.assertIn("did not complete", saved["result"]["error"])
+                if name == "source changed":
+                    # The executed result is preserved with the failure recorded on top.
+                    self.assertEqual(["test_app.Case.test_c1"], saved["result"]["results"]["passed"])
+                before = len(self.calls)
+                second = self.run_check()
+                self.assertEqual("execute", second["scheduling"]["action"])
+                self.assertEqual(before + 1, len(self.calls))
+
+    def test_an_interrupted_attempt_is_never_reused_under_any_identity(self):
         def crash(out):
             self.execute(out)
             raise KeyboardInterrupt()
         with self.assertRaises(KeyboardInterrupt):
             self.run_check(execute=crash)
+        self.assertEqual("execute", self.run_check()["scheduling"]["action"])
+        for key in self.identity:
+            with self.subTest(key=key):
+                self.identity[key] += " changed"
+                self.assertEqual("execute", self.run_check()["scheduling"]["action"])
+
+    def test_uncertain_command_cleanup_blocks_fresh_execution_for_every_identity(self):
+        def uncertain(out):
+            self.calls.append(out)
+            raise command_receipt.OwnershipUncertain("Recorded command descendants may still be alive")
+        with self.assertRaises(command_receipt.OwnershipUncertain) as error:
+            self.run_check(execute=uncertain)
+        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.exception.status)
+        with self.assertRaisesRegex(util.Paused, "no completed receipt"):
+            schedule.guard(self.root)
         for key in self.identity:
             with self.subTest(key=key):
                 self.identity[key] += " changed"
                 with self.assertRaisesRegex(util.Paused, "no completed receipt"):
                     self.run_check()
-                self.assertEqual(1, len(self.calls))
+        self.assertEqual(1, len(self.calls), "Unknown cleanup cannot authorize another launch")
+
+    def test_a_hard_crash_pending_launch_still_pauses(self):
+        # What a hard crash leaves: a pending launch nothing ran to record an
+        # outcome for. That stays a human reconciliation, never a fresh launch.
+        util.atomic_json(self.root / "pending.json", {"attempt_id": "orphan", "identity": self.identity,
+                                                      "started_at": "2026-10-05T00:00:00Z"})
+        with self.assertRaisesRegex(util.Paused, "no completed receipt"):
+            self.run_check()
+        self.assertEqual([], self.calls)
 
     def test_symlinked_output_parent_cannot_supply_reused_evidence(self):
         first = self.run_check()
@@ -196,6 +260,9 @@ class CleanReplayTests(unittest.TestCase):
         self.assertEqual(1, second["scheduling"]["reused_count"])
         self.assertEqual(first["checks"][0]["output"], second["checks"][0]["output"])
         self.assertEqual(["test_app.Case.test_c1"], second["checks"][0]["results"]["passed"])
+        row = second["checks"][0]
+        self.assertEqual(row["supervision_sha256"],
+                         replay.evidence_pins(second)[row["supervision"]["receipt"]])
 
     @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
     def test_pytest_reuse_requires_actual_junit_inventory_and_broken_source_fails(self):
@@ -238,11 +305,12 @@ class CleanReplayTests(unittest.TestCase):
 
     def test_uncertain_launch_blocks_protected_checks_before_any_new_execution(self):
         directory = self.run / "check-replay" / "obligations"
-        def crash(out):
-            raise KeyboardInterrupt()
-        with self.assertRaises(KeyboardInterrupt):
-            schedule.run(directory, {"obligation": "older-validator"}, crash, reuse_allowed=True,
-                         reason="first", current_identity=lambda: {"obligation": "older-validator"})
+        directory.mkdir(parents=True)
+        # What a hard crash leaves: a pending launch nothing recorded an outcome
+        # for. An in-process exception no longer reaches this state (#414).
+        util.atomic_json(directory / "pending.json",
+                         {"attempt_id": "orphan", "identity": {"obligation": "older-validator"},
+                          "started_at": "2026-10-05T00:00:00Z"})
         with mock.patch.object(replay.protected_oracles, "replay") as protected:
             with self.assertRaisesRegex(util.Paused, "no completed receipt"):
                 self.replay()
@@ -420,9 +488,10 @@ class VerificationRestartCLI(unittest.TestCase):
         hooks.mkdir()
         shutil.copy2(scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")
         marker = root / "verification-committed.json"
+        # Exercise the repair packet before the crash: it has no live goal contract.
         env.update(PYTHONPATH=str(hooks), SCENARIO_VERIFICATION_CRASH=str(marker),
                    XDG_CONFIG_HOME=str(root / "config"), CODEX_HOME=str(root / "codex-home"),
-                   AUTOCODE_PROVIDER="opencode")
+                   AUTOCODE_PROVIDER="opencode", SCENARIO_VERIFICATION_FORCE_REPAIR="1")
         driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=20, timeout_seconds=180)
         try:
             stopped = driver.drive(scenario.brief)

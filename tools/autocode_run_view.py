@@ -21,7 +21,10 @@ try:
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    from . import autocode_quota_route as quota_route
+    from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
+    from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_liveness as liveness_policy
+    from . import autocode_containment_policy as containment_policy
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -29,7 +32,10 @@ except ImportError:
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    import autocode_quota_route as quota_route
+    import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
+    import autocode_recovery_limits as recovery_limits
+    import autocode_liveness as liveness_policy
+    import autocode_containment_policy as containment_policy
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -38,17 +44,24 @@ CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVA
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
-def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False) -> dict:
-    """Caller supplies fresh completion, visual evidence and stale-repair projections."""
+def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False, liveness=None,
+         runner_check_liveness=None) -> dict:
+    """Caller supplies fresh completion, evidence, repair and supervision inspections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
+    active = state.get("active_stage")
+    supervision = active.get("supervision") if isinstance(active, dict) else None
+    check = state.get("active_runner_check")
+    check_supervision = check.get("supervision") if isinstance(check, dict) else None
     result = {
-        "runner_check": {key: state["active_runner_check"].get(key) for key in
-                         ("stage", "summary", "started_at", "updated_at", "command", "output")}
-                        if state.get("active_runner_check") else None,
+        "runner_check": {**{key: deepcopy(check.get(key)) for key in
+                            ("stage", "summary", "started_at", "updated_at", "command", "output", "supervision")},
+                         "liveness": liveness_policy.classify(check_supervision, runner_check_liveness)}
+                        if check else None,
         "dependency": state.get("dependency_wait"),
         "schema": SCHEMA,
         "status": status,
+        "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE,
         "needs": needs(state, stale_report_repair=stale_report_repair),
         "recovery": recovery_view.project(state, needs(state, stale_report_repair=stale_report_repair)),
@@ -79,6 +92,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
         "routes": quota_route.routes(state),
         "route_assignments": quota_route.assignments(state),
+        # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
+        # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
+        "tool_containment": containment_policy.mode(state.get("settings")),
     }
     result["efficiency"] = autocode_efficiency.summary(
         state, accounting=result["usage"]["accounting"], completion_current=completion_current,
@@ -237,6 +253,9 @@ def evidence(state: dict) -> dict:
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
     findings          the findings ledger: id, status, severity, finding
+    finding_scope_moves  present once an approved revision moved criteria that open findings cite:
+                      one row per finding it re-attributed (autocode_finding_rescope): finding, from,
+                      to (every resulting row's id, milestone_id, criteria), contract_token, at
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
                       case_tests maps each English test case to the tests that prove it
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
@@ -263,6 +282,7 @@ def evidence(state: dict) -> dict:
     proof = state.get("regression_proof")
     replay = validation.get("check_replay")
     investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
+    moves = finding_rescope.history(state.get("findings_ledger"))
     return {
         "outcome": contract.get("intended_outcome"),
         "base_commit": state.get("base_commit"),
@@ -272,6 +292,7 @@ def evidence(state: dict) -> dict:
         "validator_source_revision": validation.get("source_revision"),
         "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
+        **({"finding_scope_moves": moves} if moves else {}),
         "regression_proof": {key: proof.get(key) for key in
                              ("verdict", "fail_to_pass", "failures", "unverified", "commands", "source_revision",
                               "case_tests")}
@@ -279,7 +300,7 @@ def evidence(state: dict) -> dict:
         "test_cases": [{key: case.get(key) for key in ("id", "given", "when", "then")}
                        for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
                       if investigation.get("outcome") == "reproduced" else [],
-        "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
+        "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "brief_acceptance": deepcopy(replay.get("brief_acceptance")), "risk_acceptance": deepcopy(replay.get("risk_acceptance")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
                          "scheduling": deepcopy(replay.get("scheduling")),
                          "checks": [{key: deepcopy(row.get(key)) for key in
                                      ("command", "exit_code", "timed_out", "output", "output_sha256", "duration_seconds",
@@ -287,6 +308,16 @@ def evidence(state: dict) -> dict:
                                      for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,
     }
+
+
+def _route(question: dict) -> dict:
+    """``needs.route``: a role's model question after a quota stop or a content-filter refusal (#184, #463)."""
+    route = {"question_id": question["id"], "role": question["route_role"], "job": question.get("job"),
+             "current_model": question.get("current_model"), "engine": question.get("engine"),
+             "cause": question.get("cause", "quota"), "stopped_model": question.get("stopped_model")}
+    if "candidates" in question:
+        route["candidates"] = list(question["candidates"])
+    return route
 
 
 def needs(state: dict, *, stale_report_repair=False) -> dict | None:
@@ -301,7 +332,18 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
                                                      when `abandon_stage` is set, --abandon-stage
-                                                     ATTEMPT first (the attempt is uncertain)
+                                                     ATTEMPT first (the attempt is uncertain);
+                                                     `action`, when set, is the one command that
+                                                     continues (a PAUSED_NO_PROGRESS its unchanged-
+                                                     batch limit caused: --resume-paused --no-progress-
+                                                     limit N, N above `no_progress_batches`, the
+                                                     retained count, or 0)
+    retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
+                                                     TOKEN; with `route` set (quota or a content-filter
+                                                     refusal), --answer route-ROLE=MODEL --job-retry-token
+                                                     TOKEN first names another model and issues a new token
+                                                     (after a refusal, `action` is that answer until a
+                                                     model is named)
     recover_source missing original identity       inspect archive and source before a new run
     continue      nothing; relaunch to proceed      the same command with --run-dir
     """
@@ -311,7 +353,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     failure = state.get('job_failure') or {}
     if status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') and failure:
         known_source = bool(failure.get('source_identity'))
-        return {'kind': 'retry_job' if known_source else 'recover_source',
+        need = {'kind': 'retry_job' if known_source else 'recover_source',
                 'reason': failure['reason'], 'stage': failure['stage'],
                 'attempt_id': failure['attempt_id'], 'job_retry_token': failure['job_retry_token'],
                 'archive': failure['archive'], 'source_identity': failure['source_identity'],
@@ -324,6 +366,18 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                   'Exact retry is unavailable because this attempt has no saved original source identity. '
                                   'Inspect the archived attempt and current changes before starting a new run. '
                                   'The current checkout cannot establish the missing original identity.')}
+        # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
+        # the failure: --answer route-ROLE=MODEL --job-retry-token TOKEN names another model and issues a
+        # new token for the exact retry. Same shape as the answer need's ``route``.
+        if known_source and isinstance(failure.get('route'), dict):
+            need['route'] = _route(failure['route'])
+            # Until a person names another model (job_failure.route_assignment), the exact retry of a
+            # refused job would replay the refused model: the next step is the answer. job_retry_token
+            # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
+            if (need['route']['cause'] == 'content_filter'
+                    and not isinstance(failure.get('route_assignment'), dict)):
+                need['action'] = f"--answer {need['route']['question_id']}=MODEL --job-retry-token TOKEN"
+        return need
     if status == "WAITING_FOR_DEPENDENCY":
         return {"kind": "dependency", "reason": state.get("stop_reason"),
                 "producer_run": (state.get("dependency_wait") or {}).get("producer_run")}
@@ -364,11 +418,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         route = next((q for q in questions if q.get("category") == quota_route.CATEGORY
                       and quota_route.asked_route(questions, q.get("id"))), None)
         if route:
-            answer["route"] = {"question_id": route["id"], "role": route["route_role"], "job": route.get("job"),
-                               "current_model": route.get("current_model"), "engine": route.get("engine"),
-                               "cause": route.get("cause", "quota"), "stopped_model": route.get("stopped_model")}
-            if "candidates" in route:
-                answer["route"]["candidates"] = list(route["candidates"])
+            answer["route"] = _route(route)
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
@@ -396,5 +446,11 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                 and isinstance(rejected.get("iteration"), int) and rejected.get("output")):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+        if (status == "PAUSED_NO_PROGRESS" and "action" not in need
+                and recovery_limits.no_progress_bound_holds(state)):
+            # A plain resume holds here, also after a consumed response; only a bound
+            # that admits the retained count acknowledges it (#448).
+            need["action"] = "--resume-paused --no-progress-limit N"
+            need["no_progress_batches"] = state.get("no_progress_batches", 0)
         return need
     return {"kind": "continue"}

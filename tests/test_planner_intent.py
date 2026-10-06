@@ -201,9 +201,43 @@ class ConcernCoverageTests(unittest.TestCase):
             with self.subTest(rows=rows), self.assertRaisesRegex(ValueError, "exactly one"):
                 planner._coverage(rows, self.CONCERNS)
 
+    # The live MiMo Plan Reviewer (2026-10-05) filed this beside complete rows for every concern.
+    PLACEHOLDER = {"concern_id": "AC39-placeholder", "decision": "", "rationale": "", "acceptance_test": "",
+                   "resolved": True}
+
+    def decision(self, concern_id, **changes):
+        return {"concern_id": concern_id, "decision": "Reject whitespace", "rationale": "One invalid-input rule",
+                "acceptance_test": "Whitespace input exits 2", "resolved": True, **changes}
+
     def test_a_row_for_something_that_is_not_a_concern_is_not_a_rejection(self):
         # A live astra_finalize was rejected for listing a question ID among its concern decisions.
-        planner._coverage([{"concern_id": "C1"}, {"concern_id": "Q1"}, {"concern_id": "C2"}], self.CONCERNS)
+        rows = [{"concern_id": "C1"}, {"concern_id": "Q1"}, {"concern_id": "C2"}]
+        self.assertEqual([rows[0], rows[2]], planner._coverage(rows, self.CONCERNS))
+
+    def test_only_rows_for_concerns_must_be_substantive(self):
+        rows = [self.decision("C1"), self.PLACEHOLDER, self.decision("C2")]
+        self.assertEqual([rows[0], rows[2]], planner._coverage(rows, self.CONCERNS))
+        for field in ("decision", "rationale", "acceptance_test"):
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "substantive"):
+                planner._coverage([self.decision("C1"), self.decision("C2", **{field: " "})], self.CONCERNS)
+
+    def test_the_final_review_keeps_only_its_concern_decisions(self):
+        for resolved in (True, False):
+            with self.subTest(placeholder_resolved=resolved):
+                current = state()
+                lifecycle.install_draft(current, body(), origin="glm_draft")
+                current["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": [{"id": "C1"}]}}
+                final = body()
+                final["initial_task"] = {"kind": "implement", "objective": "Deliver the CLI", "milestone_id": "M1",
+                                         "requirements": ["Greet"], "acceptance_criteria": ["C1"],
+                                         "validation_plan": ["Run"], "affected_paths": ["greet.py"]}
+                value = {"contract": final, "summary": "Ready", "contract_changes": [], "requirement_trace": [],
+                         "decisions": [self.decision("C1"), {**self.PLACEHOLDER, "resolved": resolved}]}
+                autopilot.apply_planning(current, "astra_finalize", value, {"output": "final.json"})
+                saved = current["planning"]["reports"]["astra_finalize"]["report"]
+                self.assertEqual([self.decision("C1")], saved["decisions"])
+                self.assertEqual(goals.token(current["goal_contract"]), current["planning"]["final_token"])
+                self.assertEqual(2, len(value["decisions"]))  # the provider's report itself is not edited
 
 
 if __name__ == "__main__":

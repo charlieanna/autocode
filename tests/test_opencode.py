@@ -146,6 +146,38 @@ class OpenCodeTests(unittest.TestCase):
         events = oc.normalized_events([event("step_start"), cut, event("step_start"), terminal()])
         self.assertTrue(any(row["type"] == "turn.completed" for row in events))
 
+    def test_final_content_filter_finish_is_a_failed_turn_with_known_usage(self):
+        # The provider refused the response; with no error event after it (#464) the
+        # finish reason is the only transport evidence, and its usage still counts.
+        text = event("text", text="The request was rejected because it was considered high risk")
+        refused = event("step_finish", reason="content-filter", tokens={"input": 40, "output": 1, "reasoning": 9,
+                        "cache": {"read": 10, "write": 0}})
+        events = oc.normalized_events([event("step_start"), text, refused])
+        self.assertFalse(any(row["type"] in ("turn.completed", "usage.partial") for row in events))
+        self.assertEqual({"type": "turn.failed", "usage": {"input_tokens": 50, "cached_input_tokens": 10,
+                                                           "output_tokens": 10, "reasoning_output_tokens": 9},
+                          "error": {"code": "content_filter",
+                                    "message": "OpenCode's last step finished with reason content-filter"}}, events[-1])
+        # The provider's own error event stays ahead of it, so its name and words are reported first.
+        error = {"name": "ContentFilterError", "data": {"message": "blocked"}}
+        events = oc.normalized_events([event("step_start"), text, refused,
+                                       {"type": "error", "sessionID": "ses_fixture", "error": error}])
+        self.assertEqual([("error", error), ("turn.failed", events[-1]["error"])],
+                         [(row["type"], row["error"]) for row in events[-2:]])
+        self.assertEqual("content_filter", events[-1]["error"]["code"])
+
+    def test_mid_stream_content_filter_finish_is_not_terminal(self):
+        # Distinct part IDs: a repeated ID is one part, so it would hide the earlier finish.
+        refused = event("step_finish", id="prt_f1", reason="content-filter", tokens={"input": 40, "output": 1})
+        started = [event("step_start", id="prt_s1"), refused, event("step_start", id="prt_s2")]
+        events = oc.normalized_events(started + [terminal(id="prt_f2")])
+        self.assertTrue(any(row["type"] == "turn.completed" for row in events))
+        self.assertFalse(any(row["type"] == "turn.failed" for row in events))
+        # Still unfinished after that step: not terminal, so neither completed nor failed.
+        events = oc.normalized_events(started)
+        self.assertFalse(any(row["type"] in ("turn.completed", "turn.failed") for row in events))
+        self.assertEqual("usage.partial", events[-1]["type"])
+
     def test_unknown_usage_remains_unknown(self):
         end = terminal(); del end["part"]["tokens"]["cache"]
         usage = oc.normalized_events([end])[-1]["usage"]
@@ -534,9 +566,10 @@ class OpenCodeFlow(unittest.TestCase):
         self.entry = [sys.executable, str(fixture_cli.TOOLS / "autocode.py")]
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         result = self.launch(["Greeting tool", "--chat"], 2, answers="CLI\nyes\n")
-        self.assertIn("PAUSED_TOOL_CONTAINMENT", result.stderr)
-        _, state = self.saved()
-        self.assertFalse(any(row["stage"] == "terra" for row in state["stages"]))
+        # The fake's version (or a non-macOS host) cannot hold the boundary: refused at setup (#413).
+        self.assertIn("Refused before any stage launched", result.stderr)
+        runs = self.project / ".autocode/runs"
+        self.assertEqual([], list(runs.glob("*/state.json")) if runs.exists() else [])
         self.assertFalse((self.project / "greet.py").exists())
 
     def test_cli_rejects_transient_validator_write_with_clean_final_source(self):

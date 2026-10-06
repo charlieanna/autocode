@@ -1,15 +1,17 @@
 """A role's quota runs out: the CLI asks the person for a model, applies it and records it (#184).
 
 Real CLI processes with the fake Codex provider; its Tester quota is used up only on
-gpt-5.6-sol, so a Tester that runs again on that model would stop again. No sleeps,
-no live models.
+gpt-5.6-sol, so a Tester that runs again on that model would stop again. A content-filter
+finish that exits 0 runs the fake OpenCode instead (#464). No sleeps, no live models.
 """
 import argparse
 import contextlib
 import io
 import json
 import re
+import shutil
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from . import test_subprocess
@@ -29,8 +31,8 @@ class QuotaRouteCliTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ('--engine', 'codex')
 
-    def quota_stop(self, *flags, model='gpt-5.6-sol'):
-        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_QUOTA_STAGE='sol',
+    def quota_stop(self, *flags, model='gpt-5.6-sol', stage='sol'):
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_QUOTA_STAGE=stage,
                         AUTOCODE_FIXTURE_QUOTA_MODEL=model)
         self.launch(['Build greeting', '--chat', *flags], 2, answers='CLI\nyes\n')
         self.run_dir, state = self.saved()
@@ -136,6 +138,8 @@ class QuotaRouteCliTests(unittest.TestCase):
         result = self.launch([*self.args, '--resume-paused', '--sol-model', OTHER_MODEL, '--no-chat'], 2)
         self.assertIn('stopped on quota is still uncertain', result.stderr)
         self.assertIn(f'--abandon-stage {attempt}', result.stderr)
+        # The pending request asks route-sol, so the answer the CLI takes there is offered too.
+        self.assertIn('--answer route-sol=MODEL --resolver-token TOKEN', result.stderr)
         self.assertEqual(before, state_file.read_bytes())
         # Naming the model and setting the attempt aside in one invocation is the advertised order.
         self.launch([*self.args, '--abandon-stage', attempt, '--sol-model', OTHER_MODEL], 0)
@@ -207,6 +211,23 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertIn('Use --resolver-response for this operational request', result.stderr)
         self.assertEqual('gpt-5.6-sol', self.saved()[1]['settings']['roles']['sol']['model'])
 
+    def test_a_used_up_plan_sent_as_a_429_asks_for_a_model(self):
+        # Z.AI's used-up plan as OpenCode reported it live (2026-10-05): an HTTP 429 that never says
+        # "quota". It paused as a rate limit and the Completion Reviewer's model was never asked for.
+        self.env['AUTOCODE_FIXTURE_QUOTA_ERROR'] = json.dumps({'name': 'APIError', 'data': {
+            'message': 'Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-09 10:51:41',
+            'statusCode': 429, 'isRetryable': True}})
+        paused = self.quota_stop(stage='astra_review')
+        self.assertIn('--answer route-completion=MODEL', paused['stop_reason'])
+        need = self.view()['needs']
+        self.assertEqual(('route-completion', 'Completion Reviewer', 'quota', 'gpt-5.6-sol'),
+                         tuple(need['route'][key] for key in ('question_id', 'job', 'cause', 'stopped_model')))
+        self.assertEqual(['route-completion'], [question['id'] for question in need['questions']])
+        self.launch([*self.args, '--answer', 'route-completion=' + OTHER_MODEL], 0)
+        [assignment] = self.view()['route_assignments']
+        self.assertEqual(('completion', 'gpt-5.6-sol', OTHER_MODEL, 'PAUSED_BUDGET'),
+                         tuple(assignment[key] for key in ('role', 'from', 'to', 'pause_status')))
+
     def test_a_content_filter_refusal_names_the_model_and_continues_on_another(self):
         # The same Tester stop, refused by the provider's content filter on gpt-5.6-sol only.
         self.env['AUTOCODE_FIXTURE_QUOTA_MESSAGE'] = "The response was blocked by the provider's content filter"
@@ -273,6 +294,57 @@ class QuotaRouteCliTests(unittest.TestCase):
                 self.assertEqual(2, code)
                 self.assertIn('no longer current', stderr)
                 self.assertEqual(before, (self.run_dir / 'state.json').read_bytes())
+
+
+class ContentFilterFinishCliTests(unittest.TestCase):
+    """An OpenCode Builder whose last step finished ``content-filter`` and exited 0, with no error event (#464).
+
+    The fake OpenCode refuses only the Builder on its first model, so a Builder that ran again on that
+    model would stop again. Before #464 this was an uncertain stop that asked for no model."""
+    new_run_engine_args = ('--engine', 'opencode')
+    refused = 'openai/gpt-5.6-terra'
+    other = 'openai/gpt-6-luna'
+
+    def setUp(self):
+        test_subprocess.SubprocessFlow.setUp(self)
+        provider = self.root / 'fixture-bin' / 'opencode'
+        shutil.copy2(Path(test_subprocess.__file__).resolve().parents[1] / 'tools' / 'fake_opencode.py', provider)
+        provider.chmod(0o755)
+        from .opencode_fixture_cli import entrypoint
+        self.entry = entrypoint(self.entry)
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE='terra',
+                        AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL=self.refused)
+
+    launch = test_subprocess.SubprocessFlow.launch
+    saved = test_subprocess.SubprocessFlow.saved
+    model_of = staticmethod(QuotaRouteCliTests.model_of)
+
+    def test_the_refused_builder_is_asked_for_another_model_and_continues_on_it(self):
+        self.launch(['Build a greeting tool', '--chat', '--terra-model', self.refused], 2, answers='CLI\nyes\n')
+        run_dir, paused = self.saved()
+        args = ['--run-dir', str(run_dir)]
+        published = human.current(paused)
+        self.assertEqual(('operational_exhaustion', ['route-terra']),
+                         (published['scope'], [question['id'] for question in published['questions']]),
+                         paused['stop_reason'])
+        self.assertEqual(0, paused['active_stage']['exit_code'])
+        self.assertIn(f"Builder: the provider's content filter refused the response on {self.refused} "
+                      "(content_filter: OpenCode's last step finished with reason content-filter)", paused['stop_reason'])
+        self.assertIn('--answer route-terra=MODEL', paused['stop_reason'])
+        view = json.loads(self.launch([*args, '--status'], 0).stdout)['view']
+        self.assertEqual(('route-terra', 'content_filter', self.refused),
+                         tuple(view['needs']['route'][key] for key in ('question_id', 'cause', 'stopped_model')))
+        self.launch([*args, '--answer', f'route-terra={self.other}'], 0)
+        [assignment] = json.loads(self.launch([*args, '--status'], 0).stdout)['view']['route_assignments']
+        self.assertEqual(('terra', self.refused, self.other, 'PAUSED_CONTENT_FILTER'),
+                         tuple(assignment[key] for key in ('role', 'from', 'to', 'pause_status')))
+        self.launch([*args, '--resume-paused', '--no-chat'], 0)
+        _, done = self.saved()
+        self.assertEqual('TASK_COMPLETE', done['status'])
+        builders = [row for row in done['stages'] if row['stage'] == 'terra' and not row.get('runner_owned')]
+        self.assertEqual([self.refused, self.other], [self.model_of(row) for row in builders],
+                         'the refused model is never replayed')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import math
 import os
 import signal
 import subprocess
@@ -49,7 +50,8 @@ def _birth_identity(process):
 
 def process_table(pids=None):
     """Read native process metadata; never inspect command arguments."""
-    selected = process_ids() if pids is None else set(pids)
+    selected = {pid for pid in (process_ids() if pids is None else set(pids))
+                if type(pid) is int and pid > 0}
     table = {}
     for pid in selected:
         try:
@@ -121,30 +123,71 @@ def recorded_worker_state(record):
     Read-only and never signals anything. Used by status so a checkpoint left
     behind by a dead runner or provider is not presented as current work.
     """
-    saved = record.get("processes")
     try:
+        saved = record.get("processes")
+        if not saved:
+            supervision = record.get("supervision")
+            provider = supervision.get("provider") if isinstance(supervision, dict) else None
+            if isinstance(provider, dict):
+                pid, born = provider.get("pid"), provider.get("birth_identity")
+                if type(pid) is int and pid > 0 and type(born) in (int, float) and born > 0 and math.isfinite(born):
+                    saved = [provider]
         if saved:
             live = live_processes(saved)
             return {"checked": True, "alive": bool(live),
                     "live_pids": [row["pid"] for row in live]}
-        pid = record.get("pid")
-        if pid and record.get("exit_code") is None:
-            os.kill(pid, 0)
-            return {"checked": True, "alive": True, "live_pids": [pid]}
+        # A collected direct-child exit remains authoritative for legacy records.
+        # A bare PID or absent ownership cannot establish who is running.
+        if type(record.get("exit_code")) is int:
+            return {"checked": True, "alive": False, "live_pids": []}
     except ProcessLookupError:
         return {"checked": True, "alive": False, "live_pids": []}
     except PermissionError:
         return {"checked": False, "alive": None, "live_pids": []}
-    except (ProcessError, psutil.Error, OSError, SystemError):
+    except (ProcessError, psutil.Error, OSError, SystemError, KeyError, TypeError, ValueError, OverflowError):
         return {"checked": False, "alive": None, "live_pids": []}
-    return {"checked": True, "alive": False, "live_pids": []}
+    return {"checked": False, "alive": None, "live_pids": []}
 
 
 class ProcessTree:
-    def __init__(self, pid, checkpoint):
+    def __init__(self, pid, checkpoint, *, excluded=(), groups=()):
         self.pid = pid
         self.known = {}
         self.checkpoint = checkpoint
+        # A keeper beneath a CLI must not own itself. Exclude only the exact
+        # supplied birth identity, before ancestry/group expansion.
+        self.excluded = {row['pid']: dict(row) for row in excluded}
+        # Recorded group leaders whose groups stay owned after the leader is
+        # gone; see _retained_groups.
+        self.groups = {row['pid']: dict(row) for row in groups}
+
+    def _included(self, row):
+        return row['pid'] > 0 and not matches(self.excluded.get(row['pid'], {'pid': -1}), row)
+
+    def _retained_groups(self, table):
+        """Groups of recorded leaders, still owned after a leader is killed and reaped.
+
+        A child started after the last sample is reparented when its leader
+        dies, so ancestry cannot find it, but it keeps the leader's group. The
+        kernel does not reuse a PID while a process group with that ID has
+        members, zombies included. Ownership of a group therefore ends for good
+        at the first sample that finds it empty or finds a different process at
+        the leader's PID; only after that can the ID name an unrelated group.
+        A group that empties and is re-created at a reused PID between two
+        samples is not detected: that needs the PID space to wrap in between.
+        """
+        for pid, leader in list(self.groups.items()):
+            if pid in table:
+                if not matches(leader, table[pid]):
+                    del self.groups[pid]
+                continue
+            try:
+                os.killpg(pid, 0)  # signal 0 delivers nothing; it reports whether the group has members
+            except ProcessLookupError:
+                del self.groups[pid]
+            except PermissionError:
+                pass  # members exist that this process may not signal
+        return set(self.groups)
 
     def capture_root(self):
         """Record the root's birth identity before a concurrent poll can reap it.
@@ -164,7 +207,10 @@ class ProcessTree:
         return self.known[self.pid]
 
     def sample(self, *, initial=False, notify=True):
-        table = process_table(set(self.known) | {self.pid})
+        self.known = {pid: row for pid, row in self.known.items() if self._included(row)}
+        table = process_table(set(self.known) | {self.pid} | set(self.groups))
+        table = {pid: row for pid, row in table.items() if self._included(row)}
+        retained = self._retained_groups(table)
         if self.pid in table and self.pid not in self.known:
             self.known[self.pid] = identity(table[self.pid])
         owned = {pid for pid, saved in self.known.items() if matches(saved, table.get(pid))}
@@ -184,27 +230,29 @@ class ProcessTree:
                 raise ProcessError(f"Cannot inspect descendants of owned process {pid}: {type(error).__name__}") from error
             found = process_table(candidates)
             found = {child_pid: row for child_pid, row in found.items()
-                      if row["birth_identity"] == candidates[child_pid]}
+                      if row["birth_identity"] == candidates[child_pid] and self._included(row)}
             table.update(found)
             owned.update(found)
             covered.update(found)
-        groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid}
+        groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
         if groups:
             candidates = set()
             for candidate in process_ids():
                 try:
-                    if os.getpgid(candidate) in groups and candidate not in table:
+                    if candidate > 0 and os.getpgid(candidate) in groups and candidate not in table:
                         candidates.add(candidate)
                 except ProcessLookupError:
                     pass
             found = process_table(candidates)
-            found = {child_pid: row for child_pid, row in found.items() if row["group"] in groups}
+            found = {child_pid: row for child_pid, row in found.items() if row["group"] in groups and self._included(row)}
             table.update(found)
             owned.update(found)
         while True:
             # A group is owned only while a recorded group leader has the same
-            # process identity. This avoids signalling an unrelated reused PID.
-            groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid}
+            # process identity, or is a retained group not yet seen empty or
+            # taken over at its leader's PID (_retained_groups). This avoids
+            # signalling an unrelated reused PID.
+            groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
             added = {pid for pid, row in table.items()
                      if row["parent"] in owned or row["group"] in groups} - owned
             if not added:
@@ -219,9 +267,9 @@ class ProcessTree:
 
     def signal(self, rows, sig):
         # Recheck birth identity immediately before a signalling batch.
-        table = process_table({row["pid"] for row in rows})
+        table = process_table({row["pid"] for row in rows if type(row['pid']) is int and row['pid'] > 0})
         for row in rows:
-            if row["pid"] in (os.getpid(), os.getppid()) or not matches(row, table.get(row["pid"])):
+            if row["pid"] <= 0 or row["pid"] in (os.getpid(), os.getppid()) or not matches(row, table.get(row["pid"])):
                 continue
             try:
                 os.kill(row["pid"], sig)
@@ -277,14 +325,19 @@ class ProcessTree:
 
 @contextmanager
 def interruption_handler():
-    previous = signal.getsignal(signal.SIGTERM)
+    signals = [signal.SIGTERM]
+    # A terminal hangup follows the same retained interrupt path. Respect nohup
+    # and callers that explicitly inherited SIGHUP ignored.
+    if hasattr(signal, 'SIGHUP') and signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:
+        signals.append(signal.SIGHUP)
     def interrupt(signum, frame):
         raise KeyboardInterrupt
-    signal.signal(signal.SIGTERM, interrupt)
+    previous = {sig: signal.signal(sig, interrupt) for sig in signals}
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,

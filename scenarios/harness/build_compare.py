@@ -15,7 +15,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import api_cost, profiles, verdict
+from . import api_cost, profiles, stats, verdict
 
 VARIANTS = {"fixed": ("--no-adaptive-planning",), "adaptive": ("--adaptive-planning",)}
 
@@ -30,6 +30,11 @@ def schedule(ids: list[str], repeats: int) -> list[dict]:
 def passed(record: dict) -> bool:
     return (record.get("verdict") == verdict.PASS and record.get("oracle_passed") is True
             and not record.get("harness_error"))
+
+
+def _total(values):
+    """An unfinished arm's missing measurement is never zero consumption."""
+    return sum(values) if all(type(value) in (int, float) for value in values) else None
 
 
 def report(root: Path, protocol: dict, records: list[dict]) -> dict:
@@ -52,10 +57,10 @@ def report(root: Path, protocol: dict, records: list[dict]) -> dict:
             "scheduled": len(protocol["pairs"]), "attempts": len(arm), "passes": successes,
             "verdicts": dict(Counter(row["verdict"] for row in arm)),
             "api_usd": total, "api_usd_per_pass": round(total / successes, 8) if total is not None and successes else None,
-            "wall_seconds": round(sum(row.get("wall_seconds", 0) for row in arm), 1),
-            "model_calls": sum(row.get("metrics", {}).get("model_stages", 0) for row in arm),
-            "report_repairs": sum(row.get("metrics", {}).get("report_repairs", 0) for row in arm),
-            "rejected_model_calls": sum(row.get("rejected_model_calls", 0) for row in arm),
+            "wall_seconds": _total([row.get("wall_seconds", 0) for row in arm]),
+            "model_calls": _total([row.get("metrics", {}).get("model_stages", 0) for row in arm]),
+            "report_repairs": _total([row.get("metrics", {}).get("report_repairs", 0) for row in arm]),
+            "rejected_model_calls": _total([row.get("rejected_model_calls", 0) for row in arm]),
             "questions": sum(len(row.get("answers", [])) for row in arm),
         }
     result = {"protocol": protocol, "summary": summary, "records": rows, "missing": missing,
@@ -84,6 +89,15 @@ def report(root: Path, protocol: dict, records: list[dict]) -> dict:
 def rebuild(root: Path) -> dict:
     protocol = json.loads((root / "protocol.json").read_text())
     records = [json.loads(path.read_text()) for path in sorted(root.glob("pair-*/attempt-*.json"))]
+    indexed = {(row["scenario"], row["repeat"], row["variant"]) for row in records}
+    # The scenario admission precedes its CLI call and the outer arm receipt.
+    # Recover that admission for reporting only; rebuilding never launches work.
+    for pair in sorted(root.glob("pair-*")):
+        for row in stats.load_results(pair):
+            key = (row.get("scenario"), row.get("repeat"), row.get("variant"))
+            if key not in indexed and key[1] is not None and key[2] in VARIANTS:
+                records.append(row)
+                indexed.add(key)
     return report(root, protocol, records)
 
 
@@ -124,15 +138,20 @@ def run(scenarios, args, root: Path, *, run_one, revision: dict) -> dict:
         out.mkdir()
         results = []
         for variant in pair["order"]:
-            options = argparse.Namespace(**{**vars(args), "out": out})
+            options = argparse.Namespace(**{**vars(args), "out": out,
+                                         "attempt_context": {"repeat": pair["repeat"], "variant": variant}})
             result = run_one(by_id[pair["scenario"]], options, extra_flags=VARIANTS[variant])
             result.update(repeat=pair["repeat"], variant=variant)
-            state_path = Path(result["evidence"]) / "state.json"
-            state = json.loads(state_path.read_text()) if state_path.is_file() else {}
-            result["rejected_model_calls"] = sum(bool(stage.get("rejected")) for stage in state.get("stages", [])
-                                                if not stage.get("runner_owned"))
-            if card is not None and not args.fake:
-                result["api_cost"] = api_cost.estimate(state, card)
+            if result["verdict"] == verdict.INTERRUPTED_UNGRADED:
+                result["rejected_model_calls"] = None
+                result["api_cost"] = {"usd": None, "complete": False, "issues": ["interrupted usage is unknown"]}
+            else:
+                state_path = Path(result["evidence"]) / "state.json"
+                state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+                result["rejected_model_calls"] = sum(bool(stage.get("rejected")) for stage in state.get("stages", [])
+                                                    if not stage.get("runner_owned"))
+                if card is not None and not args.fake:
+                    result["api_cost"] = api_cost.estimate(state, card)
             (out / f"attempt-{variant}.json").write_text(json.dumps(result, indent=2) + "\n")
             print(f"{pair['scenario']} repeat {pair['repeat']} {variant}: {result['verdict']} — {result['summary']}", flush=True)
             results.append(result)

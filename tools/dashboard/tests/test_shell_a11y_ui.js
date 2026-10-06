@@ -6,7 +6,11 @@ const {spawn, execFileSync} = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const {dashboardReadinessExpression, waitForReadiness} = require('./browser_readiness');
+const {
+  dashboardReadinessExpression,
+  waitForReadiness,
+  holdBackgroundRefreshExpression,
+} = require('./browser_readiness');
 
 const root = path.resolve(__dirname, '../../..');
 const fixture = path.join(__dirname, 'unified_browser_fixture.py');
@@ -168,6 +172,11 @@ function waitForCondition(expression, label, attempts = 48) {
     if (attempt < attempts - 1) browser('wait', '250');
   }
   assert.fail(label + ' did not become true within ' + attempts * 250 + ' ms: ' + expression + '; final rendered state=' + JSON.stringify(last));
+}
+
+function holdBackgroundRefresh(label) {
+  data(holdBackgroundRefreshExpression());
+  waitForCondition('refreshPromise===null', label + ' in-flight refresh settled');
 }
 
 function fixtureInfo() {
@@ -923,6 +932,11 @@ function assertM2Scenario(name, viewport) {
       assert.equal(started.receipt?.status, 'finished', viewport.name+' Start building records its own receipt');
       flow.started={...started,screenshot:captureRepresentativeFlow('started',viewport)};
 
+      // The fixture reconciles the pause on the next task read after the
+      // action's own, and the dashboard re-reads every 2 s. Hold that background
+      // read so the uncertain state stays readable on a slow bridge (#314); the
+      // fresh session below ends the hold with this page.
+      holdBackgroundRefresh(viewport.name + ' uncertain pause');
       browser('click', '#pause-run');
       browser('wait', '160');
       browser('wait', '80');

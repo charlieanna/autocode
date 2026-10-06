@@ -67,6 +67,36 @@ class LaunchContainment(unittest.TestCase):
                 with self.assertRaises(util.Paused) as caught:
                     launch.prepare(**self.options)
                 self.assertEqual('PAUSED_TOOL_CONTAINMENT', caught.exception.status)
+                # Available at setup, failed at launch: the pause names the explicit way on (#413).
+                self.assertIn('--allow-uncontained-tools', str(caught.exception))
+
+    def test_saved_opt_out_launches_uncontained_and_says_so_on_the_stage_record(self):
+        # #413: only the saved settings flag opts out; the declared tool commands are then never computed.
+        commands = mock.Mock(return_value=['make test'])
+        self.adapter.launch.return_value = (['opencode', 'run'], {}, {})
+        _, _, _, worker = launch.prepare(**self.options, tool_commands=commands,
+                                         settings={'allow_uncontained_tools': True})
+        self.assertNotIn('containment', self.adapter.launch.call_args.kwargs)
+        commands.assert_not_called()
+        record = launch.stage_record(worker)
+        self.assertIs(True, record['uncontained_tools'])
+        self.assertIsNone(record['tool_containment'])
+        self.assertEqual('OpenCode tool permissions and workspace snapshot checks; no OS sandbox; '
+                         'kernel containment waived by --allow-uncontained-tools', record['isolation'])
+        _, _, _, planner = launch.prepare(**{**self.options, 'planning': True},
+                                          settings={'allow_uncontained_tools': True})
+        self.assertNotIn('uncontained_tools', launch.stage_record(planner))  # planning is never contained
+
+    def test_without_the_saved_opt_out_the_stage_stays_contained(self):
+        for settings in (None, {}, {'allow_uncontained_tools': 'true'}, {'allow_uncontained_tools': 1}):
+            with self.subTest(settings=settings):
+                _, _, _, worker = launch.prepare(**self.options, settings=settings,
+                                                 tool_commands=lambda: ['make test'])
+                self.assertEqual(['make test'], self.adapter.launch.call_args.kwargs['containment']['tool_commands'])
+                record = launch.stage_record(worker)
+                self.assertNotIn('uncontained_tools', record)
+                self.assertEqual(self.policy, record['tool_containment'])
+                self.assertEqual('Kernel-constrained native shell; other tools disabled', record['isolation'])
 
     def test_handoff_changes_only_the_capture_example_not_old_evidence(self):
         data = {'workspace': str(self.root), 'old_receipt': '.autocode/evidence/accepted.json'}
@@ -77,6 +107,21 @@ class LaunchContainment(unittest.TestCase):
         self.assertEqual(self.policy, parsed['tool_containment'])
         self.assertIn(self.policy['scratch'], updated)
         self.assertNotIn('--output .autocode/evidence/<unique-name>.json', updated)
+
+    def test_every_capture_example_names_the_one_location_a_contained_stage_can_write(self):
+        # Live self-build 2026-10-06: a contained Validator's prompt named the run directory (COMMON) and the
+        # scratch (provider contract) for the same receipts; the sandbox lets it write only the scratch.
+        import autocode_check_replay as check_replay
+        import autocode_support as support
+        from providers import opencode
+        prompt = opencode.prompt_for_schema(support.COMMON + check_replay.VALIDATOR_NOTE + '\nCURRENT HANDOFF DATA\n'
+                                            + json.dumps({'workspace': str(self.root)}), {}, self.root / 'events.jsonl')
+        updated = launch.containment_prompt(prompt, {'tool_containment': self.policy})
+        instructions = updated.split('\nCURRENT HANDOFF DATA\n')[0]
+        scratch_example = '--output ' + self.policy['scratch'] + '/evidence-<unique-name>.json'
+        self.assertEqual(2, instructions.count(scratch_example))
+        self.assertEqual(2, instructions.count('<unique-name>.json'))
+        self.assertIn('replaces any other evidence or scratch directory named above', instructions)
 
     def test_changed_policy_is_a_prelaunch_hold_not_report_repair(self):
         with mock.patch.object(containment, 'verify', side_effect=RuntimeError('changed policy')):

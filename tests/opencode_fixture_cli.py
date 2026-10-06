@@ -3,13 +3,12 @@
 Only the checked-in fake OpenCode/Codex bundle may run through this transport.
 Nothing in production imports this module or selects it from fixture env vars.
 """
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import importlib
 import os
 from pathlib import Path
 import runpy
 import shutil
-import subprocess
 import sys
 from unittest.mock import patch
 
@@ -36,12 +35,24 @@ TRANSIENT_VALIDATOR_WRITE = '''
 '''
 
 
-def entrypoint(entry):
-    """Retain the selected CLI script, including an installed console entrypoint."""
+NATIVE_BOUNDARY = "--native-boundary"
+QUALIFIED_AT_SETUP = "--native-boundary-qualified-at-setup"
+
+
+def entrypoint(entry, *, native_boundary=False, qualified_at_setup=False):
+    """Retain the selected CLI script, including an installed console entrypoint.
+
+    native_boundary keeps the runner's own tool-boundary checks (#413): only the
+    client process is the checked fake, so its --version (not 1.18.33) is what the
+    run setup and every launch see. qualified_at_setup also keeps every launch's
+    checks but has the run-setup check report a qualified host, as when OpenCode
+    changes after a run starts: the first contained launch then fails its boundary.
+    """
     target = entry[1:] if entry[0] == sys.executable else entry
     if len(target) != 1:
         raise ValueError("Fixture bootstrap requires one CLI script")
-    return [sys.executable, str(Path(__file__).resolve()), target[0]]
+    mode = [QUALIFIED_AT_SETUP] if qualified_at_setup else [NATIVE_BOUNDARY] if native_boundary else []
+    return [sys.executable, str(Path(__file__).resolve()), *mode, target[0]]
 
 
 def checked_fixture(executable="opencode", *, env=None):
@@ -66,22 +77,32 @@ def checked_fixture(executable="opencode", *, env=None):
 
 def main():
     checked_fixture()  # Refuse real clients before even metadata/auth preflight.
+    native = sys.argv[1] if sys.argv[1:2] in ([NATIVE_BOUNDARY], [QUALIFIED_AT_SETUP]) else None
+    if native:
+        del sys.argv[1]
     target = shutil.which(sys.argv[1]) or sys.argv[1]
     sys.argv = [target, *sys.argv[2:]]
     sys.path.insert(0, str(TOOLS))
     modules = [importlib.import_module("autocode_provider_launch")]
+    supervision_modules = [importlib.import_module("autocode_supervision")]
+    boundaries = [importlib.import_module("autocode_tool_containment")]
     # Installed CLI scripts import the package namespace instead of tools/ scripts.
     if Path(target).resolve() != (TOOLS / "autocode.py").resolve():
         modules.append(importlib.import_module("autocode_cli.autocode_provider_launch"))
-    popen = subprocess.Popen
+        supervision_modules.append(importlib.import_module("autocode_cli.autocode_supervision"))
+        boundaries.append(importlib.import_module("autocode_cli.autocode_tool_containment"))
 
-    def offline_popen(args, *positional, **kwargs):
-        if isinstance(args, (list, tuple)) and Path(str(args[0])).name == "opencode":
-            fake = checked_fixture(args[0], env=kwargs.get("env"))
-            # Resolve again at the actual process boundary; never fall back to PATH.
-            args = [str(fake), *args[1:]]
-            kwargs["executable"] = str(fake)
-        return popen(args, *positional, **kwargs)
+    def offline_launch(original):
+        @contextmanager
+        def launch(args, *positional, **kwargs):
+            if isinstance(args, (list, tuple)) and Path(str(args[0])).name == "opencode":
+                fake = checked_fixture(args[0], env=kwargs.get("env"))
+                # Authenticate and resolve the provider before the real guard
+                # admits its bootstrap; the bootstrap executes this exact path.
+                args = [str(fake), *args[1:]]
+            with original(args, *positional, **kwargs) as child:
+                yield child
+        return launch
 
     def simulated_prepare(original):
         def prepare(**kwargs):
@@ -99,11 +120,26 @@ def main():
             return result
         return prepare
 
+    if native:
+        print("TEST-ONLY fake OpenCode client; the runner's launch boundary checks are unchanged", file=sys.stderr)
+        with ExitStack() as stack:
+            for module in supervision_modules:
+                stack.enter_context(patch.object(module, "launch", offline_launch(module.launch)))
+            if native == QUALIFIED_AT_SETUP:
+                for module in boundaries:
+                    stack.enter_context(patch.object(module, "unavailable", lambda *args, **kwargs: None))
+            runpy.run_path(target, run_name="__main__")
+        return
     print("TEST-ONLY simulated OpenCode transport; no kernel containment", file=sys.stderr)
     with ExitStack() as stack:
-        stack.enter_context(patch.object(subprocess, "Popen", offline_popen))
+        for module in supervision_modules:
+            stack.enter_context(patch.object(module, "launch", offline_launch(module.launch)))
         for module in modules:
             stack.enter_context(patch.object(module, "prepare", simulated_prepare(module.prepare)))
+        # The run-setup check (#413) would refuse the fake's version; every launch above is
+        # already simulated without the boundary, so setup is not asked about it either.
+        for module in boundaries:
+            stack.enter_context(patch.object(module, "unavailable", lambda *args, **kwargs: None))
         runpy.run_path(target, run_name="__main__")
 
 

@@ -1007,6 +1007,52 @@ class RepairTests(unittest.TestCase):
         self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
         self.assertNotIn('pending_report_repair', self.state)
 
+    def test_unlaunchable_repair_admits_a_fresh_attempt_before_any_repair_is_spent(self):
+        # Saved repair inputs over their limits never shrink, so the repair is spent although it never ran.
+        before = copy.deepcopy(self.state)
+        for stage, retry in (('terra', runner.prepare_exhausted_execution_report_retry),
+                             ('astra_finalize', runner.prepare_planning_retry)):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state['settings']['joint_planning'] = True
+                self.state['next_stage'] = stage
+                self.state['sessions'][stage] = 'failed-session'
+                pending = copy.deepcopy(self.queue(stage=stage))
+                self.state['status'] = 'PAUSED_REPORT_REPAIR_INPUT'
+                self.assertTrue(retry(self.state, self.run))
+                self.assertNotIn('pending_report_repair', self.state)
+                archived = self.state['report_repair_archive'][-1]
+                self.assertEqual((pending, 0), (archived['repair'], archived['repair']['attempts']))
+                self.assertIn('cannot launch from its saved inputs', archived['reason'])
+                self.assertTrue(all(Path(path).is_file() for path in pending['pins']))
+                self.assertEqual(stage, self.state['next_stage'])
+                if stage == 'terra':  # the session that wrote the rejected report is not resumed
+                    self.assertNotIn('terra', self.state['sessions'])
+
+    def test_unlaunchable_repair_without_a_pending_repair_admits_nothing(self):
+        self.state['settings']['joint_planning'] = True
+        for stage in ('terra', 'astra_finalize'):
+            with self.subTest(stage=stage):
+                self.state.update(status='PAUSED_REPORT_REPAIR_INPUT', next_stage=stage)
+                before = copy.deepcopy(self.state)
+                self.assertFalse(runner.prepare_planning_retry(self.state, self.run))
+                self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
+                self.assertEqual(before, self.state)
+
+    def test_unlaunchable_repair_still_stops_an_unchanged_repeated_execution_failure(self):
+        pending = self.queue()
+        for iteration in (6, 7):
+            again = copy.deepcopy(pending['original'])
+            again.pop('failure_attempt', None)
+            again['iteration'] = iteration
+            runner.failures.record(self.state, again, ValueError('Missing summary'), runner.now())
+        self.state.update(status='PAUSED_REPORT_REPAIR_INPUT', next_stage='terra')
+        expected = copy.deepcopy(pending)
+        with self.assertRaises(support.Paused) as stopped:
+            runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root)
+        self.assertEqual('PAUSED_REPEATED_FAILURE', stopped.exception.status)
+        self.assertEqual(expected, self.state['pending_report_repair'])
+
     def test_abandoned_sol_repair_retries_sol_instead_of_astra_review(self):
         pending = self.queue()
         pending['attempts'] = 2

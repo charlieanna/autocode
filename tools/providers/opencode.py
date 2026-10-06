@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 # os and shutil stay imported: the autocode_opencode compatibility shim star-exports
@@ -249,16 +250,19 @@ def openai_auth(workspace=None, *, env=None):
 
 
 def _openai_auth_modes(workspace, env=None):
-    # `opencode auth list` is a full CLI cold start (7-15 s observed inside
-    # containers, worse under load). A single slow start must not read as a
-    # missing OAuth connection, so a transport-level failure retries a couple
-    # of times; a completed check is never retried -- its verdict stands.
+    # Auth listing cold-starts the whole CLI (over 30 s observed under load).
+    # Share the existing 45 s allowance across at most three attempts instead
+    # of repeatedly killing valid slow starts at 15 s. Completed checks stand.
     effective = env_prep.snapshot_environment(env)
+    deadline = time.monotonic() + 45
     for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(["opencode", "auth", "list"], 45)
         try:
             result = env_prep.preflight_run(["opencode", "auth", "list"], effective, cwd=workspace,
                                             require_executable=env is not None,
-                                            capture_output=True, text=True, timeout=15)
+                                            capture_output=True, text=True, timeout=remaining)
             break
         except (OSError, subprocess.TimeoutExpired):
             if attempt == 2:
@@ -438,7 +442,7 @@ def normalized_events(rows):
     phases = [row for row in parts.values() if row.get("type") in phase_types]
     terminal = (not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
                 and phases[-1].get("type") == "step_finish"
-                and steps[-1].get("reason") in ("stop", "length", "tool-calls"))
+                and steps[-1].get("reason") in ("stop", "length", "tool-calls", "content-filter"))
     partial = not terminal or bool(errors and steps[-1].get("reason") == "stop")
 
     def total(field, subfield=None):
@@ -465,6 +469,10 @@ def normalized_events(rows):
     # for tools and no later step followed (the process exited, for example after
     # every call was auto-rejected). Like "length", it is a failed turn whose
     # reported usage is retained for accounting, including cached input.
+    # A final "content-filter" finish is the provider refusing the response, even
+    # when no error event follows it: a failed turn typed content_filter, after any
+    # provider error rows so their own name and words are reported first
+    # (autocode_provider_refusal). Only the final step counts, as for tool-calls.
     if steps[-1].get("reason") == "length":
         # A successful process exit can still be an incomplete model turn.
         normalized.append({"type": "turn.failed", "usage": usage, "error": {
@@ -475,6 +483,10 @@ def normalized_events(rows):
             "message": "OpenCode stopped after a step that requested tool calls, before the model "
                        "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
                        "review saved work before recovery."}})
+    elif steps[-1].get("reason") == "content-filter":
+        normalized.append({"type": "turn.failed", "usage": usage, "error": {
+            "code": "content_filter",
+            "message": "OpenCode's last step finished with reason content-filter"}})
     elif not errors:
         normalized.append({"type": "turn.completed", "usage": usage})
     else:

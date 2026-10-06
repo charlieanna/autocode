@@ -97,3 +97,47 @@ def validated_candidate(state, value, record, workspace, current_revision):
             return {'source_revision': revision, 'validation_output': validation.get('output'),
                     'criteria': sorted(criteria), 'declared_paths': sorted(declared)}
     return None
+
+
+def _snapshot(ref):
+    try:
+        value = json.loads(Path(ref).read_text())
+    except (OSError, TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) and isinstance(value.get("files"), dict) else None
+
+
+def own_repair_source(stages, packet, bound_revision, current) -> bool:
+    """Whether every file of ``current`` holds its bound content or what this packet's latest Builder left.
+
+    A recovery packet binds the source its incident was captured on, and each Builder attempt it
+    admits carries the packet in its receipt (``recovery_novelty``). Such an attempt can stop without
+    being accepted and leave its edits: the runner rejects one that also wrote outside its assignment,
+    removes or restores those files (autocode_assignment.undo_created) and keeps the in-scope work for
+    the retry, and a timed-out attempt leaves partial edits. The retry must not read that as somebody
+    else's change (live feature-stock-refusals run, 2026-10-06).
+
+    The check is per file: each must hold either its bound content, from the first such attempt's
+    before-snapshot (taken at the bound revision), or what the latest such attempt left, from its
+    after-snapshot; and Git HEAD must be the one both snapshots recorded. Any other content, a moved
+    HEAD or a snapshot that cannot be read fails. Being per file, it also admits a file a person
+    restored to its bound content, an out-of-scope edit re-applied exactly as the latest attempt left
+    it, and a per-file mix of the two states that no single attempt produced. Those are safe: bound
+    content is the packet's own evidence, the latest attempt's content is AutoCode's own output, the
+    scope gate (autocode_assignment.outside) still measures the whole assignment after the retry, and
+    the retry still needs fresh validation. An edit made while an attempt ran is in its after-snapshot
+    and counts as that attempt's, as it does for the scope gate.
+    """
+    attempts = [row for row in stages if packet and (row.get("recovery_novelty") or {}).get("packet") == packet
+                and (row.get("original_stage") or row.get("stage")) == assignment.BUILDER
+                and not row.get("report_only") and not row.get("dry_run")]
+    if not attempts:
+        return False
+    start, left = _snapshot(attempts[0].get("before_ref")), _snapshot(attempts[-1].get("after_ref"))
+    # A HEAD the attempt moved itself (a commit, reset or branch switch) is not admitted: fail closed.
+    if (start is None or left is None or start.get("revision") != bound_revision
+            or not current.get("head") == start.get("head") == left.get("head")):
+        return False
+    files, before, after = current.get("files") or {}, start["files"], left["files"]
+    return all(files.get(name) in (before.get(name), after.get(name))
+               for name in files.keys() | before.keys() | after.keys())

@@ -68,6 +68,7 @@ def results(path):
         summary = None
         counts = dict(tests=0, suites=0, passed=0, failed=0, skipped=0, todo=0, cancelled=0)
         passed, failed, skipped, collection = set(), set(), set(), set()
+        uncollected = set()
         for row in rows[1:-1]:
             if not isinstance(row, dict) or summary is not None:
                 return None
@@ -117,6 +118,7 @@ def results(path):
                 if kind == "fail":
                     failed.add(file + "::[collection]")
                     collection.add(file + "::[collection]")
+                    uncollected.add(file + "::[collection]")
             elif category in ("skipped", "todo"):
                 skipped.add(identity)
             elif category == "passed":
@@ -130,6 +132,7 @@ def results(path):
                        for key, value in counts.items()):
             return None
         return {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
-                "collection_errors": sorted(collection), "total": len(passed | failed | skipped), "complete": True}
+                "collection_errors": sorted(collection), "uncollected": sorted(uncollected),
+                "total": len(passed | failed | skipped), "complete": True}
     except (OSError, ValueError, KeyError, TypeError):
         return None

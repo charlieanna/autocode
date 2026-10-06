@@ -75,7 +75,7 @@ a new run instead; `autocode resume` never does.
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
-| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. See [Models](models.md#when-a-roles-quota-runs-out). |
+| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
@@ -106,7 +106,7 @@ requirements as usual.
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
 | stopped | `needs.kind` is `resume` | `autocode resume`, once the cause in `stop_reason` is resolved (`--resume-paused` after editing the design at `PAUSED_DESIGN_CONFLICT`) | `resume_paused()` |
-| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)` |
+| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota or a content-filter refusal), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
 | waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
@@ -134,7 +134,8 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--grant-recovery N` | With `--resume-paused`, authorize N more automatic timeout recoveries for a run paused at `PAUSED_TIMEOUT_RECOVERY` after its cause was fixed. Audited as a `recovery_grant` user event; recovery history is retained. |
 | `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a total allowance for the current cycle. `0` disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately. |
 | `--pause-after-stage` | Stop at the next saved boundary. |
-| `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
+| `--verbose` / `--no-verbose` | Stream each stage's live model activity (tools started and finished, new model text, one bounded line each) to stderr as `Role/model: …`. On by default; `--no-verbose` or `AUTOCODE_VERBOSE=0` turns it off. Not saved with the run: each command that runs stages reads it afresh. The full stream is always kept in the stage's `iterations/NNN/<stage>-NN.jsonl`. |
+| `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member its provider's content filter refused: answer its `route-terra` question). Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
 | `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after report repair or repeated-failure limits stop a rejected report, using the exact attempt ID status names; saved source and evidence pins must still match. After a source edit, `--resume-paused` validates the current source instead. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
@@ -145,7 +146,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--max-findings-per-task N` | Cap open findings bundled into one REWORK task. |
 | `--max-idle-seconds` / `--max-tool-seconds` / `--max-stage-seconds` | Watchdog limits (new-run defaults `300` / `1800` / `3600`; `0` disables). |
 | `--max-seconds N` | Total active provider time for the run (new-run default `43200`, 12 hours; `0` disables). Checked at stage boundaries. |
-| `--no-progress-limit N` | Unchanged-batch limit (new-run default `3`; `0` disables the cap, never the 3-recovery ceiling). With `--resume-paused`, an N above the retained count, or `0`, acknowledges a `PAUSED_NO_PROGRESS` request, also when N is already saved; it never acknowledges another cause's pause. |
+| `--no-progress-limit N` | Unchanged-batch limit (new-run default `3`; `0` disables the cap, never the 3-recovery ceiling). With `--resume-paused`, an N above the retained count, or `0`, acknowledges a `PAUSED_NO_PROGRESS` request, also when N is already saved; it never acknowledges another cause's pause. When the limit caused the pause, its advice names this flag and the retained count, not `--resolver-response`: information alone never acknowledges it. |
 | `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
 | `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
 | `--base-patch PATH` | Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with `--resume-paused` at a stop before the Tester or a completion check. |
@@ -157,6 +158,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | --- | --- |
 | `--engine opencode\|codex` | Engine for the run. OpenCode is the default; other tools join as providers (see [Providers](providers.md)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
+| `--allow-uncontained-tools` | Built-in OpenCode runs only (including a Codex run whose `--investigator-model` is an OpenCode `provider/model`). Without it, a run is refused before any stage when the kernel tool boundary cannot exist here (it needs macOS `sandbox-exec` and OpenCode 1.18.33). With it, the Builder, Validator and other non-planning stages run with OpenCode's own permission checks only, no kernel containment. Accepted on a new run or a resume (including a `PAUSED_TOOL_CONTAINMENT` run); saved with the run and recorded as a user event, so later resumes need not repeat it. The status view shows `tool_containment`. See [Execution](execution.md#native-tool-containment). |
 | `--joint-planning` | Add joint Requirements / Plan Reviewer work. |
 | `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
 | `--builder-strong-model MODEL` | Stronger model for the Builder's second attempt. |
@@ -256,3 +258,31 @@ bytes, modes and Git HEAD even when a capture artifact is missing; changed
 model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
+
+A job its provider's content filter refused (`PAUSED_CONTENT_FILTER`) or that ran
+out of quota (`PAUSED_BUDGET`) pauses the same way, and its stop names the cause
+and the model. The same model is likely to refuse again, so `needs.route` carries
+the job's model question. `--job-retry-token` is accepted without `--resume-paused
+--retry-failed-stage` only together with that answer:
+`--answer route-ROLE=MODEL --job-retry-token TOKEN` checks the model the way a launch
+would, records a `route_assignment` and issues a new token for the new model. The
+old token stops working, and the exact retry with the new token is the only way on:
+`--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN`. After a refusal,
+until a model is named, the status view's `needs.action` is that answer and the
+recovery card offers no retry, since the exact retry would replay the refused model. The Architect,
+Analyst and Investigator have no `--ROLE-model` flag, so this answer is how they
+move. The answer changes only that model: given with a limit or another role's
+model, with or without its token, it is refused and nothing is saved. It issues a
+new token, so it is given on its own: next to `--resume-paused --retry-failed-stage`
+it is refused before anything is read or saved. At that stop `--abandon-stage` is
+refused, and a `--ROLE-model` flag for the stopped role is refused with this advice
+instead of being saved (saving it would make the retry stale); only a flag that
+puts back the model the retry is bound to is saved. The same flag is refused while
+the job's attempt is still uncertain, including with `--abandon-stage` in the same
+command: run `--abandon-stage ATTEMPT` alone, then answer with the token it shows.
+After a quota stop, the unchanged retry with the shown token also works once the
+quota resets. A stuck-stage Investigator (`investigate_stuck`) keeps only the
+exact retry: its route is rebuilt on every launch, and an answer naming a model for
+it is refused with that reason. A job stop saved before stopped jobs could take
+another model keeps only the exact retry too; the refusal names its cause, reading
+the archived attempt's provider errors for a quota stop saved then.

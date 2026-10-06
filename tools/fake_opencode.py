@@ -52,6 +52,17 @@ def emit(kind, part):
         "sessionID": session, "messageID": message, **part}}), flush=True)
 
 emit("step_start", {"id": "prt_start", "type": "step-start"})
+# The provider's content filter refuses this stage on the named model: the model's own
+# words, a final content-filter finish and a clean exit, with no error event (#464).
+refused_stage = os.environ.get("AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE")
+refused = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else None
+if (refused_stage and refused_stage == data.get("stage")
+        and os.environ.get("AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL") in (None, refused)):
+    emit("text", {"id": "prt_text", "type": "text", "time": {"end": 1},
+                  "text": "The request was rejected because it was considered high risk"})
+    emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "content-filter", "cost": 0,
+                         "tokens": {"input": 100, "output": 1, "reasoning": 40, "cache": {"read": 0, "write": 0}}})
+    raise SystemExit(0)
 with tempfile.TemporaryDirectory() as temp:
     report = Path(temp) / "report.json"
     result = subprocess.run([sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)],

@@ -64,6 +64,10 @@ Repeat `--retry-builder` to select additional failed milestones. Successful sibl
 are retained rather than rerun. A Builder that needs the stronger model its batch's
 checkers run does not pause the run and cannot be retried this way: its milestone is
 built serially later (see [Builder retry policy](models.md#builder-retry-policy)).
+A Builder stopped by its model's quota or its provider's content filter asks you to name another
+model instead, and the status view does not offer it a retry (see
+[A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
+`--retry-builder` refuses a refused Builder; for a quota stop it reruns the same model.
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised
@@ -105,6 +109,19 @@ content is never silently truncated to satisfy the limit. Old pending OpenCode
 checkpoints with missing report files can materialize their terminal response locally
 from intact, pinned events instead of making the model search the log.
 
+Saved repair inputs do not shrink, so a repair paused this way can never launch.
+Resume explicitly (`autocode resume`, or `--resume-paused`) to archive it in
+`report_repair_archive`, pinned evidence intact, and start a fresh attempt of the
+rejected stage, as after exhausted repairs:
+
+- A planning stage edits nothing, so it simply runs again. A fresh Plan Reviewer
+  attempt is one more plan-review call: if the allowance is spent, the run stops
+  there as at any review, and `--planning-review-call-limit N` followed by a resume
+  continues it.
+- An execution stage starts in a new provider session on the current source. If
+  that stage already failed the same way three times at an unchanged source, the
+  resume pauses as `PAUSED_REPEATED_FAILURE` until the cause changes.
+
 Repairs remain read-only, use the existing attempt limit and role/model routing, and
 cannot approve plans, rerun tests, replace original execution evidence, or convert
 unsupported observations into passing validation.
@@ -138,7 +155,11 @@ permissions and other goal fields must also remain unchanged. Reordering milesto
 or changing only an unrelated milestone/criterion can preserve earlier work.
 
 Reuse requires unchanged source bytes/modes and intact evidence, plus reuse of
-every prerequisite. Added files under an owned directory count as changes. Missing
+every prerequisite. An otherwise reusable milestone with an open blocking finding
+recorded against criteria it owns is revalidated instead: only its own review can
+close that finding, and the run then reviews it before anything depending on it
+starts. The milestones depending on it are still carried and count once it is
+accepted again. Added files under an owned directory count as changes. Missing
 task history, legacy acceptance without a manifest, ambiguous paths, symlinks,
 submodules, batches and human-review milestones all fall back to revalidation.
 This first version supports only one revision hop; it does not chain old evidence
@@ -151,9 +172,11 @@ compact audit through `milestone_checkpoint.carry_forward`; full manifests remai
 in the run's state file. Carried prerequisites are checked again against source and
 evidence before scheduling. The runner rejects redundant implementation assignments
 for intact carried milestones; an explicit evidence-backed `REWORK` or detected
-source/evidence drift revokes scheduling acceptance. Budgets and retry counters are
-preserved. Final completion still requires fresh independent validation of every
-criterion and the full integration flow on the current code and approved revision.
+source/evidence drift revokes scheduling acceptance. A carried milestone reviewed
+again and accepted on fresh validation under the approved revision counts like any
+other accepted milestone. Budgets and retry counters are preserved. Final
+completion still requires fresh independent validation of every criterion and the
+full integration flow on the current code and approved revision.
 Deploying this code never retroactively manufactures manifests for existing runs.
 
 Three independent reviews without any new passing criteria require an evidence-backed
@@ -455,6 +478,28 @@ are not tracked. Role handoffs include `open_findings` for both reviewers, and t
 dashboard's task view shows the list with each finding's source, fix task and
 repeat count. `unresolved_findings` still holds the Tester's latest findings unchanged.
 
+When you approve a revision that moves an acceptance criterion to another
+milestone, open findings recorded against that criterion move with it, in the
+same approval. Each finding is attributed to the milestone that now owns each
+criterion it cites; one whose criteria now belong to several milestones is split
+into one finding per milestone (the copies carry `split_from`, the original
+finding's ID). Like any finding, each part blocks its milestone, the milestones
+depending on it and any other milestone listing all of the part's criteria, and
+closes only by a review that covered all of those criteria, normally its
+milestone's. When several milestones list a moved criterion, the part goes to one
+the revision moved it to, else to one the run reviews anyway, else to the accepted
+one with the fewest milestones depending on it; an accepted milestone that
+receives a part is revalidated rather than carried forward, so its reviewer can
+close it. A criterion the revision reworded moves the same way, and its new
+owner's reviewer judges the finding against the new wording. Nothing is closed or
+downgraded by the move, and resolving one part does not close another. A finding
+that cites a criterion the approved contract no longer assigns to any milestone is
+left exactly as it was, even when its other criteria still exist; if it is
+blocking, it still blocks every milestone until a person settles it with
+`--close-finding`, which closes the whole finding. Each move is recorded once in
+the finding's `scope_history` and listed in the status view's
+`evidence.finding_scope_moves` (`tools/autocode_finding_rescope.py`).
+
 The Plan Reviewer can keep a correction batch small by naming the ledger IDs a REWORK task
 addresses in `next_task.findings`; an empty or missing list takes every open finding.
 `--max-findings-per-task N` (saved as `limits.max_findings_per_task`) rejects a
@@ -504,8 +549,10 @@ their existing approval gates.
 For a timed-out provider stage with no terminal response, Autocode confirms its
 tracked workers are gone, archives the incomplete request and preserves its partial
 edits/logs, clears the uncertain role session, and continues from a fresh recovery
-checkpoint. It never replays that timed-out request. Each automatic recovery consumes
-the existing no-progress budget. Consecutive timeouts without an accepted stage also
+checkpoint. It never replays that timed-out request. An automatic recovery of a
+Builder stage also counts as an unchanged implementation batch; recoveries of
+planning and review stages do not, and unchanged batches never spend the recovery
+ceiling below. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
 three automatic recoveries covers timeouts and provider-capacity failures. External-directory
@@ -524,7 +571,14 @@ an N at or below the count holds without launching the Builder. Information alon
 (`--resolver-response provide_information`) never acknowledges it. Reasserting an
 already saved N on resume also acknowledges it, for example after a response
 consumed the request. The flag never acknowledges another cause's pause, such as
-the active-time limit.
+the active-time limit. When the limit caused the pause, its published request and
+`stop_reason` name this command and the retained count. They also name the saved
+limit when reasserting it is accepted, for example a limit raised in its own invocation
+before a plain resume asked again. After a response consumes the request, the status
+view's resume need has `action` `--resume-paused --no-progress-limit N` and the
+retained count in `no_progress_batches`. Other holds that pause as
+`PAUSED_NO_PROGRESS`, such as a recovery novelty hold or owned workers to reconcile,
+name their own action instead.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
@@ -544,7 +598,8 @@ A completed response with invalid JSON or an invalid report is archived and paus
 receive the bounded automatic recovery above; other uncertain responses need inspection
 first.
 
-An execution report whose two read-only repairs are exhausted can be retried with
+An execution report whose two read-only repairs are exhausted, or whose repair
+cannot launch (`PAUSED_REPORT_REPAIR_INPUT`), can be retried with
 `--resume-paused`. If the same Validator report fails repeatedly, the failure
 guard may stop recovery earlier: the cheap serialization correction contributes
 to that guard but does not spend a full repair attempt. After correcting the
@@ -635,7 +690,15 @@ boundary checks whether an unresolved causal question remains or a concrete,
 supported change has a discriminating check. A structured `recovery_change` may
 declare that change and cite its pinned evidence; it does not grant permission,
 approve scope, create another retry allowance or establish that the repair worked.
-The absence of a proposal is `null`, not a request to buy report repair.
+The absence of a proposal is `null`, not a request to buy report repair. A
+proposal that is not a bounded change with the original discriminating check
+and pinned evidence is unproven and treated like `null`: it buys no novelty and
+is not routed as a known correction, so a repeated incident still holds, and a
+hold that weighed the proposal names the check it failed. A Resolver's repair
+plan passes an unproven proposal to the Builder only as advice, with that
+reason, as an operational diagnosis does. An unproven proposal never pauses the
+run as a stale handoff; changed retained evidence still pauses dispatch
+admission as one (#418).
 
 An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
 launch. A source hash, session rotation or comment-only edit alone cannot clear
@@ -656,6 +719,24 @@ recovery archives does not use it up (#422). The Builder receives the diagnosis
 and its recommendation. A change the diagnosis proposed that the incident packet
 cannot attest reaches the Builder only as advice, with the reason, and is never
 treated as a new experiment.
+
+The packet binds the source its incident was captured on. A Builder attempt it
+admitted may stop without being accepted and leave its work: a rejected attempt
+keeps its in-scope edits for the retry (the runner removes or restores only what
+it wrote outside its assignment), and a timed-out one keeps partial edits. That
+work is not a stale handoff. The next Builder attempt is bound as at the packet's
+source when each file, checked one by one, holds either that source's content or
+what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
+other content, such as a person's new edit while the run is paused, still pauses as
+`PAUSED_STALE_HANDOFF`. Because the check is per file, a file restored to its
+bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
+a mix of the two states across files is admitted. That is safe: each file holds
+the packet's own source or AutoCode's own output, the assignment scope check still
+covers the whole assignment after the retry, and the retry is validated afresh.
+When the runner rejected such an attempt's output and the stuck-stage
+Investigator recommends a retry, that retry admits the Builder until one attempt
+returns a result, as an accepted operational diagnosis's does; a spent diagnosis
+retry does not hide it. An investigation of a novelty hold grants nothing.
 
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous
@@ -720,6 +801,8 @@ old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
 
+## Native tool containment
+
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
 Built-in OpenCode execution launches in this checkout additionally require the
 qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
@@ -728,6 +811,31 @@ model tools. Nonwriter stages may write only to their fresh stage scratch area;
 the Builder may also write application files, but not runner state, evidence,
 configuration or runtime authority. Failed conformance or changed boundary files
 pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched.
+
+A new run, and every resume, first checks that this boundary can exist here: macOS,
+`/usr/bin/sandbox-exec`, and `opencode --version` exactly 1.18.33. This check runs no
+conformance; each launch still does. Elsewhere (Linux, or another OpenCode version)
+the run is refused before any stage, planning included, spends anything, and the
+message names the reason. Two ways on:
+
+- Use the qualified setup.
+- Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,
+  Validator, Completion Reviewer, Resolver, Investigator and workflow-job stages
+  then launch with OpenCode's own permission checks and the workspace snapshot
+  checks only, with no kernel containment and no boundary prompt. The choice is
+  saved with the run (it is not repeated on later resumes) and recorded as an
+  `uncontained_tools_accepted` user event with the time and reason. Each such stage record says
+  `uncontained_tools: true`, and the status view says `tool_containment:
+  "uncontained_user_accepted"`. Only that flag sets it: no environment variable,
+  model output or dashboard default.
+
+If the boundary was available at setup but fails at a launch (for example OpenCode
+was upgraded mid-run), the run still pauses as `PAUSED_TOOL_CONTAINMENT`; that
+message names `--allow-uncontained-tools` as the explicit way to continue. Native
+Codex runs, configured providers and `--dry-run` previews are not checked, except a
+Codex run whose stuck-stage Investigator is pinned to an OpenCode model
+(`--investigator-model provider/model`): that stage runs on built-in OpenCode, so
+the run is checked and accepts the flag like an OpenCode run.
 
 Tool networking remains denied, including ephemeral loopback HTTP tests. The
 tested Seatbelt `localhost` rule also permits non-loopback addresses belonging to

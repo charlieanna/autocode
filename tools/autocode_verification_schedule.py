@@ -15,9 +15,10 @@ import shlex
 import uuid
 
 try:
-    from . import autocode_util as util
+    from . import autocode_util as util, autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_util as util
+    import autocode_command_receipt as command_receipt
 
 
 def tree_identity(root, *, excluded=()):
@@ -72,9 +73,13 @@ def complete_results(receipt):
            for group in groups):
         return False
     ids = [item for group in groups for item in group]
+    # Only entries that never imported, collected or built break attribution; a failed
+    # hook or fixture executed its test. Results from parsers that predate ``uncollected``
+    # (saved receipts) fall back to collection_errors, so they fail closed.
+    uncollected = result.get("uncollected", result.get("collection_errors"))
     return (type(result.get("total")) is int and result["total"] > 0
             and len(ids) == len(set(ids)) == result["total"]
-            and not result.get("collection_errors"))
+            and not uncollected)
 
 
 def intact(receipt, *, root=None):
@@ -88,7 +93,8 @@ def intact(receipt, *, root=None):
             if any(parent.is_symlink() for parent in output.parents
                    if parent != root and parent.is_relative_to(root)):
                 return False
-        return (not output.is_symlink() and output.is_file()
+        return (command_receipt.completed(receipt, root=root)
+                and not output.is_symlink() and output.is_file()
                 and util.file_hash(output) == receipt["output_sha256"])
     except (OSError, KeyError, TypeError):
         return False
@@ -155,12 +161,26 @@ def guard(root):
         _reconcile_pending(root)
 
 
+def _finish(pending, directory, out, pointer, completed):
+    """Make one attempt's receipt durable, then clear the pending launch."""
+    receipt_path = out / "receipt.json"
+    util.atomic_json(receipt_path, completed)
+    sha = util.file_hash(receipt_path)
+    # The pointer names a nested attempt, never a caller-supplied path.
+    util.atomic_json(pointer, {"name": str(receipt_path.relative_to(directory)), "sha256": sha})
+    pending.unlink()
+    return receipt_path, sha
+
+
 def run(directory, identity, execute, *, reuse_allowed, reason, current_identity):
     """Execute or resume exactly one obligation, preserving every attempt.
 
-    An interrupted launch is deliberately not retried automatically: no process
-    identity can prove whether its descendants are still mutating fixtures.
-    Completed receipts survive controller restart without a second launch.
+    An attempt that ends in an exception is known-failed state, not uncertainty:
+    it is recorded as a failed receipt (never reused) and its pending launch is
+    cleared, so the next attempt runs a fresh check instead of pausing forever
+    (#414). A hard crash or uncertain command ownership leaves the pending launch for
+    a person to reconcile; an exception cannot authorize another unsafe launch. Completed receipts
+    survive controller restart without a second launch.
     """
     root = Path(directory)
     directory = root / util.digest(identity)
@@ -198,19 +218,27 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
         attempt = uuid.uuid4().hex
         out = directory / attempt
         util.atomic_json(pending, {"attempt_id": attempt, "identity": identity, "started_at": started_at})
-        result = execute(out)
-        after = current_identity()
+        result = None
+        try:
+            result = execute(out)
+            after = current_identity()
+        except command_receipt.OwnershipUncertain:
+            # In-process unwind cannot establish that owned commands stopped.
+            # Retain pending so guard blocks every identity until reconciliation.
+            raise
+        except BaseException as error:
+            failed = dict(result) if isinstance(result, dict) else {}
+            failed["error"] = f"Verification attempt did not complete ({type(error).__name__}): {error}"
+            _finish(pending, directory, out, pointer, {"runner_owned": True, "attempt_id": attempt,
+                     "identity": identity, "reason": reason, "started_at": started_at,
+                     "finished_at": util.now(), "result": failed})
+            raise
         if after != identity:
             result = {**result, "error": "Source, runtime, dependencies or environment changed during verification",
                       "observed_after_identity": after}
         completed = {"runner_owned": True, "attempt_id": attempt, "identity": identity, "reason": reason,
                      "started_at": started_at, "finished_at": util.now(), "result": result}
-        receipt_path = out / "receipt.json"
-        util.atomic_json(receipt_path, completed)
-        sha = util.file_hash(receipt_path)
-        # The pointer names a nested attempt, never a caller-supplied path.
-        util.atomic_json(pointer, {"name": str(receipt_path.relative_to(directory)), "sha256": sha})
-        pending.unlink()
+        receipt_path, sha = _finish(pending, directory, out, pointer, completed)
         return {**result, "scheduling": {"action": "execute", "reason": reason,
                 "receipt": str(receipt_path), "receipt_sha256": sha, "identity": util.digest(identity),
                 "attempt_id": attempt, "started_at": started_at, "finished_at": completed["finished_at"],

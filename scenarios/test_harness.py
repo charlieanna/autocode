@@ -13,10 +13,13 @@ import ast
 import json
 import re
 import os
+import select
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -26,9 +29,9 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import (api_cost, baseline, build_compare, catalog, compare, hybrid, oracle, plan_compare,  # noqa: E402
+from harness import (api_cost, attempts, baseline, build_compare, catalog, compare, hybrid, oracle, plan_compare,  # noqa: E402
                      processes, profiles, routing, stats, verdict)
-from harness.driver import (Driver, DriveError, TurnNotReached, changed_between, leaves_for_person, metrics,  # noqa: E402
+from harness.driver import (Driver, DriveError, InterruptedDrive, TurnNotReached, changed_between, leaves_for_person, metrics,  # noqa: E402
                            model_routes, split_by_turn, turn_state, workspace_files)
 
 
@@ -408,6 +411,333 @@ class DriverTimeoutTests(unittest.TestCase):
             with self.assertRaisesRegex(DriveError, "cleanup incomplete: owned PID 101 remains alive"):
                 driver.call("start", task="Build")
         self.assertEqual([], driver.steps)
+
+
+class HarnessAttemptTests(unittest.TestCase):
+    def admission(self, root, **extra):
+        return attempts.admit(root, {"scenario": "case", "mode": "fake", "started_at": "1", **extra},
+                              {"timeout_seconds": 15, "max_steps": 2})
+
+    def test_cli_admission_is_durable_before_launch_and_only_reader_is_inherited(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            kept = []
+            child = Mock(pid=os.getpid(), returncode=2)
+            def launch(command, **options):
+                record, = (root / "cli-calls").glob("*.json")
+                self.assertEqual("pending", attempts.read(record)["phase"])
+                fd, = options["pass_fds"]
+                self.assertEqual(["--owner-lifeline-fd", str(fd)], command[-2:])
+                self.assertTrue(options["close_fds"])
+                packet = json.loads(os.read(fd, 4096))
+                self.assertEqual(attempts.identity(), packet["owner"])
+                self.assertEqual(str((root / "cli-calls" / (packet["nonce"] + "-supervision.json")).resolve()), packet["receipt"])
+                # No EOF yet: the harness alone retains the writer during work.
+                self.assertEqual([], select.select([fd], [], [], 0)[0])
+                kept.append(os.dup(fd))
+                child.communicate.return_value = ("output", "")
+                return child
+            try:
+                with patch.object(processes.subprocess, "Popen", side_effect=launch):
+                    result = processes.run_cli(["cli"], env={}, cwd=root, timeout=15,
+                                               lifeline={"root": root / "cli-calls", "kind": "start",
+                                                         "deadline": time.monotonic() + 15})
+                self.assertEqual((["cli"], 2, "output"), (result.args, result.returncode, result.stdout))
+                self.assertEqual(b"", os.read(kept[0], 1))
+                record, = (root / "cli-calls").glob("*.json")
+                self.assertEqual(("returned", 2), tuple(attempts.read(record)[key] for key in ("phase", "exit")))
+            finally:
+                for fd in kept:
+                    os.close(fd)
+
+    def test_launch_failure_closes_the_only_writer_and_retains_interruption(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            kept = []
+            def launch(command, **options):
+                fd, = options["pass_fds"]
+                os.read(fd, 4096)
+                kept.append(os.dup(fd))
+                raise OSError("fixture launch denied")
+            try:
+                with patch.object(processes.subprocess, "Popen", side_effect=launch), self.assertRaises(OSError):
+                    processes.run_cli(["cli"], env={}, cwd=root, timeout=15,
+                                      lifeline={"root": root / "cli-calls", "kind": "start",
+                                                "deadline": time.monotonic() + 15})
+                self.assertEqual(b"", os.read(kept[0], 1))
+                self.assertEqual(verdict.INTERRUPTED_UNGRADED, attempts.unfinished(root)["verdict"])
+            finally:
+                for fd in kept:
+                    os.close(fd)
+
+    def test_interrupt_during_birth_capture_stops_direct_child_and_closes_writer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.admission(root)
+            kept = []
+            child = Mock(pid=os.getpid(), returncode=-15)
+            child.communicate.return_value = ("", "")
+            lookup = patch.object(processes.psutil, "Process", side_effect=KeyboardInterrupt())
+            def launch(command, **options):
+                fd, = options["pass_fds"]
+                os.read(fd, 4096)
+                kept.append(os.dup(fd))
+                lookup.start()  # Interrupt after Popen and before birth capture.
+                return child
+            try:
+                with patch.object(processes.subprocess, "Popen", side_effect=launch), self.assertRaises(KeyboardInterrupt):
+                    processes.run_cli(["cli"], env={}, cwd=root, timeout=15,
+                                      lifeline={"root": root / "cli-calls", "kind": "start",
+                                                "deadline": time.monotonic() + 15})
+                self.assertEqual(b"", os.read(kept[0], 1))
+                child.terminate.assert_called_once_with()
+                child.kill.assert_called_once_with()
+            finally:
+                lookup.stop()
+                for fd in kept:
+                    os.close(fd)
+
+    def test_dead_owner_missing_result_counts_as_ungraded_and_preserves_reported_usage_so_far(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "attempt"
+            self.admission(root)
+            usage = {"accounting": {"tokens": {"output": {"known": 123, "total": None}}},
+                     "cost_usd": {"reported": 0.5, "complete": False}}
+            attempts.observe(root, {"status": "BUILDER_RUNNING", "usage": usage})
+            with patch.object(attempts, "owner_alive", return_value=False):
+                saved, = stats.load_results(Path(tmp))
+            self.assertEqual((verdict.INTERRUPTED_UNGRADED, None, "unknown", usage),
+                             (saved["verdict"], saved["oracle_passed"], saved["usage_status"], saved["usage_snapshot"]))
+            row, = stats.summarize([saved])
+            self.assertEqual((1, 0, 0, 1, 1, None), tuple(row[key] for key in
+                             ("runs", "passes", "streak", "interrupted", "usage_unknown", "median_model_minutes")))
+            self.assertFalse((root / "result.json").exists())  # Reading stats never finalizes or resumes.
+
+    def test_live_owner_is_pending_and_reused_birth_is_dead(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            value = self.admission(root)
+            self.assertEqual(verdict.PENDING_UNGRADED, attempts.unfinished(root)["verdict"])
+            value["owner"]["birth_identity"] -= 100
+            self.assertFalse(attempts.owner_alive(value["owner"]))
+            attempts.atomic_json(root / "attempt.json", value)
+            self.assertEqual(verdict.INTERRUPTED_UNGRADED, attempts.unfinished(root)["verdict"])
+
+    def test_final_result_wins_after_owner_death_and_is_not_counted_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "attempt"
+            self.admission(root)
+            run.finish(root, {"scenario": "case", "mode": "fake", "started_at": "1"}, verdict.PASS, "oracle passed")
+            with patch.object(attempts, "owner_alive", return_value=False):
+                rows = stats.load_results(Path(tmp))
+            self.assertEqual([verdict.PASS], [row["verdict"] for row in rows])
+            self.assertEqual("finished", attempts.read(root / "attempt.json")["phase"])
+
+    def test_signal_exit_retains_negative_receipt_and_never_grades_or_queries_private_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(fake=True, fake_solution="reference", profile=None, provider=None,
+                                      hybrid=False, i_authorize_live_model_spend=False, out=Path(tmp),
+                                      autocode=None, max_steps=None, timeout_minutes=1)
+            with patch.object(Driver, "drive", side_effect=InterruptedDrive("start exited on signal 9")), \
+                 patch.object(Driver, "state") as private_state, patch.object(verdict, "evaluate") as grade:
+                result = run.run_one(catalog.load("greenfield-greeting-cli"), args)
+            private_state.assert_not_called()
+            grade.assert_not_called()
+            self.assertEqual((verdict.INTERRUPTED_UNGRADED, None, "unknown"),
+                             (result["verdict"], result["oracle_passed"], result["usage_status"]))
+            self.assertTrue((Path(result["evidence"]) / "attempt.json").is_file())
+
+    def test_interrupted_final_status_cannot_be_swallowed_and_graded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = argparse.Namespace(fake=True, fake_solution="reference", profile=None, provider=None,
+                                      hybrid=False, i_authorize_live_model_spend=False, out=root,
+                                      autocode=None, max_steps=None, timeout_minutes=1)
+            driver = Mock(run_dir=root / "run", steps=[], answers=[], turn_marks=[])
+            driver.state.return_value = {}
+            driver.view.side_effect = InterruptedDrive("final status exited on signal 9")
+            with patch.object(run, "Driver", return_value=driver), patch.object(verdict, "evaluate") as grade, \
+                 patch.object(verdict, "diagnose") as diagnose:
+                result = run.run_one(catalog.load("greenfield-greeting-cli"), args)
+            driver.view.assert_called_once_with()
+            grade.assert_not_called()
+            diagnose.assert_not_called()
+            self.assertEqual((verdict.INTERRUPTED_UNGRADED, None, "unknown"),
+                             (result["verdict"], result["oracle_passed"], result["usage_status"]))
+
+    def test_comparison_rebuild_retains_missing_outer_arm_as_unknown_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "protocol.json").write_text(json.dumps({"fake": False, "profile_name": "test",
+                                                           "pairs": build_compare.schedule(["case"], 1)}))
+            self.admission(root / "pair-case-1" / "scenario-run", repeat=1, variant="fixed")
+            with patch.object(attempts, "owner_alive", return_value=False), patch.object(run, "run_one") as launch:
+                result = build_compare.rebuild(root)
+            launch.assert_not_called()
+            fixed = result["summary"]["fixed"]
+            self.assertEqual((1, 0, None, None, None, 1),
+                             (fixed["attempts"], fixed["passes"], fixed["api_usd"], fixed["model_calls"],
+                              fixed["rejected_model_calls"], len(result["missing"])))
+            self.assertFalse(result["all_passed"])
+
+
+class HarnessOwnerLossTests(unittest.TestCase):
+    """Kill the real harness/CLI at a fake provider event, never a timed sleep."""
+
+    def live(self, process):
+        try:
+            return process.is_running() and process.status() != processes.psutil.STATUS_ZOMBIE
+        except processes.psutil.NoSuchProcess:
+            return False
+
+    def cleanup(self, harness, owned, sentinel):
+        if harness.poll() is None:
+            try:
+                owned.extend(processes.psutil.Process(harness.pid).children(recursive=True))
+            except processes.psutil.NoSuchProcess:
+                pass
+            harness.kill()
+        harness.wait(timeout=10)
+        for process in reversed(owned):
+            if self.live(process):
+                process.kill()  # Process retains birth identity; no PID/group fallback.
+        if sentinel.poll() is None:
+            sentinel.kill()
+        sentinel.wait(timeout=10)
+        for child in (harness, sentinel):
+            for stream in (child.stdin, child.stdout, child.stderr):
+                if stream:
+                    stream.close()
+
+    def fault(self, target, *, barrier="settings"):
+        # The fake provider blocks at its first call that is not `--version`.
+        # A fresh run's first such call is the unsupervised `codex login status`
+        # settings check, a plain child of the CLI. Answering it moves the
+        # barrier into the first provider stage, behind its pre-exec keeper.
+        with tempfile.TemporaryDirectory(prefix="harness-owner-loss-") as tmp:
+            root = Path(tmp)
+            ready = root / "provider-ready"
+            os.mkfifo(ready)
+            reader = os.open(ready, os.O_RDONLY | os.O_NONBLOCK)
+            self.addCleanup(os.close, reader)
+            login = ("if sys.argv[1:]==['login','status']: print('Logged in using ChatGPT'); raise SystemExit(0)\n"
+                     "if sys.argv[1:2]!=['exec']: raise SystemExit(2)\n"
+                     if barrier == "stage" else "")
+            provider = (f"#!{sys.executable}\nimport os,json,signal,sys\n"
+                        "if '--version' in sys.argv: print('codex-cli 0.92.0'); raise SystemExit(0)\n"
+                        f"{login}"
+                        "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
+                        "fd=os.open(os.environ['OWNER_READY'],os.O_WRONLY)\n"
+                        "os.write(fd,(json.dumps({'provider':os.getpid(),'cli':os.getppid(),'call':sys.argv[1]})+'\\n').encode()); os.close(fd)\n"
+                        "signal.pause()\n")
+            script = f"""import argparse,json,sys
+from pathlib import Path
+sys.path.insert(0,{str(Path(__file__).resolve().parent)!r})
+import run
+from harness import catalog
+original=run.fake_setup
+def setup(scenario,root,solution):
+    flags,env=original(scenario,root,solution)
+    binary=root/'bin'/'codex'
+    binary.write_text({provider!r}); binary.chmod(0o755)
+    return flags,{{**env,'OWNER_READY':{str(ready)!r}}}
+run.fake_setup=setup
+args=argparse.Namespace(fake=True,fake_solution='reference',profile=None,provider=None,hybrid=False,
+    i_authorize_live_model_spend=False,out=Path({str(root / 'results')!r}),autocode=None,
+    max_steps=None,timeout_minutes=1,max_seconds=30,max_stage_seconds=15,max_iterations=None)
+result=run.run_one(catalog.load('greenfield-greeting-cli'),args)
+print(json.dumps({{'verdict':result['verdict']}}),flush=True)
+"""
+            sentinel = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
+            sentinel_birth = processes.psutil.Process(sentinel.pid)
+            harness = subprocess.Popen([sys.executable, "-u", "-c", script], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, text=True, start_new_session=True)
+            owned = []
+            try:
+                self.assertTrue(select.select([reader], [], [], 45)[0], "Fake provider never reached its event barrier")
+                event = json.loads(os.read(reader, 4096))
+                self.assertEqual({"settings": "login", "stage": "exec"}[barrier], event["call"])
+                owned.extend(processes.psutil.Process(harness.pid).children(recursive=True))
+                cli = next(process for process in owned if process.pid == event["cli"])
+                provider_process = next(process for process in owned if process.pid == event["provider"])
+                evidence, = (root / "results").iterdir()
+                admission = attempts.read(evidence / "attempt.json")
+                self.assertEqual(harness.pid, admission["owner"]["pid"])
+                call_path, = [path for path in (evidence / "cli-calls").glob("*.json")
+                              if attempts.read(path).get("kind") == "cli_call"]
+                call = attempts.read(call_path)
+                self.assertEqual(cli.pid, call["cli"]["pid"])
+                self.assertEqual("running", call["phase"])
+                # Retain the enclosing keeper's provider-discovery barrier (#555)
+                # for both settings and stage faults. The original startup-probe
+                # fixture could fault before its first sample. Stage faults also
+                # require an armed inner receipt and fresh native identities below.
+                deadline = time.monotonic() + 10
+                while True:
+                    recorded = attempts.read(call["receipt"])
+                    if any(row["pid"] == event["provider"] for row in recorded.get("processes", ())):
+                        break
+                    if time.monotonic() > deadline:
+                        self.fail(f"Keeper never recorded the provider process: {recorded}")
+                    time.sleep(.02)
+                if barrier == "stage":
+                    stage_receipts = [attempts.read(path) for path in evidence.rglob('*.supervision.json')]
+                    stage_receipt, = [receipt for receipt in stage_receipts
+                                      if receipt.get('provider', {}).get('pid') == event['provider']]
+                    self.assertEqual('armed', stage_receipt['phase'], stage_receipt)
+                    self.assertEqual(cli.pid, stage_receipt['owner']['pid'], stage_receipt)
+                    self.assertIn(stage_receipt['keeper']['pid'], [process.pid for process in owned])
+                    identities = [stage_receipt[role] for role in ('owner', 'keeper', 'provider')]
+                    self.assertTrue(all(attempts.owner_alive(identity) is True
+                                        for identity in identities), stage_receipt)
+                if target == "harness":
+                    harness.kill()
+                else:
+                    cli.kill()
+                output, errors = harness.communicate(timeout=15)
+                processes.psutil.wait_procs(owned, timeout=12)
+                survivors = []
+                for process in owned:
+                    if self.live(process):
+                        try:
+                            survivors.append(f"pid={process.pid} ppid={process.ppid()} status={process.status()}"
+                                             f" cmdline={process.cmdline()}")
+                        except processes.psutil.Error as error:
+                            survivors.append(f"pid={process.pid} inspect failed: {error}")
+                self.assertFalse(survivors, (errors or "") + "; survivors: " + "; ".join(survivors))
+                self.assertFalse(self.live(provider_process))
+                self.assertTrue(self.live(sentinel_birth), "An unrelated sentinel was signalled")
+                if target == "harness":
+                    self.assertEqual(-signal.SIGKILL, harness.returncode)
+                    self.assertFalse((evidence / "result.json").exists())
+                    receipt = attempts.read(call["receipt"])
+                    self.assertEqual(("stopped", "owner_lost", None),
+                                     tuple(receipt[key] for key in ("phase", "cause", "cleanup_error")), receipt)
+                else:
+                    self.assertEqual(0, harness.returncode, errors)
+                    self.assertEqual(verdict.INTERRUPTED_UNGRADED, json.loads(output)["verdict"])
+                    self.assertEqual(-signal.SIGKILL, attempts.read(call_path)["exit"])
+                row, = stats.load_results(root / "results")
+                self.assertEqual((verdict.INTERRUPTED_UNGRADED, "unknown", None),
+                                 (row["verdict"], row["usage_status"], row["oracle_passed"]))
+                summary, = stats.summarize([row])
+                self.assertEqual((1, 0, 1, 1), tuple(summary[key] for key in ("runs", "passes", "interrupted", "usage_unknown")))
+            finally:
+                self.cleanup(harness, owned, sentinel)
+
+    def test_harness_sigkill_closes_lifeline_stops_cli_provider_and_retains_ungraded_attempt(self):
+        self.fault("harness")
+
+    def test_cli_sigkill_finishes_harness_as_ungraded_and_preserves_negative_exit(self):
+        self.fault("cli")
+
+    def test_harness_sigkill_in_a_provider_stage_stops_cli_and_provider(self):
+        self.fault("harness", barrier="stage")
+
+    def test_cli_sigkill_in_a_provider_stage_stops_provider_and_finishes_ungraded(self):
+        self.fault("cli", barrier="stage")
 
 
 class DriverAnswerTests(unittest.TestCase):
@@ -2993,9 +3323,10 @@ class AdaptiveCompletionTests(unittest.TestCase):
                 self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
                 self.assertFalse(result["oracle_passed"])
 
-    def test_missing_literal_brackets_is_false_completion_despite_passing_delivered_tests(self):
+    def test_missing_literal_brackets_is_blocked_despite_passing_delivered_tests(self):
         result = self.run_fake("greenfield-todo-cli", solution="broken/unbracketed-status")
-        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        self.assertNotIn(result["runner_status"], verdict.COMPLETE_STATUSES)
         self.assertEqual({"add_then_list", "complete_marks_done", "ids_stable_across_restarts"},
                          {check["name"] for check in result["checks"] if not check["ok"]})
 

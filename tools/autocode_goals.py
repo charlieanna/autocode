@@ -17,7 +17,7 @@ try:
     from .autocode_trace_coverage import coverage_errors
     from . import autocode_brief_literals as brief_literals
     from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
-    from . import autocode_finding_cause as finding_cause
+    from . import autocode_finding_cause as finding_cause, autocode_bug_questions as bug_questions
 except ImportError:
     from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                            revision_guard, saved_user_basis as _saved_user_basis)
@@ -25,7 +25,7 @@ except ImportError:
     from autocode_trace_coverage import coverage_errors
     import autocode_brief_literals as brief_literals
     import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
-    import autocode_finding_cause as finding_cause
+    import autocode_finding_cause as finding_cause, autocode_bug_questions as bug_questions
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -119,6 +119,9 @@ TASK_KINDS = ("build", "bugfix")
 TASK_KIND = {"type": "string", "enum": list(TASK_KINDS)}
 for _schema in (LEGACY_BODY_SCHEMA, REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANNING_BODY_SCHEMA):
     _schema["properties"]["task_kind"] = TASK_KIND
+    # Runner-owned provenance is checked by the brief obligation policy, not the model schema.
+    _schema["properties"]["brief_acceptance"] = {"type": "object"}
+    _schema["properties"]["risk_acceptance"] = {"type": "object"}
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
 JOB_TYPE_POLICY = """
 JOB TYPE. task_kind is "bugfix" when the request reports existing behavior that is wrong
@@ -648,8 +651,8 @@ def answer(state, question_id, text, *, delegated=False):
     if "open_blocking_questions" in body:
         body["open_blocking_questions"] = [row for row in body["open_blocking_questions"] if row.get("id") != question_id]
     if not state["pending_questions"]:
-        state.update(status="RUNNING", phase="DISCOVERING",
-                     next_stage="requirements" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_discovery")
+        state.update(status="RUNNING", **bug_questions.answer_frontier(state,
+                     "requirements" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_discovery"))
         state["discovery_summary"] = ""
     # Answers are inputs to a new draft, never goal approvals.
     if contract:

@@ -1,15 +1,21 @@
 """Evidence-bound first serial repair assignment; ambiguity still goes to the Resolver."""
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 from pathlib import Path
 
 try:
     from . import autocode_util as util, autocode_check_refs as check_refs
-    from . import autocode_tool_containment as containment
+    from . import autocode_tool_containment as containment, autocode_visual_evidence as visual
 except ImportError:
     import autocode_util as util, autocode_check_refs as check_refs
-    import autocode_tool_containment as containment
+    import autocode_tool_containment as containment, autocode_visual_evidence as visual
 
 
 def _require(condition, reason):
@@ -25,23 +31,52 @@ def _run_root(output):
                  and parent.parent.parent.name == '.autocode'), None)
 
 
-def _captures(state, workspace):
-    """Where check captures outside the run directory may live: the workspace-shared area, and
-    the tool-containment scratch this run's own launches recorded, where a contained stage is
-    told to capture (#419). Another run's scratch is not in this run's stage records."""
-    return (workspace / '.autocode' / 'evidence',
-            *containment.recorded_scratch(state.get('stages', []), workspace))
+def owned(path, workspace, run_dir, *, settings=None, scratch=()):
+    """Whether a pinned file is this run's evidence: the one rule for acceptance and every later repair.
+
+    A file outside workspace/.autocode/ is the project's. Inside it, only these belong to this run: its
+    run directory; .autocode/evidence/, the shared area capture commands name; its own permission-recovery
+    directory; the tool-containment `scratch` its launch records name (#419); its retained design reference
+    (.autocode/design-inputs/<manifest hash>/); and a capture bundle file that the bundle's manifest names
+    for that design (.autocode/captures/<id>/). Anything else there may be another run's.
+    """
+    target, private, settings = Path(path), Path(workspace) / '.autocode', settings or {}
+    if not target.is_relative_to(private):
+        return True
+    retained = [Path(row['root']) for row in (settings.get('design_manifest'), *(settings.get('design_manifest_history') or ()))
+                if isinstance(row, dict) and isinstance(row.get('root'), str)
+                and Path(row['root']) == private / 'design-inputs' / str(row.get('manifest_hash'))]
+    roots = (Path(run_dir), private / 'evidence',
+             private / 'recovery-evidence' / util.digest(str(Path(run_dir).resolve())), *scratch, *retained)
+    return any(target.is_relative_to(root) for root in roots) or visual.bundle_file(settings, workspace, target)
 
 
-def _owned(path, workspace, run_dir, *, artifact=False, captures=()):
+def require_owned(pins, state, record, workspace, run_dir):
+    """Refuse, when a validation is accepted, a pin that a later repair would refuse to re-verify.
+
+    route() and resolver recovery re-verify the accepted validation's pins through owned(). Refused only
+    then, a pin would pause every REWORK, and the Completion Reviewer cannot change the Validator's pins;
+    refused here, it is an ordinary rejected report. Only the stage's own launch made its containment scratch.
+    """
+    workspace, run_dir = Path(workspace).resolve(), Path(run_dir).resolve()
+    scratch = containment.recorded_scratch([record], workspace)
+    for path in pins:
+        if not owned(path, workspace, run_dir, settings=state.get('settings'), scratch=scratch):
+            raise ValueError(
+                f'Evidence under .autocode/ does not belong to this run: {path}. A later repair re-verifies every '
+                'evidence pin, so cite .autocode/ files only from this run directory, .autocode/evidence/'
+                + (f', this stage\'s tool_containment.scratch ({scratch[0]})' if scratch else '')
+                + ', a capture bundle\'s manifest.json and the artifacts it lists, or the retained design inputs.')
+
+
+def _owned(path, workspace, run_dir, *, artifact=False, settings=None, scratch=()):
     _require(isinstance(path, str) and bool(path), 'Repair evidence has no file path')
     target = Path(path)
     target = target if target.is_absolute() else workspace / target
     _require('..' not in target.parts and target.is_relative_to(workspace),
              'Repair evidence is outside this workspace')
     _require(not artifact or target.is_relative_to(run_dir), 'Stage evidence belongs to another run')
-    shared = any(target.is_relative_to(root) for root in captures)
-    _require(not target.is_relative_to(workspace / '.autocode') or target.is_relative_to(run_dir) or shared,
+    _require(owned(target, workspace, run_dir, settings=settings, scratch=scratch),
              'Repair evidence belongs to another run')
     _require(not any(parent.is_symlink() for parent in (target, *target.parents)
                      if parent.is_relative_to(workspace)), 'Repair evidence traverses a symlink')
@@ -237,10 +272,12 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         ('task_id', task.get('id')), ('contract_hash', state['goal_contract']['hash']),
         ('contract_revision', state['goal_contract']['revision']), ('source_revision', record.get('source_revision'))))
     pins = validation.get('evidence_hashes') or {}
-    captures = _captures(state, workspace)
+    # Pins are re-verified only through a sealed accepted Validator: only its own launch made the
+    # containment scratch it may cite, as at acceptance (require_owned). Another stage's or run's is not.
+    rule = {'settings': state.get('settings'), 'scratch': containment.recorded_scratch([accepted or {}], workspace)}
     if report is not None and current_validation:
         for path, digest in pins.items():
-            _require(_hash(_owned(path, workspace, root, captures=captures)) == digest,
+            _require(_hash(_owned(path, workspace, root, **rule)) == digest,
                      'Validator evidence changed before repair')
     queue(state, decision, record)
     _require(not any(row.get('source_output') == record.get('output') for row in state.get('direct_rework_assignments', [])),
@@ -273,9 +310,9 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
             if accepted['events'] not in pins:
                 return False
         else:
-            receipt_path = _owned(ref, workspace, root, captures=captures)
+            receipt_path = _owned(ref, workspace, root, **rule)
             receipt = _report(receipt_path)
-            raw = _owned(receipt.get('full_output'), workspace, root, captures=captures)
+            raw = _owned(receipt.get('full_output'), workspace, root, **rule)
             if str(receipt_path) not in pins or str(raw) not in pins:
                 return False
             shared_receipt |= not receipt_path.is_relative_to(root) or not raw.is_relative_to(root)
@@ -286,7 +323,7 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Failed check lacks an executed Validator receipt') from error
     if shared_receipt:
         return False  # Captures outside the run directory still need ordinary Resolver admission.
-    current = runtime.support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
     _require(current['revision'] == record['source_revision'], 'Source changed while admitting the repair')
     probe = copy.deepcopy(state)
     probe['iteration'] += 1

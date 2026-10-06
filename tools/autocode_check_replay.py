@@ -22,6 +22,12 @@ imports nothing from the runner.
 """
 from __future__ import annotations
 
+from functools import partial
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import datetime as dt
 import json
 import re
@@ -30,12 +36,14 @@ import uuid
 
 try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
+    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     from . import autocode_util as util, autocode_verification_schedule as schedule
+    from . import autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
+    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     import autocode_util as util, autocode_verification_schedule as schedule
+    import autocode_command_receipt as command_receipt
 
 PASS, FAIL = "PASS", "FAIL"
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -45,7 +53,7 @@ CHECKS IN A PASS: every check in a PASS report must exit 0; the runner re-runs e
 refuses the report otherwise. To show that something fails as it should (a negative control), write a check
 that exits 0 exactly when the failure happens, for example sh -c '! python3 -m unittest tests/test_x.py' or a
 test that asserts the error. Never cite a check that exits non-zero in a PASS.
-The clean copy is the repository's source only: no ignored files and no .autocode/. A check that reads run files
+The clean copy is the repository's source, including explicitly approved ignored deliverables; no .autocode/. A check that reads run files
 (state.json, regression/proof-*/verification.json) cannot pass there. regression_proof in your handoff is the
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
 Replay uses a clean Git worktree: .git may be a file or a directory. Exclude .git in either form
@@ -59,14 +67,18 @@ another successful command cannot replace them. Empty Python test bodies cannot 
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
 must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
 In read-only contained stages, capture commands execute in a runner-prepared copy of the current source,
-where build outputs are writable but existing source and tests remain protected. Receipts remain in the
-original task evidence directory. Use repository-relative paths for product files. Each reported check must
+where build outputs are writable but existing source and tests remain protected. Receipts are still written
+to the --output path you give capture. Use repository-relative paths for product files. Each reported check must
 include its own setup (for example build and execute in the same command): clean replay does not retain
 artifacts from earlier checks. An execution in the prepared copy is still subject to clean-source replay.
-Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/);
-the runner's changed-file measurement ignores .autocode/. Never use /tmp, mktemp or any path outside the
-workspace: the provider sandbox denies external directories and the whole attempt is lost (a live run paused
-after three such denials, 2026-10-01).
+Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/,
+or tool_containment.scratch when your handoff has one); the runner's changed-file measurement ignores .autocode/.
+Capture receipts where your output contract's capture example says. A later repair re-verifies each pin, so
+under .autocode/ cite only this run directory, .autocode/evidence/, your own tool_containment.scratch, or
+runner-written design captures and inputs: never .autocode/scratch/ or another stage's tool-containment
+scratch (the Builder's or an earlier attempt's). The runner refuses a report that cites them.
+Never use /tmp, mktemp or any path outside the workspace: the provider sandbox denies external directories
+and the whole attempt is lost (a live run paused after three such denials, 2026-10-01).
 Probe mixed-type numeric interactions. For staged/transactional operations inject failures after work begins:
 assert the public error contract, unchanged persistent state and complete cleanup across failure modes.
 """ + acceptance_policy.DOMAIN + acceptance_policy.COVERAGE
@@ -88,17 +100,28 @@ def evidence_pins(result):
     """Bind accepted runner output to the existing completion evidence guard."""
     pins = {}
     for row in (result or {}).get("checks", []):
+        pins.update(command_receipt.pins(row))
         if row.get("output") and row.get("output_sha256"):
             pins[row["output"]] = row["output_sha256"]
         receipt = row.get("scheduling") or {}
         if receipt.get("receipt") and receipt.get("receipt_sha256"):
             pins[receipt["receipt"]] = receipt["receipt_sha256"]
+    protected = (result or {}).get("protected_tests") or {}
+    for name in ("candidate", "original"):
+        pins.update(command_receipt.pins(protected.get(name)))
+    pins.update(brief_evidence.evidence_pins((result or {}).get("brief_acceptance")))
+    pins.update(risk_evidence.evidence_pins((result or {}).get("risk_acceptance")))
     return pins
 
 
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
-            required_commands=None, progressive_context=None, execution_identity=None) -> dict:
+            required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False, all_risk_observations=False) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    selected = source_scope.paths(approved_state or {})
+    if selected:
+        scratch_run = partial(scratch_run, source_paths=selected)
+        if execution_identity:
+            execution_identity = partial(execution_identity, source_paths=selected)
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     checks = list(checks)
     for check in checks:  # the Validator's own; an approved plan's commands are the planner's
@@ -179,12 +202,20 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                               "duration_seconds": receipt.get("duration_seconds"), "results": receipt.get("results"),
                               "purpose": "approved_execution" if command in prescribed else "independent_clean_replay",
                               "scheduling": receipt.get("scheduling"),
-                             "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:]}
+                             "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:],
+                             **command_receipt.project(receipt)}
         rows.append({**seen[key], "reported_exit_code": check.get("exit_code"),
                      "evidence_ref": check.get("evidence_ref")})
-    failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
+    brief = brief_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
+                                  source_revision=record.get("source_revision"), progressive_context=progressive_context,
+                                  all_observations=all_brief_observations)
+    risk = risk_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
+                               source_revision=record.get("source_revision"), progressive_context=progressive_context,
+                               all_observations=all_risk_observations)
+    failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0
+              or not command_receipt.completed(row)]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
-              "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+              "protected_tests": protected, "brief_acceptance": brief, "risk_acceptance": risk, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     decisions = [row for row in seen.values() if row.get("scheduling")]
     result["scheduling"] = {
         "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),
@@ -201,6 +232,8 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
             what = f"could not run ({row['error']})"
         elif row["timed_out"]:
             what = f"timed out after {timeout} seconds"
+        elif not command_receipt.completed(row):
+            what = "has no complete owned-command evidence"
         else:
             what = f"exited {row['exit_code']}"
         raise ValueError(

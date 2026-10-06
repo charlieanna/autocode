@@ -1,6 +1,12 @@
 """Autopilot: deterministic controller for planning, building, review and repair."""
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 import json
 import re
@@ -17,10 +23,12 @@ try:
     from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
     from .units import autoplanner as planning_unit, common as units_common
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
-    from . import autocode_validation_rounds as validation_rounds
+    from . import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
+    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
     import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
-    import autocode_validation_rounds as validation_rounds
+    import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
+    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
@@ -134,7 +142,7 @@ def publish_handoffs(state, run_dir):
 def admit_validation(runtime, state, stage, workspace, run_dir):
     """Ask the user instead of launching another validation-only round that cannot close its blockers."""
     blocking = findings_ledger.blocking_entries(state) if stage == "sol" else []
-    stop = blocking and validation_rounds.admit(state, blocking, support.snapshot(workspace)["revision"])
+    stop = blocking and validation_rounds.admit(state, blocking, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"])
     if not stop:
         return
     error = support.Paused(validation_rounds.STATUS, stop["reason"])
@@ -154,9 +162,9 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
+    regression.before_review(state, stage, workspace, run_dir)
     if stage == "orchestrator":
         return unit.dispatch(state, workspace, run_dir)
-    regression.before_review(state, stage, workspace, run_dir)
     state_path = run_dir / "state.json"
     request = prepare_request(state, stage, state_path, runtime.SCHEMA_DIR)
     runtime.rotate_if_needed(state, request.route_role, run_dir)
@@ -225,7 +233,13 @@ def _bind_plan(state, value, origin, record):
     if origin in ("glm_draft", "glm_revise"):
         _check_code_refs(state, value.get("code_refs") or [])
     progressive_state.accept_proposal(state, value, origin=origin)
-    lifecycle.install_draft(state, value["contract"], origin=origin, changes=value.get("contract_changes") or [], record=record)
+    body = value["contract"]
+    if origin == "astra_finalize":
+        body = brief_obligations.reviewed_body(state, body, value.get("brief_observations") or [],
+            record, changes=value.get("brief_observation_changes") or [])
+        body = risk_obligations.reviewed_body(state, body, value.get("risk_observations") or [],
+            record, changes=value.get("risk_observation_changes") or [])
+    lifecycle.install_draft(state, body, origin=origin, changes=value.get("contract_changes") or [], record=record)
 
 
 def apply_planning(state, stage, value, record, *, run_dir=None):
@@ -241,7 +255,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             decision = {"status": "CONTINUE", "next_task": {key: entry for key, entry in first.items()
                         if key not in ("objective", "affected_paths")}, "next_objective": first["objective"],
                         "affected_paths": first["affected_paths"], "evidence": []}
-            kind = lifecycle.assign_task(state, decision, support.snapshot(Path(state["workspace"])))
+            kind = lifecycle.assign_task(state, decision, source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot))
             state.update(next_stage="sol" if kind == "validate" else "terra", phase="EXECUTING")
         return
     # Older saved reports predate explicit, user-backed conflict resolutions.
@@ -250,6 +264,10 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
         support.validate_schema(value, planning_unit.SCHEMAS[stage])
+        answers = {"plan_revise": "responses", "plan_finalize": "decisions"}.get(stage)
+        if answers:  # the report and its handoff keep only the rows that answer a review concern
+            concerns = state["planning"]["reports"]["plan_review"]["report"]["concerns"]
+            value = {**value, answers: planning_unit._coverage(value[answers], concerns)}
         progressive_state.accept_proposal(state, value, origin=stage)
         prepared = planning_artifacts.prepare(state, stage, value, origin=stage,
                                               run_dir=run_dir, record=False)
@@ -274,21 +292,23 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
                     raise ValueError("Each concern needs a concrete change and acceptance test")
                 state["next_stage"] = "plan_revise"
             elif stage == "plan_revise":
-                planning_unit._coverage(value["responses"], reports["plan_review"]["report"]["concerns"])
                 if any(not response["evidence_refs"] for response in value["responses"]):
                     raise ValueError("Planner responses must cite investigated evidence")
                 derived = planning_graph.validate(value["contract"])
                 lifecycle.install_draft(state, value["contract"], origin="plan_revise", record=record)
                 planning["derived_graph"] = derived
             elif stage == "plan_finalize":
-                planning_unit._coverage(value["decisions"], reports["plan_review"]["report"]["concerns"])
                 unresolved = {row["concern_id"] for row in value["decisions"] if not row["resolved"]}
                 if unresolved and not value["contract"]["open_blocking_questions"]:
                     raise ValueError("Unresolved planning decisions must return as blocking questions")
                 if not value["contract"]["open_blocking_questions"] and "initial_task" not in value["contract"]:
                     raise ValueError("Final plan needs an initial_task before approval")
                 derived = planning_graph.validate(value["contract"])
-                lifecycle.install_draft(state, value["contract"], origin="plan_finalize", record=record)
+                body = brief_obligations.reviewed_body(state, value["contract"],
+                    value.get("brief_observations") or [], record, changes=value.get("brief_observation_changes") or [])
+                body = risk_obligations.reviewed_body(state, body, value.get("risk_observations") or [],
+                    record, changes=value.get("risk_observation_changes") or [])
+                lifecycle.install_draft(state, body, origin="plan_finalize", record=record)
                 planning["derived_graph"] = derived
                 planning["final_token"] = goals.token(state["goal_contract"])
                 planning_artifacts.prepare_final_outputs(state, prepared)
@@ -360,7 +380,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         planning_unit.after_challenge(state, value, record)
     elif stage == "glm_revise":
         concerns = reports["astra_challenge"]["report"]["concerns"]
-        planning_unit._coverage(value["responses"], concerns)
+        value = {**value, "responses": planning_unit._coverage(value["responses"], concerns)}
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("Planner responses must cite investigated evidence")
         _bind_plan(state, value, stage, record)
@@ -371,7 +391,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         state.update(status="RUNNING", phase="PLANNING", next_stage=planning_unit.after_revise(state), pending_questions=[])
     elif stage == "astra_finalize":
         concerns = reports["astra_challenge"]["report"]["concerns"]
-        planning_unit._coverage(value["decisions"], concerns)
+        value = {**value, "decisions": planning_unit._coverage(value["decisions"], concerns)}
         unresolved = {d["concern_id"] for d in value["decisions"] if not d["resolved"]}
         if unresolved and not value["contract"]["open_blocking_questions"]:
             raise ValueError("Unresolved planning decisions must return to the user as blocking questions")
@@ -416,7 +436,7 @@ def assert_within_assignment(state, record):
 def retained_validated_candidate(state, value, record, workspace):
     """Compatibility entry point for previously validated retained work."""
     return retained_work.validated_candidate(state, value, record, workspace,
-                                             support.snapshot(workspace)['revision'])
+                                             source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'])
 
 
 def recover_retained_candidate(state, workspace):
@@ -428,7 +448,7 @@ def recover_retained_candidate(state, workspace):
     record = next((row for row in reversed(state.get('stages', []))
                    if (row.get('original_stage') or row.get('stage')) == 'terra'
                    and not row.get('runner_owned') and not row.get('changed_files')
-                   and row.get('source_revision') == support.snapshot(workspace)['revision']), None)
+                   and row.get('source_revision') == source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']), None)
     if not record:
         return False
     value = reports[-1]
@@ -464,7 +484,7 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
                 'builder_output': record['output'], **retained})
             state['next_stage'] = workflow.review_stage(state)
             return
-        fresh = retained_work.fresh_candidate(state, record, support.snapshot(workspace)['revision'])
+        fresh = retained_work.fresh_candidate(state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'])
         if fresh:
             # The runner's snapshots, rather than this attempt's empty report,
             # identify the files left by an earlier Builder. They are a candidate
@@ -540,6 +560,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
                 raise ValueError(f"Criterion evidence references a missing executed event: {event_id}")
     refs = [record["events"] if p.startswith("event:") else p for p in refs]
     pins = support.evidence_hashes(refs, workspace, run_dir) if refs else {}
+    if stage == "sol":
+        rework_policy.require_owned(pins, state, record, workspace, run_dir)
     validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
                   "source_revision": record["source_revision"], "output": record["output"],
                   "reviewer_role": record.get("role", stage)}
@@ -549,20 +571,25 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
         row["status"] == "PASS" for row in value.get("criterion_results", []))
     if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
         raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
+    replay_context = progressive_state.context(state)
     validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run,
-                                                   approved_state=state, progressive_context=progressive_state.context(state),
-                                                   execution_identity=verify.execution_identity)
+                                                   approved_state=state, progressive_context=replay_context,
+                                                   execution_identity=verify.execution_identity,
+                                                   all_brief_observations=human_pending or brief_obligations.whole_product_claim(
+                                                       state, value, progressive_context=replay_context),
+                                                   all_risk_observations=human_pending or brief_obligations.whole_product_claim(
+                                                       state, value, progressive_context=replay_context))
                                   if value["verdict"] == "PASS" or human_pending or progressive_pass else None)
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
     if stage == 'sol' and (record.get('visual_runtime') or visual_runtime.requested(state)):
         visual_receipt = visual_runtime.accept_review(record.get('visual_runtime'), state, record, run_dir=run_dir,
-                                                       current_snapshot=support.snapshot(workspace), accepted_validation=validation)
+                                                       current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), accepted_validation=validation)
         if visual_receipt:
             validation['evidence_hashes'].update(visual_receipt['evidence_hashes'])
     if progressive_state.enabled(state):
-        progressive_state.check_result_binding(state, record, support.snapshot(workspace))
-        progressive_state.assert_product_claims(state, support.snapshot(workspace), validation)
+        progressive_state.check_result_binding(state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
+        progressive_state.assert_product_claims(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), validation)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
@@ -576,7 +603,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     else:
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
-    milestones.observe_validation(state, support.snapshot(workspace))
+    milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
@@ -593,7 +620,7 @@ def queue_resolution(state, decision, record, *, source_stage='astra_review', so
     revision = record.get('source_revision')
     if (not task.get('id') or task.get('contract_hash') != state['goal_contract']['hash']
             or task.get('contract_revision') != state['goal_contract']['revision']
-            or not revision or revision != support.snapshot(Path(state['workspace']))['revision']
+            or not revision or revision != source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)['revision']
             or not record.get('output') or not Path(record['output']).is_file()
             or record.get('rejected') or record.get('exit_code', 0) != 0
             or (source_stage != 'terra' and record.get('changed_files'))
@@ -674,8 +701,8 @@ def apply_diagnosis_result(runtime, state, value, record, workspace, run_dir):
 
 def apply_result(runtime, state, stage, value, record, workspace, run_dir):
     """Commit a unit result only after every transition and evidence gate succeeds."""
-    candidate = copy.deepcopy(state)
-    _apply_result(runtime, candidate, stage, value, record, workspace, run_dir)
+    candidate = result_application.prepare(
+        state, run_dir, stage, lambda current: _apply_result(runtime, current, stage, value, record, workspace, run_dir), persist=runtime.write_json)
     state.clear()
     state.update(candidate)
 
@@ -708,7 +735,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         return
     if modern:
         if progressive_state.enabled(state):
-            progressive_state.check_result_binding(state, record, support.snapshot(workspace))
+            progressive_state.check_result_binding(state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
         goals.execution_guard(state, value)
         for entry in value.get("deferred_backlog", []):
             if entry not in state.setdefault("deferred_backlog", []):
@@ -793,12 +820,12 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             proven = {row["id"] for row in (state.get("validation") or {}).get("criterion_results", []) if row["status"] == "PASS"}
             if any(row["status"] == "verified" and row["id"] not in proven for row in value["acceptance_criteria"]):
                 raise ValueError("slice checkpoint cannot claim verified original criteria without the Validator's current product proof")
-            progressive_state.checkpoint(state, support.snapshot(workspace), record,
+            progressive_state.checkpoint(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), record,
                                          product_findings=findings_ledger.blocking_entries(state))
             goals.record_decision(state, value)
             save_record(state, record)
             return
-        current = support.snapshot(workspace)
+        current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
         request = (completion_gate.artifact_review_request(state, value, current)
                    if modern and stage in ("astra_review", "astra_checkpoint") else None)
         if request:
@@ -840,7 +867,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             # Passing Validator evidence cannot override the Plan Reviewer's rework or unverified criteria.
             if modern and value["status"] == "CONTINUE":
                 completion_probe = {**value, "status": "TASK_COMPLETE"}
-                probe_snapshot = support.snapshot(workspace)
+                probe_snapshot = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
                 if visual_runtime.completion_allowed(state, current_snapshot=probe_snapshot) and completion_gate.completion_ready(state, completion_probe, probe_snapshot):
                     state.update(next_stage="astra_review", **unit_module("astra_review").completion_review(state, probe_snapshot))
                     state["iteration"] += 1
@@ -860,7 +887,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                     goals.record_decision(state, value)
                     save_record(state, record)
                     return
-            current = support.snapshot(workspace)
+            current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             try:
                 kind = lifecycle.assign_task(state, value, current) if modern else "implement"
             except support.Paused as error:
@@ -915,6 +942,7 @@ def run(runtime, state, workspace, run_dir, args):
                 raise LoopExit(2)
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+        regression.before_review(current, None, workspace, run_dir)
         if args.unit and pending_unit(current) != args.unit:
             publish_handoffs(current, run_dir)
             write_json(state_path, current)

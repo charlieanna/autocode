@@ -10,11 +10,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from .supervision_fixture import launcher
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_goals as goals
 import autocode_opencode as opencode
 import autocode_support as support
+import autocode_tool_containment as tool_containment  # a qualified host (#413)
 from goal_fixtures import approve_fixture
 
 
@@ -163,7 +166,7 @@ class OutputLimitTests(unittest.TestCase):
                 self.assertEqual(0, metrics["completed_turns"])
 
     def test_replayed_finish_cannot_close_a_newer_unfinished_step(self):
-        for reason in ("stop", "length"):
+        for reason in ("stop", "length", "content-filter"):
             for start_id in ("prt_next_start", None):
                 with self.subTest(reason=reason, start_id=start_id):
                     previous = length_event()
@@ -251,7 +254,7 @@ class OutputLimitTests(unittest.TestCase):
         snapshot = {"head": "h", "files": {}, "revision": "r"}
         with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
              patch.object(runner.readonly_events, "prepare_opencode_snapshots"), \
-             patch.object(runner.subprocess, "Popen", Child), \
+             patch.object(runner.supervision, "launch", launcher(Child)), \
              patch.object(support, "snapshot", return_value=snapshot), \
              patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=(0, False)):
@@ -311,6 +314,7 @@ class OutputLimitTests(unittest.TestCase):
              patch.object(support, "assert_no_legacy_process"), \
              patch.object(runner.autocode_providers, "resolve", return_value=runner.opencode), \
              patch.object(runner.opencode, "check_models"), \
+             patch.object(tool_containment, "unavailable", return_value=None), \
              patch.object(runner.orchestrator, "drive") as drive, \
              patch.object(runner, "run_role") as launch, \
              contextlib.redirect_stdout(io.StringIO()):

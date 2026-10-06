@@ -4,6 +4,12 @@ No run-state writes. The capture CLI writes immutable bundles; stage context,
 independent report decoding and completion recheck them against current inputs.
 """
 from __future__ import annotations
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -56,7 +62,7 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     if (body.get('reference_hash') != reference_hash(state.get('settings', {}))
             and not design_identity.matches(state.get('settings', {}), body.get('reference_hash'), (body.get('case') or {}).get('id'))):
         raise ValueError('Implementation capture belongs to a different design reference or an affected case')
-    current = current or util.snapshot(root)
+    current = current or source_scope.snapshot(root, state)
     if body.get('source_revision') != current['revision']:
         raise ValueError('Stale implementation capture: source changed since capture; recapture the current implementation')
     if case is not None and body.get('case') != case_binding(case):
@@ -125,6 +131,32 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     return body, list(dict.fromkeys(refs))
 
 
+def bundle_file(settings, workspace, path):
+    """Whether `path` is a file its own capture bundle's manifest names for this design reference.
+
+    The capture command writes each bundle in its own .autocode/captures/<id>/ and binds it, in
+    manifest.json, to the design reference it was captured for. The manifest and each artifact it
+    lists with the hash it recorded are runner-written evidence of that design; nothing else there is.
+    Ownership only: verify() still decides freshness, and the reviewer the visual verdict.
+    """
+    root, path = Path(workspace), Path(path)
+    captures = root / '.autocode' / 'captures'
+    if not path.is_relative_to(captures) or len(path.relative_to(captures).parts) != 2:
+        return False
+    manifest = path.parent / 'manifest.json'
+    try:
+        body = util.read_object(local_file(root, manifest))
+        reference = body.get('reference_hash')
+        if (body.get('version') != 1 or body.get('kind') != 'implementation_capture' or not reference
+                or reference != reference_hash(settings)
+                and not design_identity.matches(settings, reference, (body.get('case') or {}).get('id'))):
+            return False
+        return path == manifest or any(root / item['path'] == path and util.file_hash(path) == item['sha256']
+                                       for item in body['artifacts'].values())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):
+        return False
+
+
 def context(state, current):
     """Select current bundles explicitly; historical captures stay on disk."""
     reference = reference_hash(state.get('settings', {}))
@@ -146,7 +178,7 @@ def context(state, current):
             selected[cid] = item
         except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
             rejected.append({'capture_ref': str(path), 'reason': str(error)})
-    return {'reference_hash': reference, 'current': list(selected.values()),
+    return {'reference_hash': reference, 'source_paths': source_scope.paths(state), 'current': list(selected.values()),
             'unavailable_cases': [cid for cid in cases if cid not in selected],
             'rejected': rejected, 'visual_acceptance': None}
 
@@ -203,15 +235,17 @@ Use implementation_captures.current as the explicit image bundle for visual revi
 Missing/stale bundles require a fresh `visual-capture --config <project config>`.
 The command records exact source, fixture, inputs, loaded response bytes and viewport;
 capture under .autocode/captures is immutable. Keep historical bundles and failures.
-The config declares reference_hash from this packet, case (id/route/state/viewport),
+The config copies reference_hash and source_paths from this packet, and declares case (id/route/state/viewport),
 fixture (a project Playwright setup/teardown module), inputs, assets (URL/path pairs),
 ready (selector/attribute/equals conditions), and build_command (argv, or [] for source assets).
 The fixture establishes the actual page state. All browser responses must match declared
 local assets. Generated assets require a build in this capture operation. Use the task's
 existing Playwright/browser installation; respect worker permissions and readiness failures.
 Prepare all fixtures and separate per-case configs before the first capture; keep their
-inputs unchanged across the review. Write comparison/review artifacts under .autocode/
-so they do not modify captured source. Never edit an existing capture bundle.
+inputs unchanged across the review. Write those configs, any fixture you create and every
+comparison/review artifact under .autocode/evidence/ so they do not modify captured source.
+A later repair re-verifies each cited file: under .autocode/ the runner accepts only that
+directory, the run directory, capture bundles and retained design inputs. Never edit an existing capture bundle.
 For design_results copy capture_ref and capture_sha256 with the exact candidate_ref.
 For native Figma without an inventory report implementation_captures receipts and cite
 their candidate images in criterion evidence. Inspect those images independently against
