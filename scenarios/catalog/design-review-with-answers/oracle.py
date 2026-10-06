@@ -85,11 +85,14 @@ def report_checks(report):
                and re.search(r"registr|transfer", str(concerns[key].get("resolution") or ""), re.I)]
     blocking = sorted(key for key in ordering if concerns[key].get("status") != "resolved"
                       and concerns[key].get("severity") == "blocking")
-    # Still asked: an ordering question kept from an earlier review (questions keep their ids), or a new one
-    # about ordering. A later question that only mentions order in passing is not re-asking it.
-    earlier = {q.get("id") for row in (first, second) for q in row.get("questions") or []
-               if re.search(ORDERING, str(q.get("question")), re.I)}
-    seen = {q.get("id") for row in (first, second) for q in row.get("questions") or []}
+    # Still asked: the ordering question the user answered (kept under its id), one the second review newly
+    # asked about ordering, or a new one about ordering. A question about something else that also mentions
+    # order (a live Architect added "now that per-domain order is required" to its DLQ question) is not one.
+    first_ids = {q.get("id") for q in first.get("questions") or []}
+    earlier = ({q.get("id") for q in first.get("questions") or [] if re.search(ORDERING, str(q.get("question")), re.I)}
+               | {q.get("id") for q in second.get("questions") or []
+                  if q.get("id") not in first_ids and about(q.get("question")) == "ordering"})
+    seen = first_ids | {q.get("id") for q in second.get("questions") or []}
     still_asked = [q.get("question") for q in third.get("questions") or [] if q.get("id") in earlier
                    or (q.get("id") not in seen and about(q.get("question")) == "ordering")]
     checks.append(Check("ordering_resolved_after_second_answer", bool(settled) and not blocking and not still_asked,
