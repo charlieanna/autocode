@@ -53,6 +53,18 @@ class OperatorControlTests(unittest.TestCase):
                       'PAUSED_REPEATED_FAILURE', 'PAUSED_NO_PROGRESS', 'PAUSED_TIMEOUT_RECOVERY'):
             self.assertEqual('hold', decide(cause), cause)
 
+    def test_spent_report_repairs_are_held_behind_any_stop(self):
+        # An admitted continuation renews no repair allowance, so it could only stop again: the
+        # Resolver publishes spent repairs as PAUSED_RESOLVER, not only PAUSED_REPORT_REPAIR_LIMIT.
+        def state(attempts):
+            return {'settings': {'report_repair': {'max_attempts': 2}},
+                    'pending_report_repair': {'attempts': attempts}}
+        for cause in ('PAUSED_RESOLVER', 'PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_RATE_LIMIT'):
+            action, reason, flags, _ = information.decide(runner, state(2), '/run', '/ws', cause)
+            self.assertEqual(('hold', None), (action, flags), cause)
+            self.assertIn('report-only repairs for this attempt are spent', reason)
+            self.assertEqual('continue', information.decide(runner, state(1), '/run', '/ws', cause)[0], cause)
+
 
 if __name__ == '__main__':
     unittest.main()

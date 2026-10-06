@@ -19,17 +19,21 @@ consumes it once (``reevaluate``), with zero provider calls:
   recovery allowance, a repeated failure, an unreconciled attempt). The run stays paused, its
   stop_reason names the exact command, and later invocations repeat that decision without
   evaluating again or republishing the request.
-- continue: no exhausted bound or operator-only control holds the stop, so the request's own
+- continue: the stop's cause is on the allow-list of causes outside the run and none of the bounds
+  checked here (an unreconciled attempt, the automatic-recovery allowance, spent report-only
+  repairs, stalled validation-only rounds, planning reviews) holds it, so the request's own
   advice ("provide information, then autocode resume") applies. The run goes through the
   ordinary resume path and the build loop's admission guards (limits, permissions, transport,
-  source, approval) before any provider launches.
+  source, approval) before any provider launches; the continuation renews no allowance, so a
+  guard not checked here (AutoResolver's own per-incident limit) stops it again as a new request.
 
 State: ``resolver.information_reviews`` maps a request ID to its record; this module is its only
 writer. autocode_run_actions acts on ``reevaluate`` and ``retired``; the status view reads
-``projection``. Imports autocode_util and autocode_quota_route. The runner is passed in, as
-autocode_run_actions does, so these runtime dependencies are not import edges: runner.write_json,
-runner.support.Paused, runner.interventions.admission, runner.timeout_recovery_guard,
-runner.planning.review_call_limit, runner.resolver_runtime.operational_boundary and
+``projection``. Imports autocode_util, autocode_quota_route and, for the Validator gate it runs
+itself, autocode_findings, autocode_source_scope and autocode_validation_rounds. The runner is passed
+in, as autocode_run_actions does, so these runtime dependencies are not import edges:
+runner.write_json, runner.repair_limit, runner.support (Paused, snapshot), runner.interventions.admission,
+runner.timeout_recovery_guard, runner.planning.review_call_limit, runner.resolver_runtime.operational_boundary and
 runner.resolver_human (current, response_holds_current_frontier and its frontier helpers
 _binding and _evidence_valid, which this module must match exactly).
 """
@@ -37,13 +41,19 @@ from __future__ import annotations
 
 import copy
 import shlex
+import subprocess
 from pathlib import Path
 
 try:
     from . import autocode_util as util, autocode_quota_route as quota_route
+    from . import autocode_findings as findings_ledger, autocode_source_scope as source_scope
+    from . import autocode_validation_rounds as validation_rounds
 except ImportError:
     import autocode_util as util
     import autocode_quota_route as quota_route
+    import autocode_findings as findings_ledger
+    import autocode_source_scope as source_scope
+    import autocode_validation_rounds as validation_rounds
 
 VERSION = 1
 KEY = 'information_reviews'
@@ -202,6 +212,18 @@ def operator_flags(state, cause):
     return resume_flags(state, cause)
 
 
+def _stalled_validation(runner, probe, workspace):
+    """The validation-only rounds stop the Validator gate would make next, or None (autopilot.admit_validation)."""
+    if probe.get('next_stage') != 'sol':
+        return None
+    blocking = findings_ledger.blocking_entries(probe)
+    if not blocking:
+        return None
+    revision = source_scope.snapshot(Path(workspace), probe, base_snapshot=runner.support.snapshot)['revision']
+    stop = validation_rounds.admit(probe, blocking, revision)
+    return stop['reason'] if stop else None
+
+
 def decide(runner, state, run_dir, workspace, cause):
     """AutoResolver's decision under existing authority: (action, reason, flags, adopted status)."""
     Paused = runner.support.Paused
@@ -218,6 +240,16 @@ def decide(runner, state, run_dir, workspace, cause):
         return 'hold', f'no rule lets information release a {cause} stop', None, None
     probe = copy.deepcopy(state)
     try:
+        # Bounds the run set itself, whatever status the stop carries (AutoResolver publishes both as
+        # PAUSED_RESOLVER). An admitted continuation renews neither, so it could only stop again.
+        pending = probe.get('pending_report_repair')
+        if isinstance(pending, dict) and pending.get('attempts', 0) >= runner.repair_limit(probe):
+            return 'hold', OPERATOR_ONLY['PAUSED_REPORT_REPAIR_LIMIT'], None, None
+        stalled = _stalled_validation(runner, probe, workspace)
+        if stalled:
+            return ('hold', stalled.rstrip('.') + '. Only that reviewer\'s fresh report closes a finding; close one that '
+                    'no longer applies with --close-finding ID --close-reason TEXT, or revise the goal with --feedback',
+                    None, None)
         if cause == 'PAUSED_PLANNING_BUDGET':
             planning = probe.get('planning') or {}
             limit = runner.planning.review_call_limit(probe)
@@ -234,7 +266,8 @@ def decide(runner, state, run_dir, workspace, cause):
         if error.status == 'PAUSED_TIMEOUT_RECOVERY':
             return 'hold', str(error), resume_flags(state, error.status), error.status
         return 'hold', str(error), None, None
-    except (KeyError, TypeError, ValueError, AttributeError, StopIteration, OSError, RuntimeError) as error:
+    except (KeyError, TypeError, ValueError, AttributeError, StopIteration, OSError, RuntimeError,
+            subprocess.SubprocessError) as error:
         return 'hold', f'its admission checks cannot be evaluated: {error}', None, None
     return 'continue', None, None, None
 
@@ -255,10 +288,11 @@ def _resume_after(state, cause):
 def _message(record, action, reason, flags, after, run_dir, workspace):
     rid = record['request_id'][:12]
     if action == 'continue':
-        return (f"AutoResolver re-evaluated the information sent for request {rid}: no exhausted bound or "
-                f"operator-only control holds this {record['cause']} pause, so the run continues through the "
-                "normal admission checks (limits, permissions, transport, source and approval still apply). "
-                "A stop found there, such as a parallel member that still needs a model, is a new request.")
+        return (f"AutoResolver re-evaluated the information sent for request {rid}: it found no spent bound or "
+                f"operator-only control among those it checks for this {record['cause']} pause, so the run continues "
+                "through the normal admission checks (limits, permissions, transport, source and approval still "
+                "apply). The information renewed no allowance: a stop found there, such as AutoResolver's own "
+                "per-incident limit or a parallel member that still needs a model, is a new request.")
     text = (f"AutoResolver re-evaluated the information sent for request {rid}: {reason.rstrip('.')}. "
             "Information cannot raise a bound, reset a count or authorize another attempt, so the run stays "
             "paused and no provider launched.")

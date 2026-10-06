@@ -5,13 +5,16 @@ evaluated: every resume repeated the same hold. Real CLI processes with the fake
 no sleeps, no live models. A launch is observed through the registry launch probe. The control
 table itself is tested without processes in test_operational_information_controls.
 """
+import copy
 import json
 import subprocess
 import unittest
+from pathlib import Path
 
 from . import test_subprocess
 import autocode as runner
 import autocode_support as support
+import autocode_source_scope as source_scope
 
 
 class OperationalInformationCLITests(unittest.TestCase):
@@ -67,6 +70,21 @@ class OperationalInformationCLITests(unittest.TestCase):
 
     def evaluations(self):
         return sorted((self.run / 'resolver').glob('information-*.json'))
+
+    @staticmethod
+    def pending_repair(attempts):
+        """The Builder's last report failed validation; `attempts` of its 2 report-only repairs are used."""
+        def edit(state):
+            original = copy.deepcopy(next(row for row in reversed(state['stages'])
+                                          if row.get('stage') == 'terra' and not row.get('report_only')))
+            original['rejection_reason'] = 'Report is missing summary'
+            state['settings']['report_repair'] = {'max_attempts': 2}
+            state['pending_report_repair'] = {
+                'attempts': attempts, 'contract_hash': state['goal_contract']['hash'], 'pins': {},
+                'error': 'Report is missing summary', 'original': original}
+            state.update(next_stage='terra')
+            state.setdefault('sessions', {})['terra'] = 'spent-builder-session'
+        return edit
 
     def test_accepted_information_is_reevaluated_exactly_once(self):
         def explicit_cap(state):
@@ -209,28 +227,78 @@ class OperationalInformationCLITests(unittest.TestCase):
         # AutoResolver runs the admission guard itself and finds the spent automatic-recovery allowance.
         self.assert_held_for_a_grant_once(self.issue_checkpoint(automatic_recoveries_since_resume=3))
 
-    def test_a_spent_report_repair_allowance_is_held_for_the_operator(self):
-        def spent_repair(state):
-            state['settings']['report_repair'] = {'max_attempts': 2}
-            state['pending_report_repair'] = {
-                'attempts': 2, 'contract_hash': (state.get('goal_contract') or {}).get('hash'), 'pins': {},
-                'original': {'stage': 'terra', 'role': 'terra', 'iteration': state.get('iteration', 1)}}
-            state.update(next_stage='terra')
-            state.setdefault('sessions', {})['terra'] = 'spent-builder-session'
-        view = self.checkpoint('PAUSED_REPORT_REPAIR_LIMIT', 'Bounded report-only repair attempts exhausted', spent_repair)
+    def assert_spent_report_repair_held(self, status, reason):
+        view = self.checkpoint(status, reason, self.pending_repair(2))
         self.env.pop('AUTOCODE_FIXTURE_QUOTA_STAGE')
         _, before = self.saved()
         self.inform(view, 'The workspace is fine now')
         # A report that failed validation twice is not a cause outside the run: information cannot
         # buy the fresh Builder attempt the spent repair allowance stopped.
+        for _ in range(2):
+            code, launched, output = self.resume()
+            self.assertEqual((2, False), (code, launched), output)
+            view = self.status()
+            self.assertEqual((status, 'held', 'resume'),
+                             (view['status'], view['information_review']['status'], view['needs']['kind']))
+            self.assertIn('report-only repairs for this attempt are spent', view['stop_reason'])
+            self.assertNotIn('continues', view['stop_reason'])
+            _, after = self.saved()
+            for key in ('pending_report_repair', 'report_repair_archive', 'sessions'):
+                self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual(1, len(self.evaluations()))
+
+    def test_a_spent_report_repair_allowance_is_held_for_the_operator(self):
+        self.assert_spent_report_repair_held('PAUSED_REPORT_REPAIR_LIMIT', 'Bounded report-only repair attempts exhausted')
+
+    def test_a_spent_report_repair_behind_a_resolver_stop_is_held(self):
+        # resolver_runtime.boundary publishes an exhausted report repair as PAUSED_RESOLVER.
+        self.assert_spent_report_repair_held('PAUSED_RESOLVER', 'Persisted failure identity or report-repair budget exhausted')
+
+    def test_stalled_validation_rounds_behind_a_resolver_stop_are_held(self):
+        def stalled(state):
+            """Two validation-only rounds at this source left blocking finding F-1 open (autocode_validation_rounds)."""
+            revision = source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)['revision']
+            contract = state['goal_contract']['hash']
+            validation = state.setdefault('validation', {})
+            validation.update(contract_hash=contract, source_revision=revision)
+            state['findings_ledger'] = [{'id': 'F-1', 'source': 'sol', 'status': 'open', 'blocking': True,
+                                         'not_rechecked_in': 'validator.json'}]
+            frontier = {'contract_hash': contract, 'source_revision': revision,
+                        'findings': {'F-1': ['not_rechecked', None]},
+                        'passed': sorted(str(row.get('id')) for row in validation.get('criterion_results') or []
+                                         if row.get('status') == 'PASS'),
+                        'accepted': sorted(key for key, row in (state.get('milestone_progress') or {}).items()
+                                           if isinstance(row, dict) and row.get('accepted')
+                                           and row.get('contract_hash') == contract)}
+            task = state['current_task']['id']
+            state['validation_only_rounds'] = [
+                {'attempt': {'task_id': task, 'after_validation': f'earlier-{n}'}, 'frontier': frontier, 'at': 'x'}
+                for n in (1, 2)]
+            state.update(next_stage='sol')
+        view = self.checkpoint('PAUSED_RESOLVER', 'Validation-only rounds made no progress on F-1', stalled)
+        self.env.pop('AUTOCODE_FIXTURE_QUOTA_STAGE')
+        _, before = self.saved()
+        self.inform(view, 'The Validator environment is fixed')
+        # The rounds limit is the run's own bound: information closes no finding, so it is held.
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
         view = self.status()
-        self.assertEqual(('PAUSED_REPORT_REPAIR_LIMIT', 'held'), (view['status'], view['information_review']['status']))
-        self.assertIn('report-only repairs for this attempt are spent', view['stop_reason'])
+        self.assertEqual(('PAUSED_RESOLVER', 'held'), (view['status'], view['information_review']['status']))
+        self.assertIn('validation-only rounds at source', view['stop_reason'])
+        self.assertIn('--close-finding', view['stop_reason'])
+        self.assertNotIn('continues', view['stop_reason'])
         _, after = self.saved()
-        for key in ('pending_report_repair', 'report_repair_archive', 'sessions'):
-            self.assertEqual(before.get(key), after.get(key), key)
+        self.assertEqual(before['validation_only_rounds'], after['validation_only_rounds'])
+        # Closing the finding changes the cause: the run asks again, and information sent then continues.
+        self.assertEqual(0, self.invoke('--close-finding', 'F-1', '--close-reason', 'Duplicate of a settled one')[0])
+        code, launched, output = self.resume()
+        self.assertEqual((2, False), (code, launched), output)
+        asked = self.status()
+        self.assertEqual('answer', asked['needs']['kind'], asked['needs'])
+        self.inform(asked, 'F-1 was a duplicate')
+        code, launched, output = self.resume()
+        self.assertTrue(launched, output)
+        self.assertEqual('admitted', self.status()['information_review']['status'])
 
     def test_a_held_content_filter_stop_names_a_model_change(self):
         # The content filter refused the Tester's model; it would likely refuse again (#464/#465).

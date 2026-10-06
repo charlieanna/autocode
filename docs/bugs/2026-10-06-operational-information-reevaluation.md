@@ -46,14 +46,18 @@ never evaluates it:
   refused model again. AutoResolver also runs the automatic-recovery guard
   itself: a spent allowance behind another stop is held as
   `PAUSED_TIMEOUT_RECOVERY`, the status that guard would have set, so the named
-  grant is accepted. Later invocations repeat the decision; nothing is
-  evaluated or asked again.
+  grant is accepted. It also holds spent report-only repairs and stalled
+  validation-only rounds (running the Validator gate,
+  autocode_validation_rounds, itself) under any allow-listed status: AutoResolver
+  publishes both as `PAUSED_RESOLVER`, and an admitted continuation, which
+  renews neither, could only stop again. Later invocations repeat the decision;
+  nothing is evaluated or asked again.
 - `admitted`: the stop's cause lies outside the run (an allow-list in
   `INFORMATION_CAUSES`: provider capacity, rate limit, quota or refusal, an
   uncertain provider or stage, a busy workspace, a Resolver stop
   (`PAUSED_RESOLVER_OPERATIONAL`, `PAUSED_RESOLVER`), a planning stop with
   reserved recovery left) and no bound
-  or operator-only control holds it. The run takes the ordinary resume path;
+  or operator-only control it checks holds it. The run takes the ordinary resume path;
   every admission check (limits, permissions, transport, source, approval,
   interventions) still runs before a launch. A runner event marks the frontier
   as new, so a stop found next is a new request, never the answered one. A
@@ -80,14 +84,16 @@ control; a review the run left behind unevaluated reads `superseded`.
 - A `blocker`-scope request (an agent's question or a Resolver diagnosis)
   answered with `provide_information` still holds at the same frontier; only
   `operational_exhaustion` is re-evaluated.
-- A guard the evaluation does not run itself, such as the validation-round
-  limit (`PAUSED_RESOLVER` from autocode_validation_rounds), stops an admitted
-  run again before any launch and asks a new request rather than holding.
+- A guard the evaluation does not run itself, such as AutoResolver's own
+  per-incident attempt limit or its one diagnosis per task and source (both
+  `PAUSED_RESOLVER`), stops an admitted run again before any launch and asks a
+  new request rather than holding. The admitted receipt says only that none of
+  the bounds it checks holds the stop.
 - A planning stop whose reserved recovery is exhausted
   (`PAUSED_RESOLVER_OPERATIONAL` at a plan review) is held without a command:
   `--planning-review-call-limit` accepts only `PAUSED_PLANNING_BUDGET`.
-- Spent report-only repairs (`PAUSED_REPORT_REPAIR_LIMIT`) with an
-  operational request are held without a command: no CLI control accepts that
+- Spent report-only repairs (`PAUSED_REPORT_REPAIR_LIMIT` or
+  `PAUSED_RESOLVER`) with an operational request are held without a command: no CLI control accepts that
   pause while the request stands (`--retry-report` and `--retry-failed-stage`
   need `PAUSED_REPEATED_FAILURE`). Before this fix the information admitted a
   fresh Builder there, archiving the spent repair and rotating its session.

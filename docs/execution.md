@@ -807,24 +807,28 @@ recovery flag) consumes it, without a provider call:
   automatic-recovery allowance, a reached time, iteration, milestone or
   no-progress bound, a repeated failure, a Builder retry limit, a stopped
   parallel member, a stalled milestone, spent report-only repairs, an
-  unreconciled attempt), the run stays paused. Where the CLI accepts a control
-  at that stop, the stop reason and status name that exact command; after a
-  content-filter refusal the resume it names changes the role's model
-  (`--sol-model MODEL`, for example), since the same model would likely refuse
-  again. Later resumes repeat the decision without evaluating again.
+  unreconciled attempt), the run stays paused. Spent report-only repairs and
+  validation-only rounds that stalled on open blocking findings are held under
+  whichever pause carries them, `PAUSED_RESOLVER` included. Where the CLI
+  accepts a control at that stop, the stop reason and status name that exact
+  command; after a content-filter refusal the resume it names changes the
+  role's model (`--sol-model MODEL`, for example), since the same model would
+  likely refuse again. Later resumes repeat the decision without evaluating
+  again.
 - If the cause lies outside the run (`PAUSED_PROVIDER_CAPACITY`,
   `PAUSED_RATE_LIMIT`, `PAUSED_BUDGET`, `PAUSED_CONTENT_FILTER`,
   `PAUSED_PROVIDER_UNCERTAIN`, `PAUSED_UNCERTAIN_STAGE`, `PAUSED_WORKSPACE_BUSY`,
   a Resolver stop (`PAUSED_RESOLVER_OPERATIONAL`, `PAUSED_RESOLVER`), or
-  `PAUSED_PLANNING_BUDGET` with reserved recovery left),
-  the request's own advice applies: the run continues through the normal resume
-  path, whose admission checks (limits, permissions, transport, source,
-  approval, interventions) still run before any provider launches. A stop found
-  there, such as a live transport change, the validation-round limit behind
-  `PAUSED_RESOLVER` or a parallel Builder member that still needs a model only
-  you can name, is a new stop or a new request. The continuation does not renew
-  the per-incident Resolver attempts or the pending report-repair attempts that
-  an explicit resume at other pauses renews. Any other stop is held.
+  `PAUSED_PLANNING_BUDGET` with reserved recovery left) and none of the bounds
+  above holds it, the request's own advice applies: the run continues through
+  the normal resume path, whose admission checks (limits, permissions,
+  transport, source, approval, interventions) still run before any provider
+  launches. The continuation does not renew the per-incident Resolver attempts
+  or the pending report-repair attempts that an explicit resume at other
+  pauses renews, so a stop found there, such as a live transport change,
+  Resolver's own per-incident limit or a parallel Builder member that still
+  needs a model only you can name, is a new stop or a new request. Any other
+  stop is held.
 
 A repeated resume never evaluates the same response twice, and the same response
 sent again changes nothing (the CLI says so, and names a newer request if one is
