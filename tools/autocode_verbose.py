@@ -1,6 +1,7 @@
-"""Optional console stream of what a provider model is doing during a stage.
+"""Console stream of what a provider model is doing during a stage.
 
-Off unless enabled (--verbose or AUTOCODE_VERBOSE). When on, the stage's
+On by default; --no-verbose or AUTOCODE_VERBOSE=0 (also false, off, no) turns it
+off, and --verbose turns it back on over the variable. When on, the stage's
 ActivityMonitor reports tool starts/finishes and new provider text as one
 bounded line each to stderr, so an operator can see live activity without
 opening the stage's JSONL event log. Printing is best-effort: a broken stderr
@@ -15,19 +16,24 @@ import time
 ENV = "AUTOCODE_VERBOSE"
 MAX_TEXT = 200
 MIN_TEXT_INTERVAL_SECONDS = 1.0
-OFF = ("", "0", "false", "off", "no")
+OFF = ("0", "false", "off", "no")
 
 
 def enable() -> None:
     os.environ[ENV] = "1"
 
 
+def disable() -> None:
+    os.environ[ENV] = "0"
+
+
 def enabled() -> bool:
+    """On unless AUTOCODE_VERBOSE names an off value; unset or empty means on."""
     return os.environ.get(ENV, "").strip().lower() not in OFF
 
 
 def reporter(stage: str, model: str | None, *, stream=None, clock=None):
-    """Return an ActivityMonitor reporter, or None when verbose is off."""
+    """Return an ActivityMonitor reporter, or None when verbose is turned off."""
     if not enabled():
         return None
     return _Reporter(stage, model, stream=stream, clock=clock)
