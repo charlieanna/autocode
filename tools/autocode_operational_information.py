@@ -268,6 +268,8 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
             return None
         if status == 'held':
             return Outcome('hold', record['decision']['message'])
+        if state.get('stop_reason') != record['decision']['message']:
+            return None  # The run moved on from this admission; resuming cleared its reason.
         if resume:  # Saved but not yet carried into the run: continue on that one decision.
             return Outcome('continue', 'AutoResolver already admitted this continuation for request '
                            f"{record['request_id'][:12]}; it is not evaluated again.")
