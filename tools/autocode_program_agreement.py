@@ -20,10 +20,12 @@ What it decides:
   planned, approved and checked again. Workstreams whose scope did not change
   keep their approval.
 - **Revisions** (``revision_problems``): the workstream graph is frozen, and an
-  interface definition never changes without a new version.
+  interface definition never changes without a new version. Both are compared
+  ignoring list order and spelled-out defaults.
 - **Inheritance** (``inherited``, ``dropped``): a child plan must keep every
   inherited requirement as an acceptance criterion with the same id; the
-  integration workstream inherits every requirement and every journey.
+  integration workstream inherits every journey and every requirement assigned
+  to a workstream other than a deployment one (deployment runs after it).
 - **Interface changes after delivery** (``quiet_interface_changes``): a delivered
   interface version is never edited in place.
 """
@@ -132,9 +134,17 @@ def validate(manifest):
                     or not row["criterion"].strip()):
                 raise ValueError("requirements entries need an id and a criterion, and only "
                                  + ", ".join(sorted(REQUIREMENT_KEYS)))
-        ids = [row["id"] for row in manifest["requirements"]]
-        if len(ids) != len(set(ids)):
-            raise ValueError("Requirement ids must be unique")
+        listed = manifest["requirements"]
+    else:
+        # The contract's own schema governs its criteria's fields; a row requirements() would skip is refused here.
+        listed = ((manifest.get("contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+        if not isinstance(listed, list) or not all(
+                isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip()
+                and isinstance(row.get("criterion"), str) and row["criterion"].strip() for row in listed):
+            raise ValueError("The parent contract's acceptance_criteria entries need an id and a criterion")
+    ids = [row["id"] for row in listed]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Requirement ids must be unique")
     known = requirements(manifest)
     if known:
         for row in rows.values():
@@ -211,10 +221,10 @@ def validate(manifest):
             raise ValueError(f"Interface {iid}: version must be a positive integer")
         producer = row.get("producer")
         consumers = row.get("consumers", [])
-        if producer is not None and producer not in rows:
+        if producer is not None and (not isinstance(producer, str) or producer not in rows):
             raise ValueError(f"Interface {iid}: producer {producer!r} is not a workstream")
-        if not isinstance(consumers, list) or len(consumers) != len(set(consumers)) or any(
-                item not in rows for item in consumers):
+        if not isinstance(consumers, list) or not all(isinstance(item, str) for item in consumers) or len(
+                consumers) != len(set(consumers)) or any(item not in rows for item in consumers):
             raise ValueError(f"Interface {iid}: consumers must be distinct workstream ids")
         if consumers and producer is None:
             raise ValueError(f"Interface {iid}: consumers need a producer")
@@ -236,7 +246,10 @@ def inherited(manifest, wid):
     row = rows_by_id(manifest)[wid]
     known = requirements(manifest)
     if row["kind"] == "integration":
-        return list(known) + [journey["id"] for journey in journeys(manifest)]
+        # Deployment workstreams run after the final check, which may not deploy: what only they own is theirs.
+        built = {cid for other in manifest["workstreams"] if other["kind"] != "deployment"
+                 for cid in other.get("acceptance_criteria", [])}
+        return [cid for cid in known if cid in built] + [journey["id"] for journey in journeys(manifest)]
     return [cid for cid in row.get("acceptance_criteria", []) if cid in known]
 
 
@@ -265,12 +278,25 @@ def scope(manifest, wid):
         "program": {"brief": manifest["brief"], "shared": {key: shared.get(key) for key in SHARED_LISTS},
                     "contract": {key: value for key, value in body.items()
                                  if key not in ("acceptance_criteria", "milestones")}},
-        "workstream": {key: value for key, value in row.items() if key not in NOT_SCOPE},
+        "workstream": _row_scope(row),
         "inherits": {cid: known[cid] for cid in inherited(manifest, wid) if cid in known},
-        "interfaces": sorted((item for item in interfaces(manifest) if _involved(item, wid, row["kind"])),
-                             key=lambda item: item["id"]),
+        "interfaces": [{**_definition(item), "version": item["version"]} for item in
+                       sorted(interfaces(manifest), key=lambda item: item["id"]) if _involved(item, wid, row["kind"])],
         "journeys": journeys(manifest) if with_journeys else [],
     })
+
+
+def _row_scope(row):
+    """A workstream row as its scope counts it: list order, a spelled-out ``skeleton: false`` and the wording of
+    a skeleton exemption's reason (which no brief carries) change nothing the workstream is built from."""
+    value = {key: item for key, item in row.items() if key not in NOT_SCOPE}
+    for key in ("owns", "depends_on"):
+        value[key] = sorted(value[key])
+    if not value.get("skeleton"):
+        value.pop("skeleton", None)
+    if "skeleton_exempt" in value:
+        value["skeleton_exempt"] = True
+    return value
 
 
 def scope_digest(manifest, wid):
@@ -283,7 +309,10 @@ def affected(old, new):
 
 
 def topology(manifest):
-    return {row["id"]: {key: row.get(key) for key in TOPOLOGY_KEYS} for row in manifest["workstreams"]}
+    """The workstream graph, ignoring list order and spelled-out defaults (skeleton_exempt counts by presence)."""
+    return {row["id"]: {"kind": row["kind"], "owns": sorted(row["owns"]), "depends_on": sorted(row["depends_on"]),
+                        "skeleton": bool(row.get("skeleton")), "skeleton_exempt": "skeleton_exempt" in row}
+            for row in manifest["workstreams"]}
 
 
 def revision_problems(old, new):
@@ -307,7 +336,14 @@ def revision_problems(old, new):
 
 
 def _definition(row):
-    return {key: value for key, value in row.items() if key != "version"}
+    """An interface's definition without its version, ignoring list order and spelled-out defaults."""
+    value = {key: item for key, item in row.items() if key != "version" and item is not None}
+    for key in ("paths", "consumers"):
+        if key in value:
+            value[key] = sorted(value[key])
+    if not value.get("consumers"):
+        value.pop("consumers", None)
+    return value
 
 
 def bumped_interfaces(old, new):
@@ -325,40 +361,75 @@ def changes(old, new):
     for key in SHARED_LISTS:
         if (old.get("shared") or {}).get(key) != (new.get("shared") or {}).get(key):
             lines.append(f"shared {key.replace('_', ' ')}")
-    body_old = (old.get("contract") or {}).get("body") or {}
-    body_new = (new.get("contract") or {}).get("body") or {}
-    for key in sorted(set(body_old) | set(body_new)):
-        if key not in ("acceptance_criteria", "milestones") and body_old.get(key) != body_new.get(key):
+    contract_old, contract_new = old.get("contract") or {}, new.get("contract") or {}
+    for key in sorted((set(contract_old) | set(contract_new)) - {"body"}):
+        if contract_old.get(key) != contract_new.get(key):
             lines.append(f"parent contract {key.replace('_', ' ')}")
+    body_old = contract_old.get("body") or {}
+    body_new = contract_new.get("body") or {}
+    for key in sorted(set(body_old) | set(body_new)):
+        if key != "acceptance_criteria" and body_old.get(key) != body_new.get(key):
+            lines.append(_what(f"parent contract {key.replace('_', ' ')}", body_old.get(key), body_new.get(key)))
     req_old, req_new = requirements(old), requirements(new)
     for cid in sorted(set(req_old) | set(req_new)):
         if req_old.get(cid) != req_new.get(cid):
             lines.append(f"requirement {cid} " + ("added" if cid not in req_old else "removed" if cid not in req_new
                                                   else "changed"))
+    if _reordered(list(req_old), list(req_new)):
+        lines.append("order of requirements")
     j_old = {row["id"]: row for row in journeys(old)}
     j_new = {row["id"]: row for row in journeys(new)}
     for jid in sorted(set(j_old) | set(j_new)):
         if j_old.get(jid) != j_new.get(jid):
             lines.append(f"journey {jid} " + ("added" if jid not in j_old else "removed" if jid not in j_new
                                               else "changed"))
+    if _reordered(list(j_old), list(j_new)):
+        lines.append("order of journeys")
     i_old = {row["id"]: row for row in interfaces(old)}
     for row in interfaces(new):
         previous = i_old.get(row["id"])
         if previous is None:
             lines.append(f"interface {row['id']} added (v{row['version']})")
         elif previous != row:
-            lines.append(f"interface {row['id']} v{previous['version']} -> v{row['version']}")
+            lines.append(f"interface {row['id']} v{previous['version']} -> v{row['version']}"
+                         + (" (order or spelled-out defaults only)" if _definition(previous) == _definition(row)
+                            else ""))
     for iid in sorted(set(i_old) - {row["id"] for row in interfaces(new)}):
         lines.append(f"interface {iid} removed")
+    if _reordered(list(i_old), [row["id"] for row in interfaces(new)]):
+        lines.append("order of interfaces")
     rows_old = rows_by_id(old)
     for row in new["workstreams"]:
         before = rows_old.get(row["id"], {})
-        for key in ("brief", "acceptance_criteria", "checks", "engine"):
+        for key in ("brief", "acceptance_criteria", "checks", "engine", *TOPOLOGY_KEYS):
             if before.get(key) != row.get(key):
-                lines.append(f"workstream {row['id']} {key.replace('_', ' ')}")
+                lines.append(_what(f"workstream {row['id']} {key.replace('_', ' ')}", before.get(key), row.get(key)))
+    if _reordered(list(rows_old), [row["id"] for row in new["workstreams"]]):
+        lines.append("order of workstreams")
     if old.get("checks") != new.get("checks"):
-        lines.append("program checks")
+        lines.append(_what("program checks", old.get("checks"), new.get("checks")))
+    if old.get("derivation_notes") != new.get("derivation_notes"):
+        lines.append("derivation notes")
+    if not lines and digest(old) != digest(new):
+        keys = sorted(key for key in set(old) | set(new) if key != "source_run" and old.get(key) != new.get(key))
+        lines.append("the manifest changed in a way no workstream is built from: " + ", ".join(keys))
     return lines
+
+
+def _reordered(before, after):
+    """Whether the ids both lists keep appear in a different order."""
+    return [item for item in before if item in after] != [item for item in after if item in before]
+
+
+def _what(label, before, after):
+    """``label``, followed by "order" when a list kept its items and only their order changed."""
+    if isinstance(before, list) and isinstance(after, list) and sorted(map(_text, before)) == sorted(map(_text, after)):
+        return label + " order"
+    return label
+
+
+def _text(value):
+    return json.dumps(value, sort_keys=True)
 
 
 def quiet_interface_changes(manifest, wid, paths, published):
@@ -418,13 +489,17 @@ def render(manifest, *, revision, value, previous=None):
         if inherited(manifest, row["id"]):
             lines.append("  inherits: " + ", ".join(inherited(manifest, row["id"])))
         lines.append("  " + row["brief"].strip().splitlines()[0])
+        if row.get("checks"):
+            lines.append("  checks, re-run on the integration branch after every merge:")
+            lines += [f"  - {command}" for command in row["checks"]]
     lines.append("")
     if interfaces(manifest):
         lines.append("Interfaces (changed only by an approved change request and a new version):")
         for row in interfaces(manifest):
             who = (f"; produced by {row['producer']}" if row.get("producer") else "") + (
                 f", used by {', '.join(row['consumers'])}" if row.get("consumers") else "")
-            lines.append(f"- {row['id']} v{row['version']}: {row['summary']}{who}")
+            lines.append(f"- {row['id']} v{row['version']}: {row['summary']}{who} "
+                         f"[{', '.join(row.get('paths', [])) or 'no paths'}]")
             for key in ("schema", "behavior"):
                 if row.get(key) is not None:
                     text = row[key] if isinstance(row[key], str) else json.dumps(row[key], sort_keys=True)

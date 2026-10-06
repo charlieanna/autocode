@@ -50,14 +50,14 @@ one repository; the first real project is still open.
 | Deferred in #204 | Now |
 | --- | --- |
 | Versioned producer/consumer interface contracts shared across independent workstreams | **Delivered** as manifest entries (`shared.interfaces[]` with `version`, `producer`, `consumers`, `schema`, `behavior`), not as separate artifact files. The person approves every interface and every change to it, by approving the agreement; no model does |
-| Change-request invalidation of sibling workstream approvals | **Delivered.** `program request-change` holds the producer and consumers; accepting it is an approved revision that publishes the next version, after which they are re-checked; `program resolve-change --reject` rejects it |
+| Change-request invalidation of sibling workstream approvals | **Delivered.** `program request-change` holds every workstream bound to the interface (its producer and consumers, every workstream when it has no producer, and the final check) and keeps the program from completing; accepting it is an approved revision that publishes the next version, after which those that had started are re-checked; `program resolve-change --reject` rejects it; a revision that removes the interface withdraws it |
 
 At program level the program agreement also requires exactly one walking-skeleton
 workstream, merged and verified before any other starts (a `skeleton_exempt` reason
 lets a part that connects to nothing at run time go ahead, the issue's second
-question); re-runs the cumulative checks after every merge and undoes a failing merge;
-and completes only when the final check verifies every named journey, listing what a
-simulated journey does not prove.
+question); re-runs the cumulative checks after every merge and undoes its own failing
+merge; and completes only when the final check verifies every named journey, listing
+what a simulated journey does not prove.
 
 ### Corrections to the single-run claims
 
@@ -95,15 +95,15 @@ live run.
 | Done when | Proof |
 | --- | --- |
 | A sample project with two workstreams runs, each workstream a normal job linked to the parent agreement | `tests/test_program_agreement_runs.py` `test_each_workstream_is_a_normal_run_pinned_to_the_agreement_it_was_built_from`; `program-notes-cli` (`FakeRunTests.test_a_program_verifies_its_skeleton_first_and_rechecks_an_interface_change`: three workstreams and the final check, each a build run, merged under the approved agreement; oracle `every_workstream_a_merged_reviewed_run`); `tests/test_program.py` `CliFixtureTest` (the first wave as real CLI runs) |
-| A workstream plan that drops an inherited requirement is rejected | `tests/test_program_agreement_runs.py` `test_a_draft_that_drops_an_inherited_requirement_is_sent_back_before_anyone_approves_it`, `test_an_approved_plan_that_drops_an_inherited_requirement_never_merges`, `test_a_child_that_refuses_the_programs_feedback_pauses_for_a_person`, `test_repeated_dropping_plans_pause_for_a_person`; `tests/test_program_agreement.py` `InheritanceTest`. Scripted children only: the scenario's planner keeps every inherited id |
-| Changing the parent agreement means the affected workstreams need approval again | `tests/test_program_agreement_runs.py` `test_a_revision_takes_approval_only_from_the_workstreams_it_affects`, `test_a_workstream_waiting_for_approval_loses_it_when_its_part_of_the_agreement_changes`; `tests/test_program.py` `test_nothing_starts_until_the_agreement_is_approved`; `tests/test_program_agreement.py` `ScopeTest`, `RevisionTest`; `program-notes-cli` (the accepted change request's revision retires exactly the producer and both consumers; oracle `change_rechecked_producer_and_consumers[store]`) |
+| A workstream plan that drops an inherited requirement is rejected | `tests/test_program_agreement_runs.py` `test_a_draft_that_drops_an_inherited_requirement_is_sent_back_before_anyone_approves_it`, `test_an_approved_plan_that_drops_an_inherited_requirement_never_merges`, `test_a_child_that_completes_without_showing_a_conforming_plan_never_merges`, `test_a_child_that_refuses_the_programs_feedback_pauses_for_a_person`, `test_repeated_dropping_plans_pause_for_a_person`, `test_after_a_person_acts_on_a_paused_plan_the_child_re_plans_and_merges_only_a_conforming_plan`; `tests/test_program_agreement.py` `InheritanceTest`. Scripted children only: the scenario's planner keeps every inherited id |
+| Changing the parent agreement means the affected workstreams need approval again | `tests/test_program_agreement_runs.py` `test_a_revision_takes_approval_only_from_the_workstreams_it_affects`, `test_a_workstream_waiting_for_approval_loses_it_when_its_part_of_the_agreement_changes`; `tests/test_program.py` `test_nothing_starts_until_the_agreement_is_approved`; `tests/test_program_agreement.py` `ScopeTest`, `RevisionTest`; `program-notes-cli` (the accepted change request's revision re-checks exactly the producer and both consumers under the new revision, retiring those that had started; oracle `change_rechecked_producer_and_consumers[store]`) |
 | A normal single job creates no project-level files | `tests/test_taskrun.py` `TaskRunTests.test_start_approve_and_complete` (`assert_no_project_level_files`: a completed job through the task-run interface leaves only its run and the runner's housekeeping, no `.autocode/programs`, `.autocode/task-flows`, `.autocode-components` or `<run>/progressive`, no extra worktree and no program branch) |
 
 ### #23
 
 | Done when | Proof |
 | --- | --- |
-| When one part requests a change to an agreement, the parts that use it lose their approval and can't be done until re-checked | `tests/test_program_agreement_runs.py` `test_an_interface_change_request_takes_approval_from_its_producer_and_users`, `test_a_delivered_interface_is_never_changed_in_place`; `tests/test_program_agreement.py` `RevisionTest.test_interface_definitions_change_only_with_a_new_version`, `QuietInterfaceChangeTest`; `program-notes-cli` (oracle `change_request_accepted[store]`, `change_rechecked_producer_and_consumers[store]`) |
+| When one part requests a change to an agreement, the parts that use it lose their approval and can't be done until re-checked | `tests/test_program_agreement_runs.py` `test_an_interface_change_request_takes_approval_from_its_producer_and_users`, `test_an_open_change_request_holds_the_final_check_and_outranks_completion`, `test_a_request_on_an_interface_without_a_producer_holds_every_workstream_until_withdrawn`, `test_a_delivered_interface_is_never_changed_in_place`; `tests/test_program_agreement.py` `RevisionTest.test_interface_definitions_change_only_with_a_new_version`, `QuietInterfaceChangeTest`; `program-notes-cli` (oracle `change_request_accepted[store]`, `change_rechecked_producer_and_consumers[store]`) |
 | No feature part can be done before the thin working version is verified | `tests/test_program_agreement_runs.py` `test_the_walking_skeleton_is_verified_before_any_other_workstream_starts`, `test_every_merge_reruns_the_cumulative_checks_and_a_failing_merge_is_undone`; `tests/test_program_agreement.py` `ValidateTest.test_exactly_one_code_skeleton_without_dependencies`, `test_code_workstreams_extend_the_skeleton_unless_exempt`; `program-notes-cli` (oracle `skeleton_verified_first`, `nothing_started_before_the_skeleton`, `cumulative_checks_rerun`; `FakeRunTests.test_a_workstream_that_breaks_the_skeleton_journey_is_undone_by_the_cumulative_checks`) |
 | The final product check refers to the user journeys in the project agreement by name | `tests/test_program_agreement_runs.py` `test_the_final_check_follows_named_journeys_and_says_what_simulations_do_not_prove`, `test_a_journey_the_final_check_did_not_verify_keeps_the_program_open`; `tests/test_program_agreement.py` `ValidateTest.test_journeys_are_required_and_well_formed`; `program-notes-cli` (oracle `journey_verified_by_name[J1]`). `FakeRunTests.test_a_defect_only_the_hidden_journey_catches_is_a_false_completion` shows the limit: the program's own checks can pass a defect that only the hidden journey test catches |
 
@@ -112,6 +112,11 @@ conform stalls when its run plans an implementation task
 ([docs/bugs/2026-10-06-program-recheck-implement-stall.md](../bugs/2026-10-06-program-recheck-implement-stall.md)).
 The scenario's scripted planner plans validation there, so the scenario does not show
 it.
+
+Known open bug on retirement: retiring the final check's run leaves its edits in the
+shared integration worktree, and the program pauses at `PAUSED_INTEGRATION_DIRTY` until
+a person commits or discards them
+([docs/bugs/2026-10-06-program-integration-retired-leftovers.md](../bugs/2026-10-06-program-integration-retired-leftovers.md)).
 
 ## History: the #204 scope texts (2026-10-01)
 

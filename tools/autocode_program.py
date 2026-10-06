@@ -135,17 +135,26 @@ def validate_manifest(value):
     for key in ("name", "brief"):
         if not isinstance(value.get(key), str) or not value[key].strip():
             raise ValueError(f"Program manifest needs a nonempty {key}")
+    contract = value.get("contract", {})
+    if not isinstance(contract, dict) or not isinstance(contract.get("body", {}), dict):
+        raise ValueError("contract must be an object, and its body an object")
     shared = value.get("shared", {})
     if not isinstance(shared, dict):
         raise ValueError("shared must be an object")
     for key in SHARED_LISTS:
         if key in shared:
             _string_list(shared[key], f"shared.{key}")
+    if not isinstance(shared.get("interfaces", []), list):
+        raise ValueError("shared.interfaces must be a list")
     for row in shared.get("interfaces", []):
         if (not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"].strip()
                 or not isinstance(row.get("summary"), str)):
             raise ValueError("shared.interfaces entries need id and summary")
-        row["paths"] = [_owned_path(path, f"interface {row['id']}") for path in row.get("paths", [])]
+        where = f"interface {row['id']}"
+        if row.get("producer") is not None and not isinstance(row["producer"], str):
+            raise ValueError(f"{where}: producer must be a workstream id")
+        _string_list(row.get("consumers", []), f"{where}.consumers")
+        row["paths"] = [_owned_path(path, where) for path in _string_list(row.get("paths", []), f"{where}.paths")]
     rows = value.get("workstreams")
     if not isinstance(rows, list) or not rows:
         raise ValueError("Program manifest needs at least one workstream")
@@ -361,6 +370,13 @@ def sync_agreement(state, manifest):
         return
     if approved is not None:
         problems = agreement.revision_problems(approved, manifest)
+        # A version may never go down, even for an interface removed since its producer delivered it.
+        kept = {row["id"] for row in agreement.interfaces(approved)}
+        for row in agreement.interfaces(manifest):
+            delivered = state["interfaces"].get(row["id"])
+            if row["id"] not in kept and delivered and row["version"] <= delivered["version"]:
+                problems.append(f"interface {row['id']} was delivered as version {delivered['version']} and removed "
+                                f"since; it may come back only as version {delivered['version'] + 1} or later")
         if problems:
             raise ValueError("The manifest is not a revision of the approved program agreement: " + "; ".join(problems)
                              + ". Restore it, or use a new program name to start over")
@@ -376,7 +392,8 @@ def sync_agreement(state, manifest):
 
 
 def approve_agreement(state, manifest, selected):
-    """Approve the pending revision by its exact token; open change requests on re-versioned interfaces close."""
+    """Approve the pending revision by its exact token; open change requests on re-versioned interfaces are
+    accepted, and those on interfaces the revision removes are withdrawn."""
     sync_agreement(state, manifest)
     record = state["agreement"]
     pending = record["pending"]
@@ -396,6 +413,10 @@ def approve_agreement(state, manifest, selected):
             if request["interface"] == iid and request["status"] == "open":
                 request.update(status="accepted", accepted_in_revision=pending["revision"], version=new,
                                resolved_at=util.now())
+    present = {row["id"] for row in agreement.interfaces(manifest)}
+    for request in open_requests(state):
+        if request["interface"] not in present:
+            request.update(status="withdrawn", withdrawn_in_revision=pending["revision"], resolved_at=util.now())
     note(state, "agreement_approved", revision=pending["revision"], affected=pending["affected"])
 
 
@@ -428,6 +449,17 @@ def integration_head(state):
 
 
 # --- briefs -----------------------------------------------------------------
+
+def _journey_lines(manifest):
+    """Each user journey with its steps, and what a simulated one does not prove."""
+    lines = []
+    for row in agreement.journeys(manifest):
+        lines.append(f"- {row['id']} {row['name']}: " + " -> ".join(row["steps"]))
+        if row.get("simulated"):
+            lines.append(f"  This journey is simulated. Say in its evidence that it does not prove: "
+                         f"{row['does_not_prove']}")
+    return lines
+
 
 def compose_brief(manifest, workstream, state):
     shared = manifest.get("shared", {})
@@ -469,16 +501,16 @@ def compose_brief(manifest, workstream, state):
                   "or work around it: stop and describe the change you need in a question to the user, who raises "
                   "it with `autocode program request-change`.", ""]
     if merged:
-        lines.append("Prerequisite workstreams already merged on this branch (use their results; do not redo them):")
+        lines.append("Workstreams already merged on the integration branch (use their results; do not redo them):")
         lines += [f"- {wid}: {others[wid]['brief'].splitlines()[0]}" for wid in merged]
         lines.append("")
     if workstream.get("skeleton"):
-        names = ", ".join(f"{row['id']} {row['name']}" for row in agreement.journeys(manifest))
         lines += ["This workstream is the walking skeleton: the thinnest version that works from start to finish "
-                  f"across every layer, walking the user journey(s) {names}. It is merged and verified on the "
+                  "across every layer, walking the user journey(s) below. It is merged and verified on the "
                   "integration branch before any other workstream starts, and every other workstream extends it. "
                   "Leave runnable checks (tests) that prove the journey end to end: they are re-run after every "
-                  "later merge.", ""]
+                  "later merge."]
+        lines += _journey_lines(manifest) + [""]
     elif agreement.needs_skeleton(manifest, workstream["id"]):
         base = agreement.skeleton(manifest)
         lines += [f"The walking skeleton ({base}) is merged and verified on this branch: extend it; do not rebuild "
@@ -493,12 +525,7 @@ def compose_brief(manifest, workstream, state):
         lines.append("")
     if workstream["kind"] == "integration":
         lines.append("User journeys (the final product check; verify each one end to end on the merged product):")
-        for row in agreement.journeys(manifest):
-            lines.append(f"- {row['id']} {row['name']}: " + " -> ".join(row["steps"]))
-            if row.get("simulated"):
-                lines.append(f"  This journey is simulated. Say in its evidence that it does not prove: "
-                             f"{row['does_not_prove']}")
-        lines.append("")
+        lines += _journey_lines(manifest) + [""]
     inherited = agreement.inherited(manifest, workstream["id"])
     if inherited:
         lines += ["Inherited requirements: keep each as an acceptance criterion of your plan with exactly this id "
@@ -619,8 +646,15 @@ def inspect(manifest, state, wid, record, view):
                     return
                 record["status"] = "WAITING"  # the child re-plans when the program next advances it
                 return
+        else:
+            record["plan_check"].pop("replanning", None)  # the child shows the rejected plan again
         if approved and not missing:
             record["approved_plan"] = {"token": approved["token"], **(record.get("pin") or {})}
+    elif (record.get("plan_check") or {}).get("dropped") and view.get("status") == "RUNNING":
+        # The child no longer shows the rejected plan: a person acted on it (feedback), and the child
+        # re-plans when advanced. That plan is checked again; nothing merges before one keeps every
+        # inherited id.
+        record["plan_check"]["replanning"] = True
     if view.get("status") in children.TERMINAL_CODE:
         replay = (view.get("evidence") or {}).get("check_replay") or {}
         commands = [row["command"] for row in replay.get("checks") or []
@@ -633,10 +667,15 @@ def inspect(manifest, state, wid, record, view):
                                   for row in agreement.journeys(manifest)]
 
 
-def plan_blocked(record):
-    """Why a workstream's current child plan may not be resumed or merged, or None."""
+def plan_blocked(record, *, merging=False):
+    """Why a workstream's current child plan may not be resumed (or, with ``merging``, merged), or None.
+
+    A child whose rejected plan a person has acted on may be resumed to re-plan; it never
+    merges while the last plan seen drops an inherited requirement.
+    """
     check = record.get("plan_check") or {}
-    if check.get("dropped") and (check.get("approved") or check.get("exhausted")):
+    resumable = not (check.get("approved") or check.get("exhausted")) or check.get("replanning")
+    if check.get("dropped") and (merging or not resumable):
         return f"its plan drops inherited requirement(s) {', '.join(check['dropped'])}"
     return None
 
@@ -661,10 +700,12 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
         workspace = Path(data["workspace"])
     else:
         workspace = Path(record["workspace"])
-    brief = compose_brief(manifest, workstream, state)
     artifact = program_dir / workstream["id"]
     artifact.mkdir(parents=True, exist_ok=True)
-    (artifact / "brief.md").write_text(brief + "\n")
+    if not record.get("run_dir"):
+        # brief.md is the brief that started the workstream's current run; resuming it leaves that alone.
+        brief = compose_brief(manifest, workstream, state)
+        (artifact / "brief.md").write_text(brief + "\n")
     with STATE_LOCK:
         if not record.get("run_dir"):
             # The part of the agreement this run is built from; a revision that changes it retires the run.
@@ -774,15 +815,23 @@ def _failed(result):
     return f"`{row['command']}` {what}" + (f"; its output ended: {row['tail'].strip()[-300:]}" if row["tail"].strip() else "")
 
 
-def land(manifest, state, workstream, record, program_dir, options, *, before, branch_head):
-    """Verify the integrated result after a merge; undo the merge and pause when it fails."""
+def land(manifest, state, workstream, record, program_dir, options, *, before, branch_head, manual=False):
+    """Verify the integrated result after a merge; undo the program's merge and pause when it fails.
+
+    ``before`` is the integration head before the program merged the workstream (None when it made
+    no merge); a merge a person made (``manual``) is never undone here.
+    """
     wid = workstream["id"]
     result = verify_integration(manifest, state, program_dir, wid, options.get("check_timeout", CHECK_TIMEOUT))
     is_skeleton = workstream.get("skeleton")
     if result["verdict"] == "FAIL" or (is_skeleton and result["verdict"] == "NO_CHECKS"):
         integration = state["integration"]["workspace"]
-        if workstream["kind"] != "integration" and before is not None:
+        undone = workstream["kind"] != "integration" and before is not None and before != integration_head(state)
+        if undone:
             workspaces.git(integration, "reset", "-q", "--hard", before)
+        record.pop("merge_from", None)
+        branch = state["integration"]["branch"]
+        kept = f"Your merge is still on the integration branch {branch}: undo or repair it there. " if manual else ""
         status = "PAUSED_SKELETON_UNVERIFIED" if result["verdict"] == "NO_CHECKS" else "PAUSED_INTEGRATION_CHECK"
         record.update(status="COMPLETE" if record["status"] != "CONFLICT" else "CONFLICT",
                       integration_check={"verdict": result["verdict"], "branch_head": branch_head,
@@ -792,18 +841,19 @@ def land(manifest, state, workstream, record, program_dir, options, *, before, b
         note(state, "integration_check_failed", workstream=wid, verdict=result["verdict"])
         if status == "PAUSED_SKELETON_UNVERIFIED":
             message = (f"The walking skeleton {wid} has no runnable check to verify it on the integration branch, "
-                       "so it was not merged and nothing else starts. Add program checks (top-level checks) that "
+                       + ("so its merge was undone" if undone else "so it is not accepted as merged")
+                       + " and nothing else starts. " + kept + "Add program checks (top-level checks) that "
                        "walk the journey, approve that agreement revision, then rerun")
         else:
             message = (f"After merging workstream {wid}, the integrated product fails its cumulative checks: "
-                       + _failed(result) + ". "
-                       + ("The merge was undone. " if workstream["kind"] != "integration" else "")
+                       + _failed(result) + ". " + ("The merge was undone. " if undone else kept)
                        + f"Fix the workstream (for example autocode --workspace {record.get('workspace')} --run-dir "
                        f"{record.get('run_dir')} --follow-up \"The integrated product fails: ...\"), then rerun. "
                        f"Receipts: {result['receipts']}")
         record["integration_check"]["message"] = message
         raise util.Paused(status, message)
     record.pop("integration_check", None)
+    record.pop("merge_from", None)
     record.update(verification={key: result[key] for key in ("verdict", "head", "at", "receipts")},
                   verified_checks=len(result["checks"]), merged_under=record.get("pin"))
     record.pop("stale_reason", None)
@@ -869,11 +919,16 @@ def integrate(manifest, state, workstream, record, program_dir, options):
                       merge_note="no source changes")
         note(state, "workstream_merged", workstream=workstream["id"], commit=record["merged_commit"], changes=False)
         return
+    # Saved before merging: a controller interrupted before the verdict leaves a merge nobody verified,
+    # which the next pass takes back (undo_unverified_merges).
+    record["merge_from"] = {"integration_head": before, "branch_head": branch_head}
+    _save(program_dir / "state.json", state)
     result = subprocess.run(["git", "-C", str(integration), *GIT_IDENTITY, "merge", "--no-ff", "--no-edit",
                              "-m", f"Merge workstream {workstream['id']} into program {state['name']}", record["branch"]],
                             capture_output=True, text=True)
     if result.returncode:
         subprocess.run(["git", "-C", str(integration), "merge", "--abort"], capture_output=True, text=True)
+        record.pop("merge_from", None)
         record.update(status="CONFLICT", conflict=(result.stdout + result.stderr).strip()[-2000:])
         note(state, "merge_conflict", workstream=workstream["id"], branch=record["branch"])
         raise util.Paused(
@@ -883,6 +938,29 @@ def integrate(manifest, state, workstream, record, program_dir, options):
     land(manifest, state, workstream, record, program_dir, options, before=before, branch_head=branch_head)
     record.update(status="MERGED", merged_commit=integration_head(state), merged_at=util.now())
     note(state, "workstream_merged", workstream=workstream["id"], commit=record["merged_commit"])
+
+
+def undo_unverified_merges(state):
+    """Take back a merge an interrupted pass made but never verified (``merge_from``, saved before merging).
+
+    Only a merge still at the integration head is reset; the workstream merges again, and is verified,
+    when it is next integrated. Without such a merge (it never happened, or was undone) the record is cleared.
+    """
+    integration = state["integration"]["workspace"]
+    for wid, record in state["workstreams"].items():
+        pending = record.get("merge_from")
+        if not pending:
+            continue
+        if workspaces.git(integration, "rev-parse", "HEAD^@").split() == [pending["integration_head"],
+                                                                           pending["branch_head"]]:
+            if workspaces.git(integration, "status", "--porcelain", "--untracked-files=no"):
+                raise util.Paused("PAUSED_INTEGRATION_DIRTY", (
+                    f"An interrupted pass merged workstream {wid} without verifying it, and the integration "
+                    f"worktree {integration} has uncommitted changes: commit or discard (git restore) them, then "
+                    "rerun to undo that merge and verify it again"))
+            workspaces.git(integration, "reset", "-q", "--hard", pending["integration_head"])
+            note(state, "unverified_merge_undone", workstream=wid, reset_to=pending["integration_head"])
+        record.pop("merge_from")
 
 
 def adopt_manual_merge(manifest, state, workstream, record, program_dir, options):
@@ -899,7 +977,8 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
     if result.returncode == 0:
         branch_head = workspaces.git(record["workspace"], "rev-parse", "--verify", "HEAD")
         _repeat_failure(manifest, state, workstream["id"], record, branch_head)
-        land(manifest, state, workstream, record, program_dir, options, before=None, branch_head=branch_head)
+        land(manifest, state, workstream, record, program_dir, options, before=None, branch_head=branch_head,
+             manual=True)
         record.update(status="MERGED", merged_commit=integration_head(state), merged_at=util.now(),
                       merge_note="conflict resolved manually")
         record.pop("conflict", None)
@@ -915,10 +994,13 @@ def open_requests(state):
 
 
 def held_by_request(manifest, state, wid):
-    """An open change request on an interface this workstream produces or consumes holds its start and merge."""
+    """An open change request holds the start and merge of every workstream the agreement binds to its
+    interface: its producer and consumers, every workstream when it has no producer, and always the final
+    check (the integration workstream)."""
+    kind = state["workstreams"][wid]["kind"]
     for request in open_requests(state):
-        row = next((item for item in agreement.interfaces(manifest) if item["id"] == request["interface"]), {})
-        if row.get("producer") == wid or wid in row.get("consumers", []):
+        row = next((item for item in agreement.interfaces(manifest) if item["id"] == request["interface"]), None)
+        if row is not None and agreement._involved(row, wid, kind):
             return f"change request {request['id']} is open on interface {request['interface']}"
     return None
 
@@ -957,8 +1039,8 @@ def resumable(record):
     return record["status"] in ("RUNNING", "WAITING", "PAUSED") and record.get("run_status") == "RUNNING"
 
 
-def held(manifest, state, wid):
-    """Why a workstream may not start, resume or merge now, or None."""
+def held(manifest, state, wid, *, merging=False):
+    """Why a workstream may not start or resume (or, with ``merging``, merge) now, or None."""
     record = state["workstreams"][wid]
     kind = record["kind"]
     if agreement.needs_skeleton(manifest, wid) and not state.get("skeleton"):
@@ -968,7 +1050,7 @@ def held(manifest, state, wid):
                   and state["workstreams"][row["id"]]["status"] != "MERGED"]
         if behind:
             return "the final check waits until every workstream is merged: " + ", ".join(behind)
-    return plan_blocked(record) or held_by_request(manifest, state, wid)
+    return plan_blocked(record, merging=merging) or held_by_request(manifest, state, wid)
 
 
 def ready(manifest, state, *, authorize_deployment):
@@ -1047,12 +1129,12 @@ def summarize(manifest, state, state_path):
     pending_deploy_only = all(
         row["status"] == "MERGED" or (row["kind"] == "deployment" and
             (row["status"] in ("PENDING", "STALE") or row.get("blocked_reason"))) for row in rows)
-    exhausted = any((row.get("plan_check") or {}).get("exhausted") and row.get("plan_check", {}).get("dropped")
-                    for row in rows)
+    exhausted = any(check.get("exhausted") and check.get("dropped") and not check.get("replanning")
+                    for check in (row.get("plan_check") or {} for row in rows))
     pending = state["agreement"]["pending"]
     if pending:
         status = "WAITING_AGREEMENT_APPROVAL"
-    elif all(value == "MERGED" for value in statuses):
+    elif all(value == "MERGED" for value in statuses) and not open_requests(state):
         status = "COMPLETE" if all(row["status"] == "verified" for row in journeys) else "PAUSED_JOURNEY_UNVERIFIED"
     elif any(value == "CONFLICT" for value in statuses):
         status = "PAUSED_MERGE_CONFLICT"
@@ -1123,6 +1205,7 @@ def execute(options, source, manifest, project, program_dir, state_path):
     save()
     launched: set[str] = set()  # each workstream is invoked at most once per pass
     try:
+        undo_unverified_merges(state)
         while True:
             views = {}
             for wid, record in state["workstreams"].items():
@@ -1143,7 +1226,7 @@ def execute(options, source, manifest, project, program_dir, state_path):
             for wid, record in state["workstreams"].items():
                 if record["status"] != "COMPLETE":
                     continue
-                reason = held(manifest, state, wid)
+                reason = held(manifest, state, wid, merging=True)
                 if reason:
                     record["blocked_reason"] = reason
                     continue
@@ -1159,7 +1242,10 @@ def execute(options, source, manifest, project, program_dir, state_path):
             for workstream, record in batch:
                 if (workstream["kind"] == "integration" and record["status"] in ("PENDING", "STALE")
                         and workspaces.git(state["integration"]["workspace"], "status", "--porcelain", "--untracked-files=no")):
-                    raise util.Paused("PAUSED_INTEGRATION_DIRTY", "Commit existing integration changes before starting its run")
+                    raise util.Paused("PAUSED_INTEGRATION_DIRTY", (
+                        "The final check starts on the integration worktree, which has uncommitted changes: commit "
+                        f"or discard (git restore) the uncommitted changes in {state['integration']['workspace']}; "
+                        "they may be a retired integration run's. Then rerun"))
             launched.update(workstream["id"] for workstream, _ in batch)
             with ThreadPoolExecutor(max_workers=options["max_parallel"]) as pool:
                 futures = {pool.submit(launch, project, program_dir, manifest, workstream, record, state, options): workstream
@@ -1347,7 +1433,8 @@ def cli_request_change(argv):
         request = request_change(approved_manifest(state), state, interface=args.interface, by=args.by,
                                  reason=args.reason, proposal=args.proposal)
         return {"change_request": request,
-                "next": "Workstreams that produce or use this interface do not start or merge while it is open. "
+                "next": "While it is open, the workstreams bound to this interface (its producer and consumers; every "
+                        "workstream when it has no producer) and the final check do not start, resume or merge. "
                         f"To accept it, publish interface {args.interface} as version {request['from_version'] + 1} "
                         "in the manifest and approve that agreement revision (the producer and every consumer then "
                         "plan, are approved and are checked again); to reject it, run `autocode program "

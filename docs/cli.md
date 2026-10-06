@@ -181,7 +181,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `program run MANIFEST --engine codex\|opencode` | Engine for the workstream runs it starts; a workstream's own `engine` wins. |
 | `program run MANIFEST --dry-run` | Validate and preview without creating branches or worktrees. |
 | `program status MANIFEST --workspace DIR` | The same summary as `run`, read from the saved state and each unfinished child's status view, without launching or saving anything. |
-| `program request-change MANIFEST --workspace DIR --interface ID --by WORKSTREAM --reason TEXT [--proposal TEXT]` | Open a change request (`CR-N`) on a shared interface; its producer and consumers neither start nor merge while it is open. |
+| `program request-change MANIFEST --workspace DIR --interface ID --by WORKSTREAM --reason TEXT [--proposal TEXT]` | Open a change request (`CR-N`) on a shared interface; its producer, its consumers and the final check (for an interface with no producer, every workstream) neither start, resume nor merge while it is open, and the program is not `COMPLETE` while any request is open. |
 | `program resolve-change MANIFEST --workspace DIR --request CR-N --reject --reason TEXT` | Reject an open change request. Accepting one is an approved agreement revision that publishes the interface's next version. |
 
 Every program command except `derive` takes `--workspace` (default: the current

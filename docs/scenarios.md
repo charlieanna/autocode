@@ -83,7 +83,11 @@ Exit codes and verdicts follow [testing](testing.md#live-trial-results):
 In program mode the first gate is the program agreement (`WAITING_AGREEMENT_APPROVAL`,
 see [programs](program.md)). As with plans, only the offline fixture profile approves
 it; a live profile stops there, an `HONEST_BLOCKER`, until a person reads it with
-`autocode program show` and approves its exact token.
+`autocode program show` and approves its exact token. The driver also stops at any other
+program-level pause (`PAUSED_INTEGRATION_CHECK`, `PAUSED_INHERITANCE`, ...), which the
+controller raises again before it advances any workstream, except
+`PAUSED_MERGE_CONFLICT`: a conflict holds only its own workstream, so the driver keeps
+serving the other workstreams' gates.
 
 The scenario harness has a program mode of its own, separate from `live_trial.py`: a
 catalog scenario with `category = "program"` is driven through `autocode program plan`,

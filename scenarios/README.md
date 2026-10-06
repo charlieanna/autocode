@@ -468,7 +468,9 @@ person may answer, never authorizes deployment and never retries a failed
 workstream: the program is judged where it stopped. Under a live profile it
 still approves the agreement and every workstream's plan, as the single-run
 driver approves the plans it is shown; `tools/live_trial.py`, by contrast,
-stops a live program for a person at the agreement and at every plan.
+stops a live program for a person at the agreement and at every plan, and stops
+any program at its first program-level `PAUSED_*` status, without rerunning it
+or serving a child's gate.
 
 **Workstream ids.** `[program] revise` and `[[program.change]]` name
 workstreams by their `[fake] milestones` ids, which the scripted planner keeps.
@@ -508,15 +510,18 @@ run record: the program holding, approved and with nothing pending, the
 agreement revision whose token the person was last shown, every workstream a
 merged run with its own approved plan, the walking skeleton verified first and
 nothing else started before that, every merge re-running the checks of all
-merged before it, each journey verified by name by the integration
-workstream, and each scripted change request accepted or rejected (for an
-acceptance: exactly the producer and consumers retired and re-checked under the
-new revision). The run record holds the program's final summary (`program
-status`), its verifications, every workstream run (retired ones too) with its
-stages, the plan run in a single run's shape (`plan`), the agreement tokens,
-interfaces and changes, the scenario's workstream ids mapped to the derived
-ones, and every model stage of the plan and workstream runs, which `[run]
-requires_stages` counts.
+merged before it (a workstream with a run retired since the last passing
+verification, by an accepted change say, takes its checks out of that set until
+it merges again), each journey verified by name by the integration workstream,
+and each scripted change request accepted or rejected. For an acceptance, the
+producer and every consumer are merged under the latest agreement revision;
+each of them whose first run started before the change was accepted has a run
+retired since then, and no other workstream has a run retired after it. The run
+record holds the program's final summary (`program status`), its verifications,
+every workstream run (retired ones too) with its stages, the plan run in a
+single run's shape (`plan`), the agreement tokens, interfaces and changes, the
+scenario's workstream ids mapped to the derived ones, and every model stage of
+the plan and workstream runs, which `[run] requires_stages` counts.
 
 **Verdicts.** `COMPLETE` is judged like a completed run (`PASS` or
 `FALSE_COMPLETE`); `PAUSED_*` stops (an integration check, the skeleton

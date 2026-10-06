@@ -569,6 +569,55 @@ class ProgramModeTest(unittest.TestCase):
         self.assertEqual("paused", live_trial.classify_program_status("PAUSED_MERGE_CONFLICT"))
         self.assertEqual("complete", live_trial.classify_program_status("COMPLETE"))
 
+    def test_a_program_level_pause_is_neither_rerun_nor_served(self):
+        # The controller pauses before it advances any child, so a child that would otherwise wait only for
+        # the next pass (or show a gate) moves nothing: the driver stops at the pause for a person.
+        for child_status in ("RUNNING", "AWAITING_GOAL_APPROVAL"):
+            with self.subTest(child_status=child_status):
+                self.calls.clear()
+                (self.child_run / "state.json").write_text(json.dumps(
+                    {"status": child_status, "displayed_goal": "r1:abc"}))
+
+                def paused(cmd, env, cwd, timeout):
+                    self.calls.append(cmd)
+                    summary = {"status": "PAUSED_INTEGRATION_CHECK", "state_file": str(self.root / "s.json"),
+                               "integration_workspace": str(self.integration),
+                               "workstreams": [{"id": "search", "status": "WAITING", "run_status": "RUNNING",
+                                                "run_dir": str(self.child_run), "workspace": str(self.root / "wt")}]}
+                    return subprocess.CompletedProcess(cmd, 2, json.dumps(summary), "")
+
+                with mock.patch.object(live_trial, "invoke", side_effect=paused):
+                    run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
+                                                   {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+                self.assertEqual(["program run"], self.kinds())
+                self.assertEqual("PAUSED_INTEGRATION_CHECK", run["state"]["status"])
+
+    def test_a_merge_conflict_still_lets_the_other_workstreams_gates_be_served(self):
+        # A conflict holds only its own workstream; the controller goes on merging and starting the others.
+        self.agreement_approved = True
+        statuses = ["PAUSED_MERGE_CONFLICT", "COMPLETE"]
+
+        def conflict(cmd, env, cwd, timeout):
+            if cmd[2:4] != ["program", "run"]:
+                return self.fake_invoke(cmd, env, cwd, timeout)
+            self.calls.append(cmd)
+            status = statuses.pop(0)
+            if status != "COMPLETE":
+                (self.child_run / "state.json").write_text(json.dumps(
+                    {"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "r1:abc"}))
+            summary = {"status": status, "state_file": str(self.root / "s.json"),
+                       "integration_workspace": str(self.integration),
+                       "workstreams": [{"id": "a", "status": "CONFLICT", "run_status": "TASK_COMPLETE"},
+                                       {"id": "search", "status": "WAITING", "run_status": "AWAITING_GOAL_APPROVAL",
+                                        "run_dir": str(self.child_run), "workspace": str(self.root / "wt")}]}
+            return subprocess.CompletedProcess(cmd, 0 if status == "COMPLETE" else 2, json.dumps(summary), "")
+
+        with mock.patch.object(live_trial, "invoke", side_effect=conflict):
+            run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
+                                           {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+        self.assertEqual(["program run", "approve-goal", "program run"], self.kinds())
+        self.assertEqual("COMPLETE", run["state"]["status"])
+
     def test_mode_program_needs_a_manifest_and_score_only_scores_without_driving(self):
         with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):
             self.assertEqual(2, live_trial.main(["LIVE-01", "--mode", "program", "--workspace", str(self.root)]))

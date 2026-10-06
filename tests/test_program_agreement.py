@@ -148,6 +148,15 @@ class ValidateTest(unittest.TestCase):
             ("duplicate id", lambda m: m["shared"]["interfaces"].append({"id": "api", "summary": "again"}),
              "Interface ids must be unique"),
         ])
+        # validate_manifest refuses these shapes before the agreement rules run; the rules refuse them too.
+        for label, change, message in [
+                ("list producer", {"producer": ["skeleton"]}, r"producer \['skeleton'\] is not a workstream"),
+                ("list consumer", {"consumers": [["engine"]]}, "consumers must be distinct workstream ids")]:
+            with self.subTest(label):
+                manifest = build()
+                iface(manifest, "api").update(change)
+                with self.assertRaisesRegex(ValueError, message):
+                    agreement.validate(manifest)
         self.assertEqual(iface(build(api(version=3)), "api")["version"], 3)
 
     def test_requirements_are_well_formed_and_all_assigned(self):
@@ -177,6 +186,16 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(list(agreement.requirements(manifest)), ["C1", "C2"])
         self.assertEqual(agreement.inherited(manifest, "engine"), ["C2"])
 
+        def criterion(change):
+            return lambda m: (use_contract(m), change(m["contract"]["body"]["acceptance_criteria"]))
+
+        self.rejects([
+            ("duplicate ids", criterion(lambda rows: rows[0].update(id="C2")), "Requirement ids must be unique"),
+            ("missing criterion", criterion(lambda rows: rows[0].pop("criterion")), "need an id and a criterion"),
+            ("blank criterion", criterion(lambda rows: rows[0].update(criterion=" ")), "need an id and a criterion"),
+            ("missing id", criterion(lambda rows: rows[0].pop("id")), "need an id and a criterion"),
+        ])
+
     def test_checks_are_lists_of_commands(self):
         self.rejects([
             ("program checks", lambda m: m.update(checks=["make test", ""]), "checks must be a list"),
@@ -191,6 +210,24 @@ class InheritanceTest(unittest.TestCase):
         self.assertEqual(agreement.inherited(manifest, "engine"), ["C2"])
         self.assertEqual(agreement.inherited(manifest, "web"), [])
         self.assertEqual(agreement.inherited(manifest, "integration"), ["C1", "C2", "J1"])
+
+    def test_requirements_only_deployment_owns_are_not_the_final_checks(self):
+        def deploy(m, criterion="the site is live"):
+            m["requirements"].append({"id": "C3", "criterion": criterion})
+            m["workstreams"].append({"id": "deploy", "kind": "deployment", "brief": "publish", "owns": ["ops"],
+                                     "depends_on": ["integration"], "acceptance_criteria": ["C3"]})
+
+        manifest = build(deploy)
+        self.assertEqual(agreement.inherited(manifest, "integration"), ["C1", "C2", "J1"])
+        self.assertEqual(agreement.inherited(manifest, "deploy"), ["C3"])
+        self.assertEqual(agreement.dropped(manifest, "integration", ["C1", "C2", "J1"]), [])
+        revised = build(lambda m: deploy(m, "the site is live over HTTPS"))
+        self.assertEqual(agreement.affected(manifest, revised), ["deploy"])
+        # Assigned to a code workstream as well, the final check keeps it.
+        shared = build(lambda m: (deploy(m), ws(m, "web").update(acceptance_criteria=["C3"])))
+        self.assertEqual(agreement.inherited(shared, "integration"), ["C1", "C2", "C3", "J1"])
+        with self.assertRaisesRegex(ValueError, "C3 are assigned to no workstream"):
+            build(lambda m: (deploy(m), ws(m, "deploy").pop("acceptance_criteria")))
 
     def test_dropped_reports_missing_inherited_ids_in_order(self):
         manifest = build()
@@ -268,6 +305,30 @@ class RevisionTest(unittest.TestCase):
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn(message, problems[0])
 
+    def test_order_and_spelled_out_defaults_are_not_graph_or_interface_changes(self):
+        def base(m):
+            add_workstream(m, {"id": "tools", "depends_on": ["skeleton"]})
+            ws(m, "tools")["owns"] = ["tools", "scripts"]
+            ws(m, "web")["skeleton_exempt"] = "static pages"
+            ws(m, "web")["depends_on"] = []
+            iface(m, "api").update(consumers=["engine", "integration"], paths=["skeleton/api", "skeleton/schema"])
+
+        def restated(m):
+            base(m)
+            ws(m, "tools")["owns"].reverse()
+            ws(m, "integration")["depends_on"].reverse()
+            ws(m, "engine")["skeleton"] = False
+            ws(m, "web")["skeleton_exempt"] = "only static pages"
+            iface(m, "api")["consumers"].reverse()
+            iface(m, "api")["paths"].reverse()
+            iface(m, "style").update(consumers=[], producer=None)
+
+        old, new = build(base), build(restated)
+        self.assertEqual(agreement.revision_problems(old, new), [])
+        self.assertNotEqual(agreement.digest(old), agreement.digest(new))  # still a revision a person approves
+        self.assertEqual(agreement.bumped_interfaces(old, new), {})
+        self.assertEqual(agreement.affected(old, new), [])  # but no workstream is built from anything new
+
     def test_interface_definitions_change_only_with_a_new_version(self):
         old = build(lambda m: iface(m, "api").update(version=2))
         quiet = build(lambda m: iface(m, "api").update(version=2, summary="next activity JSON, with hints"))
@@ -329,10 +390,35 @@ class PresentationTest(unittest.TestCase):
                           "workstream web brief"])
         self.assertEqual(agreement.changes(old, old), [])
 
+    def test_changes_name_contract_milestones_notes_and_reordering(self):
+        def derived(m):
+            m["contract"] = {"revision": 1, "body": {"acceptance_criteria": m.pop("requirements"),
+                                                    "milestones": [{"id": "skeleton", "objective": "thin"}]}}
+            m["derivation_notes"] = ["web had no dependencies"]
+            add_workstream(m, {"id": "tools", "depends_on": ["skeleton"], "owns": ["tools", "scripts"]})
+
+        def revised(m):
+            derived(m)
+            m["contract"]["body"]["milestones"][0]["objective"] = "thinner"
+            m["derivation_notes"].append("integration added")
+            m["contract"]["body"]["acceptance_criteria"].reverse()
+            ws(m, "tools")["owns"].reverse()
+            m["shared"]["interfaces"].reverse()
+
+        old = build(derived)
+        self.assertEqual(agreement.changes(old, build(revised)),
+                         ["parent contract milestones", "order of requirements", "order of interfaces",
+                          "workstream tools owns order", "derivation notes"])
+        quiet = build(lambda m: (derived(m), m["contract"].update(revision=2)))
+        self.assertEqual(agreement.changes(old, quiet), ["parent contract revision"])
+        extra = build(lambda m: (derived(m), m["shared"].update(note="kept for later")))
+        self.assertEqual(agreement.changes(old, extra),
+                         ["the manifest changed in a way no workstream is built from: shared"])
+
     def test_render_shows_what_a_person_approves(self):
-        manifest = build(lambda m: m["journeys"].append(
+        manifest = build(lambda m: (m["journeys"].append(
             {"id": "J2", "name": "Checkout", "steps": ["pay"], "simulated": True,
-             "does_not_prove": "a real payment provider"}))
+             "does_not_prove": "a real payment provider"}), ws(m, "engine").update(checks=["make engine-test"])))
         value = agreement.digest(manifest)
         text = agreement.render(manifest, revision=3, value=value)
         self.assertEqual(agreement.token(3, value), f"a3:{value}")
@@ -343,6 +429,10 @@ class PresentationTest(unittest.TestCase):
         self.assertIn("- skeleton (walking skeleton, built and verified first) owns skeleton; depends on nothing", text)
         self.assertIn("inherits: C1\n", text)
         self.assertIn("inherits: C1, C2, J1, J2", text)
+        self.assertIn("  engine\n  checks, re-run on the integration branch after every merge:\n  - make engine-test\n",
+                      text)
+        self.assertIn("- api v1: next activity JSON; produced by skeleton, used by engine [skeleton/api]", text)
+        self.assertIn("- style v1: shared look [web/style]", text)
         self.assertNotIn("Changes since the approved revision", text)
 
     def test_render_with_a_previous_revision_names_the_affected_workstreams(self):

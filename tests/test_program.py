@@ -152,10 +152,32 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("PROGRAM WORKSTREAM a (code)", text)
         self.assertIn("stdlib only", text)
         self.assertIn("contracts: JSON shapes", text)
+        self.assertIn("Workstreams already merged on the integration branch", text)
         self.assertIn("- contracts: Write the shared contracts", text)
         self.assertIn("only under: a.", text)
         self.assertIn("do not modify): b, contracts, tests.", text)
         self.assertIn("do not merge branches", text)
+
+    def test_malformed_interfaces_and_contract_are_refused_as_manifest_errors(self):
+        # The CLI reports only ValueError; a string of paths was iterated character by character.
+        for field, bad in (("paths", "contracts"), ("producer", ["contracts"]), ("consumers", [["a"]])):
+            value = manifest(); value["shared"]["interfaces"][0][field] = bad
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                program.validate_manifest(value)
+        for bad in ("text", None, [], {"body": "text"}):
+            value = manifest(); value["contract"] = bad
+            with self.subTest(contract=bad), self.assertRaisesRegex(ValueError, "contract must be an object"):
+                program.validate_manifest(value)
+
+    def test_the_skeleton_brief_walks_each_journey_by_its_steps(self):
+        value = manifest()
+        value["journeys"].append({"id": "J2", "name": "Simulated load", "steps": ["simulate", "count"],
+                                  "simulated": True, "does_not_prove": "real traffic"})
+        value = program.validate_manifest(value)
+        text = program.compose_brief(value, value["workstreams"][0], {"workstreams": {}})
+        self.assertIn("- J1 Order through both services: call a -> call b", text)
+        self.assertIn("- J2 Simulated load: simulate -> count", text)
+        self.assertIn("does not prove: real traffic", text)
 
     def test_integration_brief_allows_cross_component_repairs(self):
         value = program.validate_manifest(manifest())
@@ -482,6 +504,24 @@ class ExecutionTests(ProgramHarness):
         rows = {row["id"]: row for row in result["workstreams"]}
         self.assertEqual("conflict resolved manually", rows[conflicted]["merge_note"])
         self.assertIn("tests/test_flow.py", self.integration_files(result))
+
+    def test_a_dirty_integration_worktree_holds_the_final_check_and_names_the_worktree(self):
+        path = self.write_manifest(manifest())
+        real_ready = program.ready
+
+        def leftovers_before_the_final_check(value, state, **kwargs):
+            rows, blocked = real_ready(value, state, **kwargs)
+            if any(row["kind"] == "integration" for row, _ in rows):  # e.g. left by a retired integration run
+                (Path(state["integration"]["workspace"]) / "README.md").write_text("leftover\n")
+            return rows, blocked
+
+        with patch.object(program, "ready", side_effect=leftovers_before_the_final_check):
+            code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INTEGRATION_DIRTY"), (code, result["status"]))
+        self.assertIn(f"commit or discard (git restore) the uncommitted changes in {result['integration_workspace']}",
+                      result["next"])
+        self.assertIn("retired integration run", result["next"])
+        self.assertNotIn("integration", [row["id"] for row in self.launches])
 
     def test_integration_commits_its_own_tracked_repairs(self):
         path = self.write_manifest(manifest())

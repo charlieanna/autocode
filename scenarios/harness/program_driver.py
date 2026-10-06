@@ -418,9 +418,13 @@ class ProgramDriver:
         program_state = {}
         if self.summary.get("state_file") and Path(self.summary["state_file"]).is_file():
             program_state = json.loads(Path(self.summary["state_file"]).read_text())
-        interfaces = []
+        interfaces, declared = [], {"program": [], "workstreams": {}}
         if self.manifest.is_file():
-            interfaces = (self.read_manifest().get("shared") or {}).get("interfaces") or []
+            manifest = self.read_manifest()
+            interfaces = (manifest.get("shared") or {}).get("interfaces") or []
+            declared = {"program": list(manifest.get("checks") or []),
+                        "workstreams": {row.get("id"): list(row.get("checks") or [])
+                                        for row in manifest.get("workstreams") or [] if row.get("checks")}}
         return {
             "status": self.summary.get("status") or plan_state.get("status", ""),
             "program": self.summary,
@@ -434,7 +438,7 @@ class ProgramDriver:
                               for row in program_state.get("verifications") or []],
             "agreement": {"shown": list(self.shown), "approved": list(self.approved)},
             "workstream_ids": dict(self.ids),
-            "interfaces": interfaces, "changes": [dict(record) for record in self.changes],
+            "interfaces": interfaces, "declared_checks": declared, "changes": [dict(record) for record in self.changes],
             "answers": self.answers, "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
             # Every model stage of the plan run and of every workstream run, for [run] requires_stages.

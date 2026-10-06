@@ -277,14 +277,29 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("
                    if not first.get("at") or str(child.get("created_at") or "") < first["at"])
     checks.append(Check("nothing_started_before_the_skeleton", bool(first) and not early,
                         f"started before the skeleton was verified at {first.get('at')}: {early}" if early else ""))
-    # Every merge re-runs the checks of everything merged before it, the skeleton's first.
-    dropped, passed = [], set()
+    # Every merge re-runs the checks of everything merged before it, the skeleton's first. A workstream retired
+    # since the last pass (an accepted change) is no longer merged, so its checks leave the set until it merges
+    # again; each check belongs to the workstream whose passing verification first ran it.
+    retirements = [(str(entry.get("at") or ""), wid) for wid, row in rows.items()
+                   for entry in row.get("retired_runs") or []]
+    # The agreement's own checks are re-run after every merge whatever was retired; a check a workstream row
+    # declares belongs to that workstream.
+    declared = run.get("declared_checks") or {}
+    program_level = set(declared.get("program") or [])
+    declared_owner = {command: wid for wid, commands in (declared.get("workstreams") or {}).items()
+                      for command in commands}
+    dropped, passed, owner, passed_at = [], set(), {}, None
     for row in verifications:
         commands = set(row.get("commands") or [])
-        if not passed <= commands:
-            dropped.append(f"{row.get('workstream')} left out {sorted(passed - commands)}")
+        at = str(row.get("at") or "")
+        gone = {wid for when, wid in retirements if passed_at is not None and passed_at < when <= at}
+        expected = {command for command in passed if command in program_level
+                    or declared_owner.get(command, owner.get(command)) not in gone}
+        if not expected <= commands:
+            dropped.append(f"{row.get('workstream')} left out {sorted(expected - commands)}")
         if row.get("verdict") == "PASS":
-            passed = commands
+            owner.update((command, row.get("workstream")) for command in commands - passed)
+            passed, passed_at = commands, at
     checks.append(Check("cumulative_checks_rerun", len(verifications) > 1 and not dropped,
                         "; ".join(dropped) or f"{len(verifications)} verifications"))
     found = {row.get("id"): row for row in program.get("journeys") or []}
@@ -304,15 +319,24 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("
         checks.append(Check(f"change_request_{wanted}[{step['interface']}]", request.get("status") == wanted,
                             f"{request.get('id')}: {request.get('status')!r}"))
         if step["decide"] == "accept":
-            # Exactly the producer and the consumers lose their approval and are checked again.
+            # Exactly the producer and the consumers are checked again under the new revision. Of them, those
+            # that had started when the change was accepted lose their approval (a retired run); one that had not
+            # started yet is simply built from the new revision. No other workstream is retired by the change.
             interface = interfaces.get(step["interface"]) or {}
             expected = {interface.get("producer"), *interface.get("consumers", [])} - {None}
-            retired = {wid for wid, row in rows.items() if row.get("retired_runs")}
+            accepted_at = str(request.get("resolved_at") or "")
+            retired = {wid for wid, row in rows.items()
+                       if any(str(entry.get("at") or "") >= accepted_at for entry in row.get("retired_runs") or [])}
+            first_run = {wid: min((str(child.get("created_at") or "") for child in (run.get("children") or {})
+                                   .get(wid) or []), default="") for wid in expected}
+            started = {wid for wid in expected if not accepted_at or first_run[wid] < accepted_at}
             rechecked = {wid for wid in expected if (rows.get(wid, {}).get("merged_under") or {}).get("revision")
                          == (program.get("agreement") or {}).get("revision")}
             checks.append(Check(f"change_rechecked_producer_and_consumers[{step['interface']}]",
-                                bool(expected) and retired == expected and rechecked == expected,
-                                f"retired {sorted(retired)}, re-checked under the latest revision {sorted(rechecked)}, "
+                                bool(expected) and rechecked == expected and retired <= expected
+                                and started <= retired,
+                                f"retired since the change was accepted {sorted(retired)}, started before it "
+                                f"{sorted(started)}, re-checked under the latest revision {sorted(rechecked)}, "
                                 f"wanted {sorted(expected)}"))
     return checks
 

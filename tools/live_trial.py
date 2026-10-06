@@ -450,6 +450,12 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
             approved.add(token)
             step("approve-agreement", program_approve_command(project, manifest_path, token), allow_codes=(0,))
             continue
+        if status.startswith("PAUSED_") and status != "PAUSED_MERGE_CONFLICT":
+            # A program-level pause (a failed integration check, ownership, an interface change, the skeleton,
+            # inheritance, a journey, ...) is raised again before the controller advances any child, so neither a
+            # served gate nor a rerun moves it. A merge conflict holds only its workstream: later passes go on
+            # merging and starting the others, so their gates are still served below.
+            break
         served = False
         for row in summary.get("workstreams", []):
             if row.get("status") not in ("WAITING", "PAUSED") or not row.get("run_dir"):

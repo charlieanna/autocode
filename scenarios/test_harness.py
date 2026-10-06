@@ -1080,6 +1080,49 @@ class ProgramChecksTests(unittest.TestCase):
         record["program"]["journeys"][0]["status"] = "failed"
         self.assertEqual(["journey_verified_by_name[J1]"], self.failing(record))
 
+    def retired_record(self):
+        """S and T merged; an accepted change then retired T before U merged; T merged again with a new check."""
+        record = self.record()
+        rows = record["program"]["workstreams"]
+        rows.insert(2, {"id": "U", "kind": "code", "status": "MERGED", "run_status": "TASK_COMPLETE",
+                        "approved_plan": {"token": "r2:u"}, "merged_under": {"revision": 1}})
+        rows[1]["retired_runs"] = [{"at": "2026-10-05T10:01:30", "reason": "agreement revision 2 changed ..."}]
+        record["children"]["U"] = [{"created_at": "2026-10-05T10:00:40"}]
+        record["verifications"] = [
+            {"workstream": "S", "verdict": "PASS", "at": "2026-10-05T10:00:00", "commands": ["s"]},
+            {"workstream": "T", "verdict": "PASS", "at": "2026-10-05T10:01:00", "commands": ["s", "t"]},
+            {"workstream": "U", "verdict": "PASS", "at": "2026-10-05T10:02:00", "commands": ["s", "u"]},
+            {"workstream": "T", "verdict": "PASS", "at": "2026-10-05T10:03:00", "commands": ["s", "u", "t2"]},
+            {"workstream": "integration", "verdict": "PASS", "at": "2026-10-05T10:04:00",
+             "commands": ["s", "u", "t2", "i"]}]
+        return record
+
+    def test_a_workstream_retired_since_the_last_pass_takes_its_checks_out_until_it_merges_again(self):
+        self.assertEqual([], self.failing(self.retired_record()))
+        # Every other check still has to stay, and so does what the retired workstream ran once it merged again.
+        for index, commands in ((2, ["u"]), (3, ["s", "t2"]), (4, ["s", "u", "i"])):
+            with self.subTest(left_out_by=index):
+                record = self.retired_record()
+                record["verifications"][index]["commands"] = commands
+                self.assertEqual(["cumulative_checks_rerun"], self.failing(record))
+        # A check that disappeared before its workstream was retired, or with no record of when, was dropped.
+        for retired in ({"at": "2026-10-05T10:02:30"}, {}):
+            with self.subTest(retired=retired):
+                record = self.retired_record()
+                record["program"]["workstreams"][1]["retired_runs"] = [retired]
+                self.assertEqual(["cumulative_checks_rerun"], self.failing(record))
+        # The agreement's own checks are never excused, even when the workstream that first ran them is retired.
+        record = self.retired_record()
+        record["program"]["workstreams"][0]["retired_runs"] = [{"at": "2026-10-05T10:01:30"}]
+        record["declared_checks"] = {"program": ["p"], "workstreams": {}}
+        record["verifications"] = [
+            {"workstream": "S", "verdict": "PASS", "at": "2026-10-05T10:00:00", "commands": ["p", "s"]},
+            {"workstream": "T", "verdict": "PASS", "at": "2026-10-05T10:01:00", "commands": ["p", "s", "t"]},
+            {"workstream": "U", "verdict": "PASS", "at": "2026-10-05T10:02:00", "commands": ["t", "u"]}]
+        self.assertEqual(["cumulative_checks_rerun"], self.failing(record))
+        record["verifications"][2]["commands"] = ["p", "t", "u"]
+        self.assertEqual([], self.failing(record))
+
     def test_an_accepted_change_rechecks_exactly_its_producer_and_consumers(self):
         accept = {"after": "merged:S", "interface": "store", "by": "T", "decide": "accept"}
         scenario = program_scenario("/nowhere", accept)
@@ -1094,6 +1137,41 @@ class ProgramChecksTests(unittest.TestCase):
         record["program"]["workstreams"][2]["retired_runs"] = [{"reason": "agreement revision 2 changed ..."}]
         self.assertEqual(["change_rechecked_producer_and_consumers[store]"],
                          [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
+
+    def changed_record(self):
+        """The skeleton S merged; a change to its store interface was accepted at 10:00:20, retiring S, before its
+        consumer T started at 10:00:30; S merged again, then T and the integration, all under revision 2."""
+        record = self.record(interfaces=[{"id": "store", "producer": "S", "consumers": ["T"]}])
+        program = record["program"]
+        program["change_requests"] = [{"id": "CR-1", "interface": "store", "by": "S", "status": "accepted",
+                                       "resolved_at": "2026-10-05T10:00:20"}]
+        program["agreement"]["revision"] = 2
+        for row in program["workstreams"]:
+            row["merged_under"] = {"revision": 2}
+        program["workstreams"][0]["retired_runs"] = [{"at": "2026-10-05T10:00:25", "reason": "agreement revision 2"}]
+        record["children"]["S"].append({"created_at": "2026-10-05T10:00:26"})
+        record["verifications"].insert(1, {"workstream": "S", "verdict": "PASS", "at": "2026-10-05T10:00:50",
+                                           "commands": ["s"]})
+        return record
+
+    def test_only_a_producer_or_consumer_that_had_started_must_lose_its_approval(self):
+        scenario = program_scenario("/nowhere", {"after": "merged:S", "interface": "store", "by": "S",
+                                                 "decide": "accept"})
+
+        def failing(record):
+            return [c.name for c in oracle.program_checks(record, scenario) if not c.ok]
+
+        # T had not started when the change was accepted: it was built from revision 2, nothing to retire.
+        self.assertEqual([], failing(self.changed_record()))
+        record = self.changed_record()
+        record["children"]["T"][0]["created_at"] = "2026-10-05T10:00:10"
+        self.assertEqual(["change_rechecked_producer_and_consumers[store]"], failing(record))
+        record = self.changed_record()
+        record["program"]["workstreams"][1]["merged_under"] = {"revision": 1}
+        self.assertEqual(["change_rechecked_producer_and_consumers[store]"], failing(record))
+        record = self.changed_record()
+        record["program"]["workstreams"][2]["retired_runs"] = [{"at": "2026-10-05T10:01:40", "reason": "unrelated"}]
+        self.assertEqual(["change_rechecked_producer_and_consumers[store]"], failing(record))
 
     def test_a_change_request_is_found_by_the_workstream_the_scenario_id_stands_for(self):
         reject = {"after": "merged:S", "interface": "store", "by": "T", "decide": "reject", "resolution": "no"}
