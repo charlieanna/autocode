@@ -345,22 +345,37 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
         self.assertFalse(any(e["kind"] == "builder_retry" for e in state.get("user_events", [])))
 
-    def test_two_refused_members_are_asked_in_turn_about_the_model_each_ran_on(self):
-        # M1's answer moves the Builder route to MiMo; M2 ran on GLM, so MiMo is listed and accepted for it too.
-        run, state = self.paused(error=REFUSAL, members="M1,M2")
-        self.assertEqual({"M1": "PAUSED_CONTENT_FILTER", "M2": "PAUSED_CONTENT_FILTER"},
-                         {mid: row["status"] for mid, row in self.workers(state).items()})
-        self.refusal_asked(state, "M1")
+    def two_stopped_members(self, error, status):
+        """M1 and M2 stop on their model; M1's answer moves the Builder route to MiMo before M2 is asked.
+
+        M2 ran on GLM, so its question and answer are about GLM: MiMo is the natural answer and is accepted.
+        A refusal's question lists it too, and M2's stop (collected again after a worker restart) names only
+        commands the parent takes."""
+        refused = status == "PAUSED_CONTENT_FILTER"
+        run, state = self.paused(error=error, members="M1,M2")
+        self.assertEqual({"M1": status, "M2": status}, {mid: row["status"] for mid, row in self.workers(state).items()})
+        if refused:
+            self.refusal_asked(state, "M1")
         self.answer(run, MIMO)
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         state = self.saved()[1]
-        asked = self.refusal_asked(state, "M2")
-        self.assertEqual((MIMO, GLM), (state["settings"]["roles"]["terra"]["model"], asked["current_model"]))
-        self.assertIn(MIMO, asked["candidates"])
+        request = assert_operational_wait(self, state, status)
+        asked = next(q for q in request["questions"] if q["id"] == "route-terra")
+        self.assertEqual(("Builder (milestone M2)", MIMO, GLM, GLM),
+                         (asked["job"], state["settings"]["roles"]["terra"]["model"], asked["current_model"],
+                          asked["stopped_model"]))
+        if refused:
+            self.assertIn(MIMO, self.refusal_asked(state, "M2")["candidates"])
         self.answer(run, MIMO)
         state = self.resume(run)
         self.assertEqual("TASK_COMPLETE", state["status"])
         rows = self.workers(state)
         self.assertEqual([[GLM, MIMO], [GLM, MIMO]], [self.attempts(rows["M1"]), self.attempts(rows["M2"])])
-        self.assertEqual([(GLM, MIMO, "PAUSED_CONTENT_FILTER")] * 2, [
+        self.assertEqual([(GLM, MIMO, status)] * 2, [
             (e["from"], e["to"], e["pause_status"]) for e in state["user_events"] if e["kind"] == "route_assignment"])
+
+    def test_two_refused_members_are_asked_in_turn_about_the_model_each_ran_on(self):
+        self.two_stopped_members(REFUSAL, "PAUSED_CONTENT_FILTER")
+
+    def test_two_quota_stopped_members_are_asked_in_turn_about_the_model_each_ran_on(self):
+        self.two_stopped_members(QUOTA, "PAUSED_BUDGET")

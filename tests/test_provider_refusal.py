@@ -172,16 +172,16 @@ class ContentFilterRouteTests(unittest.TestCase):
 
     def test_a_batch_member_lists_and_accepts_only_models_its_answer_takes(self):
         # #465: Builder M2 of a parallel batch was refused on MiMo after a sibling's answer had moved the
-        # Builder route to Sonnet. Its question and answer are about the model M2 ran on, and the answer
-        # must also leave that worker's model family (#458), so a MiMo from another provider is not listed.
-        sonnet, mimo_elsewhere = "anthropic/claude-sonnet-5-5", "openrouter/xiaomi/mimo-v2.6"
+        # Builder route to another provider's model. Its question and answer are about the model M2 ran on,
+        # and the answer must also leave that worker's model family (#458): a MiMo elsewhere is not listed.
+        moved, mimo_elsewhere = "openai/gpt-6-luna", "openrouter/xiaomi/mimo-v2.6"
         state = self.state(plan_reviewer=mimo_elsewhere)
-        state["settings"]["roles"]["terra"]["model"] = sonnet
+        state["settings"]["roles"]["terra"]["model"] = moved
         member = {"role": "terra", "stage": "terra", "milestone_id": "M2", "model": MIMO,
                   "pause_status": "PAUSED_CONTENT_FILTER", "active": True}
         asked = worker_quota.question(state, member, cross_check=dispatch.enforce_cross_model_verification,
                                       family=dispatch._model_family)
-        self.assertEqual(("Builder (milestone M2)", MIMO, MIMO, [sonnet]),
+        self.assertEqual(("Builder (milestone M2)", MIMO, MIMO, [moved]),
                          (asked["job"], asked["current_model"], asked["stopped_model"], asked["candidates"]))
         # Every listed model passes the parallel answer path's checks; the unlisted MiMo fails one.
         for model in asked["candidates"]:
@@ -192,8 +192,8 @@ class ContentFilterRouteTests(unittest.TestCase):
                              cross_check=dispatch.enforce_cross_model_verification)
         with self.assertRaisesRegex(ValueError, "choose another model family"):
             worker_quota.validate_model(mimo_elsewhere, member, dispatch._model_family)
-        record = quota_route.assign(state, "terra", sonnet, at="t", via="answer", attempt=member, current=MIMO)
-        self.assertEqual((MIMO, sonnet, "PAUSED_CONTENT_FILTER"), (record["from"], record["to"], record["pause_status"]))
+        record = quota_route.assign(state, "terra", moved, at="t", via="answer", attempt=member, current=MIMO)
+        self.assertEqual((MIMO, moved, "PAUSED_CONTENT_FILTER"), (record["from"], record["to"], record["pause_status"]))
 
     def test_the_view_answer_and_record_carry_the_refusal(self):
         state = self.state()
