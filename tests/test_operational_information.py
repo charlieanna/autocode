@@ -379,6 +379,20 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual(answered['settings']['limits'], resumed['settings']['limits'])
         self.assertFalse(resumed.get('recovery_grants'))
 
+    def test_an_admitted_continuation_renews_no_report_repair_allowance(self):
+        # One of the two report-only repairs is used. Information admits the continuation but never
+        # renews that allowance; the operator's own resume at other pauses does.
+        self.inform(self.issue_checkpoint(self.pending_repair(1)),
+                    'The workspace temporary directory and interpreter are valid')
+        code, launched, output = self.resume(env={'OPENAI_BASE_URL': 'https://example.invalid'})
+        self.assertEqual((2, False), (code, launched), output)
+        view = self.status()
+        self.assertEqual(('PAUSED_TRANSPORT_CHANGED', 'admitted'), (view['status'], view['information_review']['status']))
+        _, admitted = self.saved()
+        self.assertEqual(1, admitted['pending_report_repair']['attempts'])
+        self.assertFalse([event for event in admitted.get('user_events', [])
+                          if event.get('kind') in ('resolver_resume_epoch', 'report_repair_resume_epoch')])
+
 
 if __name__ == '__main__':
     unittest.main()
