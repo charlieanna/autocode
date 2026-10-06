@@ -77,7 +77,9 @@ def process_table(pids=None):
                           "birth_identity": birth_identity,
                           "state": "Z" if status == psutil.STATUS_ZOMBIE else status,
                           "executable": executable}
-        except (psutil.NoSuchProcess, ProcessLookupError):
+        except (psutil.NoSuchProcess, ProcessLookupError, FileNotFoundError):
+            # Gone between listing and reading: psutil can surface the vanished /proc/<pid>
+            # entry as FileNotFoundError, which a live run treated as fatal (2026-10-06).
             continue
         except (psutil.AccessDenied, PermissionError) as error:
             if pids is not None:

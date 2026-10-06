@@ -182,6 +182,17 @@ class ProcessTests(unittest.TestCase):
         with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.NoSuchProcess(101)):
             self.assertEqual({}, processes.process_table({101}))
 
+    def test_a_pid_whose_proc_entry_vanishes_mid_read_is_gone_not_fatal(self):
+        # A live program run's child was declared FAILED: "Cannot inspect process 30956: FileNotFoundError".
+        vanished = FileNotFoundError(2, 'No such file or directory', '/proc/101/stat')
+        with patch.object(processes.psutil, 'Process', side_effect=vanished):
+            self.assertEqual({}, processes.process_table({101}))
+            with patch.object(processes, 'process_ids', return_value={101}):
+                self.assertEqual({}, processes.process_table())
+        with patch.object(processes.psutil, 'Process', side_effect=OSError(5, 'Input/output error')):
+            with self.assertRaisesRegex(processes.ProcessError, 'Cannot inspect process 101: OSError'):
+                processes.process_table({101})
+
     def test_descendant_discovery_denial_fails_closed_without_another_scan(self):
         row = {'pid': 101, 'parent': 90, 'group': 101, 'birth_identity': 123,
                'state': 'running'}
