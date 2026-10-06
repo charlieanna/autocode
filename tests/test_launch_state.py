@@ -1,16 +1,16 @@
 """An in-place run's uncommitted and untracked launch files are original code, not its change.
 
-Real Git, real CLI and real unittest suites in scratch worktrees; no provider is launched
-except the fake one the CLI test puts on PATH.
+Real Git and real unittest suites in scratch checkouts. The CLI cases are in test_launch_state_cli.
 """
+import os
+from pathlib import Path
 import subprocess
-import sys
+import tempfile
 import unittest
 
 import autocode_regression as regression
 import autocode_verify as verify
-from . import test_subprocess
-from .test_verify import Project, git
+from .test_verify import Project, git, isolated_python
 
 APP = "def greet():\n    return 'hello'\n"
 BROKEN_APP = "def greet():\n    return 'BROKEN'\n"
@@ -23,42 +23,19 @@ FEATURE = {"feature.py": "def feature():\n    return 'feature'\n",
            "test_feature.py": ("import unittest\nfrom feature import feature\n\n\n"
                                "class FeatureTests(unittest.TestCase):\n    def test_feature(self):\n"
                                "        self.assertEqual('feature', feature())\n")}
+# What AutoCode appends to .git/info/exclude before an OpenCode stage (autocode_readonly_events).
+AUTOCODE_EXCLUDE = "/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n"
 
 
-def build_state(base):
-    return {"base_commit": base, "settings": {"regression": {"python": sys.executable}}, "iteration": 1,
+def build_state(base, python):
+    """A build contract proven with ``python`` (isolated_python: no editable install another checkout changes)."""
+    return {"base_commit": base, "settings": {"regression": {"python": python}}, "iteration": 1,
             "stages": [], "history": [],
             "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [], "milestones": [{"id": "M1"}]}}}
 
 
-class InPlaceLaunchCli(unittest.TestCase):
-    def test_a_builder_cannot_break_an_untracked_launch_suite_and_pass(self):
-        flow = test_subprocess.SubprocessFlow()
-        flow.setUp()
-        self.addCleanup(flow.doCleanups)
-        project = flow.project  # one empty commit
-        (project / "app.py").write_text(APP)
-        (project / "test_app.py").write_text(TEST_APP)
-        head, status = git(project, "rev-parse", "HEAD"), git(project, "status", "--porcelain")
-        result = subprocess.run([*flow.entry, "--workspace", str(project), "--engine", "codex", "--no-chat",
-                                 "--in-place", "Add a feature function"], cwd=flow.root, capture_output=True,
-                                text=True, env={**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"}, timeout=240)
-        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-        run, state = flow.saved()
-        checkout = (git(project, "rev-parse", "HEAD"), git(project, "status", "--porcelain"))
-        base_files = git(project, "ls-tree", "-r", "--name-only", state["base_commit"]).split()
-        ref = git(project, "for-each-ref", "--format=%(objectname)", f"refs/autocode/launch/{run.name}")
-        # The Builder breaks greet(), deletes its test and adds a feature with its own test.
-        (project / "app.py").write_text(BROKEN_APP)
-        (project / "test_app.py").unlink()
-        for name, text in FEATURE.items():
-            (project / name).write_text(text)
-        proof = regression.prove({**state, **build_state(state["base_commit"])}, project, run)
-        self.assertEqual(verify.FAIL, proof["verdict"], proof)
-        self.assertIn("Existing test files were deleted: test_app.py", proof["failures"])
-        self.assertEqual((head, status), checkout, "the launch must not commit, stage or move anything")
-        self.assertEqual(["app.py", "test_app.py"], base_files)
-        self.assertEqual(state["base_commit"], ref)
+def files(root, commit):
+    return git(root, "ls-tree", "-r", "--name-only", commit).split()
 
 
 class LaunchCommit(unittest.TestCase):
@@ -70,6 +47,23 @@ class LaunchCommit(unittest.TestCase):
     def test_a_clean_checkout_starts_from_head(self):
         project = self.project({"app.py": APP})
         self.assertEqual(project.base, verify.commit_worktree(project.root))
+
+    def test_a_checkout_with_only_an_empty_commit_starts_from_its_files(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        git(root, "init", "-q")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-q", "--allow-empty", "-m", "empty")
+        (root / "app.py").write_text(APP)
+        base = verify.commit_worktree(root)
+        self.assertEqual(["app.py"], files(root, base))
+        self.assertEqual({}, verify.changed_files(root, base))
+
+    def test_an_edit_right_after_a_commit_counts(self):
+        """Git's racily clean entries: the copied index keeps the real one's timestamp."""
+        project = self.project({"app.py": APP})
+        project.write({"app.py": APP.replace("hello", "HELLO")})  # same size, likely the same second
+        self.assertEqual({"app.py": "modified"}, verify.changed_files(project.root, project.base))
 
     def test_only_changes_after_launch_count(self):
         project = self.project({"README.md": "x\n", "lib.py": LIB})
@@ -90,15 +84,97 @@ class LaunchCommit(unittest.TestCase):
 
     def test_a_suite_untracked_at_launch_is_preserved(self):
         """README-only and non-empty tracked bases alike: committing first would give the same FAIL."""
+        python = isolated_python(self)
         for tracked in ({"README.md": "x\n"}, {"README.md": "x\n", "lib.py": LIB, "test_lib.py": TEST_LIB}):
             with self.subTest(tracked=sorted(tracked)):
                 project = self.project(tracked)
                 project.write({"app.py": APP, "test_app.py": TEST_APP})
                 base = verify.commit_worktree(project.root)
                 project.write({"app.py": BROKEN_APP, **FEATURE})
-                proof = regression.prove(build_state(base), project.root, project.evidence)
+                proof = regression.prove(build_state(base, python), project.root, project.evidence)
                 self.assertEqual(verify.FAIL, proof["verdict"], proof)
                 self.assertTrue(any("test_app" in reason for reason in proof["failures"]), proof)
+
+    def test_a_gitignored_autocode_directory_is_left_out(self):
+        for rule in ("info/exclude", ".gitignore"):
+            with self.subTest(rule=rule):
+                project = self.project({"README.md": "x\n"})
+                if rule == ".gitignore":
+                    project.write({".gitignore": ".autocode\n__pycache__/\n"})
+                else:
+                    with (project.root / ".git/info/exclude").open("a") as exclude:
+                        exclude.write(AUTOCODE_EXCLUDE)
+                project.write({".autocode/runs/r/state.json": "{}\n", "__pycache__/app.cpython-312.pyc": "x",
+                               "app.py": APP})
+                base = verify.commit_worktree(project.root)
+                self.assertEqual(sorted(["README.md", "app.py", *([".gitignore"] if rule == ".gitignore" else [])]),
+                                 files(project.root, base))
+                self.assertEqual({}, verify.changed_files(project.root, base))
+                project.write({"new.py": "n = 1\n", ".autocode/runs/r/log.txt": "x\n"})
+                self.assertEqual({"new.py": "added"}, verify.changed_files(project.root, base))
+
+    def test_an_untracked_repository_is_listed_not_staged(self):
+        project = self.project({"README.md": "x\n"})
+        for name, commit in (("empty", False), ("committed", True)):
+            nested = project.root / name
+            nested.mkdir()
+            git(nested, "init", "-q")
+            (nested / "lib.py").write_text(LIB)
+            if commit:
+                git(nested, "add", "lib.py")
+                git(nested, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "lib")
+        project.write({"app.py": APP})
+        base = verify.commit_worktree(project.root)
+        self.assertEqual(["README.md", "app.py"], files(project.root, base))
+        changes = verify.changed_files(project.root, base)
+        self.assertEqual({"committed/": "added", "empty/": "added"}, changes)
+        self.assertEqual(2, verify.diff_stats(project.root, base, changes)["files"])
+        git(project.root, "add", "committed")  # a submodule: uncommitted work in it is a change, as git diff says
+        git(project.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "submodule")
+        head = git(project.root, "rev-parse", "HEAD")
+        self.assertEqual({"app.py": "added", "empty/": "added"}, verify.changed_files(project.root, head))
+        (project.root / "committed/lib.py").write_text(APP)
+        self.assertEqual({"app.py": "added", "committed": "modified", "empty/": "added"},
+                         verify.changed_files(project.root, head))
+
+    def test_ignoring_a_launch_file_does_not_delete_it(self):
+        project = self.project({"README.md": "x\n"})
+        project.write({"app.py": APP, "test_app.py": TEST_APP})
+        base = verify.commit_worktree(project.root)
+        project.write({".gitignore": "test_app.py\n", "app.py": APP + "# more\n"})
+        self.assertEqual({".gitignore": "added", "app.py": "modified"}, verify.changed_files(project.root, base))
+        (project.root / "test_app.py").unlink()
+        self.assertEqual("deleted", verify.changed_files(project.root, base)["test_app.py"])
+
+    def test_comparing_writes_nothing_to_the_object_store(self):
+        project = self.project({"README.md": "x\n"})
+        project.write({"data.txt": "launch data\n", "README.md": "y\n"})
+        objects = git(project.root, "count-objects", "-v")
+        changes = verify.changed_files(project.root, project.base)
+        self.assertEqual({"README.md": "modified", "data.txt": "added"}, changes)
+        verify.diff_stats(project.root, project.base, changes)
+        self.assertEqual(objects, git(project.root, "count-objects", "-v"))
+        base = verify.commit_worktree(project.root)  # this commit must last, and so must its files
+        self.assertEqual("launch data", git(project.root, "show", f"{base}:data.txt"))
+
+    def test_launch_refs_last_while_their_run_does(self):
+        project = self.project({"README.md": "x\n"})
+        root, runs = project.root, project.root / ".autocode/runs"
+        tree = git(root, "rev-parse", "HEAD^{tree}")
+        old = {**os.environ, "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z"}
+        for name, env in (("removed", old), ("kept", old), ("launching", os.environ)):
+            commit = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit-tree",
+                                     tree, "-p", "HEAD", "-m", name], cwd=root, env=env, check=True,
+                                    capture_output=True, text=True).stdout.strip()
+            git(root, "update-ref", regression.LAUNCH_REFS + name, commit)
+        (runs / "kept").mkdir(parents=True)
+        self.assertEqual(project.base, regression.launch_base(root, runs / "clean"))
+        project.write({"app.py": APP})
+        base = regression.launch_base(root, runs / "new")
+        refs = dict(line.split() for line in git(root, "for-each-ref", "--format=%(refname:lstrip=3) %(objectname)",
+                                                  regression.LAUNCH_REFS).splitlines())
+        self.assertEqual(["kept", "launching", "new"], sorted(refs))  # never one for a clean checkout
+        self.assertEqual(base, refs["new"])
 
 
 if __name__ == "__main__":

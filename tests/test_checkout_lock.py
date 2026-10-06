@@ -1,6 +1,7 @@
 """Two runs in one checkout: only one run's agents work in it at a time."""
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -39,6 +40,8 @@ class InPlaceRunTests(unittest.TestCase):
             self.assertIn("without --in-place", result.stderr)
             run, state = self.saved()
             self.assertEqual("RUNNING", state["status"], "a busy checkout changes nothing in the waiting run")
+            self.assertIsNone(state["base_commit"], "the other run's unfinished files are not where this run starts")
+            (self.project / "notes.txt").write_text("the other run's work\n")
             self.assertEqual([], [row for row in state["stages"] if not row.get("runner_owned")],
                              "no agent may run while another run holds the checkout")
             self.assertFalse((self.project / "greet.py").exists())
@@ -48,6 +51,9 @@ class InPlaceRunTests(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--chat"], 0, answers="CLI\nyes\n")
         _, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual(["notes.txt"], subprocess.run(
+            ["git", "ls-tree", "--name-only", state["base_commit"]], cwd=self.project, check=True,
+            capture_output=True, text=True).stdout.split(), "the run starts from the checkout as it first holds it")
         self.assertEqual({}, checkout_lock.holder(self.project))
 
 

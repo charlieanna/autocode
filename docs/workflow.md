@@ -364,10 +364,13 @@ approval, orchestrator, Builder, Tester and Completion Reviewer.
   runner executes `regression_proof` against the run's base commit (the commit
   the run started from; for a run created before that commit was saved, the
   commit its first stage recorded, if the source still descends from it). An
-  in-place run started with uncommitted or untracked files starts from a commit
-  of HEAD plus those files, kept under `refs/autocode/launch/RUN`, so they count
-  as original code rather than as the change; HEAD, the index and the files stay
-  as they were. Each
+  in-place run, including a new run in an earlier task's worktree, started with
+  uncommitted or untracked files starts from a commit of HEAD plus those files
+  (ignored files and untracked nested repositories left out), kept under
+  `refs/autocode/launch/RUN`, so they count as original code rather than as the
+  change; HEAD, the index and the files stay as they were. A run that finds the
+  checkout busy records it once it holds the checkout. A later launch drops the
+  ref of a run whose directory is gone, after a day's grace. Each
   suite run may take as long as the run's tool-call limit, at least 900 seconds
   and with no limit when the run turned that limit off;
   `settings.regression.test_timeout` overrides it. The new or changed tests
