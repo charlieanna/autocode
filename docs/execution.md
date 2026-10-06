@@ -707,6 +707,24 @@ and its recommendation. A change the diagnosis proposed that the incident packet
 cannot attest reaches the Builder only as advice, with the reason, and is never
 treated as a new experiment.
 
+The packet binds the source its incident was captured on. A Builder attempt it
+admitted may stop without being accepted and leave its work: a rejected attempt
+keeps its in-scope edits for the retry (the runner removes or restores only what
+it wrote outside its assignment), and a timed-out one keeps partial edits. That
+work is not a stale handoff. The next Builder attempt is bound as at the packet's
+source when each file, checked one by one, holds either that source's content or
+what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
+other content, such as a person's new edit while the run is paused, still pauses as
+`PAUSED_STALE_HANDOFF`. Because the check is per file, a file restored to its
+bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
+a mix of the two states across files is admitted. That is safe: each file holds
+the packet's own source or AutoCode's own output, the assignment scope check still
+covers the whole assignment after the retry, and the retry is validated afresh.
+When the runner rejected such an attempt's output and the stuck-stage
+Investigator recommends a retry, that retry admits the Builder until one attempt
+returns a result, as an accepted operational diagnosis's does; a spent diagnosis
+retry does not hide it. An investigation of a novelty hold grants nothing.
+
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous
 attempts and evidence; ordinary resume is not that authorization. Unlike a

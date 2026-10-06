@@ -32,6 +32,7 @@ try:
     from . import autocode_failures as failures
     from . import autocode_quota_route as quota_route
     from . import autocode_tool_containment as containment
+    from . import autocode_retained_work as retained
 except ImportError:
     import autocode_recovery_novelty as novelty
     import autocode_util as util
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_quota_route as quota_route
     import autocode_tool_containment as containment
+    import autocode_retained_work as retained
 
 
 def _stale(reason):
@@ -141,6 +143,19 @@ def _scope(state):
     return {"task_id": contract.get("task_id"), "contract_hash": contract.get("hash"),
             "milestones": sorted(task.get("milestone_ids") or [task.get("milestone_id") or ""]),
             "criteria": sorted(task.get("acceptance_criteria") or [])}
+
+
+def _source_revision(state, stage, pointer, packet, workspace):
+    """The source revision a dispatch is bound at: the current one, or for a Builder the packet's own
+    when every file holds its bound content or what this packet's latest Builder attempt left, at an
+    unmoved HEAD (retained_work.own_repair_source says exactly what it admits). Anything else binds
+    the current revision, so other content, such as a person's new edit or a further change after
+    the last attempt, remains a stale handoff."""
+    current, bound = source_scope.snapshot(workspace, state), packet["binding"]["source_revision"]
+    if (stage == "terra" and current["revision"] != bound
+            and retained.own_repair_source(state.get("stages", []), pointer, bound, current)):
+        return bound
+    return current["revision"]
 
 
 def _narrows(failed, scope):
@@ -618,6 +633,40 @@ def _diagnosis_grant(state, packet, request, record):
     return util.digest({"diagnosis_retry": retry["receipt"], "packet": pointer}) if accepted else None
 
 
+# Pauses for a stage output the runner rejected; an Investigator's retry of one runs the stage once more.
+REJECTED_OUTPUT = ("PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE")
+
+
+def _investigation_grant(state, request, record):
+    """The one Builder attempt an Investigator's retry of this packet's rejected Builder output promises.
+
+    The runner rejected what a Builder this packet admitted returned (it also wrote outside its
+    assignment, say) before any check of the incident, and the stuck-stage Investigator verified a
+    cause and recommended a retry (autocode_stuck_job), which for these pauses runs the stage once
+    more. As with an accepted operational diagnosis (#422), the verified guidance in the Builder's
+    prompt is the new information. Bound to that investigation, while its guidance is in force, and to
+    the packet; novelty spends it on one attempt that returns a result. An investigation of any other
+    pause, such as a novelty hold (PAUSED_NO_PROGRESS), grants nothing.
+    """
+    pointer, current = request.get("recovery_packet"), state.get("stuck_investigation") or {}
+    if (record["stage"] != "terra" or not current.get("in_force") or current.get("stage") != "terra"
+            or current.get("status") not in REJECTED_OUTPUT):
+        return None
+    entry = next((row for row in reversed(state.get("stuck_investigations") or [])
+                  if row.get("identity") == current.get("identity")), {})
+    # The rejected attempt it followed is the latest that returned a result: a relaunch automatic
+    # recovery archived without a report (a provider timeout) neither replaces it nor spends the grant.
+    last = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"
+                 and not row.get("report_only") and not row.get("dry_run") and not _returned_nothing(row)), {})
+    asked, rejected = _time(entry.get("requested_at")), _time(last.get("finished_at"))
+    if (entry.get("outcome") != "retried" or entry.get("trigger") != "rejected_output" or not last.get("rejected")
+            or (last.get("recovery_novelty") or {}).get("packet") != pointer
+            or not asked or not rejected or asked < rejected):
+        return None
+    return util.digest({"stuck_investigation": entry["identity"], "requested_at": entry["requested_at"],
+                        "packet": pointer})
+
+
 def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
@@ -625,9 +674,13 @@ def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _builder_grant(state, packet, request, record, prior)
     if ident is not None:
         return ident, "builder"
-    # One use is decided by novelty against attempts that returned a result.
+    # One use is decided by novelty against attempts that returned a result. A diagnosis grant
+    # one of those already carries is spent; it must not hide an Investigator's later grant.
     ident = _diagnosis_grant(state, packet, request, record)
-    return ident, "diagnosis" if ident is not None else None
+    if ident is not None and not any(row.get("grant_id") == ident for row in receipts(state, returned=True)):
+        return ident, "diagnosis"
+    ident = _investigation_grant(state, request, record)
+    return ident, "investigation" if ident is not None else None
 
 
 def finish_resolution_packet(state, request, plan):
@@ -828,7 +881,8 @@ def authorize_retry(runner, state, run_dir, workspace):
     if any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "orchestration_batch", "pending_report_repair")):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
-    if held.get("binding") != _binding(state, source_scope.snapshot(workspace, state)["revision"]) or held.get("scope") != _scope(state):
+    revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
+    if held.get("binding") != _binding(state, revision) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
     if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
         raise ValueError("Scoped recovery retry requires its no-progress hold")
@@ -959,7 +1013,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
             _stale(str(error))
         if current_inputs != packet["inputs"] or current_pins != packet["input_pins"]:
             _stale("external input changed after incident capture")
-    bound = _binding(state, source_scope.snapshot(workspace, state)["revision"])
+    bound = _binding(state, _source_revision(state, stage, pointer, packet, workspace))
     # A repair has a newly assigned task, but the approved stable scope must match;
     # a pinned repair task may only narrow the failed task's criteria (#423).
     expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]
