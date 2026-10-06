@@ -792,6 +792,30 @@ to retry, increase limits, change scope or approve work. The response returns to
 Resolver, and an unchanged stopped condition is not repeatedly reissued as a
 new question. Explicit administrative actions remain separately validated.
 
+Corrective information is evaluated once. Accepting `provide_information` schedules
+one Resolver re-evaluation, bound to the request ID and token, the response, the
+pause, the source revision, the settings (including the transport identity), the
+task, the contract, the recovery accounting and the request's evidence pins. The
+next `autocode resume` (or `--resume-paused` without another recovery flag)
+consumes it, without a provider call:
+
+- If anything it is bound to changed, it is retired as stale and the run stays
+  paused; Resolver asks again for the changed run when it needs to.
+- If the stop needs an operator control that information cannot supply (a spent
+  automatic-recovery allowance, a reached time, iteration, milestone or
+  no-progress bound, a repeated failure, a Builder retry limit, a stopped
+  parallel member, an unreconciled attempt), the run stays paused and the stop
+  reason and status name that exact command. Later resumes repeat the decision
+  without evaluating again.
+- Otherwise the request's own advice applies: the run continues through the
+  normal resume path, whose admission checks (limits, permissions, transport,
+  source, approval, interventions) still run before any provider launches.
+
+A repeated or restarted resume never evaluates the same response twice, and the
+same response sent again changes nothing. `leave_paused` is final. Requirements
+answers, plan approval, `--retry-failed-stage` and `--grant-recovery` keep their
+own paths.
+
 Source/contract/evidence changes, stale tokens and queued interventions invalidate
 old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures

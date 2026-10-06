@@ -24,6 +24,7 @@ try:
     from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_liveness as liveness_policy
+    from . import autocode_operational_information as operational_information
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
     import autocode_recovery_limits as recovery_limits
     import autocode_liveness as liveness_policy
+    import autocode_operational_information as operational_information
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -86,6 +88,10 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
         "routes": quota_route.routes(state),
         "route_assignments": quota_route.assignments(state),
+        # AutoResolver's one re-evaluation of corrective information sent to an operational request
+        # (autocode_operational_information, #486): status pending, held, admitted or stale; the
+        # decision, its reason and, when held, the exact next action. None when no response is current.
+        "information_review": operational_information.projection(state),
     }
     result["efficiency"] = autocode_efficiency.summary(
         state, accounting=result["usage"]["accounting"], completion_current=completion_current,
@@ -301,7 +307,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      continues (a PAUSED_NO_PROGRESS its unchanged-
                                                      batch limit caused: --resume-paused --no-progress-
                                                      limit N, N above `no_progress_batches`, the
-                                                     retained count, or 0)
+                                                     retained count, or 0; after AutoResolver held
+                                                     corrective information, the control it requires,
+                                                     view.information_review)
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -400,6 +408,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need
+        # AutoResolver evaluated corrective information and held: name the control it requires (#486).
+        review = operational_information.projection(state) or {}
+        if review.get("action") and (review["status"] == "held" or "action" not in need):
+            need["action"] = review["action"]
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}
         if (status == "PAUSED_REPEATED_FAILURE"

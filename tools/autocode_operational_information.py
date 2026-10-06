@@ -328,6 +328,7 @@ def projection(state):
     return {'request_id': record.get('request_id'), 'status': record.get('status'), 'cause': record.get('cause'),
             'scheduled_at': record.get('scheduled_at'), 'evaluated_at': record.get('evaluated_at'),
             'decision': decision.get('action'), 'reason': decision.get('message') or record.get('retired_reason'),
-            'action': decision.get('view_action') if record.get('status') == 'held'
-            and state.get('status') == record.get('evaluated_status') else None,
+            'action': (decision.get('view_action') if record.get('status') == 'held'
+                       and state.get('status') == record.get('evaluated_status')
+                       else '--resume-paused' if record.get('status') == 'pending' else None),
             'receipt': record.get('receipt_output')}

@@ -98,7 +98,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
-| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
+| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
@@ -319,6 +319,22 @@ role after its quota ran out or its provider's content filter refused it: `kind`
 `from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
 `actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the
 `request_id` it answered. It is empty for runs that never stopped on quota or a refusal.
+
+<a id="operational-information"></a>
+`information_review` describes Resolver's one re-evaluation of corrective
+information sent to its current operational request (`--resolver-response
+provide_information`), or is `null`: `request_id`, `status`, `cause` (the pause
+the request was for), `scheduled_at`, `evaluated_at`, `decision` (`hold` or
+`continue`), `reason`, `action` and `receipt` (the runner-owned decision record).
+`status` is `pending` until the next resume (`autocode resume` or
+`--resume-paused` with no other recovery flag) evaluates it once, with no provider
+call; then `held` (still paused, `action` and `needs.action` name the control it
+requires, such as `--resume-paused --grant-recovery N`, a raised bound or
+`--abandon-stage ATTEMPT`), `admitted` (the run continued through the normal
+admission checks) or `stale` (the run, request, response or evidence changed after
+the response, so it was not evaluated). Information never raises a limit, resets
+a count or approves anything; a later resume repeats a held decision without
+evaluating again.
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
