@@ -77,15 +77,22 @@ def workstream_ids(manifest: dict, milestones) -> dict[str, str]:
 
     The scripted planner keeps those ids; a live one names its milestones itself. So a scenario id stands for
     the one derived workstream whose ``owns`` cover every path of its milestone (the producer of the notes
-    store is whoever owns notes/store.py). Raises DriveError when no workstream or several cover one, or two
-    scenario ids land on the same workstream: the live plan's split does not line up with the scenario's."""
+    store is whoever owns notes/store.py). When several cover them, as a skeleton that owns all of notes/ and
+    an extension that owns notes/commands/search.py both cover search.py, the most specific owner stands for it.
+    Raises DriveError when no workstream covers one, several cover it equally specifically, or two scenario
+    ids land on the same workstream: the live plan's split does not line up with the scenario's."""
     rows = [(row["id"], [str(own).rstrip("/") for own in row.get("owns") or []])
             for row in manifest.get("workstreams") or []]
+
+    def covering(path, owns):
+        return [own for own in owns if path == own or path.startswith(own + "/")]
+
     ids, problems = {}, []
     for milestone in milestones:
         paths = list(milestone.get("paths") or [])
-        owners = [wid for wid, owns in rows if paths and all(
-            any(path == own or path.startswith(own + "/") for own in owns) for path in paths)]
+        covers = {wid: sum(max(map(len, covering(path, owns))) for path in paths) for wid, owns in rows
+                  if paths and all(covering(path, owns) for path in paths)}
+        owners = [wid for wid, score in covers.items() if score == max(covers.values())]
         if len(owners) == 1:
             ids[milestone["id"]] = owners[0]
         else:

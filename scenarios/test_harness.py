@@ -919,8 +919,12 @@ class ProgramDriverTests(unittest.TestCase):
         # A live planner names its own, and may own a directory rather than each file.
         self.assertEqual({"S": "core", "T": "search"}, workstream_ids(
             derived(("core", ["notes/cli.py", "notes/store.py"]), ("search", ["notes/commands/"])), milestones))
+        # A skeleton that owns all of notes/ also covers search.py; the more specific owner stands for T.
+        self.assertEqual({"S": "core", "T": "search"}, workstream_ids(
+            derived(("core", ["notes"]), ("search", ["notes/commands/search.py"])), milestones))
         for rows, error in (
-                ([("core", ["notes"]), ("search", ["notes/commands/search.py"])], "2 workstreams \\(core, search\\)"),
+                ([("core", ["notes/cli.py", "notes/store.py"]), ("x", ["notes/commands"]), ("y", ["notes/commands/"])],
+                 "2 workstreams \\(x, y\\)"),
                 ([("cli", ["notes/cli.py"]), ("store", ["notes/store.py"]), ("T", ["notes/commands"])],
                  "no one workstream owns all of S's"),
                 ([("core", ["notes"])], "S and T would be one workstream, core")):
