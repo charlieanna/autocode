@@ -58,7 +58,6 @@ try:
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
-    from . import autocode_containment_policy as containment_policy
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -93,7 +92,6 @@ except ImportError:
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
     import autocode_output_policy as output_policy, autocode_output_cap as output_cap
-    import autocode_containment_policy as containment_policy
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -372,16 +370,14 @@ def run_role(
     idle_limit, idle_origin = idle_policy.effective(
         idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model)
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
-    # The user's saved --allow-uncontained-tools opt-out, never an environment or model choice (#413).
-    uncontained = containment_policy.accepted(state["settings"])
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
-        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run and not uncontained,
-        source_paths=source_scope.paths(state),
-        tool_commands=verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
-        if engine == "opencode" and not dry_run and not uncontained and not (joint_stage or report_only) else ())
+        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
+        source_paths=source_scope.paths(state), settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        tool_commands=(lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state)))
+        if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
     session = worker_context.get('provider_session', session)
     child_options = {"start_new_session": True, "env": child_environment}
     if engine == "opencode":
@@ -433,12 +429,7 @@ def run_role(
     if joint_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
-        record.update(permission_config=str(base.with_suffix(".opencode.json")),
-                      isolation="Kernel-constrained native shell; other tools disabled" if worker_context.get('tool_containment') else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
-        record['tool_containment'] = worker_context.get('tool_containment')
-        record['output_token_cap'] = worker_context.get('output_token_cap')
-        if uncontained and not (joint_stage or report_only):
-            record.update(uncontained_tools=True, isolation=record['isolation'] + '; kernel containment waived by --allow-uncontained-tools')
+        record.update(permission_config=str(base.with_suffix(".opencode.json")), **provider_launch.stage_record(worker_context))
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")

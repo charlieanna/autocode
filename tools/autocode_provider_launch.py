@@ -8,13 +8,28 @@ import subprocess
 import sys
 try:
     from . import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
+    from . import autocode_containment_policy as containment_policy
 except ImportError:
     import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
+    import autocode_containment_policy as containment_policy
 
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
              model, effort, allow_write, planning, report, schema, prompt_file,
-            sandbox, transport_args, chatgpt, provider, enforce_tool_boundary=True, tool_commands=(), source_paths=()):
+            sandbox, transport_args, chatgpt, provider, enforce_tool_boundary=True, tool_commands=(), source_paths=(),
+            settings=None):
+    """Return (command, environment, overrides, worker) for one stage launch.
+
+    ``settings`` are the run's saved settings. Their --allow-uncontained-tools opt-out (#413),
+    never an environment variable or model choice, launches without the kernel tool boundary:
+    ``tool_commands`` (a list, or a callable returning one) is then not computed, and a
+    non-planning OpenCode worker carries ``uncontained_tools`` for its stage record (stage_record).
+    """
+    uncontained = containment_policy.accepted(settings)
+    if uncontained:
+        enforce_tool_boundary, tool_commands = False, ()
+    elif callable(tool_commands):
+        tool_commands = tool_commands()
     environment = agent_env.scrubbed(os.environ)
     overrides = None
     prior_session = session
@@ -63,12 +78,25 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
                "command": command, "environment": environment, "provider_session": session}
     if prior_session and session is None:
         worker['fresh_session_reason'] = 'Native tool containment requires a newly bound provider session'
+    if uncontained and engine == "opencode" and not planning:
+        worker['uncontained_tools'] = True
     if environment.get('AUTOCODE_TOOL_CONTAINMENT'):
         worker['tool_containment'] = json.loads(environment['AUTOCODE_TOOL_CONTAINMENT'])
     if engine == "opencode" and not worker["configured"]:
         # Read from the scrubbed environment: the cap the process will actually get.
         worker['output_token_cap'] = output_cap.recorded(os.environ, environment)
     return command, environment, overrides, worker
+
+
+def stage_record(worker):
+    """The launch facts a built-in OpenCode stage record carries: isolation, tool boundary, output cap."""
+    record = {'isolation': "Kernel-constrained native shell; other tools disabled" if worker.get('tool_containment')
+              else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
+              'tool_containment': worker.get('tool_containment'), 'output_token_cap': worker.get('output_token_cap')}
+    if worker.get('uncontained_tools'):
+        record.update(uncontained_tools=True,
+                      isolation=record['isolation'] + '; kernel containment waived by ' + containment_policy.FLAG)
+    return record
 
 
 def containment_prompt(prompt, worker):

@@ -9,10 +9,10 @@ tools with --allow-uncontained-tools.
 
 That acceptance is the settings key ``allow_uncontained_tools`` (True), written only by
 configure() below, with a ``user_events`` entry saying who and when. Readers:
-autocode.run_role (launch without the kernel boundary and note it on the stage record),
-autocode_run_view (the ``tool_containment`` field) and this module. Nothing else sets
-it: no environment variable, model output or dashboard default. Once saved it stays
-for every resume.
+autocode_provider_launch (prepare launches without the kernel boundary and stage_record
+notes it on the stage record), autocode_run_view (the ``tool_containment`` field) and this
+module. Nothing else sets it: no environment variable, model output or dashboard default.
+Once saved it stays for every resume.
 
 Imports nothing from the runner.
 """
