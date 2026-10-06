@@ -678,7 +678,16 @@ class RetrofitTest(unittest.TestCase):
                 kwargs["stdout"].write('{"type":"thread.started","thread_id":"t-session"}\n')
                 kwargs["stdout"].write(json.dumps({"type":"turn.completed","usage":{"input_tokens":9,"cached_input_tokens":3,"output_tokens":2}})+"\n")
             def wait(child): return 0
-        with patch.object(runner.subprocess,"Popen",Child):
+        @contextlib.contextmanager
+        def launch(command, *, checkpoint, **kwargs):
+            # This test checks the provider request boundary; process lifetime
+            # itself is exercised with real subprocesses in test_supervision.
+            for key in ('receipt_path', 'timeout'):
+                kwargs.pop(key)
+            child = Child(command, **kwargs)
+            checkpoint({'owner': {}, 'provider': {'pid': child.pid}})
+            yield child
+        with patch.object(runner.supervision,"launch",launch):
             # Snapshot/diff need real subprocesses, so mock those independent
             # filesystem observations rather than making Popen handle git too.
             with patch.object(s,"snapshot",return_value={"head":"h","files":{},"revision":"r"}), patch.object(runner.subprocess,"run"), \
@@ -702,7 +711,12 @@ class RetrofitTest(unittest.TestCase):
         class Child:
             pid = 12345
             def __init__(child, command, **kwargs): pass
-        with patch.object(runner.subprocess, "Popen", Child), \
+        @contextlib.contextmanager
+        def launch(command, *, checkpoint, **kwargs):
+            child = Child(command)
+            checkpoint({'owner': {}, 'provider': {'pid': child.pid}})
+            yield child
+        with patch.object(runner.supervision, "launch", launch), \
              patch.object(s, "snapshot", return_value={"head":"h", "files":{}, "revision":"r"}), \
              patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=(-15,True)):

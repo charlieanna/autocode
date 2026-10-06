@@ -179,6 +179,10 @@ function openScenario(info, name, width, height) {
     ? 'unavailable saved planning model'
     : 'interrupted build';
   waitForCondition('document.querySelector("#task-title")?.textContent.includes(' + JSON.stringify(expected) + ')', name + ' scenario render');
+  // The page loads its own model catalogue at start. The checks below replace
+  // it with syncModelOptions, and a load still in flight would land on top of
+  // that, or leave no last usable catalogue to judge the saved model by (#314).
+  waitForCondition('typeof modelCatalogue==="object"&&modelCatalogue.loading===false&&modelCatalogue.usable===true&&(modelCatalogue.models||[]).length>0', name + ' page model catalogue load');
   data('()=>{[document.scrollingElement,...document.querySelectorAll(".page,.thread-scroll")].filter(Boolean).forEach(e=>{e.scrollTop=0;e.scrollLeft=0;});return true;}');
 }
 

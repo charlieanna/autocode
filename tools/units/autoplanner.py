@@ -14,7 +14,7 @@ try:
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
-    from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations
+    from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -30,7 +30,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_brief_literals as brief_literals
     import autocode_design_plan as design_plan
-    import autocode_brief_obligations as brief_obligations
+    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -411,6 +411,8 @@ SCHEMAS.update({
 BRIEF_OBSERVATION_CHANGE = obj({"previous_hash": S, "declaration_id": S, "source_event_id": S})
 for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["brief_observations"] = brief_obligations.PROPOSALS_SCHEMA
+    SCHEMAS[_stage]["properties"]["risk_observations"] = risk_obligations.PROPOSALS_SCHEMA
+    SCHEMAS[_stage]["properties"]["risk_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
     SCHEMAS[_stage]["properties"]["brief_observation_changes"] = {
         "type": "array", "items": BRIEF_OBSERVATION_CHANGE}
 
@@ -1068,6 +1070,21 @@ Reviewer proposes observations in those report fields; the runner seals their bi
 """
 
 
+RISK_OBSERVATION_REVIEW_RULE = """
+LIFECYCLE DECLARATIONS. risk_declaration_inventory derives explicit durability and
+fencing promises from authenticated human source and initial public modules.
+When the schema includes risk_observations, cover each supported declaration with
+{declaration_id, criterion_ids, module}. Select an allowed original public module;
+never invent expected values, API aliases, scripts or protocol schedules. Missing
+source facts are blocking concerns, not permission to assume a stronger contract.
+Reuse unchanged observations. A genuine later human amendment needs an exact
+risk_observation_changes entry with previous_hash, declaration_id, source_event_id.
+The runner executes a fixed bounded process-lifecycle protocol in clean replay;
+ordinary unit tests or callback exceptions cannot replace actual process death.
+risk_acceptance is runner-owned: omit it from model contracts, never create/edit it.
+"""
+
+
 def context(state, stage, state_path):
     predecessor = None
     if stage in V2_STAGES:
@@ -1105,6 +1122,7 @@ def context(state, stage, state_path):
                 "recovery_context": state.get('recovery_context')}
     if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
+        packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
@@ -1194,6 +1212,8 @@ def context(state, stage, state_path):
         design_rule += BRIEF_ACCEPTANCE_CARRY_RULE
     if packet.get("brief_declaration_inventory"):
         design_rule += BRIEF_OBSERVATION_REVIEW_RULE
+    if packet.get("risk_declaration_inventory"):
+        design_rule += RISK_OBSERVATION_REVIEW_RULE
     design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
     prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
@@ -1207,14 +1227,21 @@ def _model_report_schema(schema, state):
     result = copy.deepcopy(schema)
     for field in ("contract", "requirements"):
         body = result.get("properties", {}).get(field, {})
-        body.get("properties", {}).pop("brief_acceptance", None)
-        if "brief_acceptance" in body.get("required", []):
-            body["required"].remove("brief_acceptance")
+        for protected in ("brief_acceptance", "risk_acceptance"):
+            body.get("properties", {}).pop(protected, None)
+            if protected in body.get("required", []):
+                body["required"].remove(protected)
     if not brief_obligations.inventory(state) and not (
             (state.get('goal_contract') or {}).get('body') or {}).get(brief_obligations.KEY):
         # Strict model output schemas require every included property. Unrelated
         # tasks retain their existing report protocol; no empty feature fields.
         for field in ('brief_observations', 'brief_observation_changes'):
+            result.get('properties', {}).pop(field, None)
+            if field in result.get('required', []):
+                result['required'].remove(field)
+    if not risk_obligations.inventory(state) and not (
+            (state.get('goal_contract') or {}).get('body') or {}).get(risk_obligations.KEY):
+        for field in ('risk_observations', 'risk_observation_changes'):
             result.get('properties', {}).pop(field, None)
             if field in result.get('required', []):
                 result['required'].remove(field)
@@ -1305,6 +1332,8 @@ def after_challenge(state, value, record):
     # The same path a final review takes: install the approved body and queue the user's approval.
     body = brief_obligations.reviewed_body(state, contract["body"],
         value.get("brief_observations") or [], record, changes=value.get("brief_observation_changes") or [])
+    body = risk_obligations.reviewed_body(state, body, value.get("risk_observations") or [],
+        record, changes=value.get("risk_observation_changes") or [])
     lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(approved_at=f"astra_challenge#{planning['adaptive']['challenges']}",

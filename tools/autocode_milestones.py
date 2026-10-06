@@ -5,6 +5,12 @@ Old checkpoints opt in at a reconciled boundary; new runs enable it by default.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 from contextlib import contextmanager
 import datetime as dt
@@ -90,7 +96,7 @@ def route_review_only_request(state, request, origin):
     required = set(scope(state)["acceptance_criteria"]).intersection(goals.missing_human_reviews(state))
     if not review_gate.review_only_permission(report, request, required) or not goals.approved(state):
         return copy.deepcopy(request)
-    current = s.snapshot(Path(state["workspace"]))
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
     ready = evidence_ready(state, current)
     if not ready:
         fresh = fresh_validation(state, current)
@@ -268,7 +274,7 @@ def release_obsolete_gate_request(state, published):
     if not goals.approved(state):
         return False
     try:
-        current = s.snapshot(Path(state["workspace"]))
+        current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
     except (KeyError, OSError, RuntimeError, ValueError):
         return False
     if (not evidence_ready(state, current)

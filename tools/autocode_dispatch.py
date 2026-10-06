@@ -6,6 +6,12 @@ passes through the ordinary Validator and completion-owner gates.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+except ImportError:
+    import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+
+
 import copy
 import os
 from pathlib import Path
@@ -18,7 +24,7 @@ try:
     from . import autocode_support as s, autocode_goals as goals
     from . import autocode_milestones as milestones, autocode_process as processes
     from . import autocode_interventions as interventions, autocode_worktrees as worktrees
-    from . import autocode_builder_policy as builder_policy
+    from . import autocode_builder_policy as builder_policy, autocode_worker_quota as worker_quota
     from .autocode_assignment import contains
 except ImportError:
     import autocode_support as s
@@ -28,6 +34,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_worktrees as worktrees
     import autocode_builder_policy as builder_policy
+    import autocode_worker_quota as worker_quota
     from autocode_assignment import contains
 
 
@@ -71,7 +78,11 @@ def enforce_cross_model_verification(state):
         v_model = (roles.get(verifier) or {}).get("model")
         if not p_model or not v_model:
             return
-        if p_model == v_model:
+        # Native Codex and OpenCode spell the same exact GPT tier differently.
+        p_id, v_id = (model.removeprefix("openai/")
+                      if isinstance(model, str) and model.startswith("openai/gpt-") else model
+                      for model in (p_model, v_model))
+        if p_id == v_id:
             problems.append(f"{label}: identical model {p_model}")
             return
         p_fam, v_fam = _model_family(p_model), _model_family(v_model)
@@ -162,11 +173,11 @@ def git(workspace, *args, env=None, data=None):
     return result.stdout
 
 
-def snapshot_commit(workspace, directory):
+def snapshot_commit(workspace, directory, *, source_paths=()):
     """Save the complete current source without touching the user's HEAD/index."""
     if git(workspace, "ls-files", "-u"):
         raise s.Paused("PAUSED_ORCHESTRATOR_GIT", "Resolve the existing Git conflict before parallel dispatch")
-    files = s.snapshot(workspace)["files"]
+    files = source_snapshot.snapshot(workspace, paths=source_paths)["files"]
     if any(v.startswith(("submodule:", "uninitialized-submodule")) for v in files.values()):
         raise s.Paused("PAUSED_ORCHESTRATOR_GIT", "Parallel Builder snapshots do not yet support submodules")
     index = directory / ("index-" + uuid.uuid4().hex)
@@ -196,7 +207,7 @@ def snapshot_commit(workspace, directory):
             for flag in ("--no-assume-unchanged", "--no-skip-worktree"):
                 git(workspace, "update-index", flag, "-z", "--stdin", env=env, data=paths)
         if source:
-            git(workspace, "--literal-pathspecs", "add", "-A", "--pathspec-from-file=-",
+            git(workspace, "--literal-pathspecs", "add", "-f", "-A", "--pathspec-from-file=-",
                 "--pathspec-file-nul", env=env,
                 data=b"".join(os.fsencode(name) + b"\0" for name in sorted(source)))
         tree = git(workspace, "write-tree", env=env).decode().strip()
@@ -227,9 +238,9 @@ def prepare(state, workspace, run_dir, selected):
     batch_id = uuid.uuid4().hex[:12]
     directory = run_dir / "orchestration" / batch_id
     directory.mkdir(parents=True)
-    baseline = s.snapshot(workspace)
-    base = snapshot_commit(workspace, directory)
-    if s.snapshot(workspace) != baseline:
+    baseline = source_scope.snapshot(workspace, state, base_snapshot=s.snapshot)
+    base = snapshot_commit(workspace, directory, source_paths=source_scope.paths(state))
+    if source_scope.snapshot(workspace, state, base_snapshot=s.snapshot) != baseline:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Source changed while capturing the Builder baseline")
     batch = {"id": batch_id, "contract_hash": state["goal_contract"]["hash"],
              "baseline": baseline, "base_commit": base, "directory": str(directory),
@@ -270,7 +281,7 @@ def finish_preparation(state, workspace, run_dir, batch):
         else:
             git(workspace, "worktree", "add", "-b", branch, str(worker_workspace), base)
         expected_files = {p: value for p, value in batch["baseline"]["files"].items() if value != "deleted"}
-        if s.snapshot(worker_workspace)["files"] != expected_files:
+        if source_scope.snapshot(worker_workspace, state, base_snapshot=s.snapshot)["files"] != expected_files:
             raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT",
                            "Prepared Builder checkout is incomplete or modified; restore its saved baseline before resuming. "
                            "Existing files were left untouched")
@@ -394,7 +405,7 @@ def account_workers(state, run_dir, batch):
 
 
 def check_deferred_checkout(batch, row):
-    current = s.snapshot(Path(row["workspace"]))
+    current = source_snapshot.snapshot(Path(row["workspace"]), paths=batch['baseline'].get('source_paths', ()))
     if (current["head"] != batch["base_commit"]
             or current["files"] != {p: v for p, v in batch["baseline"]["files"].items() if v != "deleted"}):
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", f"Builder {row['milestone_id']} deferred its stronger attempt "
@@ -436,10 +447,9 @@ def collect(state, workspace, run_dir, batch):
         if result.get("status") == builder_policy.SERIAL:
             deferred.append((row, deferred_worker(batch, row)))
             continue
-        if result.get("status") == "PAUSED_BUDGET" and result.get("quota_worker"):
-            error = s.Paused("PAUSED_BUDGET", f"PAUSED_BUDGET: Builder {row['milestone_id']} stopped on quota; {directory}")
-            error.quota_worker = result["quota_worker"]
-            raise error
+        stopped = worker_quota.stop(state, row, result, directory)  # quota or a refusal: route-terra (#458, #465)
+        if stopped:
+            raise stopped
         if result.get("status") != "BUILT":
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']}: {result.get('reason', 'paused')}; {directory}")
         child = s.read(directory / "state.json")
@@ -447,11 +457,11 @@ def collect(state, workspace, run_dir, batch):
         if (child["goal_contract"]["hash"] != batch["contract_hash"] or child["current_task"] != row["task"]
                 or child["implementation"].get("user_request", {}).get("kind") != "none"):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", "Builder changed its assignment or requested a user decision")
-        current = s.snapshot(Path(row["workspace"]))
+        current = source_scope.snapshot(Path(row["workspace"]), state, base_snapshot=s.snapshot)
         if current["head"] != batch["base_commit"] or current["revision"] != child["implementation"]["source_revision"]:
             raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed after its recorded result")
-        commit = snapshot_commit(Path(row["workspace"]), directory)
-        if s.snapshot(Path(row["workspace"])) != current:
+        commit = snapshot_commit(Path(row["workspace"]), directory, source_paths=source_scope.paths(state))
+        if source_scope.snapshot(Path(row["workspace"]), state, base_snapshot=s.snapshot) != current:
             raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed while capturing its result")
         # Enforce ownership on the complete tree delta, including edits made
         # before the provider's own before-snapshot (or retained from retries).
@@ -475,7 +485,7 @@ def collect(state, workspace, run_dir, batch):
                    commit=commit, changed_files=paths, implementation=child["implementation"],
                    stages=child["stages"])
     # Path ownership cannot tell a stray Builder write from a concurrent user edit.
-    if s.snapshot(workspace) != batch["baseline"]:
+    if source_scope.snapshot(workspace, state, base_snapshot=s.snapshot) != batch["baseline"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Parent source changed during the build; parent files and Builder worktrees retained")
     # Deferred members are left out of the patch; the parent builds each one serially later.
     for row, child in deferred:
@@ -498,7 +508,7 @@ def collect(state, workspace, run_dir, batch):
 def integrate(state, workspace, run_dir, batch):
     if s.file_hash(batch["patch"]) != batch["patch_hash"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Saved integration patch changed")
-    current = s.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=s.snapshot)
     if current == batch["baseline"]:
         patch = Path(batch["patch"]).read_bytes()
         with interventions.admission(run_dir):
@@ -506,14 +516,14 @@ def integrate(state, workspace, run_dir, batch):
                 raise s.Paused("PAUSED_REQUESTED", "Pause requested before integration")
             if patch:
                 git(workspace, "apply", "--check", "--binary", "-", data=patch)
-                if s.snapshot(workspace) != batch["baseline"]:
+                if source_scope.snapshot(workspace, state, base_snapshot=s.snapshot) != batch["baseline"]:
                     raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Source changed before integration")
                 batch["status"] = "INTEGRATING"
                 autocode_status.persist(run_dir / "state.json", state)
                 git(workspace, "apply", "--binary", "-", data=patch)
     elif batch["status"] != "INTEGRATING" or current != batch["expected"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Integration workspace changed; Builder branches and patch retained")
-    current = s.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=s.snapshot)
     if current != batch["expected"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Integration does not match saved Builder output; inspect retained patch")
     # Integrated and verified: the workers' patch is saved in the batch, so their worktrees go.
@@ -584,14 +594,14 @@ def dispatch(state, workspace, run_dir):
         if batch["status"] == "PREPARING":
             finish_preparation(state, workspace, run_dir, batch)
         if batch["status"] == "BUILDING":
-            if s.snapshot(workspace) != batch["baseline"]:
+            if source_scope.snapshot(workspace, state, base_snapshot=s.snapshot) != batch["baseline"]:
                 raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Parent source changed before Builder dispatch")
             account_workers(state, run_dir, batch)
             run_workers(state, run_dir, batch)
             # A saved RUNNING worker is never replayed; collect only terminal evidence.
             collect(state, workspace, run_dir, batch)
         if batch["status"] == "DEFERRING":
-            if s.snapshot(workspace) != batch["baseline"]:
+            if source_scope.snapshot(workspace, state, base_snapshot=s.snapshot) != batch["baseline"]:
                 raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Parent source changed before serial fallback; Builder records retained")
             retire_deferred(batch, workspace)
             batch.update(status="DEFERRED", finished_at=s.now())
@@ -663,11 +673,14 @@ def request_retry(state, run_dir, selected, *, issued=None):
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
     for mid in selected:
         result = Path(rows[mid]["run_dir"]) / "result.json"
-        status = s.read(result).get("status") if result.exists() else None
-        if status == "BUILT":
+        saved = s.read(result) if result.exists() else {}
+        if saved.get("status") == "BUILT":
             raise ValueError(f"Builder {mid} already completed; its work will be retained")
-        if status == builder_policy.SERIAL:
+        if saved.get("status") == builder_policy.SERIAL:
             raise ValueError(f"Builder {mid} left its stronger attempt to a serial build after this batch")
+        refused = worker_quota.refused_retry(rows[mid], saved)
+        if refused:
+            raise ValueError(refused)
     try:
         from . import autocode_resolver_human as human
     except ImportError:

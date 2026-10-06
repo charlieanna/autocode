@@ -42,7 +42,9 @@ _SUITE_CACHE = {}
 REAL_BROWSER_SUITES = {"lifecycle", "a11y"}
 
 
-def run_browser_suite(name, timeout=420):
+# The a11y suite takes about 220-260 s alone and exceeded 420 s under host
+# contention while still progressing (#314); the cap stops a hung suite.
+def run_browser_suite(name, timeout=900):
     if name in _SUITE_CACHE:
         return _SUITE_CACHE[name]
     environment = os.environ.copy()

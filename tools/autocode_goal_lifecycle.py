@@ -7,6 +7,12 @@ from here, so a module that only reads a contract does not pull that machinery i
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 
 try:
@@ -26,7 +32,8 @@ try:
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
-    from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_finding_rescope as finding_rescope
+    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -37,7 +44,8 @@ except ImportError:
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
-    import autocode_brief_obligations as brief_obligations
+    import autocode_finding_rescope as finding_rescope
+    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -50,6 +58,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
     schema = PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA
     s.validate_schema(body, design_plan.body_schema(schema, (state.get("settings") or {}).get("design_manifest")))
     brief_obligations.validate_body(state, body, ready=ready)
+    risk_obligations.validate_body(state, body, ready=ready)
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
         first = body["initial_task"]
         verification_plan.require_scaffolding(state.get("workspace"), first["affected_paths"], first["validation_plan"])
@@ -160,6 +169,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
+    body = risk_obligations.prepare_body(state, body, origin, record)
     validate_body(state, body, allow_legacy=allow_legacy)
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
@@ -251,7 +261,7 @@ def migrate(state, *, fresh=False):
     # come from planning; inventing a blocking question here makes models ask
     # for redundant migration permission. Saved legacy runs remain conservative.
     if not fresh:
-        body = {k: [] for k in BODY_SCHEMA["properties"] if k not in ("task_kind", "brief_acceptance")}
+        body = {k: [] for k in BODY_SCHEMA["properties"] if k not in ("task_kind", "brief_acceptance", "risk_acceptance")}
         body.update(intended_outcome=state["task"], intended_user="Unconfirmed",
                     acceptance_criteria=[{"id": c["id"], "criterion": c["criterion"],
                         "verification_method": "Unconfirmed; reconstruct from saved evidence", "human_review": False}
@@ -465,16 +475,20 @@ def _approve(state, selected):
     joint = state.get("settings", {}).get("joint_planning")
     if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
         raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
-    current = s.snapshot(Path(state["workspace"])) if joint else None
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
     prepared_progressive = progressive_state.prepare_seal(state, selected)
+    recorded_under = finding_rescope.previous_approved(state)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     progressive_state.seal(state, selected, prepared=prepared_progressive)
+    # Open findings follow the criteria this revision moved to other milestones (#447).
+    finding_rescope.on_approval(state, recorded_under, contract_token=selected, at=event["at"],
+                                new_id=lambda: findings.allocate_id(state))
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
     carried = []
     if checkpoints.enabled(state):
-        current = current or s.snapshot(Path(state['workspace']))
+        current = current or source_scope.snapshot(Path(state['workspace']), state, base_snapshot=s.snapshot)
         carried = checkpoints.carryforward.carry(state, current)
     if joint:
         if contract['body']['initial_task']['milestone_id'] in carried:
@@ -509,7 +523,7 @@ def resolve_passing_checkpoint(state, question_id, text):
     description = str(request.get("discovered", "")).lower()
     if not all(word in description for word in ("checkpoint", "evidence")) or not ("sol" in description or "validator" in description):
         raise ValueError("The pending request is not a Validator milestone checkpoint")
-    current = s.snapshot(Path(state["workspace"]))
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
     if not checkpoints.evidence_ready(state, current) or missing_human_reviews(state):
         raise ValueError("Current independent evidence or a required human review is still missing")
     event = {"kind": "checkpoint_answer", "actor": "user_cli", "at": s.now(),

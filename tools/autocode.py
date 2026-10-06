@@ -21,18 +21,23 @@ from pathlib import Path
 from typing import Any
 import copy
 import uuid
+from contextlib import ExitStack
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
+    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
+    import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
+    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
@@ -146,7 +151,7 @@ def recover_default_budget(state, run_dir, workspace, kind):
                 or (Path(run_dir) / 'pause-requested').exists() or interventions.pending(run_dir)):
             return False
         latest = next((row for row in reversed(state.get('stages', [])) if not row.get('runner_owned')), None)
-        if not latest or latest.get('source_revision') != support.snapshot(workspace)['revision']:
+        if not latest or latest.get('source_revision') != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']:
             return False
         candidate = copy.deepcopy(state)
         if not budget_recovery.recover(candidate, kind=kind, now=now()):
@@ -370,6 +375,7 @@ def run_role(
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
         sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
+        source_paths=source_scope.paths(state),
         tool_commands=verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
         if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
     session = worker_context.get('provider_session', session)
@@ -391,7 +397,7 @@ def run_role(
             raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Visual transport changed since its approved profile')
         visual_context, command, child_environment, prompt = visual_runtime.prepare(
             state, original_stage, workspace, run_dir, base, command, child_environment, prompt,
-            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir), current_snapshot=support.snapshot(workspace))
+            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir), current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
         worker_context['visual_runtime'] = visual_context
         child_options['env'] = child_environment
         worker_context.update(command=command, environment=child_environment)
@@ -440,7 +446,7 @@ def run_role(
 
     if engine == "opencode" and not configured_tool:
         readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
-    before = support.snapshot(workspace)
+    before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if record['output_mode'] == 'report_file':
         record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
                                      'source_revision': before['revision']}
@@ -455,7 +461,7 @@ def run_role(
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
-    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout:
+    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout, ExitStack() as provider_guard:
         try:
             with interventions.admission(run_dir):
                 provider_launch.verify_containment(worker_context)
@@ -482,15 +488,24 @@ def run_role(
                 write_json(run_dir / "state.json", state)
                 child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool
                                and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
-                child = subprocess.Popen(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
-                                         text=True, **checkout_lock.child_options(workspace, child_options))
-                record["pid"] = child.pid
+                def ownership_checkpoint(metadata):
+                    # One writer before exec; status and reconciliation consume
+                    # these birth identities and the independent receipt.
+                    record.update(pid=metadata['provider']['pid'], owner=metadata['owner'], supervision=metadata)
+                    write_json(run_dir / "state.json", state)
+                child = provider_guard.enter_context(supervision.launch(
+                    command, receipt_path=base.with_suffix('.supervision.json'), timeout=stage_timeout or None,
+                    checkpoint=ownership_checkpoint, cwd=workspace, stdin=child_stdin, stdout=stdout,
+                    stderr=subprocess.STDOUT, text=True,
+                    **checkout_lock.child_options(workspace, child_options)))
         except support.Paused:
             job_source.discard_prepared(record)
             # Admission lost to a submission: no request or provider was started.
             for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
                 prepared.unlink(missing_ok=True)
             raise
+        except processes.ProcessError as error:
+            raise support.Paused('PAUSED_PROCESS_CLEANUP', str(error)) from error
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
         activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
                                    idle_origin=idle_origin,
@@ -532,7 +547,18 @@ def run_role(
                                     "processes": record.get("processes", []), "cleanup_error": cleanup_error})
         else:
             worker_path.unlink(missing_ok=True)
+        finally:
+            try:
+                provider_guard.close()
+            except processes.ProcessError as error:
+                cleanup_error = str(error)
+            independent = supervision.receipt(record['supervision'])
+            if independent and independent.get('cause') == 'stage_deadline':
+                timed_out = True
+            elif independent and independent.get('cause') in ('owner_lost', 'lifeline_failure', 'invalid_owner_message'):
+                interrupted = True
         if interrupted:
+            record['interrupted'] = True
             worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up before propagating the interrupt
     record.update(finished_at=now(), exit_code=exit_code, duration_seconds=time.monotonic() - started,
                   metrics=support.event_metrics(events), timed_out=timed_out)
@@ -569,14 +595,13 @@ def run_role(
     elif not output.is_file():
         refused_at_clean_exit(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     write_json(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
     record["source_revision"] = after["revision"]
     record["changed_files"] = support.changed_paths(before, after)
     diff_path = base.with_suffix(".diff")
-    with diff_path.open("w") as diff:
-        subprocess.run(["git", "diff", "--no-ext-diff", "--binary", "HEAD"], cwd=workspace, stdout=diff, check=True)
+    source_diff.write(workspace, diff_path, after)
     record["diff_ref"] = str(diff_path)
     summary_path = base.with_suffix(".tools.json")
     support.summarize_events(events, summary_path)
@@ -663,7 +688,7 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
     state = copy.deepcopy(state)
     pending = state['pending_report_repair']
     original = copy.deepcopy(pending['original'])
-    current = support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if (current['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
@@ -739,7 +764,7 @@ def execute_report_repair(state, run_dir, workspace):
         raise support.Paused('PAUSED_STALE_VALIDATION',
             f"The source changed after the rejected {original['stage']} report, so its repair cannot run. Resume with "
             f"autocode resume to archive the repair (evidence retained) and start a fresh {original['stage']} attempt.")
-    if (support.snapshot(workspace)['revision'] != original['source_revision']
+    if (source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Saved report-repair inputs changed; do not retry')
@@ -900,7 +925,7 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
     if not record:
         return
     repeated = failures.repeated(state, record)
-    if repeated and support.snapshot(workspace)['revision'] == record.get('source_revision'):
+    if repeated and source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] == record.get('source_revision'):
         if (authorization and not authorization.get('consumed')
                 and authorization.get('failure_key') == record.get('failure_key')
                 and authorization.get('identity') == repeated['identity']
@@ -934,6 +959,17 @@ def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
         return
+    held = None
+    if record.get('supervision'):
+        independent = supervision.receipt(record['supervision'])
+        held = supervision_recovery.hold(record, independent, attempt=attempt_id(record))
+    if held:
+        if held['timed_out']:
+            record['timed_out'] = True
+            if record.get('report_only') and automatically_recover_report_repair_timeout(state, run_dir, workspace,
+                    support.Paused(held['status'], held['reason'])):
+                return
+        raise support.Paused(held['status'], held['reason'])
     if record.get('report_only') and record.get('timed_out'):
         if automatically_recover_report_repair_timeout(state, run_dir, workspace,
                 support.Paused('PAUSED_PROVIDER_TIMEOUT', record.get('timeout_reason', 'Saved repair timeout'))):
@@ -986,7 +1022,7 @@ def reconcile_active(state, run_dir, workspace):
             reject_completed_stage(state, run_dir, record, error)
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Recovered stage lacks its original source snapshot')
     before = read_json(Path(record["before_ref"]))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if (record["role"] != "terra" or record.get('report_only')) and before["revision"] != after["revision"]:
         raise support.Paused("PAUSED_STALE_VALIDATION",
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
@@ -994,7 +1030,7 @@ def reconcile_active(state, run_dir, workspace):
             f"After inspecting the change, use --abandon-stage {attempt_id(record)} to set the result aside "
             "(evidence and edits retained), then autocode resume for a fresh attempt on the current source.")
     base = Path(record["output"]).with_suffix("")
-    write_json(base.with_suffix(".after.json"), after)
+    source_snapshot.preserve_after(base.with_suffix(".after.json"), after, write_json=write_json)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), recovered_at=now(), metrics=support.event_metrics(record["events"]))
     try:
@@ -1084,7 +1120,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
         raise ValueError("Run is already complete")
     if not goals.approved(state):
         raise ValueError("Completion acceptance requires an approved goal")
-    current = support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     contract = state["goal_contract"]
     # The probe must carry the current task identity: execution_guard rejects a
     # result whose task_id is absent while a task is assigned, so omitting it
@@ -1116,7 +1152,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
 def recheck_completion(state, workspace):
     if state.get("status") != "TASK_COMPLETE":
         return
-    if completion_gate.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace)):
+    if completion_gate.completion_ready(state, state.get("final_decision", {}), source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)):
         return
     state.setdefault("completion_archive", []).append({"completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)})
     state.pop("completion_actor", None)
@@ -1230,7 +1266,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                 if reply not in ("y", "yes"):
                     print("Artifact review remains pending.")
                     return False
-                current = support.snapshot(Path(state["workspace"]))
+                current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
                 action(lambda candidate: goals.approve_review(candidate, criterion, state["displayed_review"], current),
                        resolver_human.current(state))
             return state["status"] == "RUNNING"
@@ -1322,9 +1358,13 @@ def main(unit=None) -> int:
     later invocation that expects a different, or no, provider mocked."""
     global opencode
     saved_opencode = opencode
+    saved_argv = sys.argv
     try:
-        return _main_body(unit)
+        with supervision_cli.guard(saved_argv[1:]) as argv:
+            sys.argv = [saved_argv[0], *argv]
+            return _main_body(unit)
     finally:
+        sys.argv = saved_argv
         opencode = saved_opencode
 
 

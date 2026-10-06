@@ -8,9 +8,9 @@ import subprocess
 import time
 import uuid
 try:
-    from . import autocode_util as util, autocode_process as processes, autocode_visual_evidence as evidence
+    from . import autocode_util as util, autocode_process as processes, autocode_visual_evidence as evidence, autocode_source_snapshot as source_snapshot
 except ImportError:
-    import autocode_util as util, autocode_process as processes, autocode_visual_evidence as evidence
+    import autocode_util as util, autocode_process as processes, autocode_visual_evidence as evidence, autocode_source_snapshot as source_snapshot
 
 
 def config_inputs(root, path, config):
@@ -74,7 +74,7 @@ def capture(root, config_path, timeout=120):
     config_path = evidence.local_file(root, config_path)
     config = util.read_object(config_path)
     inputs = config_inputs(root, config_path, config)
-    before = util.snapshot(root)
+    before = source_snapshot.snapshot(root, paths=config.get('source_paths', ()))
     deadline = time.monotonic() + timeout
     folder = root / '.autocode' / 'captures' / (util.now().replace(':', '-') + '-' + uuid.uuid4().hex)
     if any(path.is_symlink() for path in (root / '.autocode', folder.parent)):
@@ -102,7 +102,7 @@ def capture(root, config_path, timeout=120):
         util.atomic_json(request, {**config, 'output': str(folder), 'timeout_ms': max(1, int(remaining() * 1000))})
         execute(['node', str(Path(__file__).with_name('autocode_visual_browser.cjs')), str(request)],
                 root, folder / 'browser.log', remaining())
-        if util.snapshot(root)['revision'] != before['revision']:
+        if source_snapshot.snapshot(root, paths=config.get('source_paths', ()))['revision'] != before['revision']:
             raise ValueError('Source changed during capture; retain this attempt and recapture')
         for name, expected in inputs.items():
             if util.file_hash(evidence.local_file(root, name)) != expected:

@@ -21,6 +21,42 @@ class StatusTests(unittest.TestCase):
                       'iteration': 1, 'active_stage': {'stage': 'terra', 'started_at': 'now'},
                       'current_task': {'id': 't1', 'objective': 'Fix routing'}}
 
+    def test_missing_worker_identity_remains_unknown_without_pid_probes(self):
+        unknown = {'checked': False, 'alive': None, 'live_pids': []}
+        records = ({}, {'processes': []}, {'pid': os.getpid()},
+                   {'pid': 2 ** 22 - 1, 'exit_code': None}, {'exit_code': False},
+                   {'exit_code': True}, {'supervision': 'bad'}, {'supervision': [1]},
+                   {'supervision': True}, {'supervision': {'provider': {'pid': 101}}},
+                   {'supervision': {'provider': {'pid': 101, 'birth_identity': 0}}},
+                   {'supervision': {'provider': {'pid': 101, 'birth_identity': -1}}},
+                   {'supervision': {'provider': {'pid': 101, 'birth_identity': float('nan')}}})
+        with patch.object(processes.os, 'kill', side_effect=AssertionError('Unowned PID probed')), \
+             patch.object(processes, 'process_table', side_effect=AssertionError('Unowned PID inspected')):
+            for record in records:
+                with self.subTest(record=record):
+                    self.assertEqual(unknown, processes.recorded_worker_state(record))
+            for code in (0, 7, -15):
+                with self.subTest(collected_exit=code):
+                    self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
+                                     processes.recorded_worker_state({'pid': 101, 'exit_code': code}))
+
+    def test_pre_receipt_supervision_worker_uses_saved_native_birth(self):
+        row = {'pid': 101, 'group': 101, 'birth_identity': 123.456,
+               'birth_time': 123.456, 'started': 'saved display', 'state': 'sleeping'}
+        record = {'processes': [], 'supervision': {'provider': processes.identity(row)}}
+        original = copy.deepcopy(record)
+        observations = (({101: {**row, 'birth_time': 125.456, 'started': 'new display'}}, True),
+                        ({101: {**row, 'birth_identity': 124.456}}, False), ({}, False))
+        for table, alive in observations:
+            with self.subTest(table=table), patch.object(processes, 'process_table', return_value=table) as inspect:
+                self.assertEqual({'checked': True, 'alive': alive, 'live_pids': [101] if alive else []},
+                                 processes.recorded_worker_state(record))
+                inspect.assert_called_once_with({101})
+        with patch.object(processes, 'process_table', side_effect=processes.ProcessError('access denied')):
+            self.assertEqual({'checked': False, 'alive': None, 'live_pids': []},
+                             processes.recorded_worker_state(record))
+        self.assertEqual(original, record)
+
     def test_transition_heartbeat_restart_and_bounded_history(self):
         self.assertIn('Builder started: Fix routing', status.record(self.state, timestamp=100)['text'])
         self.assertIsNone(status.record(self.state, timestamp=159))
@@ -194,7 +230,7 @@ class StaleCheckpointTests(unittest.TestCase):
         dead = dict(live, pid=2 ** 22 - 1)
         self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
                          processes.recorded_worker_state({'processes': [dead]}))
-        self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
+        self.assertEqual({'checked': False, 'alive': None, 'live_pids': []},
                          processes.recorded_worker_state({'pid': 2 ** 22 - 1, 'exit_code': None}))
         self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
                          processes.recorded_worker_state({'pid': os.getpid(), 'exit_code': 0}))
@@ -221,6 +257,19 @@ class StaleCheckpointTests(unittest.TestCase):
         self.assertIs(payload['view']['efficiency']['delivery']['current_completion'], False)
         self.assertEqual(0, payload['view']['efficiency']['delivery']['verified_deliveries'])
         self.assertIn('STALE CHECKPOINT', result.stderr)
+        self.assertEqual(before, self.state_path.read_bytes())
+
+    def test_status_without_worker_identity_is_unknown_read_only_and_not_stale(self):
+        self.write_state({})
+        before = self.state_path.read_bytes()
+        result = self.run_status()
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual({'checked': False, 'alive': None, 'live_pids': []}, payload['active_stage_workers'])
+        self.assertEqual('unknown', payload['view']['liveness']['kind'])
+        self.assertFalse(payload['stale'])
+        self.assertIsNone(payload['next_action'])
+        self.assertNotIn('STALE CHECKPOINT', result.stderr)
         self.assertEqual(before, self.state_path.read_bytes())
 
     def test_status_reports_a_live_worker_as_current(self):

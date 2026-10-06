@@ -173,7 +173,7 @@ class RecoveryBlackbox(unittest.TestCase):
 
     def deferred_retirement_recovery(self, fault):
         before = self.deferred_retirement_crash(fault)
-        strong = builder_policy.DEFAULTS['strong_model']
+        strong = 'gpt-6-sol'
         self.build(extra=['--resume-paused'])
         self.candidate()
         self.assertEqual(before, self.events()[:len(before)])

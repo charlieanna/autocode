@@ -40,6 +40,7 @@ sys.stdin.read()
 with Path(os.environ['JOB_CALLS']).open('a') as f:f.write('request\n')
 mode=os.environ['JOB_MODE']
 if mode=='lock':print('Error: database is locked',flush=True);raise SystemExit(42)
+if mode=='filtered':print(Path(os.environ['JOB_REPLAY']).read_text(),end='',flush=True);raise SystemExit(0)
 print(json.dumps({'type':'thread.started','thread_id':str(uuid.uuid4())}),flush=True)
 for i in range(4):print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':'fragment '+str(i)}}),flush=True)
 if mode in ('success','terminal'):
@@ -86,7 +87,7 @@ if mode=='abandon':
   try:return run_role(**kw)
   except autocode.support.Paused:os._exit(0)
  autocode.run_role=crash
-if mode not in ('success','terminal','abandon','exit42','capacity','rate','external','lock'):
+if mode not in ('success','terminal','abandon','exit42','capacity','rate','external','lock','filtered'):
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
   code=child.wait(timeout=10);checkpoint([])
   if mode=='cleanup':raise autocode.processes.ProcessError('injected cleanup cannot be proved')
@@ -129,7 +130,8 @@ raise SystemExit(autocode.main())
 '''
 
 
-class JobFailureTaskRunTests(unittest.TestCase):
+class JobHarness(unittest.TestCase):
+    """The copied seed, fake provider and wrapper; no tests of its own (tests/test_job_route.py borrows it)."""
     @classmethod
     def setUpClass(cls):
         cls.seed_temp = tempfile.TemporaryDirectory(prefix='job-failure-seed-')
@@ -182,6 +184,8 @@ class JobFailureTaskRunTests(unittest.TestCase):
         self.assertTrue(view['needs']['job_retry_token']);self.assertEqual(1,self.count())
         return view['needs']
 
+
+class JobFailureTaskRunTests(JobHarness):
     def test_t1_timed_out_review_change_pauses_under_review_owner(self):
         run=self.start();need=self.paused(run)
         self.assertEqual('review',run.status()['workflow']);self.assertIn('900-second',need['reason'])
@@ -252,6 +256,13 @@ class JobFailureTaskRunTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 run=self.start(mode);need=self.paused(run);self.assertIn(reason,need['reason'])
                 run.advance();self.assertEqual(1,self.count());self.calls.unlink()
+
+    def test_a_content_filter_finish_at_a_clean_exit_names_the_refusal(self):
+        self.env['JOB_REPLAY']=str(HERE/'tools'/'fixtures'/'opencode-content-filter-finish-run.jsonl')
+        need=self.paused(self.start('filtered'))
+        # The refusal is named first; #520 then adds the route-sol answer that continues on another model.
+        self.assertTrue(need['reason'].startswith("Code Reviewer: the provider's content filter refused the response on gpt-6-sol"),need['reason'])
+        self.assertIn('--answer route-sol=MODEL',need['reason'])
 
     def test_t7_successful_read_only_review_completion_preserved(self):
         run=self.start('success');view=run.status();self.assertTrue(view['done'],view);self.assertIsNone(view['needs'])

@@ -4,6 +4,12 @@ No run-state writes. The capture CLI writes immutable bundles; stage context,
 independent report decoding and completion recheck them against current inputs.
 """
 from __future__ import annotations
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -56,7 +62,7 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     if (body.get('reference_hash') != reference_hash(state.get('settings', {}))
             and not design_identity.matches(state.get('settings', {}), body.get('reference_hash'), (body.get('case') or {}).get('id'))):
         raise ValueError('Implementation capture belongs to a different design reference or an affected case')
-    current = current or util.snapshot(root)
+    current = current or source_scope.snapshot(root, state)
     if body.get('source_revision') != current['revision']:
         raise ValueError('Stale implementation capture: source changed since capture; recapture the current implementation')
     if case is not None and body.get('case') != case_binding(case):
@@ -146,7 +152,7 @@ def context(state, current):
             selected[cid] = item
         except (ValueError, OSError, KeyError, TypeError, AttributeError) as error:
             rejected.append({'capture_ref': str(path), 'reason': str(error)})
-    return {'reference_hash': reference, 'current': list(selected.values()),
+    return {'reference_hash': reference, 'source_paths': source_scope.paths(state), 'current': list(selected.values()),
             'unavailable_cases': [cid for cid in cases if cid not in selected],
             'rejected': rejected, 'visual_acceptance': None}
 
@@ -203,7 +209,7 @@ Use implementation_captures.current as the explicit image bundle for visual revi
 Missing/stale bundles require a fresh `visual-capture --config <project config>`.
 The command records exact source, fixture, inputs, loaded response bytes and viewport;
 capture under .autocode/captures is immutable. Keep historical bundles and failures.
-The config declares reference_hash from this packet, case (id/route/state/viewport),
+The config copies reference_hash and source_paths from this packet, and declares case (id/route/state/viewport),
 fixture (a project Playwright setup/teardown module), inputs, assets (URL/path pairs),
 ready (selector/attribute/equals conditions), and build_command (argv, or [] for source assets).
 The fixture establishes the actual page state. All browser responses must match declared

@@ -1,4 +1,4 @@
-"""Download pinned starter projects and ingest verified controls through Arena's CLI.
+"""Download pinned projects and ingest verified controls through Arena's CLI.
 
 This preparation tool never invokes a model. Each invocation needs a fresh Arena
 directory; partial failed preparations are retained for diagnosis.
@@ -17,11 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOG = Path(__file__).with_name("catalog.json")
 
 
-def command(*args, **kwargs):
-    return subprocess.run(list(map(str, args)), check=True, timeout=180, **kwargs)
+def command(*args, timeout=180, **kwargs):
+    return subprocess.run(list(map(str, args)), check=True, timeout=timeout, **kwargs)
 
 
-def prepare(destination, cases, *, catalog_root=CATALOG.parent):
+def prepare(destination, cases, *, catalog_root=CATALOG.parent, oracle_timeout=60):
     destination = Path(destination).resolve()
     if destination.exists() and any(destination.iterdir()):
         raise ValueError("Choose a fresh Arena directory; existing evaluator data is never overwritten")
@@ -51,7 +51,8 @@ def prepare(destination, cases, *, catalog_root=CATALOG.parent):
         command(*cli, "ingest", ident, "--repository", source, "--base", case['base_commit'],
                 "--issue", case['issue_ref'], "--issue-file", fixture / "issue.json",
                 "--oracle", fixture / "oracle.py", "--reference", reference,
-                "--split", case['split'], *checks)
+                "--split", case['split'], "--oracle-timeout", oracle_timeout, *checks,
+                timeout=2 * oracle_timeout + 180)
     return destination
 
 
@@ -59,8 +60,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arena", type=Path, default=ROOT / ".autocode/arena")
     parser.add_argument("--case", action="append", help="prepare only this case (repeatable)")
+    parser.add_argument("--oracle-timeout", type=int, default=60,
+                        help="deadline in seconds for each original/reference control")
     parser.add_argument("--list", action="store_true", help="list projects without downloading or running code")
     args = parser.parse_args(argv)
+    if args.oracle_timeout <= 0:
+        parser.error("--oracle-timeout must be positive")
     catalog = json.loads(CATALOG.read_text())
     cases = catalog['cases']
     if args.case:
@@ -72,7 +77,7 @@ def main(argv=None):
         print(json.dumps(cases, indent=2))
         return 0
     try:
-        destination = prepare(args.arena, cases)
+        destination = prepare(args.arena, cases, oracle_timeout=args.oracle_timeout)
     except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as error:
         parser.exit(1, f"Arena preparation failed: {error}\n")
     print(f"Prepared {len(cases)} verified cases in {destination}")
