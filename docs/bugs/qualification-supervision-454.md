@@ -44,8 +44,9 @@ keeper still stopped the provider, but no exit code was saved), turned the pause
 into `PAUSED_INVALID_OUTPUT` "release unlocked lock", escaped as a bare
 KeyboardInterrupt that left the run `RUNNING`, or, rarely, hung the controller on
 a leaked threading lock with SIGINT and SIGTERM ignored. Of 351 fake scenario
-runs given two signals 0 to 200 ms apart, 3 hung and 76 had one of the other
-outcomes; no provider outlived its controller. Ctrl-C is taken over only from
+runs given two signals 0 to 200 ms apart, 3 hung and 77 more did not pause as
+`PAUSED_INTERRUPTED` with the provider's exit code saved; no provider outlived
+its controller. Ctrl-C is taken over only from
 Python's default handler, so an ignored (background job) or replaced SIGINT is
 left alone. The stage cleanup itself (stopping the provider tree and joining its
 process worker) ignores SIGHUP as it already ignored SIGINT and SIGTERM, so a
