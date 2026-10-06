@@ -594,6 +594,52 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--resume-paused"))
         self.assertEqual(["Q2"], [q["id"] for q in self.state["pending_questions"]])
 
+    def test_answer_with_resume_paused_dispatches_the_next_stage(self):
+        """#509: --resume-paused after a gate-clearing answer continues in this invocation."""
+        self.draft(questions=True)
+        launched = []
+
+        def halt(**kwargs):
+            launched.append(kwargs)
+            raise ValueError("halt: dispatch reached the build loop")
+
+        self.assertEqual(2, self.invoke("--answer", "Q1=CLI", "--resume-paused", role=halt))
+        self.assertEqual(1, len(launched), "the same invocation must dispatch the next stage")
+        self.assertIn("Resumed: dispatching the next stage.", self.stdout)
+        self.assertNotIn("Saved; no agent launched", self.stdout)
+        self.assertEqual("halt: dispatch reached the build loop", self.state["stop_reason"])
+
+    def test_answer_without_resume_still_saves_without_launching(self):
+        self.draft(questions=True)
+        self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))
+        self.assertIn("Saved; no agent launched by this action.", self.stdout)
+        self.assertEqual("RUNNING", self.state["status"])
+
+    def test_resume_paused_with_a_remaining_question_still_saves_without_launching(self):
+        draft = body(questions=True)
+        draft["open_blocking_questions"].append({**draft["open_blocking_questions"][0], "id": "Q2"})
+        lifecycle.install_draft(self.state, draft, origin="test")
+        self.assertEqual(0, self.invoke("--answer", "Q1=CLI", "--resume-paused"))
+        self.assertIn("Saved; no agent launched by this action.", self.stdout)
+        self.assertEqual(["Q2"], [q["id"] for q in self.state["pending_questions"]])
+
+    def test_approve_goal_with_resume_paused_dispatches_the_build(self):
+        self.draft()
+        selected = g.token(self.state["goal_contract"])
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        launched = []
+
+        def halt(**kwargs):
+            launched.append(kwargs)
+            raise ValueError("halt: dispatch reached the build loop")
+
+        self.assertEqual(2, self.invoke("--approve-goal", selected, "--resume-paused", role=halt))
+        self.assertEqual(1, len(launched), "the same invocation must dispatch after the approval")
+        self.assertIn("Resumed: dispatching the next stage.", self.stdout)
+        self.assertTrue(g.approved(self.state))
+        self.assertEqual("halt: dispatch reached the build loop", self.state["stop_reason"])
+
     def test_approval_requires_displayed_exact_revision(self):
         self.draft()
         selected = g.token(self.state["goal_contract"])
