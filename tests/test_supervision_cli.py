@@ -217,7 +217,8 @@ raise SystemExit(0)
             public = json.loads(status.stdout)
             self.assertEqual(original, (self.run / 'state.json').read_bytes(), 'Status must stay read-only')
             self.assertFalse(public['view']['liveness']['provider']['alive'])
-            if kind == 'later-hups':
+            if kind in ('hup', 'later-hups', 'pty'):
+                # A hung-up terminal failed the pause's own output with EIO: a traceback and exit 1 (#454).
                 self.assertEqual((2, 'PAUSED_INTERRUPTED'), (child.returncode, public['status']))
                 self.assertIsNotNone(public['active_stage']['exit_code'],
                                      'The controller collects its provider before the interrupt propagates')
