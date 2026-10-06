@@ -54,7 +54,7 @@ once more, could not be admitted, so its paid diagnosis bought nothing (compare
   while its guidance is in force, and to the packet. An investigation of a novelty
   hold grants nothing, and a plain resume of the rejected attempt is still held.
 
-`tests/test_recovery_novelty.py` (`RejectedRepairRetryCLI`) drives both routes
+`tests/test_rejected_repair_retry.py` drives both routes
 through the CLI. The Investigator's retry completes from the retained edit. With
 the Investigator pausing instead, a person's README edit pauses as stale, a plain
 resume holds, and `--retry-failed-stage` completes. Pure tests cover the source
