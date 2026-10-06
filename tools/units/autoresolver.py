@@ -12,6 +12,7 @@ from pathlib import Path
 try:
     from .. import autocode_util as util, autocode_source_scope as source_scope, autocode_goals as goals, autocode_bug_job as bug_job
     from .. import autocode_goal_lifecycle as lifecycle
+    from .. import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
     from .. import autocode_providers, autocode_verify as verify
     from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
@@ -21,6 +22,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_goals as goals
     import autocode_goal_lifecycle as lifecycle
+    import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     import autocode_bug_job as bug_job
     import autocode_discuss_job as discuss_job
     import autocode_stuck_job as stuck_job
@@ -83,6 +85,11 @@ def apply_job(stage, state, value, record, workspace):
     bug_job.apply(state, value, record, workspace, run_probe=lambda command: verify.scratch_run(
         workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
         timeout=PROBE_TIMEOUT))
+    if bug_questions.has_questions(state):
+        human.queue(state, 'clarification', {'stage': bug_job.STAGE, 'output': record.get('output'),
+                    'source_revision': record.get('source_revision')}, questions=bug_questions.questions(state),
+                    evidence=bug_questions.evidence(state), phase='INVESTIGATING', next_stage=bug_job.STAGE)
+        return
     if bug_job.small_correction(state):
         start_small_correction(state, workspace)
 
