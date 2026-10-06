@@ -76,7 +76,9 @@ if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
     barrier = Path(os.environ["AUTOCODE_CONSUMER_BARRIER"])
     if barrier.exists():
         barrier.with_suffix(".entered").write_text("stage active")
-        deadline = time.monotonic() + 15
+        # Long enough for the consumer test's CLI calls on a contended host (#314);
+        # the test releases the barrier as soon as they finish.
+        deadline = time.monotonic() + 120
         while barrier.exists():
             if time.monotonic() > deadline:
                 raise SystemExit("fixture barrier timed out")

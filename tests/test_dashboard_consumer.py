@@ -67,7 +67,9 @@ class DashboardConsumerTests(unittest.TestCase):
         worker=subprocess.Popen([*flow.entry,*identity,'--no-chat'],cwd=flow.root,env=flow.env,
                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         try:
-            started=time.monotonic(); deadline=started+10
+            # A live worker on a contended host can need well over 10 s to reach the Builder (#314);
+            # the loop still ends as soon as the barrier is entered or the worker exits.
+            started=time.monotonic(); deadline=started+120
             while not barrier.with_suffix('.entered').exists() and worker.poll() is None and time.monotonic()<deadline:
                 time.sleep(.02)
             entered=barrier.with_suffix('.entered').exists()
