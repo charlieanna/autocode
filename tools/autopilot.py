@@ -554,6 +554,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
                 raise ValueError(f"Criterion evidence references a missing executed event: {event_id}")
     refs = [record["events"] if p.startswith("event:") else p for p in refs]
     pins = support.evidence_hashes(refs, workspace, run_dir) if refs else {}
+    if stage == "sol":
+        rework_policy.require_own_scratch(pins, record, workspace)
     validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
                   "source_revision": record["source_revision"], "output": record["output"],
                   "reviewer_role": record.get("role", stage)}

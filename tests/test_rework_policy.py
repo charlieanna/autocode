@@ -3,6 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import autocode as runtime
 import autocode_rework_policy as policy
 import autocode_support as support
 import autocode_util as util
+import autopilot
 
 
 class ReworkPolicyTests(unittest.TestCase):
@@ -145,7 +147,8 @@ class ReworkPolicyTests(unittest.TestCase):
         command = [sys.executable, str(Path(runtime.__file__)), 'capture', '--output', str(path), '--no-compress',
                    '--', sys.executable, '-c', "import sys; print('invalid input reproduced'); sys.exit(1)"]
         env = {key: value for key, value in os.environ.items() if key != 'AUTOCODE_CAPTURE_CONTEXT'}
-        captured = subprocess.run(command, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=10)
+        # A ceiling, not a wait: under parallel suite load one capture CLI start can exceed 10 s (#506).
+        captured = subprocess.run(command, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(1, captured.returncode, captured.stderr)
         receipt = json.loads(captured.stdout)
         self.assertEqual(receipt, util.read_object(path))
@@ -367,7 +370,7 @@ class ReworkPolicyTests(unittest.TestCase):
         self.assertIn(str(raw), case.state['resolution_request']['evidence_hashes'])
         self.assertEqual(seals, (case.record['rework_evidence'], case.accepted['rework_evidence']))
 
-    def test_containment_scratch_is_owned_only_through_this_runs_own_launch_record(self):
+    def test_containment_scratch_is_owned_only_through_the_accepted_validators_own_launch_record(self):
         case, _, _ = self.contained_case(self.scratch())
         self.assert_fallback(case)
 
@@ -378,8 +381,18 @@ class ReworkPolicyTests(unittest.TestCase):
         sibling_scratch = self.scratch()
         sibling, _, _ = self.capture_case(shared=False, directory=sibling_scratch.with_name('scratch-copy'))
         sibling.accepted['tool_containment'] = {'scratch': str(sibling_scratch)}
+        # This run recorded these too, but the accepted Validator's own launch did not.
+        builder_scratch = self.scratch()
+        builder, _, _ = self.capture_case(shared=False, directory=builder_scratch)
+        builder.state['stages'][0]['tool_containment'] = {'scratch': str(builder_scratch)}
+        earlier_scratch = self.scratch()
+        earlier, _, _ = self.capture_case(shared=False, directory=earlier_scratch)
+        earlier.state['stages'].insert(1, {'stage': 'sol', 'role': 'sol', 'rejected': True,
+                                           'output': str(earlier.run / 'earlier.json'),
+                                           'tool_containment': {'scratch': str(earlier_scratch)}})
         for label, case in (('unrecorded', unrecorded), ('recorded by another run', foreign),
-                            ('beside the recorded scratch', sibling)):
+                            ('beside the recorded scratch', sibling), ("recorded by this run's Builder", builder),
+                            ('recorded by an earlier, rejected Validator attempt', earlier)):
             with self.subTest(label=label):
                 with self.assertRaisesRegex(util.Paused, 'another run'):
                     self.route(case)
@@ -399,6 +412,57 @@ class ReworkPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(util.Paused, 'symlink'):
                     self.route(case)
                 case.queue.assert_not_called()
+
+    def test_acceptance_refuses_the_contained_pins_rework_routing_would_refuse(self):
+        # Live self-build 2026-10-06: route() refused accepted Validator pins only at REWORK, where the
+        # Completion Reviewer cannot change them, so every retry of the review paused the same way.
+        own = self.scratch()
+        for label, (case, _, _) in (('own scratch', self.contained_case(own)),
+                                    ('run directory', self.capture_case(shared=False)),
+                                    ('shared evidence', self.capture_case(shared=True))):
+            with self.subTest(label=label):
+                policy.require_own_scratch(case.state['validation']['evidence_hashes'], case.accepted, self.workspace)
+                self.route(case)  # assigned directly or queued for the Resolver, never paused
+                case.queue.assert_called_once()
+        for label, scratch in (("the Builder's scratch", self.scratch()), ('an unrecorded scratch', self.scratch())):
+            with self.subTest(label=label):
+                case, path, _ = self.capture_case(shared=False, directory=scratch)
+                if label.startswith('the Builder'):
+                    case.state['stages'][0]['tool_containment'] = {'scratch': str(scratch)}
+                case.accepted['tool_containment'] = {'scratch': str(own)}
+                with self.assertRaises(ValueError) as caught:
+                    policy.require_own_scratch(case.state['validation']['evidence_hashes'], case.accepted, self.workspace)
+                self.assertIn("another stage's tool containment: " + str(path), str(caught.exception))
+                self.assertIn(str(own), str(caught.exception))
+                with self.assertRaisesRegex(util.Paused, 'another run'):
+                    self.route(case)
+        # Runner-written workspace areas such as design captures are cited legitimately; acceptance leaves them alone.
+        capture = self.workspace / '.autocode' / 'captures' / 'bundle' / 'manifest.json'
+        capture.parent.mkdir(parents=True)
+        capture.write_text('{}')
+        policy.require_own_scratch({str(capture): util.file_hash(capture)}, {}, self.workspace)
+
+    def test_a_validator_report_pinning_another_stages_scratch_is_rejected_when_accepted(self):
+        # A ValueError from acceptance is the ordinary rejected-report path: a bounded report repair can
+        # still drop or replace the citation, which no stage can do once a REWORK has started.
+        scratch = self.scratch()
+        case, path, _ = self.capture_case(shared=False, directory=scratch)
+        case.state['stages'][0]['tool_containment'] = {'scratch': str(scratch)}
+        report = util.read_object(case.accepted['output'])
+        case.state['criteria_revision'] = util.digest(util.criteria_definition(case.state['acceptance_criteria']))
+        state = copy.deepcopy(case.state)
+        # Stop just after a report is accepted, before the fixture workspace would need a Git checkout.
+        with patch.object(autopilot.findings_ledger, 'record_validation', side_effect=RuntimeError('accepted')):
+            with self.assertRaisesRegex(ValueError, "another stage's tool containment: " + re.escape(str(path))):
+                autopilot.apply_review_result(runtime, state, 'sol', copy.deepcopy(report), case.accepted,
+                                              self.workspace, case.run)
+            self.assertEqual(case.state, state)
+            # The same report from the stage whose launch recorded that scratch gets past the ownership rule.
+            case.accepted['tool_containment'] = {'scratch': str(scratch)}
+            with self.assertRaisesRegex(RuntimeError, 'accepted'):
+                autopilot.apply_review_result(runtime, state, 'sol', copy.deepcopy(report), case.accepted,
+                                              self.workspace, case.run)
+        self.assertIn(str(path), state['validation']['evidence_hashes'])
 
     def test_shared_receipt_requires_the_original_executed_capture_event(self):
         case, _, _ = self.capture_case(shared=True)
