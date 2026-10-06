@@ -25,8 +25,13 @@ exported inventory, copy the exact case ID, route, state and viewport too. For a
 native Figma URL, use stable case IDs for the approved visual requirements.
 Prepare all fixtures and separate config files for each case before capturing;
 editing a shared config for the next case would invalidate the previous capture.
-Keep comparison/review artifacts under `.autocode/` so they do not change the
-captured source snapshot, and leave existing capture bundles intact.
+Write those configs, any fixture created for the review, and comparison/review
+artifacts under `.autocode/evidence/` so they do not change the captured source
+snapshot, and leave existing capture bundles intact. A later repair re-verifies
+every file a report cites, so under `.autocode/` the runner accepts citations only
+from `.autocode/evidence/`, the run directory, capture bundles (a manifest and the
+artifacts it lists, for the run's design reference) and the retained design inputs.
+A Validator report citing anything else there is rejected when it is accepted.
 
 ```json
 {

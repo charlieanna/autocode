@@ -150,16 +150,44 @@ def recorded_worker_state(record):
 
 
 class ProcessTree:
-    def __init__(self, pid, checkpoint, *, excluded=()):
+    def __init__(self, pid, checkpoint, *, excluded=(), groups=()):
         self.pid = pid
         self.known = {}
         self.checkpoint = checkpoint
         # A keeper beneath a CLI must not own itself. Exclude only the exact
         # supplied birth identity, before ancestry/group expansion.
         self.excluded = {row['pid']: dict(row) for row in excluded}
+        # Recorded group leaders whose groups stay owned after the leader is
+        # gone; see _retained_groups.
+        self.groups = {row['pid']: dict(row) for row in groups}
 
     def _included(self, row):
         return row['pid'] > 0 and not matches(self.excluded.get(row['pid'], {'pid': -1}), row)
+
+    def _retained_groups(self, table):
+        """Groups of recorded leaders, still owned after a leader is killed and reaped.
+
+        A child started after the last sample is reparented when its leader
+        dies, so ancestry cannot find it, but it keeps the leader's group. The
+        kernel does not reuse a PID while a process group with that ID has
+        members, zombies included. Ownership of a group therefore ends for good
+        at the first sample that finds it empty or finds a different process at
+        the leader's PID; only after that can the ID name an unrelated group.
+        A group that empties and is re-created at a reused PID between two
+        samples is not detected: that needs the PID space to wrap in between.
+        """
+        for pid, leader in list(self.groups.items()):
+            if pid in table:
+                if not matches(leader, table[pid]):
+                    del self.groups[pid]
+                continue
+            try:
+                os.killpg(pid, 0)  # signal 0 delivers nothing; it reports whether the group has members
+            except ProcessLookupError:
+                del self.groups[pid]
+            except PermissionError:
+                pass  # members exist that this process may not signal
+        return set(self.groups)
 
     def capture_root(self):
         """Record the root's birth identity before a concurrent poll can reap it.
@@ -180,8 +208,9 @@ class ProcessTree:
 
     def sample(self, *, initial=False, notify=True):
         self.known = {pid: row for pid, row in self.known.items() if self._included(row)}
-        table = process_table(set(self.known) | {self.pid})
+        table = process_table(set(self.known) | {self.pid} | set(self.groups))
         table = {pid: row for pid, row in table.items() if self._included(row)}
+        retained = self._retained_groups(table)
         if self.pid in table and self.pid not in self.known:
             self.known[self.pid] = identity(table[self.pid])
         owned = {pid for pid, saved in self.known.items() if matches(saved, table.get(pid))}
@@ -205,7 +234,7 @@ class ProcessTree:
             table.update(found)
             owned.update(found)
             covered.update(found)
-        groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid}
+        groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
         if groups:
             candidates = set()
             for candidate in process_ids():
@@ -220,8 +249,10 @@ class ProcessTree:
             owned.update(found)
         while True:
             # A group is owned only while a recorded group leader has the same
-            # process identity. This avoids signalling an unrelated reused PID.
-            groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid}
+            # process identity, or is a retained group not yet seen empty or
+            # taken over at its leader's PID (_retained_groups). This avoids
+            # signalling an unrelated reused PID.
+            groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
             added = {pid for pid, row in table.items()
                      if row["parent"] in owned or row["group"] in groups} - owned
             if not added:

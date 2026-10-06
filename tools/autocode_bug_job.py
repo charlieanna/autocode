@@ -8,8 +8,8 @@ cause, and returns a diagnosis. The runner then:
   ``docs/bugs/`` (investigating is read-only; the before/after snapshot is the evidence),
 - writes the diagnosis note (``note_path``, under ``docs/bugs/``) from the
   validated report, before any fix exists,
-- ends the run when the report did not reproduce (the note says so and lists
-  what the reporter must supply), or hands a reproduced bug to the build
+- waits for the reporter when an unreproduced report has unanswered questions,
+  ends a negative diagnosis with no questions, or hands a reproduced bug to the build
   pipeline: it goes to the Planner with the diagnosis as its brief
   (``large_correction``), skipping requirements gathering but keeping plan review
   and the user's approval. A short path that turns a small fix into one Builder
@@ -31,7 +31,9 @@ end still applies.
 
 Pure module: prompt, schema, transition, rendering; the unit passes in the
 function that runs the probe. Imports nothing from the runner. State key
-written: ``investigation`` (the report, its note path, output and probe_result).
+written: ``investigation`` (the report, its note path, output, output_hash,
+source_revision and probe_result). Human publication reads its pins; answer
+routing and the next Investigator handoff read its questions and prior diagnosis.
 """
 from __future__ import annotations
 
@@ -42,12 +44,13 @@ from pathlib import Path
 
 try:
     from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
-    from . import autocode_workflows as workflows
+    from . import autocode_workflows as workflows, autocode_bug_questions as bug_questions, autocode_util as util
     from .autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401 (used by callers)
 except ImportError:
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
+    import autocode_bug_questions as bug_questions, autocode_util as util
     from autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
@@ -144,7 +147,11 @@ What to do:
 4. If it does NOT reproduce (outcome not_reproduced): say so plainly. Do not invent a cause and do not
    propose a "defensive" change to code that works. reproduction says what you tried; conclusion says
    what the code actually does and why the report may differ (old version, different input, upstream data);
-   questions lists what you need from the reporter. fix_size is none; fix_plan, affected_paths,
+   questions lists what you need from the reporter. Unanswered questions leave the bug unresolved:
+   the run waits for answers and returns to you with saved_answers and prior_investigation.
+   Read both before investigating again; use the saved answers and do not repeat answered questions.
+   A failed tool or unavailable environment is not evidence that the code works; explain the blocker
+   and ask for the missing access or reproduction context. fix_size is none; fix_plan, affected_paths,
    test_paths and test_cases are empty; probe and untestable are "".
 5. conclusion: two or three sentences a person can act on.
 6. note_path: where the runner saves your diagnosis. Use the path the request names if it names one under
@@ -159,7 +166,8 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
             "execution_engine": engine, "notes_directory": NOTES_PREFIX,
             "workspace_inventory": inventory or {},
             # Present because every provider reads them; nothing is planned yet.
-            "goal_contract": None, "current_task": None, "saved_answers": {}}
+            "goal_contract": None, "current_task": None, "saved_answers": state.get("answers", {}),
+            "prior_investigation": state.get("investigation")}
 
 
 def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
@@ -202,6 +210,8 @@ def check(value: dict, changed_files) -> None:
         raise ValueError(f"note_path must be a .json file under {NOTES_PREFIX}: {note!r}")
     if not value["reproduction"].strip():
         raise ValueError("An investigation must say what it ran to reproduce the report")
+    if any(not question.strip() for question in value["questions"]):
+        raise ValueError("Investigator questions must be nonempty")
     if value["outcome"] == "reproduced":
         missing = [field for field in ("root_cause", "affected_paths", "test_paths", "invariant") if not value[field]]
         if missing or value["fix_size"] == "none":
@@ -259,6 +269,13 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     """``run_probe(command)`` runs the probe in a scratch copy (the unit passes autocode_verify.scratch_run);
     without it a probed reproduction is rejected rather than trusted."""
     check(value, record.get("changed_files"))
+    if (value["outcome"] == "not_reproduced" and value["questions"]
+            and (state.get("goal_contract") or state.get("current_task"))):
+        raise ValueError("Investigator questions require initial diagnosis before a build contract or task")
+    repeated = bug_questions.repeated_answers(state, value["questions"])
+    if value["outcome"] == "not_reproduced" and repeated:
+        raise ValueError("The Investigator must use saved user answers instead of repeating answered questions: "
+                         + "; ".join(repeated))
     probe = value.get("probe", "").strip()
     shown = run_probes([{"id": "the reported bug", "example": value["observed"] or value["reproduction"],
                          "probe": probe}], run_probe or (lambda command: {"error": "no probe runner was given"}),
@@ -266,8 +283,17 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     target = Path(workspace) / value["note_path"]
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({**note(value), "proven_by": probe if shown else ""}, indent=2) + "\n")
-    state["investigation"] = {**value, "output": record.get("output"), "probe_result": shown[0] if shown else None}
+    output = record.get("output")
+    state["investigation"] = {**value, "output": output,
+                              "output_hash": util.file_hash(Path(output)) if output and Path(output).is_file() else None,
+                              "source_revision": record.get("source_revision"),
+                              "probe_result": shown[0] if shown else None}
     if value["outcome"] == "not_reproduced":
+        if value["questions"]:
+            state.pop("completed_at", None)
+            state.update(status="WAITING_FOR_USER", phase="INVESTIGATING", next_stage=STAGE,
+                         pending_questions=bug_questions.questions(state))
+            return
         state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
                      completed_at=dt.datetime.now(dt.timezone.utc).isoformat())
         return
@@ -404,8 +430,9 @@ def validator_note(state: dict) -> str:
 
 def owns(state: dict) -> bool:
     """The run ended at the investigation (the bug did not reproduce)."""
-    return (workflows.kind(state) == "bugfix"
-            and (state.get("investigation") or {}).get("outcome") == "not_reproduced")
+    return (state.get("status") in ("TASK_COMPLETE", "COMPLETE") and workflows.kind(state) == "bugfix"
+            and (state.get("investigation") or {}).get("outcome") == "not_reproduced"
+            and not (state.get("investigation") or {}).get("questions"))
 
 
 def render(state: dict) -> str:

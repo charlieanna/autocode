@@ -610,18 +610,25 @@ class HarnessOwnerLossTests(unittest.TestCase):
                 if stream:
                     stream.close()
 
-    def fault(self, target):
+    def fault(self, target, *, barrier="settings"):
+        # The fake provider blocks at its first call that is not `--version`.
+        # A fresh run's first such call is the unsupervised `codex login status`
+        # settings check, a plain child of the CLI. Answering it moves the
+        # barrier into the first provider stage, behind its pre-exec keeper.
         with tempfile.TemporaryDirectory(prefix="harness-owner-loss-") as tmp:
             root = Path(tmp)
             ready = root / "provider-ready"
             os.mkfifo(ready)
             reader = os.open(ready, os.O_RDONLY | os.O_NONBLOCK)
             self.addCleanup(os.close, reader)
+            login = ("if sys.argv[1:]==['login','status']: print('Logged in using ChatGPT'); raise SystemExit(0)\n"
+                     if barrier == "stage" else "")
             provider = (f"#!{sys.executable}\nimport os,json,signal,sys\n"
                         "if '--version' in sys.argv: print('codex-cli 0.92.0'); raise SystemExit(0)\n"
+                        f"{login}"
                         "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
                         "fd=os.open(os.environ['OWNER_READY'],os.O_WRONLY)\n"
-                        "os.write(fd,(json.dumps({'provider':os.getpid(),'cli':os.getppid()})+'\\n').encode()); os.close(fd)\n"
+                        "os.write(fd,(json.dumps({'provider':os.getpid(),'cli':os.getppid(),'call':sys.argv[1]})+'\\n').encode()); os.close(fd)\n"
                         "signal.pause()\n")
             script = f"""import argparse,json,sys
 from pathlib import Path
@@ -649,6 +656,7 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
             try:
                 self.assertTrue(select.select([reader], [], [], 45)[0], "Fake provider never reached its event barrier")
                 event = json.loads(os.read(reader, 4096))
+                self.assertEqual({"settings": "login", "stage": "exec"}[barrier], event["call"])
                 owned.extend(processes.psutil.Process(harness.pid).children(recursive=True))
                 cli = next(process for process in owned if process.pid == event["cli"])
                 provider_process = next(process for process in owned if process.pid == event["provider"])
@@ -660,13 +668,35 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 call = attempts.read(call_path)
                 self.assertEqual(cli.pid, call["cli"]["pid"])
                 self.assertEqual("running", call["phase"])
+                # The keeper discovers the provider tree by sampling, and owner-loss
+                # cleanup stops only what its receipt has recorded. Wait for that
+                # discovery before faulting: killing at the provider's first words
+                # races the keeper's first sample window, and the unrecorded
+                # SIGTERM-immune provider then outlives every escalation (CI ubuntu
+                # failed 3 of 8 runs on 2026-10-06; deterministic in a container).
+                deadline = time.monotonic() + 10
+                while True:
+                    recorded = attempts.read(call["receipt"])
+                    if any(row["pid"] == event["provider"] for row in recorded.get("processes", ())):
+                        break
+                    if time.monotonic() > deadline:
+                        self.fail(f"Keeper never recorded the provider process: {recorded}")
+                    time.sleep(.02)
                 if target == "harness":
                     harness.kill()
                 else:
                     cli.kill()
                 output, errors = harness.communicate(timeout=15)
                 processes.psutil.wait_procs(owned, timeout=12)
-                self.assertFalse([process.pid for process in owned if self.live(process)], errors)
+                survivors = []
+                for process in owned:
+                    if self.live(process):
+                        try:
+                            survivors.append(f"pid={process.pid} ppid={process.ppid()} status={process.status()}"
+                                             f" cmdline={process.cmdline()}")
+                        except processes.psutil.Error as error:
+                            survivors.append(f"pid={process.pid} inspect failed: {error}")
+                self.assertFalse(survivors, (errors or "") + "; survivors: " + "; ".join(survivors))
                 self.assertFalse(self.live(provider_process))
                 self.assertTrue(self.live(sentinel_birth), "An unrelated sentinel was signalled")
                 if target == "harness":
@@ -692,6 +722,12 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
 
     def test_cli_sigkill_finishes_harness_as_ungraded_and_preserves_negative_exit(self):
         self.fault("cli")
+
+    def test_harness_sigkill_in_a_provider_stage_stops_cli_and_provider(self):
+        self.fault("harness", barrier="stage")
+
+    def test_cli_sigkill_in_a_provider_stage_stops_provider_and_finishes_ungraded(self):
+        self.fault("cli", barrier="stage")
 
 
 class DriverAnswerTests(unittest.TestCase):

@@ -153,8 +153,11 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             if os.write(write_fd, data) != len(data):
                 raise SupervisionUnavailable("CLI owner lifeline admission was incomplete")
             actual_command = [*command, "--owner-lifeline-fd", str(read_fd)]
+            # Its own session: every child that does not detach keeps the CLI's
+            # group, which the CLI's keeper still owns after a CLI SIGKILL.
             child = subprocess.Popen(actual_command, env=env, cwd=cwd, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True, close_fds=True, pass_fds=(read_fd,))
+                                     stderr=subprocess.PIPE, text=True, close_fds=True, pass_fds=(read_fd,),
+                                     start_new_session=True)
             os.close(read_fd)
             read_fd = None
         else:
