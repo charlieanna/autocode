@@ -14,6 +14,7 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_support as s
 import autocode_milestones as m
 import autocode_milestone_replan as replan
+import autocode_role_schema as role_schema
 import autocode_findings as findings
 from goal_fixtures import body, envelope
 
@@ -73,6 +74,11 @@ class MilestoneCheckpointTests(unittest.TestCase):
             'findings': [], 'unverified_criteria': [cid for cid, status in statuses.items() if status == 'NOT_VERIFIED'],
             'criterion_results': [{'id': cid, 'status': status, 'evidence_refs': ['event:check']} for cid, status in statuses.items()],
             'end_to_end_result': {'status': flow_status or ('PASS' if passed else 'FAIL'), 'summary': 'Executed current outcome; later work may remain', 'evidence_refs': ['event:check']}}
+        # An integrated batch's validation reports every member (autopilot.apply_review_result).
+        for member in m.scope(self.state).get('members', []):
+            value.setdefault('milestone_results', []).append({
+                'milestone_id': member['id'], 'evidence_refs': ['event:check'], 'summary': 'Validated',
+                'status': 'PASS' if all(statuses.get(cid) == 'PASS' for cid in member['acceptance_criteria']) else 'FAIL'})
         record = {'role': 'sol', 'stage': 'sol', 'events': str(events), 'output': str(events), 'source_revision': s.snapshot(self.root)['revision']}
         runner.apply_result(self.state, 'sol', value, record, self.root, self.run)
 
@@ -682,13 +688,27 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
     def instruction(self, prompt):
         return prompt.split('CURRENT HANDOFF DATA\n', 1)[0]
 
+    def spend_replans(self, failing):
+        """Stall, spend replan 1 of 1 on a changed REWORK, then stall again."""
+        for _ in range(3):
+            self.validate(failing)
+        self.assign(status='REWORK', next_objective='Isolate empty input first with a smaller regression fixture')
+        for _ in range(3):
+            self.validate(failing)
+
+    def status(self):
+        self.assertEqual(0, self.invoke('--status'))
+        return json.loads(self.stdout)
+
+    def paused_by(self):
+        """The saved pause's cause in the public status view."""
+        return self.status()['view']['recovery']['cause']
+
     def test_spent_replans_prompt_says_any_task_pauses_and_it_does(self):
         # Replan 1 of 1 is used, then M1 stalls again. The policy still asked for a changed REWORK and the
         # general rule for CONTINUE/validate; the gate refuses both with PAUSED_MILESTONE_STALLED.
-        self.stall()
-        self.assign(status='REWORK', next_objective='Isolate empty input first with a smaller regression fixture')
-        for _ in range(3):
-            self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+        self.start()
+        self.spend_replans({'C1': 'FAIL', 'C2': 'FAIL'})
         prompts, answer = self.provider({'astra_review': [self.revalidation('CONTINUE')]})
         self.assertEqual(2, self.invoke('--no-chat', role=answer))
         instruction = self.instruction(prompts[0][1])
@@ -696,24 +716,71 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
         self.assertIn('3 validations without progress (limit 3) and its replans are spent (1 made, limit 1)', instruction)
         self.assertIn('a next task on M1 with any status, REWORK or CONTINUE', instruction)
         self.assertIn('PAUSED_MILESTONE_STALLED', instruction)
-        self.assertIn('except on the milestone\nnamed in MILESTONE REPLANS SPENT below', instruction)
+        self.assertIn('a CONTINUE on M1 pauses without the Resolver', instruction)
+        self.assertIn('except on any milestone\nnamed in MILESTONE REPLANS SPENT below', instruction)
         self.assertNotIn('MILESTONE REPLAN REQUIRED', instruction)
         self.assertNotIn(replan.GENERAL_VALIDATE_RULE, instruction)  # only the qualified rule remains
         # What the prompt says is what the gate does: the review's task pauses the run at once, before any
         # Resolver or writer (the Investigator then diagnoses the pause; the fixture stops it).
         self.assertEqual(['astra_review', 'investigate_stuck'], [stage for stage, _ in prompts])
-        self.assertTrue(self.state['stop_reason'].startswith('Milestone still fails after bounded replanning'))
+        self.assertEqual('PAUSED_MILESTONE_STALLED', self.paused_by())
         current = self.checkpoint()
         self.assertEqual((True, 1), (current['needs_replan'], current['replans']))
+
+    def test_spent_replans_prompt_names_the_blocked_reviews_that_call_the_resolver_first(self):
+        # A BLOCKED review of most user_request kinds queues the Resolver before the run pauses, like a
+        # REWORK; the prompt names which, so a reviewer that only needs the operator knows the cost.
+        self.start()
+        self.spend_replans({'C1': 'FAIL', 'C2': 'FAIL'})
+        spent = copy.deepcopy(self.state)
+        kinds = [kind for kind in role_schema.USER_REQUEST['properties']['kind']['enum'] if kind != 'none']
+        self.assertIn('blocker', kinds)
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                self.state = copy.deepcopy(spent)
+                blocked = self.decision(status='BLOCKED')
+                blocked.update(next_objective='', affected_paths=[], plan=[], next_task={
+                    'kind': 'none', 'milestone_id': '', 'requirements': [], 'acceptance_criteria': [],
+                    'validation_plan': []}, user_request={
+                    'kind': kind, 'discovered': 'M1 still fails after its replan', 'impact': 'M1 cannot pass',
+                    'decision_needed': 'How to proceed with M1', 'options': ['Narrow M1', 'Stop'], 'proposed_delta': ''})
+                # The Resolver plans another task on M1, which the gate refuses.
+                resolved = {**self.revalidation('REWORK'), 'diagnosis': 'The replanned capture still fails on empty input.'}
+                prompts, answer = self.provider({'astra_review': [blocked], 'astra_resolve': [resolved]})
+                self.assertEqual(2, self.invoke('--no-chat', role=answer))
+                self.assertIn('and for a BLOCKED whose user_request.kind is not permission or goal_change',
+                              self.instruction(prompts[0][1]))
+                if kind in replan.ASKS_USER_DIRECTLY:
+                    self.assertEqual(['astra_review'], [stage for stage, _ in prompts])
+                    self.assertEqual('WAITING_FOR_USER', self.status()['status'])
+                else:
+                    self.assertEqual(['astra_review', 'astra_resolve', 'investigate_stuck'], [stage for stage, _ in prompts])
+                    self.assertEqual('PAUSED_MILESTONE_STALLED', self.paused_by())
+
+    def test_spent_replans_on_a_batch_name_the_members_the_gate_refuses(self):
+        # An integrated batch's row id is batch:<digest>, which no next_task.milestone_id can take. The gate
+        # refuses a task on any member, so the prompt names the members.
+        self.start()
+        self.state['current_task'].update(milestone_ids=['M1', 'M2'], acceptance_criteria=['C1', 'C2', 'C3'])
+        self.spend_replans({'C1': 'FAIL', 'C2': 'FAIL', 'C3': 'FAIL'})
+        member = self.revalidation('CONTINUE')
+        member['next_task'].update(milestone_id='M2', acceptance_criteria=['C3'])
+        prompts, answer = self.provider({'astra_review': [member]})
+        self.assertEqual(2, self.invoke('--no-chat', role=answer))
+        instruction = self.instruction(prompts[0][1])
+        self.assertIn('A next task is on this batch when next_task.milestone_id is M1 or M2', instruction)
+        self.assertIn('a next task on M1 or M2 with any status, REWORK or CONTINUE', instruction)
+        self.assertNotIn('on batch:', instruction)
+        self.assertEqual(['astra_review', 'investigate_stuck'], [stage for stage, _ in prompts])
+        self.assertEqual('PAUSED_MILESTONE_STALLED', self.paused_by())
 
     def test_unbounded_replans_prompt_does_not_also_promise_a_single_replan(self):
         # --max-milestone-replans 0 and the continuous-v1 routes save max_replans None (unbounded).
         self.start()
-        self.state['settings']['milestone_checkpoints']['max_replans'] = None
         for _ in range(3):
             self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
         prompts, answer = self.provider({})
-        self.assertEqual(2, self.invoke('--no-chat', role=answer))
+        self.assertEqual(2, self.invoke('--no-chat', '--max-milestone-replans', '0', role=answer))
         self.assertEqual('astra_review', prompts[0][0])
         instruction = self.instruction(prompts[0][1])
         self.assertIn('Replans are unbounded', instruction)

@@ -341,7 +341,7 @@ def before_assignment(state, decision, current):
     row = progress(state)
     if row is None:
         return
-    if spec["milestone_id"] not in row.get("milestone_ids", [row["id"]]):
+    if spec["milestone_id"] not in replan.members(row):  # the members the replan text names
         if not evidence_ready(state, current):
             try:
                 from . import autocode_findings as findings_ledger

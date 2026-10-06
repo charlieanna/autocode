@@ -27,12 +27,28 @@ $12.31 with one replan still allowed.
   milestone. The policy text also no longer claims "one such automatic replan". It points
   to `milestone_checkpoint.limits.max_replans`, because `--max-milestone-replans` and the
   continuous-v1 routes (unbounded) change that number. The gate's behavior is unchanged.
+- **Which decisions still call the Resolver.** A `REWORK` is not the only spent-state
+  decision that calls the Resolver before the pause. A `BLOCKED` review does too, unless
+  its `user_request.kind` is `permission` or `goal_change`. `autopilot` queues the Resolver
+  for `blocker` and `clarification`. The AutoResolver human gate defers `contradiction` and
+  `infeasible` to it. Only a `CONTINUE` (or one of those two kinds) pauses without it. The
+  spent statement now names these choices and leaves the usual rule for choosing the kind
+  unchanged. `ASKS_USER_DIRECTLY` in the replan module holds the two kinds.
+- **Integrated batches.** A batch's progress row has the id `batch:<digest>`, which no
+  `next_task.milestone_id` can take. The gate refuses a task on any member. Both statements
+  used to name the digest ("no further task on batch:caa8bd913910f702"). Members such as
+  M2 then read as another milestone. Both statements now name the members ("a next task
+  on M1 or M2"). The gate and the text read the same `members()`.
 
-Tests: `tests/test_milestone_replan.py` covers the spent statement and the replacement
-rules. `PendingReplanThroughTheCLI` in `tests/test_milestone_checkpoints.py` drives the
-second stall through the CLI with a scripted provider. The review prompt states the spent
-gate, and a `CONTINUE` from the review pauses the run before any Resolver or writer runs. A second
-test checks that an unbounded run's prompt no longer also promises a single replan.
+Tests: `tests/test_milestone_replan.py` covers the spent statement, the replacement
+rules, the Resolver routes and the batch members. `PendingReplanThroughTheCLI` in
+`tests/test_milestone_checkpoints.py` drives the second stall through the CLI with a
+scripted provider. The review prompt states the spent gate, and a `CONTINUE` from the
+review pauses the run (`view.recovery.cause` is `PAUSED_MILESTONE_STALLED`) before any
+Resolver or writer runs. A `BLOCKED` of every `user_request.kind` in the schema calls the
+Resolver first exactly when the prompt says it does. On a stalled `[M1, M2]` batch, the
+prompt names M1 and M2, and a `CONTINUE` on M2 pauses the run. Another test checks that
+`--max-milestone-replans 0` gives a prompt that no longer also promises a single replan.
 
 ## Still open
 

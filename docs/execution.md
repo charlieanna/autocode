@@ -192,8 +192,12 @@ replan is required it reads `MILESTONE REPLAN REQUIRED`: only that `REWORK` is a
 a `CONTINUE` (including a `kind=validate` revalidation) is refused, and revalidation-only
 work is a `REWORK` with `next_task.kind=validate`. Once the replans are spent and the
 milestone stalls again it reads `MILESTONE REPLANS SPENT`: any further task on that
-milestone pauses the run `PAUSED_MILESTONE_STALLED`. In both states the general rule to
-answer `CONTINUE` with a validate task is replaced for that milestone (#459).
+milestone pauses the run `PAUSED_MILESTONE_STALLED`. It also says which decisions call the
+Resolver before that pause: a `REWORK`, and a `BLOCKED` whose `user_request.kind` is not
+`permission` or `goal_change`. A `CONTINUE` pauses without it. In both states the general
+rule to answer `CONTINUE` with a validate task is replaced for that milestone (#459). For an
+integrated batch, both statements name the member milestones. A task is on the batch when its
+`next_task.milestone_id` is a member, and the batch's own `batch:<digest>` id is never one.
 
 Milestones have a 5,400-second active-time budget by default. This includes writer,
 reviewer and report-repair attempts after the milestone is assigned (or after an
