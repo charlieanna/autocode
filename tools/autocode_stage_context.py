@@ -6,6 +6,12 @@ prompt text (STABLE, COMMON, ...) stays in autocode_support, where the planning 
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import json
 from pathlib import Path
 import shlex
@@ -44,7 +50,7 @@ def context_packet(state, stage, state_path):
             "evidence_locations": state.get("evidence_locations", []),
             "private_source_exceptions": state.get("private_source_exceptions", []),
             "context_policy": "Full artifacts remain on disk; retrieve relevant exact evidence on demand."}
-    current = support.snapshot(Path(state["workspace"]))
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
     base.update(workspace=state["workspace"], source_revision=current["revision"], git_head=current["head"],
                 current_task=state.get("current_task"), execution_limits=state["settings"].get("limits", {}),
                 execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)))

@@ -686,7 +686,7 @@ class VisualRuntimeTests(unittest.TestCase):
             stack.enter_context(patch.object(autocode.opencode, 'local_settings', return_value={}))
             stack.enter_context(patch.object(autocode.support, 'snapshot', return_value=self.snapshot()))
             stack.enter_context(patch.object(autocode.readonly_events, 'prepare_opencode_snapshots'))
-            popen = stack.enter_context(patch.object(autocode.subprocess, 'Popen',
+            popen = stack.enter_context(patch.object(autocode.supervision, 'launch',
                 side_effect=RuntimeError('functional request admitted')))
             yield schema, popen
 

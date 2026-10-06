@@ -7,6 +7,12 @@ There is no controller, process termination, model call, or acceptance shortcut.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import base64
 import copy
 from dataclasses import asdict
@@ -145,7 +151,7 @@ def _source_revision(state, stage, pointer, packet, workspace):
     unmoved HEAD (retained_work.own_repair_source says exactly what it admits). Anything else binds
     the current revision, so other content, such as a person's new edit or a further change after
     the last attempt, remains a stale handoff."""
-    current, bound = util.snapshot(workspace), packet["binding"]["source_revision"]
+    current, bound = source_scope.snapshot(workspace, state), packet["binding"]["source_revision"]
     if (stage == "terra" and current["revision"] != bound
             and retained.own_repair_source(state.get("stages", []), pointer, bound, current)):
         return bound
@@ -274,7 +280,7 @@ def prepare_resolution(state, decision, record):
         request["recovery_novelty_skipped"] = "parallel_or_integrated_scope_uses_existing_resolver_bounds"
         return
     run, workspace = _run_root(state, record), Path(state["workspace"]).resolve()
-    current = util.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state)
     if current["revision"] != request["source_revision"]:
         _stale("source changed during incident capture")
     if "recovery_packet" in record:
@@ -803,7 +809,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
                          expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
         return False
-    current = runtime.support.snapshot(state["workspace"])
+    current = source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)
     if _binding(state, current["revision"]) != packet["binding"]:
         _stale("known correction changed scope or source before assignment")
     failed = [check for check in validation.get("checks", []) if type(check.get("exit_code")) is int and check["exit_code"]]
@@ -815,7 +821,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     except ValueError as error:
         _stale("known correction lacks an executed independent failure: " + str(error))
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the failed evidence")
     candidate = copy.deepcopy(state)
     candidate["iteration"] += 1
@@ -827,7 +833,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         if not error.status.startswith("PAUSED_MILESTONE_"):
             raise
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the proposed correction")
     action = retry_policy.failure(candidate, record["output"], "Attested bounded correction: " + change["hypothesis"])
     if action in ("pause", "defer"):
@@ -859,7 +865,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     candidate.update(status="RUNNING", phase="EXECUTING", next_action=decision["next_objective"],
                      next_stage=runtime.dispatch.build_stage(candidate))
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed before committing the proposed correction")
     state.clear()
     state.update(candidate)

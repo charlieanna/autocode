@@ -36,6 +36,12 @@ State keys written here:
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import json
 import subprocess
 import uuid
@@ -137,7 +143,7 @@ def turn_changes(state: dict, workspace) -> list[str]:
                   if isinstance(record, dict) and record.get("before_ref")), None)
     try:
         before = json.loads(Path(first).read_text()) if first else None
-        changed = util.changed_paths(before, util.snapshot(workspace)) if isinstance(before, dict) else []
+        changed = util.changed_paths(before, source_scope.snapshot(workspace, state)) if isinstance(before, dict) else []
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
         return []
     return [path for path in changed if not path.startswith(".autocode/")]

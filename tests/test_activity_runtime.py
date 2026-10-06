@@ -1,4 +1,5 @@
 """Offline runner coverage for activity timeouts, durable status, and recovery."""
+from .supervision_fixture import launcher
 import contextlib
 import copy
 import io
@@ -160,7 +161,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                     observed.append(support.read(run / 'state.json')['active_stage']['activity'])
                     return -15, True
 
-                with patch.object(runner.subprocess, 'Popen', Child), \
+                with patch.object(runner.supervision, 'launch', launcher(Child)), \
                      patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
                      patch.object(runner.processes, 'preflight', return_value=None), \
                      patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
@@ -226,7 +227,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch.object(runner, 'ActivityMonitor', monitor), \
-             patch.object(runner.subprocess, 'Popen', Child), \
+             patch.object(runner.supervision, 'launch', launcher(Child)), \
              patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
              patch.object(runner.processes, 'preflight', return_value=None), \
              patch.object(runner.processes, 'process_table', return_value={}), \

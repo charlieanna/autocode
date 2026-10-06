@@ -161,8 +161,11 @@ def _escalate(state, current, config, route):
     model = config['strong_model']
     if not model:
         return 'pause', {}, NO_STRONG_MODEL
-    if route.get('engine', state['settings'].get('engine')) == 'opencode' and '/' not in model:
+    engine = route.get('engine', state['settings'].get('engine'))
+    if engine == 'opencode' and '/' not in model:
         model = 'openai/' + model
+    elif engine == 'codex':
+        model = _bare(model)
     # Never undo explicit pins or silently change provider/transport.
     if route.get('model_pinned') or route.get('provider') not in (None, 'openai'):
         return 'pause', {}, EXHAUSTED

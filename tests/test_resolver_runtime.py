@@ -1,4 +1,5 @@
 """Runner boundary integration, with no live models or autonomous code writes."""
+from .supervision_fixture import launcher
 import copy
 from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import io
@@ -779,7 +780,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             return SimpleNamespace(pid=99999999)
 
         waited = (-15, True) if timeout else (1, False) if failure else (0, False)
-        with patch.object(runner.subprocess, 'Popen', side_effect=launch), \
+        with patch.object(runner.supervision, 'launch', launcher(launch)), \
              patch.object(runner.processes, 'preflight', return_value=None), \
              patch.object(runner.processes, 'wait_for_stage', return_value=waited), \
              patch('time.sleep') if failure == 'capacity' else nullcontext():  # capacity recovery backs off

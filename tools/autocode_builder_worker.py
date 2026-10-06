@@ -1,4 +1,10 @@
 """Internal isolated Builder entry point, supervised by the Orchestrator."""
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 from pathlib import Path
 import sys
 import uuid
@@ -29,7 +35,7 @@ def execute(state, directory, workspace, mode):
         parent = runner.read_json(Path(state["parent_run"]) / "state.json")
         batch = parent.get("orchestration_batch") or {}
         row = next((r for r in batch.get("workers", []) if r.get("task") == state["current_task"]), None)
-        current = runner.support.snapshot(workspace)
+        current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)
         expected = {p: h for p, h in batch.get("baseline", {}).get("files", {}).items() if h != "deleted"}
         if (not row or batch.get("id") != state.get("parent_batch")
                 or batch.get("contract_hash") != state["goal_contract"]["hash"]
@@ -107,7 +113,7 @@ def execute(state, directory, workspace, mode):
     request = implementation.get("user_request", {})
     if request.get("kind") != "none":
         raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER", request.get("decision_needed", "Builder needs a user decision"))
-    if implementation.get("source_revision") != runner.support.snapshot(workspace)["revision"]:
+    if implementation.get("source_revision") != source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot)["revision"]:
         raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Builder source changed after its result")
     state.update(status="BUILT", next_stage=None)
     runner.write_json(directory / "state.json", state)

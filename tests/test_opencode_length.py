@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from .supervision_fixture import launcher
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_goals as goals
@@ -251,7 +253,7 @@ class OutputLimitTests(unittest.TestCase):
         snapshot = {"head": "h", "files": {}, "revision": "r"}
         with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
              patch.object(runner.readonly_events, "prepare_opencode_snapshots"), \
-             patch.object(runner.subprocess, "Popen", Child), \
+             patch.object(runner.supervision, "launch", launcher(Child)), \
              patch.object(support, "snapshot", return_value=snapshot), \
              patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=(0, False)):
