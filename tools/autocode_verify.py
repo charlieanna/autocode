@@ -122,6 +122,47 @@ def _document_only_base(workspace, base):
     return True
 
 
+def _package_scripts(text) -> dict:
+    try:
+        package = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    scripts = package.get("scripts")
+    return dict(scripts) if isinstance(scripts, dict) else {}
+
+
+def _suite_package_script(command):
+    """The package.json script name an npm/yarn/pnpm suite command runs, if any."""
+    if not isinstance(command, str) or re.search(r"[;&|<>`$\n\r]", command):
+        return None
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words or PurePosixPath(words[0]).name not in ("npm", "npm.cmd", "yarn", "yarn.cmd", "pnpm", "pnpm.cmd"):
+        return None
+    positional = [word for word in words[1:] if not word.startswith("-")]
+    if not positional:
+        return None
+    if positional[0] in ("run", "run-script"):
+        return positional[1] if len(positional) > 1 else None
+    return "test" if positional[0] in ("test", "t") else None
+
+
+def _package_script_redefined(workspace, base, suite_command):
+    """True when the suite runs a package.json script the candidate redefined.
+
+    `npm test` reads each tree's own package.json, so identical suite text can
+    run different tests after the candidate narrows the script (#528).
+    """
+    name = _suite_package_script(suite_command)
+    if name is None:
+        return False
+    before = _package_scripts(_git(workspace, "show", f"{base}:package.json", check=False))
+    after = _package_scripts(_read(Path(workspace) / "package.json"))
+    return before.get(name) != after.get(name)
+
+
 def _ignored(path: str) -> bool:
     # Top-level dependency links are runner-made (link_dependencies), never part of a fix.
     return (path.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{path}"
@@ -1123,7 +1164,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
-                         allow_empty_base=allow_empty_base)
+                         allow_empty_base=allow_empty_base,
+                         script_redefined=_package_script_redefined(workspace, base, commands["suite"]))
         elif sources or preserve_only:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1302,7 +1344,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     return set(receipt["results"]["failed"]) if receipt.get("results") else None
 
 
-def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
+def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False,
+                 script_redefined=False):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -1345,8 +1388,12 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     # remains FAIL even when preservation coverage is unverified (#479).
     # Python 3.14 unittest and pytest use exit 5 for honest empty collection.
     # That is usable only when the caller identified a document-only pinned base and
-    # the candidate's new suite actually ran and passed in full.
-    empty_base = (allow_empty_base and base_results is not None
+    # the candidate's new suite actually ran and passed in full. A first Node
+    # project's base run instead exits 1 with no results at all (#526).
+    first_suite = (allow_empty_base and on_candidate["exit_code"] == 0
+                   and schedule.complete_results(on_candidate)
+                   and candidate is not None and candidate["passed"] and not candidate["failed"])
+    empty_base = (first_suite and base_results is not None
                   and base_receipt.get("results_expected") is True
                   and (base_receipt.get("exit_code") == 0
                        or (base_receipt.get("exit_code") == 5
@@ -1354,14 +1401,12 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
                            in ("unittest", "pytest")))
                   and base_results.get("complete") is True and base_results.get("total") == 0
                   and all(base_results.get(key) == [] for key in
-                          ("passed", "failed", "skipped", "collection_errors"))
-                  and on_candidate["exit_code"] == 0 and schedule.complete_results(on_candidate)
-                  and candidate["passed"] and not candidate["failed"])
+                          ("passed", "failed", "skipped", "collection_errors")))
     if base_results is not None:
         if not empty_base and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
             unverified.append("The base suite provided no complete passing-test evidence; "
                               "preservation of existing behavior is unproven")
-    elif base_suite is not None and base_suite.get("health") == "broken":
+    elif base_suite is not None and base_suite.get("health") == "broken" and not first_suite:
         unverified.append("The base suite could not run; preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
         if base_results.get("complete") and not base_receipt.get("timed_out"):
@@ -1384,6 +1429,12 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             notes.append(f"{len(base_results['failed'])} test(s) already failed on base; none newly fail")
         return
     if on_candidate["exit_code"] == 0:
+        # An exit code proves preservation only when both trees ran the same suite.
+        # npm/yarn/pnpm run each tree's own package.json script, so a redefined
+        # script can hide the old tests behind a green exit (#528).
+        if script_redefined and not allow_empty_base:
+            unverified.append("The package.json test script was redefined, so base and candidate did not "
+                              "run the same tests; preservation of existing behavior is unproven")
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")

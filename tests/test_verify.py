@@ -182,6 +182,74 @@ class PreservationEvidenceCase(unittest.TestCase):
     def test_new_project_with_no_existing_test_inventory_can_prove_a_feature(self):
         self.check_first_suite(Project({"README.md": "A new project.\n"}))
 
+    @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
+    def test_a_first_node_project_passes_when_the_base_suite_cannot_run(self):
+        # #526: node --test greet.test.js exits 1 on a README-only base with no
+        # results at all, which is not missing preservation evidence.
+        project = Project({"README.md": "A new project.\n"})
+        self.addCleanup(project.close)
+        project.write({
+            "greet.js": "module.exports = name => 'hello ' + name;\n",
+            "greet.test.js": "const {test}=require('node:test');\n"
+                             "const assert=require('node:assert/strict');\n"
+                             "const greet=require('./greet.js');\n"
+                             "test('hello',()=>assert.equal(greet('x'),'hello x'));\n",
+        })
+        framework = verify.detect_framework(project.root)
+        self.assertEqual(("node", "node --test greet.test.js"), (framework.name, framework.suite))
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=framework.suite, timeout=30)
+        self.assertEqual("broken", base["health"], base)
+        self.assertIsNone(base["receipt"].get("results"), base)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               base_suite=base, new_behavior=True, timeout=30)
+        self.assertEqual(["greet.test.js::hello"], result["fail_to_pass"], result)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
+    def test_an_existing_program_whose_base_suite_cannot_run_stays_unverified(self):
+        project = Project({"README.md": "A new project.\n",
+                           "legacy.js": "module.exports = 1;\n"})
+        self.addCleanup(project.close)
+        project.write({
+            "legacy.js": "module.exports = 2;\n",
+            "greet.js": "module.exports = name => 'hello ' + name;\n",
+            "greet.test.js": "const {test}=require('node:test');\n"
+                             "const assert=require('node:assert/strict');\n"
+                             "const greet=require('./greet.js');\n"
+                             "test('hello',()=>assert.equal(greet('x'),'hello x'));\n",
+        })
+        framework = verify.detect_framework(project.root)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=framework.suite, timeout=30)
+        self.assertEqual("broken", base["health"], base)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               base_suite=base, new_behavior=True, timeout=30)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("could not run" in reason for reason in result["unverified"]), result)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for named Node proof")
+    def test_a_first_node_bugfix_stays_unverified_when_the_base_suite_cannot_run(self):
+        project = Project({"README.md": "A new project.\n"})
+        self.addCleanup(project.close)
+        project.write({
+            "greet.js": "module.exports = name => 'hello ' + name;\n",
+            "greet.test.js": "const {test}=require('node:test');\n"
+                             "const assert=require('node:assert/strict');\n"
+                             "const greet=require('./greet.js');\n"
+                             "test('hello',()=>assert.equal(greet('x'),'hello x'));\n",
+        })
+        framework = verify.detect_framework(project.root)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=framework.suite, timeout=30)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               base_suite=base, new_behavior=False, timeout=30)
+        # A bug fix needs a test that ran and failed on base; an import error is
+        # not a reproduction, so this must not PASS. The suite side still says
+        # the base could not run rather than inventing empty preservation.
+        self.assertNotEqual(verify.PASS, result["verdict"], result)
+        self.assertTrue(any("could not run" in reason for reason in result["unverified"]), result)
+
     def test_empty_pinned_project_can_prove_its_first_feature(self):
         project = Project({"README.md": "A new project.\n"})
         git(project.root, "rm", "README.md")
@@ -357,6 +425,108 @@ class VerifyCase(unittest.TestCase):
                 project.write({'app.cjs': source})
                 rejected = project.verify()
                 self.assertEqual(verify.FAIL, rejected['verdict'], rejected)
+
+    @staticmethod
+    def _narrowed_package_suite():
+        # Existing Node project whose suite is `npm test --silent`. The candidate
+        # breaks add() and narrows scripts.test so the old test never runs (#528).
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        }
+        candidate = {
+            'calc.js': 'module.exports = {add: (a, b) => a - b, mul: (a, b) => a * b};\n',
+            'package.json': json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+            'test/feature.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n"),
+        }
+        return seed, candidate
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
+    def test_narrowing_the_package_test_script_cannot_hide_a_break_from_the_suite(self):
+        seed, candidate = self._narrowed_package_suite()
+        project = self.project(seed)
+        project.write(candidate)
+        result = project.verify(new_behavior=True)
+        self.assertEqual('npm test --silent', result['commands']['suite'], result)
+        self.assertEqual(['test/feature.test.js::mul'], result['fail_to_pass'], result)
+        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+        self.assertTrue(any('redefined' in reason for reason in result['unverified']), result)
+        self.assertEqual([], result['failures'], result)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
+    def test_the_same_break_without_narrowing_the_script_still_fails(self):
+        seed, candidate = self._narrowed_package_suite()
+        candidate = {**candidate, 'package.json': seed['package.json']}
+        project = self.project(seed)
+        project.write(candidate)
+        result = project.verify(new_behavior=True)
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertTrue(any('passes on base but fails on the candidate' in reason
+                            or 'did not pass on the candidate' in reason
+                            for reason in result['failures']), result)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
+    def test_a_package_json_change_that_leaves_scripts_alone_still_passes(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        }
+        project = self.project(seed)
+        project.write({
+            'calc.js': 'module.exports = {add: (a, b) => a + b, mul: (a, b) => a * b};\n',
+            'package.json': json.dumps({
+                "scripts": {"test": "node --test"},
+                "dependencies": {"left-pad": "1.3.0"},
+            }),
+            'test/feature.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n"),
+        })
+        result = project.verify(new_behavior=True)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+        self.assertFalse(any('redefined' in reason for reason in result['unverified']), result)
+        self.assertIn('test/feature.test.js::mul', result['fail_to_pass'], result)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
+    def test_a_first_node_project_defining_its_test_script_still_passes(self):
+        project = self.project({'README.md': 'A new project.\n'})
+        project.write({
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        })
+        result = project.verify(new_behavior=True)
+        self.assertEqual('npm test --silent', result['commands']['suite'], result)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+
+    def test_suite_package_script_names_the_script_an_npm_command_runs(self):
+        self.assertEqual('test', verify._suite_package_script('npm test --silent'))
+        self.assertEqual('test', verify._suite_package_script('yarn test'))
+        self.assertEqual('test', verify._suite_package_script('pnpm run test'))
+        self.assertEqual('test:unit', verify._suite_package_script('npm run test:unit'))
+        self.assertIsNone(verify._suite_package_script('node --test a.test.js'))
+        self.assertIsNone(verify._suite_package_script('npm test && echo done'))
+        self.assertIsNone(verify._suite_package_script('npm run'))
 
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})
