@@ -7,9 +7,10 @@ with the text after it into one un-quotable obligation. Substantive headings
 (``## Files must be encrypted``) stay obligations, as clean sentences. A
 delegated answer stores the model's own proposed default as its text: it stays
 a source a report may quote, but it is not itself a must-quote obligation.
-Fenced code blocks are left out of the obligations, as the brief-literal rule
-leaves them out (autocode_brief_literals): pasted code, data or a quoted plan
-is context, not sentences the user voiced, and it stays quotable.
+A fenced code block, opened and closed by lines of their own, is left out of
+the obligations: pasted code, data or a quoted plan is context, not sentences
+the user voiced, and it stays quotable. A ``` inside a line, or a fence that
+never closes, hides nothing: what follows stays owed.
 Pure functions over the state dict; conversation source projection uses only
 the independent handoff protocol.
 """
@@ -19,10 +20,8 @@ import re
 
 try:
     from .autocode_conversation import task_user_texts
-    from .autocode_brief_literals import FENCE
 except ImportError:
     from autocode_conversation import task_user_texts
-    from autocode_brief_literals import FENCE
 
 CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
 _CUE_WORDS = {"must", "not", "never", "do", "don't", "dont", "required",
@@ -35,6 +34,8 @@ _LABEL_WORDS = {"required", "requirement", "requirements", "behavior", "behaviou
                 "non-goals", "nongoals", "assumptions", "questions", "changes", "tasks",
                 "outcomes", "implementation", "approach", "design"}
 _HEADING = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(.+?)\s*$")
+# Unlike the brief-literal FENCE, an inline ``` or an unclosed fence would otherwise hide every obligation after it.
+_FENCE = re.compile(r"^[ \t]{0,3}```.*?^[ \t]{0,3}```[^\n]*$", re.M | re.S)
 
 
 def _without_label_headings(text):
@@ -53,7 +54,7 @@ def _without_label_headings(text):
 def _outside_fences(text):
     """The text between fenced blocks, piece by piece."""
     pieces, start = [], 0
-    for match in FENCE.finditer(text):
+    for match in _FENCE.finditer(text):
         pieces.append(text[start:match.start()])
         start = match.end()
     return [*pieces, text[start:]]

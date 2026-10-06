@@ -393,8 +393,46 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": broken})
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual({"C4": []}, proof["case_tests"])
-        self.assertTrue(any("passes both with the change and on the original code" in failure
+        self.assertTrue(any("has a test named after it that fails: test_guard.GuardTests.test_c4_add_still_works" in failure
                             for failure in proof["failures"]), proof["failures"])
+
+    def test_a_guard_with_a_failing_variant_does_not_hold(self):
+        # Two classes define the guard's test; one fails, before and after, so the suite only notes it.
+        failing = self.OWN_FILE.replace("GuardTests", "OtherGuardTests").replace("assertEqual(3", "assertEqual(4")
+        proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": self.OWN_FILE + "\n\n" + failing})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"C4": []}, proof["case_tests"])
+        self.assertTrue(any("has a test named after it that fails: test_guard.OtherGuardTests.test_c4_add_still_works"
+                            in failure for failure in proof["failures"]), proof["failures"])
+
+    def test_an_ignored_test_file_cannot_prove_a_guard(self):
+        project = Project(SEED)
+        self.addCleanup(project.close)
+        with open(project.root / ".git" / "info" / "exclude", "a") as exclude:
+            exclude.write("test_guard.py\n")
+        project.write({"test_guard.py": self.OWN_FILE})
+        proof = regression.prove(feature_state(project, [self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="ignored-guard-")))
+        self.assertEqual("UNVERIFIED", proof["verdict"], proof["failures"])
+        self.assertTrue(any("Ignored test files" in reason and "test_guard.py" in reason
+                            for reason in proof["unverified"]), proof["unverified"])
+
+    def test_a_guard_only_change_that_adds_no_test_proves_its_guards_with_existing_tests(self):
+        seed = {**SEED, "test_guard.py": self.OWN_FILE}
+        commented = {"calc.py": "# Adds two numbers.\n" + SEED["calc.py"]}
+        project = Project(seed)
+        self.addCleanup(project.close)
+        project.write(commented)
+        proof = regression.prove(feature_state(project, [self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="guard-change-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
+        project.write({"calc.py": "def add(a, b):\n    return a - b\n"})
+        broken = regression.prove(feature_state(project, [self.GUARD]), project.root,
+                                  Path(tempfile.mkdtemp(prefix="guard-change-")))
+        self.assertEqual("FAIL", broken["verdict"])
+        self.assertTrue(any("pass on base fail on the candidate" in failure for failure in broken["failures"]),
+                        broken["failures"])
 
     def test_an_unchanged_source_never_proves_new_behavior(self):
         proof = self.prove_unchanged([EXAMPLE, self.GUARD], {**FEATURE, "test_guard.py": self.OWN_FILE})

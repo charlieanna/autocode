@@ -418,7 +418,8 @@ completes with nothing changed when its criteria are checked by the Validator or
 `guard:` with a test the workstream already has: the runner's regression proof then runs
 the suite on the unchanged source and needs each guard's test to pass there
 ([named test proof](named-test-proof.md)). A criterion marked `test:` needs a change, so it
-cannot pass a re-check that changes nothing.
+cannot pass a re-check that changes nothing, unless the person granted the test-only
+regression-proof exception, which makes the plan's tests guards.
 
 The final check runs in the shared integration worktree, and retiring its run (a
 revision that changes its scope before it merged, or an approved plan that drops a

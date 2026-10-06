@@ -21,24 +21,42 @@ mode) had no effect, because no code path reads it.
 
 ## Fix
 
-`verify(..., preserve_only=True)` with an empty diff no longer fails as "No change" or for lack of a
-new test. `preserve_only` holds only when every case the proof covers is a `guard:` (or the person
-granted the test-only exception). The suite runs on a tree of the unchanged source, and its result is
-judged against the base suite as before. `_held_guards` records `fail_to_pass` as empty, and records
-`pass_to_pass` as the tests that passed on base and on that run, both with complete per-test
-results. `autocode_regression.check_cases` then needs each guard's named test among them, as it does
-for a guard on a changed source. Everything else still needs a change. A `test:` criterion on an
-unchanged source still fails "No change", and so does any run whose proof is not guard-only.
+`verify(..., preserve_only=True)` with an empty diff no longer fails as "No change". Nor does
+a change that edits no test fail for lack of a new test. `preserve_only` holds only when every case
+the proof covers is a `guard:`, or when the person granted the test-only exception, which the proof
+already treats as coverage.
+
+- **Suite run.** The suite runs on the candidate tree (the unchanged source, when nothing changed),
+  and its result is judged against the base suite as before.
+- **Proof lists.** `_held_guards` needs complete per-test results on both runs. It records three
+  lists:
+  - `fail_to_pass` as empty;
+  - `pass_to_pass` as the tests that passed on base and on the candidate;
+  - `failed_on_candidate` as the candidate's failures.
+- **Case checks.** `autocode_regression.check_cases` then needs each guard's named test in
+  `pass_to_pass`, as it does for a guard on a changed source. It also fails a guard when any test
+  named after it is in `failed_on_candidate`. That covers one failing variant of a parametrized
+  test, which the suite comparison only notes when it already failed on base.
+- **Ignored test files.** A guard cannot rest on git-ignored test files that `make_tree` copies into
+  both trees: when there are any, the proof is `UNVERIFIED`.
+
+Everything else still needs a change. A `test:` criterion on an unchanged source still fails "No
+change" (without the exception), and so does any run whose proof is not guard-only.
 
 Tests in `tests/test_test_cases.py` go through `autocode_regression.prove` on a committed, unchanged
 source:
 
 - guards whose tests exist and pass: `PASS`, and `complete()` accepts it;
 - a guard without its test: `FAIL`, naming the case;
-- a guard whose test fails: `FAIL`;
+- a guard whose test fails: `FAIL`, naming the test;
+- a guard whose test passes in one class and fails in another (a failing variant): `FAIL`;
+- a guard whose test file is excluded through `.git/info/exclude`: `UNVERIFIED`;
+- a guard-only change to a source file that adds no test: `PASS`, and `FAIL` when the change
+  breaks the guard;
 - a `test:` criterion beside a guard: still "No change".
 
-The first three fail without the fix. The fake model's program mode (`scenarios/harness/fake_codex.py`)
+Every test but the last fails without the fix. The ignored-file, failing-variant and test-free-change
+cases came from a review of the first version of this fix. The fake model's program mode (`scenarios/harness/fake_codex.py`)
 now marks a re-checked workstream's criteria `guard:`, naming a test that workstream already has, so
 `program-notes-cli` reaches this proof on the skeleton's re-check. Without the fix the fake run stops
 the way the live run did (S `PAUSED_INVALID_OUTPUT`, T and U `STALE`, oracle 11 of 21); with it, it

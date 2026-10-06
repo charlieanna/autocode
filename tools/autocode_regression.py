@@ -23,9 +23,10 @@ autocode_test_cases.contract_cases): each such test must pass with the change
 and must not have passed without it (verify's ``new_behavior``). A milestone
 whose due criteria are all ``guard:`` (behavior the product already implements)
 is coverage: the diff may be test files alone, and each test must pass on the
-base and on the candidate (verify's ``preserve_only``). It may also be empty when
-those tests already exist, as in a program's validation-only re-check: each must
-then pass on the unchanged source. A saved permission
+base and on the candidate (verify's ``preserve_only``). It may also change no
+test when those tests already exist, and be empty, as in a program's
+validation-only re-check: each must then pass on base and on the candidate, and
+none of its variants may fail. A saved permission
 answer that grants a test-only regression-proof exception for the current
 contract is the same coverage proof, so a plan that marked that coverage
 ``test:`` can still finish. With several milestones, a checkpoint proves the
@@ -63,7 +64,7 @@ except ImportError:
 
 STAGE = "regression_proof"
 SUMMARY_KEYS = ("framework", "verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
-                "not_run_on_base",
+                "not_run_on_base", "failed_on_candidate",
                 "commands", "base", "base_patch", "source_revision", "test_files", "source_files", "case_tests")
 
 
@@ -445,8 +446,17 @@ def check_cases(proof, cases, refused=None):
                 "have passed before"]
     mistagged = [case for case in preserve
                  if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]), framework=framework)[case["id"]]) - set(unrun)]
+    # Set only when the guards rest on tests the source already had (verify._held_guards): one failing
+    # variant of a parametrized test breaks its guard, though the suite counts it as failing before too.
+    failing = proof.get("failed_on_candidate") or []
+    broken = {case["id"]: test_cases.match_cases([case], failing, framework=framework)[case["id"]] for case in preserve}
+    for case in preserve:
+        if broken[case["id"]]:
+            proof["case_tests"][case["id"]] = []
+    failures += [f"Preserve case {test_cases.case_text(case)} has a test named after it that fails: "
+                 + ", ".join(broken[case["id"]][:5]) for case in preserve if broken[case["id"]]]
     untested = [case for case in preserve
-                if not proof["case_tests"][case["id"]] and case not in mistagged]
+                if not proof["case_tests"][case["id"]] and case not in mistagged and not broken[case["id"]]]
     failures += [refusal("Preserve case", case) or
                  f"Preserve case {test_cases.case_text(case)} has no test named "
                  f"{test_cases.case_test_name(case['id'], case.get('test_name'))} "

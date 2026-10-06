@@ -2,10 +2,13 @@
 
 A plan's `test: test_c1_example` criterion requires that named test to pass with
 the change and not before it. A `guard:` criterion must pass before and after.
-When nothing changed and every criterion the proof covers is a `guard:` (a validation-only
-re-check of a merged program workstream), the proof runs the suite on the unchanged source,
-and each guard's named test must pass there and on the base; a `test:` criterion still needs
-a change.
+When every criterion the proof covers is a `guard:` and the change adds or edits no test
+(it may change nothing, as a validation-only re-check of a merged program workstream does),
+the guards rest on tests the project already has: the proof runs the suite on the base and
+the candidate, and each guard's named test must pass on both, with no test named after it
+failing (one failing variant of a parametrized test breaks the guard). A guard cannot rest
+on a git-ignored test file. A `test:` criterion still needs a change, unless the person
+granted the test-only regression-proof exception.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, and Vitest 4.
