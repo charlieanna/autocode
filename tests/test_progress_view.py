@@ -200,6 +200,17 @@ class TaskAndHeadlineTests(unittest.TestCase):
                 self.assertEqual(asked, view["needs_you"])
                 self.assertNotIn("%", view["line"])
 
+    def test_a_job_stopped_on_its_model_asks_for_a_model_then_only_the_retry(self):
+        saved = state(status="PAUSED_JOB_FAILURE", active_stage=None, job_failure={"route": {}})
+        need = {"kind": "retry_job", "route": {"job": "Code Reviewer", "current_model": "gpt-6-sol"}}
+        asked = lambda: progress_view.progress(saved, accepted=(), stage="Code Reviewer", needs=need)["needs_you"]
+        self.assertEqual("name another model for the Code Reviewer, then retry it", asked())
+        saved["job_failure"]["route_assignment"] = {"to": "gpt-6-luna"}
+        need["route"]["current_model"] = "gpt-6-luna"
+        self.assertEqual("retry the Code Reviewer on gpt-6-luna", asked())
+        need = {"kind": "retry_job"}
+        self.assertEqual("inspect the failed job, then retry", asked())
+
     def test_a_follow_up_does_not_show_the_previous_request_as_its_progress(self):
         saved = state(status="RUNNING", active_stage=None, validation=checked(("C1", "PASS")),
                       turns=[{"at": "2026-10-04T10:00:00+00:00", "say": "also add X"}])

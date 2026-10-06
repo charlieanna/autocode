@@ -17,6 +17,7 @@ from pathlib import Path
 
 try:
     from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
+    from . import autocode_job_route as job_route
     from . import autopilot
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
@@ -43,6 +44,7 @@ try:
     from . import autocode_worktrees as worktrees
 except ImportError:
     import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
+    import autocode_job_route as job_route
     import autopilot
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
@@ -219,7 +221,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         if not args.retry_failed_stage:
             print(state['stop_reason'])
             return 2
-    if state.get('job_failure') and (state.get('status') in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') or args.job_retry_token):
+    # A job stopped on quota or a content-filter refusal takes another model with its retry token (#463).
+    routed = job_route.answer(runner, args, state, run_dir, workspace)
+    if routed is not None:
+        return routed
+    if state.get('job_failure') and (state.get('status') in job_failure.PAUSES or args.job_retry_token):
         if not (args.resume_paused and args.retry_failed_stage):
             print(state.get('stop_reason', 'Inspect the retained workflow-job attempt before retrying.'))
             return 2
@@ -362,7 +368,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         return 2
     if args.abandon_stage is not None:
         try:
-            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage)
+            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
         except ValueError as error:
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2

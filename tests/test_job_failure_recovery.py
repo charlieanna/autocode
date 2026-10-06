@@ -129,7 +129,8 @@ raise SystemExit(autocode.main())
 '''
 
 
-class JobFailureTaskRunTests(unittest.TestCase):
+class JobHarness(unittest.TestCase):
+    """The copied seed, fake provider and wrapper; no tests of its own (tests/test_job_route.py borrows it)."""
     @classmethod
     def setUpClass(cls):
         cls.seed_temp = tempfile.TemporaryDirectory(prefix='job-failure-seed-')
@@ -182,6 +183,8 @@ class JobFailureTaskRunTests(unittest.TestCase):
         self.assertTrue(view['needs']['job_retry_token']);self.assertEqual(1,self.count())
         return view['needs']
 
+
+class JobFailureTaskRunTests(JobHarness):
     def test_t1_timed_out_review_change_pauses_under_review_owner(self):
         run=self.start();need=self.paused(run)
         self.assertEqual('review',run.status()['workflow']);self.assertIn('900-second',need['reason'])

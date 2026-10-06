@@ -75,7 +75,7 @@ a new run instead; `autocode resume` never does.
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
-| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. See [Models](models.md#when-a-roles-quota-runs-out). |
+| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
@@ -106,7 +106,7 @@ requirements as usual.
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
 | stopped | `needs.kind` is `resume` | `autocode resume`, once the cause in `stop_reason` is resolved (`--resume-paused` after editing the design at `PAUSED_DESIGN_CONFLICT`) | `resume_paused()` |
-| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)` |
+| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; with `needs.route` (quota or a content-filter refusal), first `--answer route-ROLE=MODEL --job-retry-token TOKEN` to run it on another model, then the retry with the new token; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)`; with `needs.route`, `assign_model(role, model)` first |
 | waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
@@ -244,3 +244,31 @@ bytes, modes and Git HEAD even when a capture artifact is missing; changed
 model/limits still invalidate the retry. An older attempt with no saved original
 identity exposes `recover_source` and an explanation instead of a retry action.
 Inspect its archive and current changes before starting a new run.
+
+A job its provider's content filter refused (`PAUSED_CONTENT_FILTER`) or that ran
+out of quota (`PAUSED_BUDGET`) pauses the same way, and its stop names the cause
+and the model. The same model is likely to refuse again, so `needs.route` carries
+the job's model question. `--job-retry-token` is accepted without `--resume-paused
+--retry-failed-stage` only together with that answer:
+`--answer route-ROLE=MODEL --job-retry-token TOKEN` checks the model the way a launch
+would, records a `route_assignment` and issues a new token for the new model. The
+old token stops working, and the exact retry with the new token is the only way on:
+`--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN`. After a refusal,
+until a model is named, the status view's `needs.action` is that answer and the
+recovery card offers no retry, since the exact retry would replay the refused model. The Architect,
+Analyst and Investigator have no `--ROLE-model` flag, so this answer is how they
+move. The answer changes only that model: given with a limit or another role's
+model, with or without its token, it is refused and nothing is saved. It issues a
+new token, so it is given on its own: next to `--resume-paused --retry-failed-stage`
+it is refused before anything is read or saved. At that stop `--abandon-stage` is
+refused, and a `--ROLE-model` flag for the stopped role is refused with this advice
+instead of being saved (saving it would make the retry stale); only a flag that
+puts back the model the retry is bound to is saved. The same flag is refused while
+the job's attempt is still uncertain, including with `--abandon-stage` in the same
+command: run `--abandon-stage ATTEMPT` alone, then answer with the token it shows.
+After a quota stop, the unchanged retry with the shown token also works once the
+quota resets. A stuck-stage Investigator (`investigate_stuck`) keeps only the
+exact retry: its route is rebuilt on every launch, and an answer naming a model for
+it is refused with that reason. A job stop saved before stopped jobs could take
+another model keeps only the exact retry too; the refusal names its cause, reading
+the archived attempt's provider errors for a quota stop saved then.
