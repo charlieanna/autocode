@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -116,6 +117,52 @@ class PolicyTests(unittest.TestCase):
                    {'tool_containment': None}, {'tool_containment': {'scratch': 7}}, {'tool_containment': 'x'}, 'x']
         self.assertEqual((genuine,), containment.recorded_scratch(records, '/workspace'))
         self.assertEqual((), containment.recorded_scratch(records, '/other'))
+
+
+class AvailabilityTests(unittest.TestCase):
+    """The cheap run-setup check (#413): platform, sandbox-exec, OpenCode version; no conformance."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.bin = Path(directory.name).resolve()
+        # Simulated macOS anywhere (CI is Linux): any existing file stands in for sandbox-exec.
+        self.mac = SimpleNamespace(platform='darwin')
+        self.sandbox = patch.object(containment, 'SANDBOX_EXEC', sys.executable)
+
+    def opencode(self, version, code=0):
+        client = self.bin / 'opencode'
+        client.write_text(f'#!/bin/sh\necho {version}\nexit {code}\n')
+        client.chmod(0o755)
+        return {'PATH': str(self.bin)}
+
+    def test_other_platform_is_named(self):
+        with patch.object(containment, 'sys', SimpleNamespace(platform='linux')):
+            reason = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION))
+        self.assertIn('requires macOS sandbox-exec', reason)
+        self.assertIn('linux', reason)
+
+    def test_missing_sandbox_exec_is_named(self):
+        with patch.object(containment, 'sys', self.mac), \
+                patch.object(containment, 'SANDBOX_EXEC', str(self.bin / 'no-sandbox-exec')):
+            self.assertIn('sandbox-exec, which is missing', containment.unavailable(environment=self.opencode('x')))
+
+    def test_other_or_unreadable_opencode_version_is_named(self):
+        with patch.object(containment, 'sys', self.mac), self.sandbox:
+            reason = containment.unavailable(environment=self.opencode('1.18.34'))
+            self.assertIn('only for OpenCode ' + containment.SUPPORTED_VERSION, reason)
+            self.assertIn('this machine has OpenCode 1.18.34', reason)
+            failed = containment.unavailable(environment=self.opencode(containment.SUPPORTED_VERSION, code=3))
+            self.assertIn('unknown (exit 3)', failed)
+            self.assertIn('cannot find the opencode executable',
+                          containment.unavailable(environment={'PATH': str(self.bin / 'empty')}))
+
+    def test_qualified_setup_is_available_without_running_conformance(self):
+        with patch.object(containment, 'sys', self.mac), self.sandbox, \
+                patch.object(containment, 'configure') as configure, patch.object(containment, 'prepare') as prepare:
+            self.assertIsNone(containment.unavailable(self.bin, self.opencode(containment.SUPPORTED_VERSION)))
+        configure.assert_not_called()
+        prepare.assert_not_called()
 
 
 @unittest.skipUnless(sys.platform == 'darwin' and Path('/usr/bin/sandbox-exec').is_file(),

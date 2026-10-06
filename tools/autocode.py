@@ -28,7 +28,7 @@ try:
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
@@ -37,7 +37,7 @@ except ImportError:
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery
+    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
@@ -264,6 +264,7 @@ REPAIR_HANDOFF_BYTES = 256 * 1024
 
 
 def reject_completed_stage(state, run_dir, record, error):
+    result_application.raise_if_uncertain(error)
     account_stage(state, record)
     error = stray_writes.undo(state, record, error)  # a read-only stage's writes are put back first
     failure = failures.record(state, record, error, now())
@@ -375,8 +376,8 @@ def run_role(
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
         sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
-        source_paths=source_scope.paths(state),
-        tool_commands=verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
+        source_paths=source_scope.paths(state), settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        tool_commands=(lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state)))
         if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
     session = worker_context.get('provider_session', session)
     child_options = {"start_new_session": True, "env": child_environment}
@@ -429,10 +430,7 @@ def run_role(
     if joint_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
-        record.update(permission_config=str(base.with_suffix(".opencode.json")),
-                      isolation="Kernel-constrained native shell; other tools disabled" if worker_context.get('tool_containment') else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
-        record['tool_containment'] = worker_context.get('tool_containment')
-        record['output_token_cap'] = worker_context.get('output_token_cap')
+        record.update(permission_config=str(base.with_suffix(".opencode.json")), **provider_launch.stage_record(worker_context))
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")
@@ -684,46 +682,7 @@ def assert_repair_preserves_builder_history(original, value):
 
 
 def accept_repaired_report(state, run_dir, workspace, value, repair_record):
-    owner = state
-    state = copy.deepcopy(state)
-    pending = state['pending_report_repair']
-    original = copy.deepcopy(pending['original'])
-    current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    if (current['revision'] != original['source_revision']
-            or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
-            or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
-        raise support.Paused('PAUSED_STALE_VALIDATION', 'Original report evidence or goal changed during repair')
-    # Evidence checks use ORIGINAL tool events, not new commands from the repairer.
-    try:
-        # History comes from the original report, not from the repair's draft of it.
-        if restore_builder_history(original, value):
-            write_json(Path(repair_record['output']), value)
-        output_hash = support.file_hash(repair_record['output'])
-        assert_repair_preserves_builder_history(original, value)
-        # Only unchanged dispositions from the pinned fresh review may survive; the ledger names any other.
-        original.update(retained_dispositions(original,
-            original_report_for_repair(original)['report'] if stage_completed(state, original) else None, value))
-        original.update(output=repair_record['output'], repaired_by=repair_record['events'],
-                        rejected=False, report_repaired=True)
-        apply_result(state, original['stage'], value, original, workspace, run_dir)
-    except (ValueError, KeyError, support.Paused) as error:
-        # Rejection is an authoritative checkpoint, not a speculative result.
-        # Mutating only the copy lets the outer exception handler overwrite it
-        # with the old active attempt, causing every resume to replay rejection.
-        reject_completed_stage(owner, run_dir, repair_record, error)
-    # One charge per provider call; preserve any outer repair restored by apply_result.
-    repair_record['applied_original_events'] = original['events']
-    state['stages'][-1] = repair_record
-    state['history'][-1] = repair_record
-    state.setdefault('report_repair_history', []).append({
-        'original_output': pending['original']['output'], 'repair': repair_record,
-        'output_hash': output_hash, 'attempts': pending['attempts'], 'result': 'accepted', 'at': now()})
-    if state.get('pending_report_repair') == pending:
-        state.pop('pending_report_repair')
-    if state['status'] == 'RUNNING':
-        state['phase'] = 'PLANNING' if planning.is_planning(state, state['next_stage']) else 'EXECUTING'
-        state.pop('stop_reason', None)
-    commit_boundary_candidate(owner, state, run_dir, workspace)
+    return repaired_result.accept(sys.modules[__name__], state, run_dir, workspace, value, repair_record)
 
 
 def execute_report_repair(state, run_dir, workspace):
@@ -956,6 +915,7 @@ def refused_at_clean_exit(state, record, role, events):
 
 
 def reconcile_active(state, run_dir, workspace):
+    regression.before_review(state, None, workspace, run_dir)
     record = state.get("active_stage")
     if not record:
         return
@@ -1189,9 +1149,9 @@ def commit_user_action(state, candidate, run_dir):
 
 def commit_stage_result(state, stage, value, record, workspace, run_dir):
     """Preserve a finished report, applying any earlier input before authorization."""
-    candidate = copy.deepcopy(state)
-    apply_result(candidate, stage, value, record, workspace, run_dir)
-    commit_boundary_candidate(state, candidate, run_dir, workspace)
+    result_application.commit(state, run_dir, stage,
+        lambda candidate: apply_result(candidate, stage, value, record, workspace, run_dir),
+        lambda candidate: commit_boundary_candidate(state, candidate, run_dir, workspace), persist=write_json)
 
 
 def commit_boundary_candidate(state, candidate, run_dir, workspace):

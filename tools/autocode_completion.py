@@ -9,10 +9,12 @@ from pathlib import Path
 
 try:
     from .autocode_util import Paused, criteria_definition, file_hash
+    from . import autocode_command_receipt as command_receipt
     from .autocode_progressive_completion import ready as progressive_ready
     from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
 except ImportError:
     from autocode_util import Paused, criteria_definition, file_hash
+    import autocode_command_receipt as command_receipt
     from autocode_progressive_completion import ready as progressive_ready
     import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
 
@@ -80,6 +82,11 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
         return False
     if not progressive_ready(state, current):
         return False
+    if require_independent:
+        replay = (state.get("validation") or {}).get("check_replay") or {}
+        if (not isinstance(replay, dict) or not isinstance(replay.get("checks", []), list)
+                or any(not command_receipt.completed(row) for row in replay.get("checks", []))):
+            return False
     human_only_gap = False
     if (require_independent and state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled')
             and state.get('validation', {}).get('reviewer_role') != 'sol'):

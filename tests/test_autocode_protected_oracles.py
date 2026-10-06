@@ -77,8 +77,21 @@ class OriginalOracleTests(unittest.TestCase):
         (self.project / 'test_layout.py').write_text(ORIGINAL + '\n    def test_positive(self):\n        self.assertGreater(height(), 0)\n')
         (self.project / 'layout.py').write_text('def height():\n    return 40\n')
         result = self.execute()
-        self.state['validation'] = {'check_replay': {'protected_tests': result}}
+        self.state['validation'] = {'check_replay': {'protected_tests': result, 'verdict': 'PASS',
+                                                   'source_revision': result['source_revision']}}
         self.assertTrue(guard.ready(self.state, result['source_revision']))
+        for name in ('candidate', 'original'):
+            ownership = Path(result[name]['supervision']['receipt'])
+            original = ownership.read_bytes()
+            ownership.write_bytes(original + b'changed')
+            self.assertFalse(guard.ready(self.state, result['source_revision']))
+            ownership.unlink()
+            self.assertFalse(guard.ready(self.state, result['source_revision']))
+            ownership.write_bytes(original)
+        self.assertTrue(guard.ready(self.state, result['source_revision']))
+        self.state['validation']['check_replay']['verdict'] = 'FAIL'
+        self.assertFalse(guard.ready(self.state, result['source_revision']))
+        self.state['validation']['check_replay']['verdict'] = 'PASS'
         Path(result['receipt']).write_text('{}\n')
         self.assertFalse(guard.ready(self.state, result['source_revision']))
 

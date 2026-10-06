@@ -12,6 +12,7 @@ from unittest import mock
 
 from .test_verify import Project
 import autocode_check_replay as replay
+import autocode_command_receipt as command_receipt
 import autocode_util as util
 import autocode_verification_plan as plan
 import autocode_verification_schedule as schedule
@@ -160,6 +161,22 @@ class ReceiptPolicyTests(unittest.TestCase):
                 self.identity[key] += " changed"
                 self.assertEqual("execute", self.run_check()["scheduling"]["action"])
 
+    def test_uncertain_command_cleanup_blocks_fresh_execution_for_every_identity(self):
+        def uncertain(out):
+            self.calls.append(out)
+            raise command_receipt.OwnershipUncertain("Recorded command descendants may still be alive")
+        with self.assertRaises(command_receipt.OwnershipUncertain) as error:
+            self.run_check(execute=uncertain)
+        self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.exception.status)
+        with self.assertRaisesRegex(util.Paused, "no completed receipt"):
+            schedule.guard(self.root)
+        for key in self.identity:
+            with self.subTest(key=key):
+                self.identity[key] += " changed"
+                with self.assertRaisesRegex(util.Paused, "no completed receipt"):
+                    self.run_check()
+        self.assertEqual(1, len(self.calls), "Unknown cleanup cannot authorize another launch")
+
     def test_a_hard_crash_pending_launch_still_pauses(self):
         # What a hard crash leaves: a pending launch nothing ran to record an
         # outcome for. That stays a human reconciliation, never a fresh launch.
@@ -243,6 +260,9 @@ class CleanReplayTests(unittest.TestCase):
         self.assertEqual(1, second["scheduling"]["reused_count"])
         self.assertEqual(first["checks"][0]["output"], second["checks"][0]["output"])
         self.assertEqual(["test_app.Case.test_c1"], second["checks"][0]["results"]["passed"])
+        row = second["checks"][0]
+        self.assertEqual(row["supervision_sha256"],
+                         replay.evidence_pins(second)[row["supervision"]["receipt"]])
 
     @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
     def test_pytest_reuse_requires_actual_junit_inventory_and_broken_source_fails(self):
