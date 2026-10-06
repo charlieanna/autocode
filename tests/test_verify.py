@@ -20,6 +20,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import autocode_regression as regression  # noqa: E402
 import autocode_verify as verify  # noqa: E402
 import scenario_references as references  # noqa: E402
 import task_scenarios as scenarios  # noqa: E402
@@ -748,6 +749,73 @@ class VerifyCase(unittest.TestCase):
         self.assertNotEqual(generated, generated_identity())
         (project.root / "src/pkg/_version.py").unlink()
         self.assertEqual({}, generated_identity())
+
+    def test_an_in_place_proof_does_not_run_an_ignored_file_the_run_added(self):
+        # #529: the ignored file fails test_add only in the base scratch tree, so
+        # preservation would treat the candidate's break as already present.
+        seed = {
+            "calc.py": "def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a + b\n",
+            "test_calc.py": "import unittest\nimport calc\n\nclass Add(unittest.TestCase):\n"
+                            "    def test_add(self):\n        self.assertEqual(5, calc.add(2, 3))\n",
+            "test_other.py": "import unittest\n\nclass Other(unittest.TestCase):\n"
+                             "    def test_ok(self):\n        self.assertEqual(1, 1)\n",
+        }
+        project = self.project(seed)
+        record = verify.generated_source_record(project.root)
+        self.assertEqual({}, record)
+        project.write({
+            "calc.py": "def add(a, b):\n    return a * b\n\ndef sub(a, b):\n    return a - b\n",
+            "test_feature.py": "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n"
+                               "    def test_t1_sub_is_correct(self):\n"
+                               "        self.assertEqual(1, calc.sub(3, 2))\n",
+            "test_aaa_env.py": "import os\nimport calc\n"
+                              "if '/baseline' in os.getcwd().replace('\\\\', '/'):\n"
+                              "    calc.add = lambda a, b: -999\n",
+        })
+        exclude = project.root / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text().rstrip() + "\ntest_aaa_env.py\n")
+        self.assertEqual(["test_aaa_env.py"], sorted(verify.generated_source_record(project.root)))
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix"}},
+                 "generated_sources_at_start": record}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertTrue(any("test_calc.Add.test_add" in reason for reason in proof["failures"]), proof)
+        self.assertTrue(any("test_aaa_env.py" in note and "added during the run" in note
+                            for note in proof["notes"]), proof)
+        direct = subprocess.run([sys.executable, "-m", "unittest", "test_calc"], cwd=project.root,
+                                capture_output=True, text=True)
+        self.assertEqual(1, direct.returncode, direct.stdout + direct.stderr)
+
+        old = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+               "goal_contract": {"body": {"task_kind": "bugfix"}}}
+        missing = regression.prove(old, project.root, project.evidence / "unrecorded")
+        self.assertEqual(verify.FAIL, missing["verdict"], missing)
+        self.assertTrue(any("no record" in note and "test_aaa_env.py" in note
+                            for note in missing["notes"]), missing)
+
+    def test_a_recorded_generated_file_is_copied_until_its_bytes_change(self):
+        project = self.project({
+            ".gitignore": "src/pkg/_version.py\ntest_aaa_env.py\n",
+            "src/pkg/__init__.py": "",
+            "src/pkg/calc.py": "def mean(values):\n    return sum(values) / len(values)\n",
+        })
+        project.write({"src/pkg/_version.py": "VERSION = '1.0'\n"})
+        record = verify.generated_source_record(project.root)
+        project.write({"test_aaa_env.py": "import calc\n"})
+        tree = Path(project.temp.name) / "tree"
+        git(project.root, "worktree", "add", "-q", "--detach", str(tree), project.base)
+        self.addCleanup(git, project.root, "worktree", "remove", "--force", str(tree))
+        self.assertEqual(["src/pkg/_version.py"], verify.copy_generated_sources(project.root, tree, record=record))
+        self.assertFalse((tree / "test_aaa_env.py").exists())
+        _trusted, notes, omitted = verify.classify_generated_sources(project.root, record)
+        self.assertEqual(["test_aaa_env.py"], omitted)
+        self.assertTrue(any("added during the run" in note for note in notes), notes)
+        project.write({"src/pkg/_version.py": "VERSION = '2.0'\n"})
+        trusted, notes, omitted = verify.classify_generated_sources(project.root, record)
+        self.assertEqual([], trusted)
+        self.assertEqual(["src/pkg/_version.py", "test_aaa_env.py"], omitted)
+        self.assertTrue(any("changed during the run" in note and "_version.py" in note for note in notes), notes)
 
     def test_a_suite_that_cannot_start_is_broken_not_failing(self):
         """Review finding 15: command-not-found and no-results runs stop before any model call."""
