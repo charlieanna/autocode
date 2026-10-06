@@ -15,6 +15,7 @@ try:
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
     from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from .. import autocode_native_test_names as native_test_names
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_brief_literals as brief_literals
     import autocode_design_plan as design_plan
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_native_test_names as native_test_names
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -1202,6 +1204,9 @@ def context(state, stage, state_path):
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
+        # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
+        native = native_test_names.requested(state)
+        design_rule += native_test_names.rule(native) if native else ""
         design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += NO_TIMING_RULE

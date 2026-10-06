@@ -36,6 +36,23 @@ An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, and Vitest 4.
 
+The identifier right after `test:` or `guard:` is the one the runner proves; an
+explanation may follow after ` — ` or in parentheses. Without one, the test is
+named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
+
+When the user's brief asks for Go tests by name ("add Go tests
+`TestFixedReturnsTwo` and `TestFixedPreservesCrash`"), the plan declares those
+exact names: `test: TestFixedReturnsTwo`, `guard: TestFixedPreservesCrash`.
+Planning stages are told the names, and the runner refuses a draft, before it
+is installed or approved, that leaves a requested name undeclared or declares
+another identifier with prose saying it "resolves to" the requested one (#498).
+A name counts as requested when the user wrote it introduced as a test (within a
+few words after "test", "tests", "testing" or "func", or after another such name
+in the same list), the proof will run Go tests, and the project's Go files do
+not already contain it: a brief that mentions an existing test or helper is
+naming the suite's own code. `TestMain` is never a test. Other frameworks, and
+bug fixes proven by their diagnosis's cases, keep the criterion-ID convention.
+
 For Node, register each case as a real test, keeping its existing assertions
 and fixture helpers:
 

@@ -5,7 +5,8 @@ given, when, then) in its diagnosis (autocode_bug_job). A small feature's
 Planner writes acceptance criteria as concrete examples and marks the ones a
 test proves with a verification_method of ``test: test_<id>_...``, or of
 ``guard: test_<id>_...`` for behavior that already works and must keep working
-(``contract_cases``; a guard is a preserve case, as in a bug diagnosis). Either way a person approves English, the Builder writes
+(``contract_cases``; a guard is a preserve case, as in a bug diagnosis), or of the
+Go test name the user asked for (autocode_native_test_names). Either way a person approves English, the Builder writes
 one test per case named after its id, and the runner's proof
 (autocode_regression) checks by name, with no model, that each case has a
 test that passes with the change and did not before (``match_cases``).
@@ -267,9 +268,10 @@ avoid proof. If no supported runner fits the project, raise the compatibility bl
 BUILDER_NOTE = """
 TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose verification_method starts with
 "test:" is a concrete example you must write as its own test, named with that criterion's id (C2 ->
-test_c2_<what it checks>) and asserting exactly the criterion's example. Before the Validator runs, the runner
-runs these tests itself, with those of milestones already accepted: each must pass with the change and must
-not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
+test_c2_<what it checks>), or with exactly the native test name its verification_method declares right after the
+mark (test: TestFixedReturnsTwo -> func TestFixedReturnsTwo), and asserting exactly the criterion's example.
+Before the Validator runs, the runner runs these tests itself, with those of milestones already accepted: each
+must pass with the change and must not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
 that already works and must keep working: write its test the same way (C4 -> test_c4_...); it must pass both
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an

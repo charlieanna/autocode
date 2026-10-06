@@ -35,6 +35,7 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_recovery_context as recovery_context
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_native_test_names as native_test_names
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_recovery_context as recovery_context
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_native_test_names as native_test_names
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -145,6 +147,8 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
                     raise ValueError(f"Build brief is missing {key}")
             if set(c for m in milestones for c in m["acceptance_criteria"]) != criterion_ids:
                 raise ValueError("Implementation milestones must cover every acceptance criterion")
+        # A Go test the user asked for is proven only under its own name (#498), whatever a review accepted.
+        native_test_names.check(state, body)
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 
