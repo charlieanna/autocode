@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 # os and shutil stay imported: the autocode_opencode compatibility shim star-exports
@@ -249,16 +250,19 @@ def openai_auth(workspace=None, *, env=None):
 
 
 def _openai_auth_modes(workspace, env=None):
-    # `opencode auth list` is a full CLI cold start (7-15 s observed inside
-    # containers, worse under load). A single slow start must not read as a
-    # missing OAuth connection, so a transport-level failure retries a couple
-    # of times; a completed check is never retried -- its verdict stands.
+    # Auth listing cold-starts the whole CLI (over 30 s observed under load).
+    # Share the existing 45 s allowance across at most three attempts instead
+    # of repeatedly killing valid slow starts at 15 s. Completed checks stand.
     effective = env_prep.snapshot_environment(env)
+    deadline = time.monotonic() + 45
     for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(["opencode", "auth", "list"], 45)
         try:
             result = env_prep.preflight_run(["opencode", "auth", "list"], effective, cwd=workspace,
                                             require_executable=env is not None,
-                                            capture_output=True, text=True, timeout=15)
+                                            capture_output=True, text=True, timeout=remaining)
             break
         except (OSError, subprocess.TimeoutExpired):
             if attempt == 2:
