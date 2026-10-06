@@ -277,19 +277,29 @@ class ProcessTree:
 
 @contextmanager
 def interruption_handler():
-    """Turn SIGTERM, and SIGHUP (a closed terminal or session), into a clean interrupt.
+    """Turn SIGTERM, SIGHUP (a closed terminal or session) and Ctrl-C into one clean interrupt.
 
-    The KeyboardInterrupt's ``signal`` attribute names the signal. A SIGHUP ignored on
-    entry (``nohup``) stays ignored. Ctrl-C's SIGINT is already a KeyboardInterrupt.
+    The KeyboardInterrupt's ``signal`` attribute names the signal. Only the first signal
+    raises. A terminal close delivers SIGHUP twice (the kernel and the shell) and people
+    press Ctrl-C again; raising while the first interrupt unwinds skipped the provider's
+    cleanup or left a lock held (#454). A SIGHUP ignored on entry (``nohup``) stays
+    ignored, and SIGINT is taken over only from Python's default handler.
     """
+    raised = []
+
     def interrupt(signum, frame):
+        if raised:
+            return  # the first interrupt's cleanup is under way
         name = signal.Signals(signum).name
+        raised.append(name)
         error = KeyboardInterrupt(name)
         error.signal = name
         raise error
     handled = [signal.SIGTERM]
     if signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:
         handled.append(signal.SIGHUP)
+    if signal.getsignal(signal.SIGINT) is signal.default_int_handler:
+        handled.append(signal.SIGINT)
     previous = {sig: signal.signal(sig, interrupt) for sig in handled}
     try:
         yield

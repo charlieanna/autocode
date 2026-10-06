@@ -52,6 +52,10 @@ left an orphaned provider.
   See [Process ownership](../task-run.md#process-ownership).
 - `interruption_handler` turns SIGHUP into a clean interrupt like SIGTERM, unless
   SIGHUP was ignored on entry (`nohup`), and records `active_stage.interrupted`.
+  Only the first SIGTERM, SIGHUP or Ctrl-C raises. With two SIGHUPs 0.1 ms apart (a
+  terminal close sends one from the kernel and one from the shell), a second raise
+  while the first unwound skipped the cleanup in 5 of 50 fake runs, leaving the
+  provider running, and deadlocked the controller in 1, with every interrupt ignored.
 - `active_stage.pid` and `active_stage.supervision` are saved before supervision
   starts, which also shrinks the window in which status could not see the provider.
 

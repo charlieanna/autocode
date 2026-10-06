@@ -398,7 +398,8 @@ supervises it. Who stops its process tree, and when:
   tool limits, process receipts and cleanup all run in the controller. SIGTERM, Ctrl-C
   and SIGHUP (a closed terminal or a session hangup; still ignored under `nohup`) stop
   the tree, pause the run as `PAUSED_INTERRUPTED`, and record the signal in
-  `active_stage.interrupted`.
+  `active_stage.interrupted`. Only the first of them interrupts: a closed terminal sends
+  SIGHUP twice (the kernel and the shell), and a second Ctrl-C waits for the cleanup.
 - **The stage keeper** owns it after that. Every provider attempt gets one
   (`tools/autocode_stage_keeper.py`), tied to the controller by a pipe. A controller
   that ends supervision normally releases it. If the controller dies without doing so
