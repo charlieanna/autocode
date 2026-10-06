@@ -240,6 +240,22 @@ class TaskAndHeadlineTests(unittest.TestCase):
         saved.update(status="RUNNING", turns=[{"at": "2026-10-04T10:00:00+00:00", "say": "Now review PR 185"}])
         self.assertEqual(0, project(saved, stage="Code Reviewer")["problems"]["open"])
 
+    def test_a_revised_design_review_counts_its_open_concerns_and_says_which_revision(self):
+        saved = {"status": "TASK_COMPLETE", "workflow": {"kind": "design"},
+                 "design_review": {"mode": "review", "blocking": 1, "advisory": 1, "resolved": 1, "questions": 2,
+                                   "revision": 3, "report_path": "review/design-review.json", "output": "design-3"},
+                 "stages": [{"stage": "review_design", "output": "design-3", "started_at": "2026-10-04T09:00:00+00:00"}]}
+        view = project(saved, stage=None)
+        # Added fields only: kind, blocking, advisory and report_path keep their meaning (open concerns).
+        self.assertEqual([{"kind": "design_review", "blocking": 1, "advisory": 1,
+                           "report_path": "review/design-review.json", "questions": 2, "revision": 3}],
+                         view["problems"]["reports"])
+        self.assertEqual(2, view["problems"]["open"])
+        # A review saved before revisions existed is revision 1.
+        for key in ("revision", "resolved"):
+            del saved["design_review"][key]
+        self.assertEqual(1, project(saved, stage=None)["problems"]["reports"][0]["revision"])
+
     def test_a_design_conflict_stop_counts_its_conflicts(self):
         saved = {"status": "PAUSED_DESIGN_CONFLICT", "workflow": {"kind": "build"},
                  "design_check": {"conflicts": 2, "blockers": "design.blockers.json"}}

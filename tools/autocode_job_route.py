@@ -52,7 +52,7 @@ def _answering(args, state) -> bool:
     save other settings first (the parser refuses the answer next to --resume-paused/--retry-failed-stage).
     """
     failure = state.get('job_failure') or {}
-    return bool(failure) and state.get('status') in job_failure.PAUSES and _routes(args)
+    return bool(failure) and quota_route.job_pause_current(state) and _routes(args)
 
 
 def settings_refusal(args, state, selected) -> str | None:
@@ -129,7 +129,7 @@ def answer(runner, args, state, run_dir, workspace):
     A rejection prints ``Input rejected: ...`` and leaves the saved run unchanged.
     """
     failure = state.get('job_failure') or {}
-    at_job = bool(failure) and state.get('status') in job_failure.PAUSES
+    at_job = bool(failure) and quota_route.job_pause_current(state)
     if not (args.answer or args.delegate) or not _routes(args):
         return None
     if not at_job and not args.job_retry_token:
