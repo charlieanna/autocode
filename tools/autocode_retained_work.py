@@ -117,8 +117,9 @@ def own_repair_source(stages, packet, bound_revision, current) -> bool:
     the retry, and a timed-out attempt leaves partial edits. The retry must not read that as somebody
     else's change (live feature-stock-refusals run, 2026-10-06). So every file must hold either its
     bound content, from the first such attempt's before-snapshot (taken at the bound revision), or
-    what the latest such attempt left, from its after-snapshot, at either one's Git HEAD. Any other
-    content, or a snapshot that cannot be read, is a change AutoCode did not make.
+    what the latest such attempt left, from its after-snapshot, and Git HEAD must be the one both
+    snapshots recorded. Any other content, or a snapshot that cannot be read, is a change AutoCode
+    did not make.
     """
     attempts = [row for row in stages if packet and (row.get("recovery_novelty") or {}).get("packet") == packet
                 and (row.get("original_stage") or row.get("stage")) == assignment.BUILDER
@@ -126,8 +127,9 @@ def own_repair_source(stages, packet, bound_revision, current) -> bool:
     if not attempts:
         return False
     start, left = _snapshot(attempts[0].get("before_ref")), _snapshot(attempts[-1].get("after_ref"))
+    # A HEAD the attempt moved itself (a commit, reset or branch switch) is not admitted: fail closed.
     if (start is None or left is None or start.get("revision") != bound_revision
-            or current.get("head") not in (start.get("head"), left.get("head"))):
+            or not current.get("head") == start.get("head") == left.get("head")):
         return False
     files, before, after = current.get("files") or {}, start["files"], left["files"]
     return all(files.get(name) in (before.get(name), after.get(name))

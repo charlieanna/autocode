@@ -713,7 +713,7 @@ keeps its in-scope edits for the retry (the runner removes or restores only what
 it wrote outside its assignment), and a timed-out one keeps partial edits. That
 work is not a stale handoff. The next Builder attempt is bound as at the packet's
 source when every file holds either that source's content or what the packet's
-latest Builder attempt left, at either snapshot's Git HEAD. Any other change, such as a
+latest Builder attempt left, and Git HEAD has not moved. Any other change, such as a
 person's edit while the run is paused, still pauses as `PAUSED_STALE_HANDOFF`.
 When the runner rejected such an attempt's output and the stuck-stage
 Investigator recommends a retry, that retry admits the Builder until one attempt

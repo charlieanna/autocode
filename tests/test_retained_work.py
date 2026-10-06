@@ -152,6 +152,14 @@ class OwnRepairSourceTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertFalse(self.own(self.rejected(), files, head))
 
+    def test_a_head_the_attempt_moved_is_not_its_own_work(self):
+        # A Builder that committed, reset or switched branches moved HEAD itself: fail closed.
+        retained = {**self.BOUND, "tests/test_stock.py": "t1"}
+        moved = [self.attempt("builder-01", (self.BOUND, "r0"), (retained, "r1", "h-commit"), rejected=True)]
+        for head in ("h-commit", "h"):
+            with self.subTest(head=head):
+                self.assertFalse(self.own(moved, retained, head))
+
     def test_missing_evidence_or_another_packet_proves_nothing(self):
         retained = {**self.BOUND, "tests/test_stock.py": "t1"}
         self.assertFalse(self.own([], retained))

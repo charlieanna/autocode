@@ -43,7 +43,7 @@ once more, could not be admitted, so its paid diagnosis bought nothing (compare
   differs from the packet's bound source only by this packet's own Builder
   attempts. Every file must hold its bound content (the first such attempt's
   before-snapshot, at the bound revision) or what the latest one left (its
-  after-snapshot), at either one's HEAD. `autocode_resolver_recovery` then binds a
+  after-snapshot), and HEAD must be the one both snapshots recorded. `autocode_resolver_recovery` then binds a
   Builder dispatch, and an operator's `--retry-failed-stage` of its hold, at the
   packet's revision. A person's edit, a further change, a new commit or an
   unreadable snapshot still binds the current revision and pauses as stale.
