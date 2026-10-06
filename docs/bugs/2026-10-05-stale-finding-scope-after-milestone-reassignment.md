@@ -1,38 +1,106 @@
 # A finding's saved scope goes stale when a revision moves its criterion
 
-Open; found in desktop work kept at `77933a8` (issue #412). An approved
+Fixed (#447); found in desktop work kept at `77933a8` (issue #412). An approved
 contract revision can move an acceptance criterion to another milestone, for
-example AC15 from M2 to M5. Open findings keep the scope they were recorded
-with, so a Validator finding saved as `{M2: [AC10, AC15]}` no longer fits M2's
+example AC15 from M2 to M5. Open findings kept the scope they were recorded
+with, so a Validator finding saved as `{M2: [AC10, AC15]}` no longer fit M2's
 approved criteria (`[AC10]`).
 
 `autocode_finding_scope.relevant_blockers` fails closed on a saved scope that
-does not match its owner, so that finding blocks every milestone, including an
-unrelated earlier M1. No milestone's reviewer can close it either:
+does not match its owner, so that finding blocked every milestone, including an
+unrelated earlier M1. No milestone's reviewer could close it either:
 `autocode_findings._covers` needs a report covering both AC10 and AC15, and each
 milestone reviews only its own. Checked on master 095474cf with M1 → M2 → M5:
-`blocking_for_milestone` returns the finding for all three, and `_covers` is
+`blocking_for_milestone` returned the finding for all three, and `_covers` was
 false for all three.
 
-Only closing the finding gets the run past this, and closing drops the defect:
-`--close-finding ID --close-reason TEXT` (#300), or a permission answer whose
-payload names the finding (#427, `autocode_finding_cause.resolve_named`). #427's
-same-cause inheritance only closes copies of a finding that was already resolved,
-so it cannot release this one. Once closed, the defect is gone until a reviewer
-of M5 reports it again.
+Only closing the finding got the run past this, and closing drops the defect:
+`--close-finding ID --close-reason TEXT` (#300). #427's permission-answer path
+(`autocode_finding_cause.resolve_named`) closes the findings a question's
+`payload.finding_ids` names, but no question the runner asks carries one, and its
+same-cause inheritance only closes copies of a finding that was already
+resolved, so neither could release this one.
 
-`77933a8` sketched a fix that keeps the defect open. The operator gives the
-finding ID, its exact saved scope, a new scope and a reason, and the finding is
-moved to the milestone that now owns its criteria. The change is recorded in
-`user_events`. Only the pure policy (`tools/autocode_finding_scope_repair.py`)
-was written. The `--reconcile-finding-scopes` flag, run lock, request
-authentication and status-view fields that its note describes were never
-built. Its gate also relies on a permission request worded "Operational
-ledger-metadata reconciliation only:", and nothing on master writes that.
-Three ways forward:
+## Fix
 
-- move these findings without being asked when the revision that moves the
-  criterion is approved;
-- let `relevant_blockers` hold a finding back from milestones that neither own
-  nor depend on its criteria;
-- finish the explicit operator command.
+The note listed three ways forward: move these findings when the revision that
+moves the criterion is approved; let `relevant_blockers` hold such a finding
+back from milestones that neither own nor depend on its criteria; or finish the
+operator command sketched in `77933a8`. The owner chose the first: move them
+without being asked when the revision is approved.
+`tools/autocode_finding_rescope.py` holds the policy; the approval step
+(`autocode_goal_lifecycle._approve`) calls it inside the approval transaction,
+after the user's `goal_approval` event is saved. A draft, a proposal that is
+never approved, or a contract marked approved without that event moves nothing.
+
+- Each open finding whose saved scope fitted the previously approved contract
+  and no longer fits the new one is attributed to the milestones that now own
+  its criteria. The defect stays open: status, severity, blocking, text,
+  evidence and repeat count are kept, and nothing is resolved or closed.
+- A scope names one milestone, and `relevant_blockers` and `_covers` accept
+  nothing else, so a finding whose criteria now belong to several milestones is
+  split. In the example the row keeps its ID as `{M2: [AC10]}` and a copy with a
+  new ID and `split_from` (the original finding's ID) takes `{M5: [AC15]}`. M1
+  is no longer blocked; M2 is blocked by the AC10 part, M5 by both (M2 is its
+  prerequisite). M2's reviewer closes the AC10 part and M5's reviewer the AC15
+  part; neither may close the other's. Keeping one row would let one
+  milestone's reviewer close the defect for a criterion it never reviewed, or
+  let a milestone be accepted while the defect may concern its criterion.
+- The copy does not take the row's bookkeeping: a pending resolution attempt,
+  the tasks assigned to fix the row and how its scope was restored stay with
+  the row. Its pending attempt keeps only its own criteria as unverified; the
+  moved ones stay on record in `moved_unverified_criteria`, and when they were
+  the attempt's only gap its reason says so.
+- Parts of one split finding are not duplicates. No part closes by same-cause
+  inheritance (`autocode_finding_cause.inherit_resolution`, reached only from a
+  permission answer naming findings, which no question carries today). The
+  validation-only stall question does not suggest closing a part because
+  another part was resolved; it says that resolution covered other criteria.
+- When all its criteria move to one milestone, the row keeps its ID and moves
+  there.
+- A moved criterion that several milestones of the new contract list goes to
+  one that did not list it before (where the revision moved it); else to one
+  the run reviews anyway (not accepted or not reusable under the previous
+  contract, changed by the revision, or depending on one of those); else to
+  the one with the fewest milestones depending on it; contract order breaks
+  ties. `relevant_blockers` holds the part at every milestone listing all its
+  criteria, and any of their reviewers can close it.
+- A milestone carry-forward would otherwise reuse that receives a part is
+  revalidated instead (`autocode_carryforward.reviewable`: an accepted
+  milestone with an open blocking finding recorded against criteria it owns),
+  so its reviewer checks the criterion again before the milestones depending
+  on it start. Those are still carried and count again once it is accepted.
+- Carrying it deadlocked. A validate task on a carried milestone was admitted
+  and its reviewer could close the part, but accepting it again dropped its
+  reuse manifest, which `autocode_carryforward.current_ids` kept checking, so
+  it never counted as accepted again and the next milestone could not start.
+  That held for any carried milestone reviewed again, after a `REWORK` or
+  source drift too. `current_ids` now counts a carried milestone accepted on
+  fresh validation under the current contract like any other acceptance.
+- A moved criterion the revision reworded moves like any other: it is still
+  the same criterion, as when it stays with its milestone, and its new owner's
+  reviewer judges the finding against the new wording.
+- A finding is left exactly as it was when any criterion it cites left its
+  milestone and no milestone of the approved contract lists it (removed or
+  unassigned). This holds even when its other criteria still exist, so such a
+  finding, if blocking, still blocks every milestone and no reviewer can close
+  it, as before the fix: a person settles it with `--close-finding`, which
+  closes the whole finding, including the part on criteria that still exist.
+  A finding whose scope did not fit the previously approved contract either
+  (unscoped, a batch, or stale since an approval made before this fix) is also
+  left as it was: the revision being approved did not move it.
+- Each move is recorded once, on the row it started from, as a `scope_history`
+  entry (`from`, `to` with every resulting row's ID and scope, the approved
+  `contract_token`, `at`). The status view lists them in
+  `evidence.finding_scope_moves` (only once there is one).
+- A moved finding fits the new contract, so a restart, a resume or a later
+  approval that does not move its criteria again changes nothing.
+
+`tests/test_finding_rescope.py` reproduces the deadlock and covers the cases
+above, including approval through `--approve-goal`, the status view, and a
+carried prerequisite with the milestone checkpoint fixtures;
+`tests/test_carryforward.py` covers revalidating such a milestone, carrying
+the milestones depending on it, and accepting a carried milestone again. The operator
+command sketched in `77933a8` (`--reconcile-finding-scopes`,
+`finding_scope_reconciliations`) was not built; the draft test in #447 that
+expected that field described the abandoned sketch, not supported behavior.
