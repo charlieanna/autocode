@@ -58,7 +58,12 @@ def create(workspace, scratch, *, source_paths=()):
     # parent task's index when a check invokes Git from the copy.
     env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': str(scratch),
            'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null'}
-    for args in [('init', '-q'), ('add', '-f', '--all'),
+    # This environment is built from scratch, so the suite-wide GIT_CONFIG_COUNT
+    # that stops every other repository starting detached maintenance (#515)
+    # never reaches it; write the keys into the repository instead, or a repack
+    # under .git/objects after the manifest walk reads as a changed input.
+    for args in [('init', '-q'), ('config', 'maintenance.auto', 'false'), ('config', 'gc.auto', '0'),
+                 ('add', '-f', '--all'),
                  ('-c', 'user.name=AutoCode verification', '-c', 'user.email=verification@localhost',
                   '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'Verification source')]:
         subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
