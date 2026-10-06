@@ -45,6 +45,16 @@ harness and Linux CI results belong to the pull request's exact source revision.
 This crash path uses the repository's fault-injection exception to live-model
 qualification; no paid calls or larger allowances are involved.
 
+A CLI killed between two keeper samples used to leave its newest child behind.
+The harness's CLI shared the harness's process group, and its keeper finds
+children only by polling. A child started since the last sample (in the
+owner-loss tests, the unsupervised `codex login status` settings check) was
+reparented when the CLI died, so the keeper's cleanup found nothing and still
+recorded a clean `stopped` receipt. The harness now starts a guarded CLI in its
+own session. The CLI's keeper keeps owning that session's group after the CLI is
+killed and reaped, until a different process holds the CLI's PID, which cannot
+happen while the group has members.
+
 This fixes provider-stage and scenario-harness ownership. Independent parallel
 build workers and runner-owned verification commands need their own lifelines;
 this change does not claim those launch paths are covered. Portable ancestry
