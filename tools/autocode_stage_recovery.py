@@ -113,6 +113,9 @@ def abandon_stage(state, run_dir, workspace, selected, *, launch=None):
     records.assert_stage_stopped(record)
     if job_failure.recover(records, state, run_dir, workspace, abandoned=True, launch=launch):
         return
+    # This attempt is not that job. A failure saved for an earlier job must not
+    # keep its retry token in front of this pause (#567).
+    job_failure.supersede(state)
     record["metrics"] = support.event_metrics(record["events"])
     records.account_stage(state, record)
     before = records.read_json(Path(record["before_ref"]))
