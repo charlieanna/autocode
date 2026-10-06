@@ -27,6 +27,7 @@ from unittest.mock import patch
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import autocode_brief_literals as brief_literals  # noqa: E402
 import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
 import autocode_program as program  # noqa: E402
@@ -255,13 +256,38 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(body, value["contract"]["body"])
         for row in value["workstreams"]:
             text = program.compose_brief(value, row, {"workstreams": {}})
-            self.assertIn(json.dumps(body, indent=2), text)
+            self.assertIn("```json\n" + json.dumps(body, indent=2, ensure_ascii=False) + "\n```", text)
             self.assertIn('"human_review": true', text)
+            self.assertIn("human_review: true", text)  # the workstream's own criterion line
             self.assertIn("CLI regression tests", text)
             self.assertIn("Approving the parent approves neither this child plan", text)
             self.assertIn("Execute greeting and invalid-input regression checks", text)
         value["contract"]["body"]["scope_exclusions"].append("Other")
         self.assertEqual(body, self.state["goal_contract"]["body"])
+
+    def test_a_child_keeps_only_its_own_criteria_literals_and_as_the_user_wrote_them(self):
+        # A live run's skeleton could never plan: the parent contract, pasted as escaped JSON, made the
+        # brief-literal rule demand `say \\"hi\\" \\u00e9` back verbatim, and every other workstream's literals too.
+        body = goal_fixtures.body()
+        body["milestones"] = [
+            {"id": "M1", "objective": "Add notes", "acceptance_criteria": ["C1"], "depends_on": [], "affected_paths": ["a.py"]},
+            {"id": "M2", "objective": "Export notes", "acceptance_criteria": ["C2"], "depends_on": ["M1"],
+             "affected_paths": ["b.py"]}]
+        body["acceptance_criteria"] = [
+            {"id": "C1", "criterion": 'Adding `say "hi" é` then listing prints `1 say "hi" é`',
+             "verification_method": "python3 -m unittest", "human_review": False},
+            {"id": "C2", "criterion": "Export prints `[{\"id\": 1}]`", "verification_method": "python3 -m unittest",
+             "human_review": False}]
+        lifecycle.install_draft(self.state, body, origin="test")
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        value = program.derive_manifest(run_view.approved_contract(self.state))
+        rows = {row["id"]: row for row in value["workstreams"]}
+        found = brief_literals.literals([program.compose_brief(value, rows["M1"], {"workstreams": {}})])
+        self.assertEqual(['say "hi" é', '1 say "hi" é'], found)
+        found = brief_literals.literals([program.compose_brief(value, rows["M2"], {"workstreams": {}})])
+        self.assertEqual(['[{"id": 1}]'], found)
 
     def test_generated_integration_id_does_not_collide_with_an_approved_milestone(self):
         body = goal_fixtures.body()

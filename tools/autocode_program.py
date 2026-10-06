@@ -461,6 +461,14 @@ def _journey_lines(manifest):
     return lines
 
 
+def _criterion_line(cid, criterion):
+    """One inherited criterion as the user wrote it: its literals unescaped, so the child can quote them."""
+    extra = [f"verify: {criterion['verification_method']}"] if criterion.get("verification_method") else []
+    extra += [f"{key}: {json.dumps(value, ensure_ascii=False)}" for key, value in criterion.items()
+              if key not in ("id", "criterion", "verification_method")]
+    return f"- {cid}: {criterion.get('criterion', '')}" + (f" ({'; '.join(extra)})" if extra else "")
+
+
 def compose_brief(manifest, workstream, state):
     shared = manifest.get("shared", {})
     others = {row["id"]: row for row in manifest["workstreams"] if row["id"] != workstream["id"]}
@@ -469,7 +477,9 @@ def compose_brief(manifest, workstream, state):
     lines = [f"PROGRAM WORKSTREAM {workstream['id']} ({workstream['kind']}) of program \"{manifest['name']}\".", ""]
     if record.get("stale_reason"):
         lines += [f"RE-CHECK: {record['stale_reason']}. An earlier plan for this workstream no longer applies: plan "
-                  "against the agreement below, keep what still conforms, change what does not, and verify again.", ""]
+                  "against the agreement below, keep what still conforms, change what does not, and verify again. "
+                  "Where the files already conform, plan a validation-only task (kind validate) that proves it, not "
+                  "an implementation with nothing to change.", ""]
     lines += ["Program outcome: " + manifest["brief"].strip()]
     if state.get("agreement", {}).get("revision"):
         lines.append(f"Program agreement revision {state['agreement']['revision']}, approved by the user.")
@@ -481,8 +491,10 @@ def compose_brief(manifest, workstream, state):
             lines += [label + ":"] + [f"- {item}" for item in shared[key]] + [""]
     body = manifest.get("contract", {}).get("body")
     if body:
+        # Fenced, so the parent's examples stay context: a child keeps the literals of its own criteria
+        # (below), never every other workstream's, and never JSON-escaped ones (autocode_brief_literals).
         lines += ["Approved parent contract (complete context, not authorization to expand this workstream):",
-                  json.dumps(body, indent=2),
+                  "```json", json.dumps(body, indent=2, ensure_ascii=False), "```",
                   "Preserve its requirements, exclusions, permission boundaries and human_review obligations "
                   "in your child plan. Approving the parent approves neither this child plan nor any human_review "
                   "obligation in it.", ""]
@@ -495,7 +507,8 @@ def compose_brief(manifest, workstream, state):
                          f"[{', '.join(row.get('paths', [])) or 'no paths'}]")
             for key in ("schema", "behavior"):
                 if row.get(key) is not None:
-                    text = row[key] if isinstance(row[key], str) else json.dumps(row[key], sort_keys=True)
+                    text = row[key] if isinstance(row[key], str) else json.dumps(row[key], sort_keys=True,
+                                                                                 ensure_ascii=False)
                     lines.append(f"  {key}: {text}")
         lines += ["An interface changes only through the program. If one is wrong or insufficient, do not change it "
                   "or work around it: stop and describe the change you need in a question to the user, who raises "
@@ -521,7 +534,7 @@ def compose_brief(manifest, workstream, state):
         lines.append("Acceptance criteria for this workstream:")
         for item in workstream["acceptance_criteria"]:
             criterion = criteria.get(item)
-            lines.append(f"- {item}: {json.dumps(criterion)}" if criterion else f"- {item}")
+            lines.append(_criterion_line(item, criterion) if criterion else f"- {item}")
         lines.append("")
     if workstream["kind"] == "integration":
         lines.append("User journeys (the final product check; verify each one end to end on the merged product):")

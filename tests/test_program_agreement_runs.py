@@ -201,6 +201,7 @@ class AgreementTests(ProgramHarness):
         recheck = self.launches_of("a")[1]
         self.assertFalse(recheck["resume"])
         self.assertIn("RE-CHECK: agreement revision 2 changed", recheck["brief"])
+        self.assertIn("plan a validation-only task (kind validate)", recheck["brief"])
         self.assertIn("a answers within 100 ms", recheck["brief"])
         # A merged workstream is re-checked from the current integration head in a fresh worktree.
         self.assertNotEqual(self.launches_of("a")[0]["workspace"], recheck["workspace"])

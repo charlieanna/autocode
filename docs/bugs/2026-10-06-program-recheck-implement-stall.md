@@ -37,4 +37,6 @@ not known (no live run has reached a re-check).
 - Let a re-check accept a Builder that changes nothing when the cumulative checks
   pass.
 - Tell the planner explicitly, in the re-check brief, to plan validation for files that
-  already conform.
+  already conform. Done as a mitigation: the RE-CHECK line now asks for a validation-only
+  task (kind validate) where the files already conform. It guides a real planner; nothing
+  enforces it, so the stall stays possible and this note stays open.
