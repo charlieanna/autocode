@@ -15,12 +15,35 @@ class VerboseTests(unittest.TestCase):
         else:
             os.environ[verbose.ENV] = self.saved
 
-    def test_reporter_is_absent_unless_enabled(self):
-        self.assertFalse(verbose.enabled())
-        self.assertIsNone(verbose.reporter('terra', 'gpt-x'))
-        verbose.enable()
+    def test_on_by_default_and_off_only_when_turned_off(self):
         self.assertTrue(verbose.enabled())
         self.assertIsNotNone(verbose.reporter('terra', 'gpt-x'))
+        for value in ('', ' ', '1', 'yes'):
+            with self.subTest(value=value):
+                os.environ[verbose.ENV] = value
+                self.assertTrue(verbose.enabled())
+        for value in ('0', 'false', 'OFF', ' no '):
+            with self.subTest(value=value):
+                os.environ[verbose.ENV] = value
+                self.assertFalse(verbose.enabled())
+                self.assertIsNone(verbose.reporter('terra', 'gpt-x'))
+        verbose.enable()
+        self.assertTrue(verbose.enabled())
+        verbose.disable()
+        self.assertFalse(verbose.enabled())
+
+    def test_cli_flags_override_the_variable_and_no_flag_keeps_it(self):
+        import autocode_args
+        import autocode_opencode as opencode
+        def parse(*argv):
+            autocode_args.parse(None, ['task', *argv], opencode.DEFAULT_MODELS)
+            return verbose.enabled()
+        self.assertTrue(parse())
+        self.assertFalse(parse('--no-verbose'))
+        self.assertFalse(parse(), 'no flag leaves the variable as it is')
+        self.assertTrue(parse('--verbose'))
+        os.environ[verbose.ENV] = '0'
+        self.assertTrue(parse('--verbose'))
 
     def test_tool_and_text_lines_carry_stage_model_and_bounded_text(self):
         verbose.enable()
