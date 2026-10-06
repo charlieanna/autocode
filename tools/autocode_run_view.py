@@ -416,6 +416,13 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need
+        if (status == "PAUSED_NO_PROGRESS" and "action" not in need
+                and recovery_limits.no_progress_bound_holds(state)):
+            # A plain resume holds here, also after a consumed response; only a bound
+            # that admits the retained count acknowledges it (#448). Information pending
+            # review cannot release this bound either, so this command comes first (#486).
+            need["action"] = "--resume-paused --no-progress-limit N"
+            need["no_progress_batches"] = state.get("no_progress_batches", 0)
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
         if review.get("action") and (review["status"] == "held" or "action" not in need):
@@ -430,11 +437,5 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                 and isinstance(rejected.get("iteration"), int) and rejected.get("output")):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
-        if (status == "PAUSED_NO_PROGRESS" and "action" not in need
-                and recovery_limits.no_progress_bound_holds(state)):
-            # A plain resume holds here, also after a consumed response; only a bound
-            # that admits the retained count acknowledges it (#448).
-            need["action"] = "--resume-paused --no-progress-limit N"
-            need["no_progress_batches"] = state.get("no_progress_batches", 0)
         return need
     return {"kind": "continue"}
