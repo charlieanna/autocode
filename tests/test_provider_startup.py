@@ -29,6 +29,9 @@ class ProviderStartupRecovery(AdversarialCase):
             shutil.copy2(REPO / "tools/fake_opencode.py", delegate)
             self.flags[self.flags.index("codex")] = "opencode"
             self.flags = ["openai/" + a if a.startswith("gpt-") else a for a in self.flags]
+            # The fake reports OpenCode 1.18.31 (and CI is Linux), so the kernel tool boundary cannot exist
+            # and the run would be refused at setup (#413). Only planning stages run here; accept that.
+            self.flags.append("--allow-uncontained-tools")
         else:
             delegate = self.root / "bin/codex-base"
             delegate.write_text(provider.read_text())

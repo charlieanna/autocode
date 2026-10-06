@@ -1,5 +1,4 @@
-"""The bug-fix workflow's Investigator: diagnose before fixing, and end the run when
-the report does not reproduce."""
+"""The bug-fix workflow's Investigator: diagnose before fixing and retain questions."""
 import json
 import subprocess
 import sys
@@ -144,6 +143,20 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual({"model": "saved"}, state["settings"]["roles"]["investigator"])
 
 
+class InvestigationQuestionValidationTests(unittest.TestCase):
+    def test_duplicate_questions_are_rejected_even_with_surrounding_whitespace(self):
+        question = "Which version failed?"
+        for duplicate in (question, "  " + question + "  "):
+            with self.subTest(duplicate=duplicate):
+                report = diagnosis("not_reproduced", questions=[question, duplicate])
+                with self.assertRaisesRegex(ValueError, "questions must be distinct"):
+                    bug_job.check(report, [])
+
+    def test_distinct_questions_are_accepted(self):
+        report = diagnosis("not_reproduced", questions=["Which version failed?", "What input failed?"])
+        bug_job.check(report, [])
+
+
 class ApplyTests(unittest.TestCase):
     def apply(self, value, changed=()):
         workspace = tempfile.mkdtemp()
@@ -161,18 +174,41 @@ class ApplyTests(unittest.TestCase):
         self.assertIsNone(jobs.ended_in(state))
         self.assertEqual("docs/bugs/duplicate-renew.json", bug_job.large_correction(state)["note_path"])
 
-    def test_a_report_that_does_not_reproduce_ends_the_run_with_questions(self):
+    def test_a_report_that_does_not_reproduce_waits_for_reporter_questions(self):
         state, workspace = self.apply(diagnosis("not_reproduced"))
         note = json.loads((workspace / "docs/bugs/none-cells.json").read_text())
         self.assertEqual((False, []), (note["reproduced"], note["changed"]))
         self.assertEqual(["Which version is the reporter running?"], note["questions"])
         view = run_view.view(state)
-        self.assertTrue(view["done"])
+        self.assertFalse(view["done"])
+        self.assertEqual(("WAITING_FOR_USER", "INVESTIGATING", bug_job.STAGE),
+                         (state["status"], state["phase"], view["next_stage"]))
         self.assertEqual("bugfix", view["workflow"])
+        self.assertIsNone(jobs.ended_in(state))
+
+    def test_a_report_that_does_not_reproduce_and_has_no_questions_ends_the_run(self):
+        state, _ = self.apply(diagnosis("not_reproduced", questions=[]))
+        view = run_view.view(state)
+        self.assertTrue(view["done"])
+        self.assertIsNone(view["needs"])
         self.assertIs(bug_job, jobs.ended_in(state))
         rendered = jobs.render(state, lambda _: "build completion")
         self.assertIn("NOT REPRODUCED", rendered)
-        self.assertIn("Question for the reporter: Which version", rendered)
+        self.assertNotIn("Question for the reporter:", rendered)
+
+    def test_an_authenticated_reporter_answer_is_not_requested_again(self):
+        import autocode_bug_questions as questions
+        state, workspace = self.apply(diagnosis("not_reproduced"))
+        question = questions.questions(state)[0]
+        answer = {"actor": "user_cli", "question": question, "text": "Version 1.2"}
+        state.update(answers={question["id"]: answer}, user_events=[answer])
+        retained = (workspace / "docs/bugs/none-cells.json").read_bytes()
+        with self.assertRaisesRegex(ValueError, "already.*answer|answer.*already|repeat"):
+            bug_job.apply(state, diagnosis("not_reproduced"),
+                          {"changed_files": [], "output": "/run/investigate_bug-02.json"}, str(workspace))
+        self.assertEqual(retained, (workspace / "docs/bugs/none-cells.json").read_bytes())
+        self.assertFalse(run_view.view(state)["done"])
+        self.assertEqual(bug_job.STAGE, state["next_stage"])
 
     def test_an_investigation_that_changed_the_repository_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "must not change the repository.*epp/client.py"):

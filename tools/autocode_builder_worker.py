@@ -25,6 +25,7 @@ except ImportError:
 def execute(state, directory, workspace, mode):
     runner.goals.execution_guard(state)
     runner.autopilot.builder_policy.guard(state)
+    runner.autopilot.regression.before_review(state, None, workspace, directory)
     runner.opencode = runner.autocode_providers.resolve(state["settings"].get("provider", "opencode"))
     if (mode == "recover" and not state.get("active_stage") and not state.get("stages")
             and not state.get("implementation") and not (directory / "iterations").exists()
@@ -53,7 +54,8 @@ def execute(state, directory, workspace, mode):
             runner.reconcile_active(state, directory, workspace)
         except runner.ReportRepairQueued:
             pass
-        except runner.support.Paused:
+        except runner.support.Paused as error:
+            runner.result_application.raise_if_uncertain(error)
             if mode != "retry" or not state.get("active_stage"):
                 raise
             runner.abandon_stage(state, directory, workspace, runner.attempt_id(state["active_stage"]))

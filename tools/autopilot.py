@@ -23,11 +23,11 @@ try:
     from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
     from .units import autoplanner as planning_unit, common as units_common
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
-    from . import autocode_validation_rounds as validation_rounds
+    from . import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
     import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
-    import autocode_validation_rounds as validation_rounds
+    import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
@@ -162,9 +162,9 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
+    regression.before_review(state, stage, workspace, run_dir)
     if stage == "orchestrator":
         return unit.dispatch(state, workspace, run_dir)
-    regression.before_review(state, stage, workspace, run_dir)
     state_path = run_dir / "state.json"
     request = prepare_request(state, stage, state_path, runtime.SCHEMA_DIR)
     runtime.rotate_if_needed(state, request.route_role, run_dir)
@@ -560,6 +560,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
                 raise ValueError(f"Criterion evidence references a missing executed event: {event_id}")
     refs = [record["events"] if p.startswith("event:") else p for p in refs]
     pins = support.evidence_hashes(refs, workspace, run_dir) if refs else {}
+    if stage == "sol":
+        rework_policy.require_owned(pins, state, record, workspace, run_dir)
     validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
                   "source_revision": record["source_revision"], "output": record["output"],
                   "reviewer_role": record.get("role", stage)}
@@ -699,8 +701,8 @@ def apply_diagnosis_result(runtime, state, value, record, workspace, run_dir):
 
 def apply_result(runtime, state, stage, value, record, workspace, run_dir):
     """Commit a unit result only after every transition and evidence gate succeeds."""
-    candidate = copy.deepcopy(state)
-    _apply_result(runtime, candidate, stage, value, record, workspace, run_dir)
+    candidate = result_application.prepare(
+        state, run_dir, stage, lambda current: _apply_result(runtime, current, stage, value, record, workspace, run_dir), persist=runtime.write_json)
     state.clear()
     state.update(candidate)
 
@@ -940,6 +942,7 @@ def run(runtime, state, workspace, run_dir, args):
                 raise LoopExit(2)
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+        regression.before_review(current, None, workspace, run_dir)
         if args.unit and pending_unit(current) != args.unit:
             publish_handoffs(current, run_dir)
             write_json(state_path, current)

@@ -339,6 +339,15 @@ the response, so it was not evaluated and Resolver asks a fresh request). Inform
 a count or approves anything; a later resume repeats a held decision without
 evaluating again.
 
+`tool_containment` says how built-in OpenCode stages other than planning run their
+tools: `contained` (inside the kernel tool boundary, see
+[Execution](execution.md#native-tool-containment)) or `uncontained_user_accepted`
+(the run was started or resumed with `--allow-uncontained-tools`; those stages have
+OpenCode's own permission checks only, and each such stage record says
+`uncontained_tools: true`). It is `null` for runs that launch no such stage: the
+native Codex engine (unless its Investigator is pinned to an OpenCode model) and
+configured providers.
+
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
 contract, source, report and evidence hashes, and the ordinary retry charged by

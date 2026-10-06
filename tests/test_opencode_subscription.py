@@ -15,11 +15,12 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
 
     def test_oauth_summary_is_accepted_without_reading_credentials(self):
         response = SimpleNamespace(returncode=0, stdout='● Z.AI Coding Plan api\n● OpenAI \x1b[90moauth\n', stderr='')
-        with patch.object(oc.subprocess, 'run', return_value=response) as run, \
+        with patch.object(oc.time, 'monotonic', side_effect=[100, 100]), \
+             patch.object(oc.subprocess, 'run', return_value=response) as run, \
              patch.object(Path, 'read_text', side_effect=AssertionError('Do not read auth files')):
             oc.check_subscription_routes(self.roles, Path('/workspace'))
         self.assertEqual(['opencode', 'auth', 'list'], run.call_args.args[0])
-        self.assertEqual(15, run.call_args.kwargs['timeout'])
+        self.assertEqual(45, run.call_args.kwargs['timeout'])
 
     def test_missing_ambiguous_and_unrecognized_auth_cannot_launch(self):
         for summary in ('● OpenAI unknown', '', 'OAuth exists somewhere',
@@ -39,13 +40,31 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
             # anything; the conclusion is still "cannot verify", never a guess.
             self.assertEqual(3, run.call_count)
 
-    def test_slow_auth_probe_cold_start_recovers_on_retry(self):
-        # Observed in containers: opencode auth list can exceed the 15 s probe
-        # timeout once under load and succeed on the next attempt.
+    def test_slow_auth_probe_gets_the_full_startup_allowance(self):
         ok = SimpleNamespace(returncode=0, stdout='● OpenAI oauth\n', stderr='')
-        with patch.object(oc.subprocess, 'run', side_effect=[subprocess.TimeoutExpired(['opencode'], 15), ok]) as run:
+        def cold_start(*args, **kwargs):
+            if kwargs['timeout'] < 32:
+                raise subprocess.TimeoutExpired(args[0], kwargs['timeout'])
+            return ok
+        with patch.object(oc.time, 'monotonic', side_effect=[100, 100]), \
+             patch.object(oc.subprocess, 'run', side_effect=cold_start) as run:
             oc.check_subscription_routes(self.roles)
-        self.assertEqual(2, run.call_count)
+        self.assertEqual(1, run.call_count)
+        self.assertEqual(45, run.call_args.kwargs['timeout'])
+
+    def test_early_transport_failure_retries_with_remaining_budget(self):
+        ok = SimpleNamespace(returncode=0, stdout='● OpenAI oauth\n', stderr='')
+        with patch.object(oc.time, 'monotonic', side_effect=[100, 100, 112]), \
+             patch.object(oc.subprocess, 'run', side_effect=[OSError('transient'), ok]) as run:
+            oc.check_subscription_routes(self.roles)
+        self.assertEqual([45, 33], [call.kwargs['timeout'] for call in run.call_args_list])
+
+    def test_exhausted_budget_never_starts_another_probe(self):
+        with patch.object(oc.time, 'monotonic', side_effect=[100, 100, 145]), \
+             patch.object(oc.subprocess, 'run', side_effect=subprocess.TimeoutExpired(['opencode'], 45)) as run, \
+             self.assertRaisesRegex(RuntimeError, 'no provider request'):
+            oc.check_subscription_routes(self.roles)
+        self.assertEqual(1, run.call_count)
 
     def test_completed_auth_check_is_never_retried(self):
         for response in (SimpleNamespace(returncode=0, stdout='● OpenAI unknown\n', stderr=''),

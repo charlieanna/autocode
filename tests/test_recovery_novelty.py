@@ -19,6 +19,8 @@ import autocode_rework_policy as rework
 import autocode_util as util
 import autocode as runner
 import autocode_builder_recovery as builder_recovery
+import autocode_visual_evidence as visual
+from tests.visual_capture_fixtures import make_capture, png
 
 
 class NoveltyPolicyTests(unittest.TestCase):
@@ -1035,6 +1037,39 @@ class RecoveryPacketTests(unittest.TestCase):
             for path, digest in state["resolution_request"]["evidence_hashes"].items()}
         with self.assertRaisesRegex(util.Paused, "symlink"):
             recovery.prepare_resolution(state, {"summary": "Symlinked scratch"}, copy.deepcopy(record))
+
+    def design_capture(self):
+        """Pin a design Validator's capture bundle and a retained reference image, as report_refs pins them."""
+        reference = "e" * 64
+        retained = self.root / ".autocode" / "design-inputs" / reference
+        retained.mkdir(parents=True, exist_ok=True)
+        png(retained / "home.png")
+        state = copy.deepcopy(self.state)
+        state["settings"]["design_manifest"] = {"manifest_hash": reference, "root": str(retained)}
+        screen = {"id": "home", "route": "/", "state": "ready",
+                  "viewport": {"width": 2, "height": 1, "device_scale_factor": 1}}
+        item = make_capture(self.root, reference, screen, asset="app.py")
+        current = {"revision": "s1", "files": {"app.py": util.file_hash(self.source)}}
+        _, refs = visual.verify(state, item["capture_ref"], item["capture_sha256"], current=current)
+        pins = {str(path): util.file_hash(path) for path in (self.output, self.events, retained / "home.png", *map(Path, refs))}
+        state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": pins}
+        return state, Path(item["capture_ref"]), retained / "home.png"
+
+    def test_design_capture_bundle_and_retained_reference_are_archived_as_this_runs_evidence(self):
+        record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+        state, manifest, reference = self.design_capture()
+        recovery.prepare_resolution(state, {"summary": "Wrong heading"}, copy.deepcopy(record))
+        packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
+        archived = {row["original_path"] for row in packet["originals"]}
+        self.assertLessEqual({str(manifest), str(manifest.parent / "candidate.png"), str(reference)}, archived)
+
+        state, manifest, _ = self.design_capture()
+        unnamed = manifest.parent / "comparison.png"
+        png(unnamed)
+        state["resolution_request"]["evidence_hashes"][str(unnamed)] = util.file_hash(unnamed)
+        with self.assertRaisesRegex(util.Paused, "another run"):
+            recovery.prepare_resolution(state, {"summary": "Unnamed bundle file"}, copy.deepcopy(record))
+        self.assertNotIn("recovery_packet", state["resolution_request"])
 
     def known_correction(self, evidence, **mutation):
         """A sealed Completion REWORK with an attested change (unless `mutation` breaks it), over a failed check captured in `evidence`."""

@@ -491,6 +491,13 @@ class ActivityRuntimeTests(unittest.TestCase):
         with self.assertRaises(support.Paused):
             runner.timeout_recovery_guard(self.state)
 
+    def test_unchanged_builder_batches_never_exhaust_the_recovery_budget(self):
+        # #511: no recovery ran, so the guard must leave the run to its own no-progress stop.
+        self.state.update(no_progress_batches=runner.MAX_AUTOMATIC_RECOVERIES)
+        self.state.pop('automatic_recoveries_since_resume', None)
+        self.assertEqual(0, runner.recovery_count(self.state))
+        runner.timeout_recovery_guard(self.state)
+
     def test_legacy_recovered_history_does_not_exhaust_a_new_resume(self):
         self.state.update(consecutive_timeout_recoveries=0, no_progress_batches=0,
                           automatic_timeout_recoveries=[{}, {}, {}],

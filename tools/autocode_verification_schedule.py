@@ -15,9 +15,10 @@ import shlex
 import uuid
 
 try:
-    from . import autocode_util as util
+    from . import autocode_util as util, autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_util as util
+    import autocode_command_receipt as command_receipt
 
 
 def tree_identity(root, *, excluded=()):
@@ -92,7 +93,8 @@ def intact(receipt, *, root=None):
             if any(parent.is_symlink() for parent in output.parents
                    if parent != root and parent.is_relative_to(root)):
                 return False
-        return (not output.is_symlink() and output.is_file()
+        return (command_receipt.completed(receipt, root=root)
+                and not output.is_symlink() and output.is_file()
                 and util.file_hash(output) == receipt["output_sha256"])
     except (OSError, KeyError, TypeError):
         return False
@@ -176,8 +178,8 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
     An attempt that ends in an exception is known-failed state, not uncertainty:
     it is recorded as a failed receipt (never reused) and its pending launch is
     cleared, so the next attempt runs a fresh check instead of pausing forever
-    (#414). Only a hard crash, which runs nothing that could record an outcome,
-    leaves the pending launch for a person to reconcile. Completed receipts
+    (#414). A hard crash or uncertain command ownership leaves the pending launch for
+    a person to reconcile; an exception cannot authorize another unsafe launch. Completed receipts
     survive controller restart without a second launch.
     """
     root = Path(directory)
@@ -220,6 +222,10 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
         try:
             result = execute(out)
             after = current_identity()
+        except command_receipt.OwnershipUncertain:
+            # In-process unwind cannot establish that owned commands stopped.
+            # Retain pending so guard blocks every identity until reconciliation.
+            raise
         except BaseException as error:
             failed = dict(result) if isinstance(result, dict) else {}
             failed["error"] = f"Verification attempt did not complete ({type(error).__name__}): {error}"

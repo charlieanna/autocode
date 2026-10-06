@@ -94,11 +94,32 @@ class RiskEvidenceTests(RiskFixture, unittest.TestCase):
                     deliveries = actual['sink']['deliveries']
                     self.assertEqual(4, len(deliveries))
                     self.assertEqual(deliveries[1]['event'], deliveries[2]['event'])
-        self.assertEqual(3, len(evidence.evidence_pins(self.actual)))
+        self.assertEqual(5, len(evidence.evidence_pins(self.actual)))
+        for row in self.actual['checks']:
+            self.assertEqual(row['supervision_sha256'],
+                             evidence.evidence_pins(self.actual)[row['supervision']['receipt']])
         wrapper = self.original_state['goal_contract']['body']['risk_acceptance']
         artifact = util.read_object(wrapper['targets']['artifact'])
         for row in artifact['targets']:
             self.assertNotEqual(row['sha256'], util.file_hash(self.workspace / row['path']))
+
+    def test_lifecycle_readiness_rejects_changed_missing_or_partial_command_ownership(self):
+        state = self.state()
+        row = state['validation']['check_replay']['risk_acceptance']['checks'][0]
+        ownership = Path(row['supervision']['receipt'])
+        original = ownership.read_bytes()
+        try:
+            self.assertTrue(evidence.ready(state, self.revision))
+            ownership.write_bytes(original + b'changed')
+            self.assertFalse(evidence.ready(state, self.revision))
+            ownership.unlink()
+            self.assertFalse(evidence.ready(state, self.revision))
+        finally:
+            ownership.write_bytes(original)
+        self.assertTrue(evidence.ready(state, self.revision))
+        del row['supervision_errors']
+        self.save_result(state, state['validation']['check_replay']['risk_acceptance'])
+        self.assertFalse(evidence.ready(state, self.revision))
 
     def test_known_queue_and_outbox_mutants_fail_with_retained_full_actual_transcripts(self):
         mutants = [('leasequeue', 'broken/process-local-tokens', 0, 'lease token'),

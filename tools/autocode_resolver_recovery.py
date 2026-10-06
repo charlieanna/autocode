@@ -96,12 +96,10 @@ def _run_root(state, record):
 
 def _artifact_owned(path, workspace, run, state):
     path = _owned(path, workspace)
-    private = workspace / ".autocode"
-    shared = private / "evidence"
-    scratch = private / "recovery-evidence" / util.digest(str(run))
-    # A contained stage captures in the tool-containment scratch its own launch recorded (#419).
-    contained = containment.recorded_scratch(state.get("stages", []), workspace)
-    if path.is_relative_to(private) and not any(path.is_relative_to(root) for root in (run, shared, scratch, *contained)):
+    # The rule acceptance and Completion routing apply. Pins here come from several stages, so a
+    # contained stage's capture is owned through any launch record of this run (#419).
+    if not rework.owned(path, workspace, run, settings=state.get("settings"),
+                        scratch=containment.recorded_scratch(state.get("stages", []), workspace)):
         _stale("evidence belongs to another run")
     return path
 
