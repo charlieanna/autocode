@@ -277,7 +277,11 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
                        f"{record['request_id'][:12]}; run autocode resume to continue. Nothing launched.")
     if status != 'pending':
         return None
+    if state.get('status') != record.get('pause_status'):
+        return None  # The run left that pause another way (an explicit control); nothing to evaluate.
     if not resume:
+        if not human.response_holds_current_frontier(state):
+            return None
         return Outcome('pending', 'AutoResolver has the information sent for request '
                        f"{str(record.get('request_id'))[:12]} and re-evaluates it once at the next "
                        'autocode resume (--resume-paused). Nothing launched.')

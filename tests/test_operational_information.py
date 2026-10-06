@@ -164,6 +164,25 @@ class OperationalInformationCLITests(unittest.TestCase):
         # AutoResolver runs the admission guard itself and finds the spent automatic-recovery allowance.
         self.assert_held_for_a_grant_once(self.issue_checkpoint(automatic_recoveries_since_resume=3))
 
+    def test_an_explicit_control_leaves_pending_information_unevaluated(self):
+        self.inform(self.checkpoint(
+            'PAUSED_TIMEOUT_RECOVERY', 'Automatic recovery budget exhausted; no further provider will launch.',
+            automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3,
+            automatic_timeout_recoveries=[{'stage': 'terra', 'timeout_reason': 'idle watchdog'} for _ in range(3)]),
+            'The provider was slow; it is healthy again')
+        self.env.pop('AUTOCODE_FIXTURE_QUOTA_STAGE')
+        code, launched, output = self.resume('--grant-recovery', '1')
+        self.assertTrue(launched, output)
+        self.assertEqual('TASK_COMPLETE', self.status()['status'], output)
+        self.assertEqual([], self.evaluations())
+        # The finished run is reported as finished; the unused information neither holds nor runs it.
+        for args in ((), ('--resume-paused',)):
+            code, launched, output = self.invoke(*args)
+            self.assertEqual((0, False), (code, launched), output)
+            self.assertNotIn('re-evaluate', output)
+        self.assertEqual([], self.evaluations())
+        self.assertEqual('pending', self.status()['information_review']['status'])
+
     def test_an_admitted_decision_continues_through_the_guarded_admission_path(self):
         self.inform(self.issue_checkpoint(), 'The workspace temporary directory and interpreter are valid')
         _, answered = self.saved()
