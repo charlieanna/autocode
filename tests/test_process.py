@@ -783,6 +783,60 @@ time.sleep(30)
             processes.wait_for_stage(child, 5, checkpoint)
         self.assertIsNotNone(child.poll())
 
+    def test_second_signal_while_interrupt_unwinds_does_not_skip_cleanup(self):
+        # A terminal close delivers SIGHUP twice (the kernel and the shell), and people press
+        # Ctrl-C again. Raising a second time while the first interrupt unwinds skipped this
+        # cleanup, or left a lock held so the controller hung ignoring signals (#454).
+        self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, signal.SIG_DFL))
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait()))
+        def checkpoint(rows):
+            os.kill(os.getpid(), signal.SIGHUP)
+        install, landed = signal.signal, []
+        def second_signal_lands_in_cleanup(sig, handler):
+            # Where the real race landed: the second handler runs as cleanup starts ignoring signals.
+            if handler is signal.SIG_IGN and not landed:
+                landed.append(sig)
+                signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+            return install(sig, handler)
+        with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt) as caught, \
+                patch.object(signal, 'signal', second_signal_lands_in_cleanup):
+            processes.wait_for_stage(child, 5, checkpoint)
+        self.assertTrue(landed)
+        self.assertIsNotNone(child.poll(), 'the provider is stopped before the interrupt propagates')
+        self.assertEqual('SIGHUP', getattr(caught.exception, 'signal', None))
+
+    def test_only_the_first_signal_interrupts(self):
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, signal.SIG_DFL))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+        again = []
+        with processes.interruption_handler():
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                os.kill(os.getpid(), signal.SIGINT)
+                time.sleep(15)  # ends as soon as the handler raises
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                try:
+                    signal.getsignal(sig)(sig, None)  # absorbed while the first interrupt is handled
+                except KeyboardInterrupt:
+                    again.append(signal.Signals(sig).name)
+        self.assertEqual([], again, 'a second signal must not interrupt the first one\'s cleanup')
+        self.assertEqual('SIGINT', getattr(caught.exception, 'signal', None))
+        self.assertIs(signal.default_int_handler, signal.getsignal(signal.SIGINT))
+
+    def test_ignored_or_replaced_sigint_is_left_alone(self):
+        # A background job inherits SIGINT ignored; a caller may install its own handler.
+        def own(signum, frame):
+            pass
+        for handler in (signal.SIG_IGN, own):
+            with self.subTest(handler=handler):
+                previous = signal.signal(signal.SIGINT, handler)
+                try:
+                    with processes.interruption_handler():
+                        self.assertIs(handler, signal.getsignal(signal.SIGINT))
+                finally:
+                    signal.signal(signal.SIGINT, previous)
+
 
 if __name__ == '__main__':
     unittest.main()

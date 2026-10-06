@@ -36,6 +36,19 @@ and a known finished deadline follows the existing bounded timeout recovery
 route instead of accepting a late terminal response. SIGHUP uses the retained interrupt path while inherited
 SIGHUP ignore is respected.
 
+Only the first SIGTERM, SIGHUP or Ctrl-C raises a stage's interrupt, which names
+the signal; later ones are absorbed while its cleanup runs. A closed terminal
+sends SIGHUP twice (the kernel and the shell) and people press Ctrl-C again. A
+second raise while the first unwound skipped the controller's own cleanup (the
+keeper still stopped the provider, but no exit code was saved), turned the pause
+into `PAUSED_INVALID_OUTPUT` "release unlocked lock", escaped as a bare
+KeyboardInterrupt that left the run `RUNNING`, or, rarely, hung the controller on
+a leaked threading lock with SIGINT and SIGTERM ignored. Of 351 fake scenario
+runs given two signals 0 to 200 ms apart, 3 hung and 76 had one of the other
+outcomes; no provider outlived its controller. Ctrl-C is taken over only from
+Python's default handler, so an ignored (background job) or replaced SIGINT is
+left alone.
+
 Qualification on macOS uses fake providers only: controller SIGKILL, process-group
 SIGKILL, SIGHUP, controlling PTY close, harness SIGKILL, keeper loss before/after
 exec, blocked ownership persistence, a TERM-resistant detached child, unchanged

@@ -104,6 +104,14 @@ Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps({
     'design_document': '', 'clarity': 'vague'}))
 print(json.dumps({'type': 'thread.started', 'thread_id': 'fault-session'}), flush=True)
 print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'output_tokens': 1}}), flush=True)
+if os.environ.get('AUTOCODE_FIXTURE_SUPERVISION_HOLD_TERM'):
+    import signal
+    def _hold(signum, frame):
+        # Report the controller's stop, then outlast it until its SIGKILL.
+        _socket.sendall(b'T')
+        while True:
+            signal.pause()
+    signal.signal(signal.SIGTERM, _hold)
 _socket.sendall(str(os.getpid()).encode() + b'\\n')
 _socket.recv(1)
 raise SystemExit(0)
@@ -188,6 +196,13 @@ raise SystemExit(0)
                     os.killpg(child.pid, signal.SIGKILL)
                 elif kind == 'hup':
                     os.kill(child.pid, signal.SIGHUP)
+                elif kind == 'second-hup':
+                    os.kill(child.pid, signal.SIGHUP)
+                    self.assertEqual(b'T', connection.recv(1), 'The controller stops its provider on a hangup')
+                    # A closed terminal's second SIGHUP (the shell's) lands while it does.
+                    os.kill(child.pid, signal.SIGHUP)
+                    while connection.recv(1) == b'T':  # until the controller's SIGKILL ends it
+                        pass
                 else:
                     os.close(master)
                     master = None
@@ -200,6 +215,10 @@ raise SystemExit(0)
             public = json.loads(status.stdout)
             self.assertEqual(original, (self.run / 'state.json').read_bytes(), 'Status must stay read-only')
             self.assertFalse(public['view']['liveness']['provider']['alive'])
+            if kind == 'second-hup':
+                self.assertEqual((2, 'PAUSED_INTERRUPTED'), (child.returncode, public['status']))
+                self.assertIsNotNone(public['active_stage']['exit_code'],
+                                     'The controller collects its provider before the interrupt propagates')
             if public['status'] == 'RUNNING':
                 self.assertTrue(public['stale'])
             launches = self.launches.read_bytes()
@@ -225,6 +244,11 @@ raise SystemExit(0)
 
     def test_hangup_retains_interruption_and_stops_provider(self):
         self.fault('hup')
+
+    def test_second_hangup_during_cleanup_leaves_the_cleanup_to_the_controller(self):
+        # A second raise skipped the controller's cleanup, misreported the pause or hung it (#454).
+        self.env['AUTOCODE_FIXTURE_SUPERVISION_HOLD_TERM'] = '1'
+        self.fault('second-hup')
 
     def test_controlling_pty_close_stops_provider(self):
         self.fault('pty')
