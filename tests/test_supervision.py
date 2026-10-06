@@ -547,6 +547,79 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json
         reused={**keeper,'birth_identity':3.0}
         self.assertTrue(tree._included(reused))
 
+    def test_retained_group_owns_a_child_reparented_before_any_sample(self):
+        # A guarded CLI leads its own session. Killed and reaped before its keeper
+        # samples a new child, it leaves that child reparented; only the child's
+        # group still ties it to the recorded leader.
+        from autocode_supervision_keeper import Observer
+        worker = "import signal; print(flush=True); signal.pause()"
+        script = (f"import subprocess,sys,signal; c=subprocess.Popen([sys.executable,'-c',{worker!r}],"
+                  "stdout=subprocess.PIPE); c.stdout.readline(); print(c.pid,flush=True); signal.pause()")
+        leader = subprocess.Popen([sys.executable, '-c', script], stdout=subprocess.PIPE, text=True,
+                                  start_new_session=True)
+
+        def stop_leader():
+            if leader.poll() is None:
+                leader.kill()
+            leader.wait(timeout=10)
+            leader.stdout.close()
+        self.addCleanup(stop_leader)
+        root = processes.identity(processes.process_table({leader.pid})[leader.pid])
+        orphan_pid = int(leader.stdout.readline())
+        orphan = processes.identity(processes.process_table({orphan_pid})[orphan_pid])
+        self.addCleanup(self.cleanup_identity, orphan)
+        leader.kill()
+        leader.wait(timeout=10)
+        self.assertNotEqual(leader.pid, processes.process_table({orphan_pid})[orphan_pid]['parent'])
+        self.assertEqual(leader.pid, orphan['group'])
+        unretained = processes.ProcessTree(leader.pid, lambda rows: None)
+        unretained.known = {leader.pid: root}
+        self.assertEqual([], unretained.sample(notify=False))
+        tree = processes.ProcessTree(leader.pid, lambda rows: None, groups=(root,))
+        tree.known = {leader.pid: root}
+        self.assertEqual([orphan_pid], [row['pid'] for row in tree.sample(notify=False)])
+        tree.stop(Observer(root))
+        self.assertFalse(processes.live_processes([orphan]))
+
+    def test_a_reused_or_emptied_leader_group_ends_retained_ownership(self):
+        leader = {'pid': 4242, 'group': 4242, 'birth_identity': 1.0, 'birth_time': 1.0, 'started': 'leader'}
+        member = {'pid': 4243, 'parent': 1, 'group': 4242, 'birth_identity': 3.0, 'birth_time': 3.0,
+                  'started': 'member', 'state': 'sleeping'}
+        reused = {**leader, 'parent': 1, 'birth_identity': 2.0, 'birth_time': 2.0, 'state': 'sleeping'}
+        stranger = {**member, 'pid': 4250, 'birth_identity': 9.0, 'birth_time': 9.0, 'started': 'stranger'}
+
+        def sample(tree, *rows):
+            current = {row['pid']: row for row in rows}
+
+            def killpg(group, sig):
+                self.assertEqual(0, sig)
+                if not any(row['group'] == group for row in rows):
+                    raise ProcessLookupError(group)
+            with patch.object(processes, 'process_table',
+                              side_effect=lambda pids: {pid: dict(current[pid]) for pid in pids if pid in current}), \
+                 patch.object(processes, 'process_ids', return_value=list(current)), \
+                 patch.object(processes.os, 'getpgid', side_effect=lambda pid: current[pid]['group']), \
+                 patch.object(processes.os, 'killpg', side_effect=killpg):
+                return [row['pid'] for row in tree.sample(notify=False)]
+
+        def tree():
+            retained = processes.ProcessTree(4242, lambda rows: None, groups=(leader,))
+            retained.known = {4242: leader}
+            return retained
+
+        self.assertEqual([4243], sample(tree(), member))
+        # A different process at the leader's PID proves the old group emptied
+        # first. Its new group is never claimed, even after that process exits.
+        reused_tree = tree()
+        self.assertEqual([], sample(reused_tree, reused, member))
+        self.assertEqual([], sample(reused_tree, member))
+        # A sample that finds the group empty ends ownership too: from then on the
+        # kernel may give the PID to a new group leader, which can start a child
+        # and exit before the next sample. That child is not claimed.
+        emptied = tree()
+        self.assertEqual([], sample(emptied))
+        self.assertEqual([], sample(emptied, stranger))
+
     def keeper_publication_case(self, *, deadline_fault):
         # A blocked sampling write and an independent trigger compete for the
         # same receipt. Event barriers drive the ordering; the fake timer fires
