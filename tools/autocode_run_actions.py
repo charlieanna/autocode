@@ -710,8 +710,11 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             raise ValueError('A model question has no default to delegate; name the model yourself')
         asked, model = quota_route.parse_answer(args.answer, published['questions'], proposal['origin'])
         role = asked['route_role']
+        parallel = worker_quota.current(candidate, proposal['origin'])
+        # A batch member ran on its own model; a sibling's earlier answer may have moved the route (#465).
+        ran_on = parallel[1].get('model') if parallel else None
         quota_route.validate(candidate, role, model, configured_tool=getattr(runner.opencode, 'CONFIGURED', False),
-                             cross_check=dispatch.enforce_cross_model_verification, job=asked.get('job'))
+                             cross_check=dispatch.enforce_cross_model_verification, job=asked.get('job'), current=ran_on)
         if quota_route.engine(candidate['settings'], role) == 'opencode':
             try:
                 runner.opencode.check_models({role: {'model': model}}, workspace)
@@ -719,13 +722,12 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):
             raise ValueError('Apply the queued intervention before answering')
-        parallel = worker_quota.current(candidate, proposal['origin'])
         if proposal['origin'].get('quota_worker') and not parallel:
             raise ValueError('The quota-stopped Builder is no longer current; inspect the batch before retrying')
         if parallel:
             row, stopped_worker = parallel
             worker_quota.validate_model(model, stopped_worker, dispatch._model_family)
-            attempt = {**stopped_worker, 'stage': 'terra', 'pause_status': quota_route.QUOTA_STATUS}
+            attempt = {**stopped_worker, 'stage': 'terra', 'pause_status': row['status']}
             worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
         else:
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
@@ -734,7 +736,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             runner.abandon_stage(candidate, run_dir, workspace, attempt['attempt_id'])
             attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
         record = quota_route.assign(candidate, role, model, at=runner.now(), via='answer', attempt=attempt,
-                                    request_id=published['request_id'])
+                                    request_id=published['request_id'], current=ran_on)
         runner.finish_human_action(candidate, published)
     except (ValueError, KeyError) as error:
         print(f'Input rejected: {error}', file=sys.stderr)
