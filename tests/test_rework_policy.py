@@ -3,6 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -17,6 +18,9 @@ import autocode as runtime
 import autocode_rework_policy as policy
 import autocode_support as support
 import autocode_util as util
+import autocode_visual_evidence as visual
+import autopilot
+from tests.visual_capture_fixtures import make_capture, png
 
 
 class ReworkPolicyTests(unittest.TestCase):
@@ -145,7 +149,8 @@ class ReworkPolicyTests(unittest.TestCase):
         command = [sys.executable, str(Path(runtime.__file__)), 'capture', '--output', str(path), '--no-compress',
                    '--', sys.executable, '-c', "import sys; print('invalid input reproduced'); sys.exit(1)"]
         env = {key: value for key, value in os.environ.items() if key != 'AUTOCODE_CAPTURE_CONTEXT'}
-        captured = subprocess.run(command, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=10)
+        # A ceiling, not a wait: under parallel suite load one capture CLI start can exceed 10 s (#506).
+        captured = subprocess.run(command, cwd=self.workspace, env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(1, captured.returncode, captured.stderr)
         receipt = json.loads(captured.stdout)
         self.assertEqual(receipt, util.read_object(path))
@@ -399,6 +404,116 @@ class ReworkPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(util.Paused, 'symlink'):
                     self.route(case)
                 case.queue.assert_not_called()
+
+    def design_case(self, settings=None, *, reference=None, **change):
+        """A sealed, unrepaired design Validator that pinned a capture bundle, as report_refs pins one."""
+        case = self.case(**change)
+        case.state['settings'].update(settings or {'figma_file': 'https://www.figma.com/design/fixture/Greeting'})
+        (self.workspace / 'greet.py').write_text('print("hello")\n')
+        screen = {'id': 'home', 'route': '/', 'state': 'ready',
+                  'viewport': {'width': 2, 'height': 1, 'device_scale_factor': 1}}
+        current = {'revision': 'source', 'files': {'greet.py': util.file_hash(self.workspace / 'greet.py')}}
+        reference = reference or visual.reference_hash(case.state['settings'])
+        with patch.object(util, 'snapshot', return_value=current):
+            item = make_capture(self.workspace, reference, screen)
+        # Every file the bundle's verification returns, checked against the reference it was captured for.
+        captured_for = {**case.state, 'settings': {'design_manifest': {'manifest_hash': reference}}}
+        _, refs = visual.verify(captured_for, item['capture_ref'], item['capture_sha256'], current=current)
+        case.state['validation']['evidence_hashes'].update(support.evidence_hashes(refs, self.workspace, case.run))
+        return case, Path(item['capture_ref'])
+
+    def test_unrepaired_design_validator_capture_pins_do_not_pause_a_rework(self):
+        # report_refs/native_refs pin the capture bundle the runner wrote under .autocode/captures/<id>/.
+        # route() re-verifies those pins on every REWORK, and the Completion Reviewer cannot change them.
+        case, manifest = self.design_case()
+        self.assertIn(str(manifest), case.state['validation']['evidence_hashes'])
+        self.assertTrue(self.route(case))
+        self.assertEqual('assigned', case.state['current_task']['id'])
+
+    def test_design_rework_reaches_the_resolver_through_the_real_queue(self):
+        # The Resolver path re-checks the same pins in resolver_recovery.prepare_resolution.
+        # A nonblocking finding is not a bounded direct repair.
+        case, manifest = self.design_case(decision_change=lambda decision: decision['findings'][0].update(blocking=False))
+        case.queue = Mock(wraps=autopilot.queue_resolution)
+        current = {'revision': 'source', 'head': 'head',
+                   'files': {'greet.py': util.file_hash(self.workspace / 'greet.py')}}
+        with patch.object(autopilot.goals, 'execution_guard'), \
+             patch.object(autopilot.support, 'snapshot', return_value=current), \
+             patch.object(util, 'snapshot', return_value=current):
+            self.assertFalse(self.route(case))
+        request = case.state['resolution_request']
+        self.assertEqual('astra_resolve', case.state['next_stage'])
+        self.assertIn(str(manifest), request['evidence_hashes'])
+        packet = util.read_object(request['recovery_packet']['path'])
+        self.assertIn(str(manifest), {row['original_path'] for row in packet['originals']})
+
+    def test_retained_design_reference_pins_do_not_pause_a_rework(self):
+        reference = 'd' * 64
+        root = self.workspace / '.autocode' / 'design-inputs' / reference
+        root.mkdir(parents=True)
+        png(root / 'home.png')
+        case, _ = self.design_case({'design_manifest': {'manifest_hash': reference, 'root': str(root)}})
+        case.state['validation']['evidence_hashes'][str(root / 'home.png')] = util.file_hash(root / 'home.png')
+        self.assertTrue(self.route(case))
+
+    def test_capture_bundle_files_are_owned_only_through_their_manifest_for_this_runs_design(self):
+        for label in ('a file the manifest does not name', 'an artifact changed after capture',
+                      'a bundle for another design reference', 'a run without a design reference',
+                      'a reviewer artifact elsewhere under .autocode/'):
+            with self.subTest(label=label):
+                case, manifest = self.design_case(reference='b' * 64 if 'another design' in label else None)
+                pins = case.state['validation']['evidence_hashes']
+                target = manifest.parent / 'candidate.png'
+                if label.startswith('a file'):
+                    target = manifest.parent / 'comparison.png'
+                    png(target)
+                elif label.startswith('an artifact'):
+                    png(target, 4, 2)
+                elif label.startswith('a run without'):
+                    case.state['settings'].pop('figma_file')
+                elif label.startswith('a reviewer'):
+                    target = self.workspace / '.autocode' / 'scratch' / 'review' / 'comparison.png'
+                    target.parent.mkdir(parents=True)
+                    png(target)
+                pins[str(target)] = util.file_hash(target)  # only ownership is in question, not a changed hash
+                with self.assertRaisesRegex(util.Paused, 'another run'):
+                    self.route(case)
+                case.queue.assert_not_called()
+
+    def accept(self, case, report):
+        """Accept a Validator report up to the findings ledger: past the ownership rule, before Git-backed checks."""
+        state = copy.deepcopy(case.state)
+        state['criteria_revision'] = 'criteria'
+        state['goal_contract']['task_id'] = 'job'  # read by the design evidence check; this fixture is unsealed
+        with patch.object(autopilot.findings_ledger, 'record_validation', side_effect=RuntimeError('accepted')):
+            with self.assertRaisesRegex(RuntimeError, 'accepted'):
+                autopilot.apply_review_result(runtime, state, 'sol', copy.deepcopy(report), case.accepted,
+                                              self.workspace, case.run)
+        return state
+
+    def test_acceptance_refuses_every_pin_a_rework_would_refuse(self):
+        # Refused at acceptance, a misplaced citation is an ordinary rejected report that a bounded report
+        # repair can still correct. Refused only at REWORK, it paused every Completion review.
+        case, manifest = self.design_case()
+        report = util.read_object(case.accepted['output'])
+        cite = lambda path: {**report, 'criterion_results': [{**report['criterion_results'][0], 'evidence_refs': [
+            'event:check', str(manifest.parent / 'candidate.png'), str(path)]}]}
+        evidence = self.workspace / '.autocode' / 'evidence' / 'compare-home.png'
+        scratch = self.workspace / '.autocode' / 'scratch' / 'review' / 'compare-home.png'
+        builder = self.scratch()
+        case.state['stages'][0]['tool_containment'] = {'scratch': str(builder)}
+        for path in (evidence, scratch, builder / 'compare-home.png'):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            png(path)
+        state = self.accept(case, cite(evidence))
+        self.assertLessEqual({str(manifest.parent / 'candidate.png'), str(evidence)}, set(state['validation']['evidence_hashes']))
+        for refused in (scratch, builder / 'compare-home.png'):
+            with self.subTest(refused=str(refused.relative_to(self.workspace))):
+                with self.assertRaisesRegex(ValueError, 'does not belong to this run: ' + re.escape(str(refused))):
+                    self.accept(case, cite(refused))
+        case.state['validation']['evidence_hashes'][str(scratch)] = util.file_hash(scratch)
+        with self.assertRaisesRegex(util.Paused, 'another run'):
+            self.route(case)
 
     def test_shared_receipt_requires_the_original_executed_capture_event(self):
         case, _, _ = self.capture_case(shared=True)
