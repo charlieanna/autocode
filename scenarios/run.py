@@ -32,9 +32,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import (baseline, build_compare, catalog, compare, hybrid, plan_compare, profiles, routing,  # noqa: E402
+from harness import (attempts, baseline, build_compare, catalog, compare, hybrid, plan_compare, profiles, routing,  # noqa: E402
                      stats, verdict)
-from harness.driver import (REPO, DriveError, Driver, TurnNotReached, default_autocode, fake_setup,  # noqa: E402
+from harness.driver import (REPO, DriveError, Driver, InterruptedDrive, TurnNotReached, default_autocode, fake_setup,  # noqa: E402
                             live_setup, metrics, changed_between, split_by_turn, workspace_files)
 from harness.project import materialize  # noqa: E402
 
@@ -136,6 +136,15 @@ def evidence_directory(root: Path, label: str) -> tuple[str, Path]:
     return stamp, Path(tempfile.mkdtemp(prefix=f"{stamp}-{label}-", dir=root))
 
 
+def interrupted_result(out, result, driver, started, error):
+    """Retain a cutoff without grading or starting any further invocation."""
+    result.update(harness_error=str(error), diagnosis=None, oracle_passed=None,
+                  usage_status="unknown", cli_calls=len(driver.steps), answers=driver.answers,
+                  wall_seconds=round(time.monotonic() - started, 1), rejected_model_calls=None,
+                  metrics={"model_seconds": None, "model_stages": None, "report_repairs": None, "tokens": None})
+    return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
+
+
 def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     provider = getattr(args, "provider", None)
     split = getattr(args, "hybrid", False)  # the scenario's [hybrid] route: some stages scripted, the rest live
@@ -145,6 +154,9 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {"scenario": scenario.id, "title": scenario.title, "category": scenario.category, "mode": mode,
               "autocode": autocode_revision(), "started_at": stamp, "evidence": str(out)}
+    comparison = getattr(args, "attempt_context", None)
+    if comparison is not None:
+        result.update(repeat=comparison["repeat"], variant=comparison["variant"])
     if not args.fake:
         result["profile"] = profiles.with_provider(profiles.resolve(args.profile), provider)
     skip = [f"requires {tool}" for tool in scenario.missing_tools()]
@@ -170,6 +182,10 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         result["diagnosis"] = None  # nothing ran, so nothing was diagnosed (scenarios/README.md, "Diagnosis")
         return finish(out, result, verdict.SKIPPED, "; ".join(skip))
 
+    attempts.admit(out, result, {"max_steps": args.max_steps or scenario.max_steps,
+                                "timeout_seconds": 60 * (args.timeout_minutes or scenario.timeout_minutes),
+                                **{name: getattr(args, name, None)
+                                   for name in ("max_seconds", "max_stage_seconds", "max_iterations")}})
     project = materialize(scenario.seed, out / "project")
     if not split:
         flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
@@ -183,6 +199,10 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     started = time.monotonic()
     try:
         driver.drive(scenario.brief, scenario.turns)
+    except InterruptedDrive as error:
+        # An oracle cannot grade an owner-loss cutoff. Preserve the attempt,
+        # project and existing receipts without launching another CLI or model.
+        return interrupted_result(out, result, driver, started, error)
     except TurnNotReached as error:
         not_reached = error  # AutoCode stopped before a turn could be said: judged, never PASS
     except DriveError as error:
@@ -191,7 +211,10 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     state = driver.state()
     if state:
         (out / "state.json").write_text(json.dumps(state, indent=2))
-    record = run_record(driver, state)
+    try:
+        record = run_record(driver, state)
+    except InterruptedDrive as error:
+        return interrupted_result(out, result, driver, started, error)
     live_stages = record["model_stages"]
     if split:
         served = hybrid.calls(out)
@@ -220,6 +243,10 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
                           "model_stage_names": turn["model_stages"]} for turn in record.get("turns", [])],
                   checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error,
                   diagnosis=diagnosis)
+    usage = record["view"].get("usage")
+    if isinstance(usage, dict):
+        result.update(usage_snapshot=usage,
+                      usage_status="recorded" if (usage.get("cost_usd") or {}).get("complete") else "unknown")
     return finish(out, result, outcome, summary)
 
 
@@ -235,6 +262,8 @@ def run_record(driver: Driver, state: dict) -> dict:
     if driver.run_dir:
         try:
             view = driver.view()
+        except InterruptedDrive:
+            raise
         except DriveError:
             view = {}
     record = {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
@@ -445,7 +474,8 @@ def cmd_stats(args) -> int:
 
 def finish(out: Path, result: dict, outcome: str, summary: str) -> dict:
     result.update(verdict=outcome, summary=summary)
-    (out / "result.json").write_text(json.dumps(result, indent=2))
+    attempts.atomic_json(out / "result.json", result, max_bytes=None)
+    attempts.finish(out, outcome)
     return result
 
 

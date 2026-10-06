@@ -17,18 +17,25 @@ import json
 import statistics
 from pathlib import Path
 
-from .verdict import CORRECT, INCORRECT, NOT_EXERCISED, PASS, UNSCORED
+from . import attempts
+from .verdict import (CORRECT, INCORRECT, INTERRUPTED_UNGRADED, NOT_EXERCISED, PASS,
+                      PENDING_UNGRADED, UNSCORED)
 
 
 def load_results(root: Path) -> list[dict]:
-    """Every scenario result under ``root``; routing results and unreadable files are skipped."""
+    """Every final result or admitted unfinished attempt, without launching work."""
     results = []
-    for path in sorted(Path(root).glob("*/result.json")) if Path(root).is_dir() else []:
-        try:
-            result = json.loads(path.read_text())
-        except (OSError, ValueError):
+    for directory in sorted(Path(root).iterdir()) if Path(root).is_dir() else []:
+        if directory.is_symlink() or not directory.is_dir():
             continue
-        if isinstance(result, dict) and result.get("scenario") and result.get("verdict"):
+        result = None
+        try:
+            result = json.loads((directory / "result.json").read_text())
+        except (OSError, ValueError):
+            pass
+        if not (isinstance(result, dict) and result.get("scenario") and result.get("verdict")):
+            result = attempts.unfinished(directory)
+        if result is not None:
             results.append(result)
     return results
 
@@ -47,11 +54,16 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
             if result["verdict"] != PASS:
                 break
             streak += 1
-        measured = [result for result in runs if result.get("verdict") != "SKIPPED"]
+        measured = [result for result in runs if result.get("verdict") not in ("SKIPPED", PENDING_UNGRADED)]
         diagnoses = [result["diagnosis"].get("verdict") for result in measured if isinstance(result.get("diagnosis"), dict)]
         rows.append({
             "scenario": scenario, "mode": run_mode, "runs": len(measured),
+            "attempts": len(runs),
             "passes": sum(result["verdict"] == PASS for result in measured), "streak": streak,
+            "interrupted": sum(result["verdict"] == INTERRUPTED_UNGRADED for result in runs),
+            "pending": sum(result["verdict"] == PENDING_UNGRADED for result in runs),
+            "usage_unknown": sum(result.get("usage_status") == "unknown"
+                                 or result["verdict"] in (INTERRUPTED_UNGRADED, PENDING_UNGRADED) for result in runs),
             # Runs that never reached the stage the scenario exists to test (issue #59).
             "not_exercised": sum(result["verdict"] == NOT_EXERCISED for result in measured),
             "last": runs[-1]["verdict"],
@@ -67,16 +79,18 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
 
 
 def format_table(rows: list[dict]) -> str:
-    header = ("scenario", "mode", "runs", "passes", "streak", "not exercised", "last", "wall min", "model stages",
+    header = ("scenario", "mode", "runs", "passes", "streak", "not exercised", "interrupted", "pending", "usage unknown",
+              "last", "wall min", "model stages",
               "model min", "diagnosed", "correct", "incorrect", "unscored")
     lines = [header] + [(row["scenario"], row["mode"], str(row["runs"]), str(row["passes"]), str(row["streak"]),
-                         str(row["not_exercised"]), row["last"], _show(row["median_wall_minutes"]), _show(row["median_model_stages"]),
+                         str(row["not_exercised"]), *(str(row.get(key, 0)) for key in ("interrupted", "pending", "usage_unknown")),
+                         row["last"], _show(row["median_wall_minutes"]), _show(row["median_model_stages"]),
                          _show(row["median_model_minutes"]),
                          *(_show(row.get(key)) for key in ("diagnosed", "correct", "incorrect", "unscored")))
                         for row in rows]
     widths = [max(len(line[column]) for line in lines) for column in range(len(header))]
     text = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths)).rstrip() for line in lines]
-    return "\n".join([text[0], "(medians over non-skipped runs; wall time is only recorded since 2026-09-28)",
+    return "\n".join([text[0], "(medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
                       *text[1:]])
 
 

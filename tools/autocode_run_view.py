@@ -22,6 +22,7 @@ try:
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
     from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
+    from . import autocode_liveness as liveness_policy
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -30,6 +31,7 @@ except ImportError:
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
     import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
+    import autocode_liveness as liveness_policy
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -38,10 +40,12 @@ CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVA
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
-def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False) -> dict:
-    """Caller supplies fresh completion, visual evidence and stale-repair projections."""
+def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False, liveness=None) -> dict:
+    """Caller supplies fresh completion, evidence, repair and supervision inspections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
+    active = state.get("active_stage")
+    supervision = active.get("supervision") if isinstance(active, dict) else None
     result = {
         "runner_check": {key: state["active_runner_check"].get(key) for key in
                          ("stage", "summary", "started_at", "updated_at", "command", "output")}
@@ -49,6 +53,7 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         "dependency": state.get("dependency_wait"),
         "schema": SCHEMA,
         "status": status,
+        "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE,
         "needs": needs(state, stale_report_repair=stale_report_repair),
         "recovery": recovery_view.project(state, needs(state, stale_report_repair=stale_report_repair)),
