@@ -555,8 +555,11 @@ in the worktree, for report repairs, whose packets carry no task.
 `catalog.load` requires a program scenario's milestone paths to be disjoint,
 and its reference and every `broken/<name>/` to be a complete overlay: every
 milestone path, and a file no milestone owns (the integration workstream's
-delivery). A run that changes nothing stops for want of progress. The seed
-should ignore `__pycache__/`: a workstream may change only the paths it owns.
+delivery). A run that changes nothing stops for want of progress. The program
+ignores Python bytecode caches when it checks a workstream's paths. Keep the seed to a
+README.md: the first workstream's regression proof treats only a README-only project as
+new, so a scaffold (a `.gitignore`, an empty `tests/__init__.py`) stops the walking
+skeleton (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
 
 ```sh
 $PY scenarios/run.py run program-notes-cli --fake                                   # PASS, about 30 s

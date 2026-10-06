@@ -56,7 +56,7 @@ check = "python3 -m unittest discover -s tests -t ."
 id = "S"
 depends_on = []
 paths = ["notes/__init__.py", "notes/__main__.py", "notes/cli.py", "notes/store.py", "notes/commands/__init__.py",
-         "tests/test_skeleton.py"]
+         "tests/__init__.py", "tests/test_skeleton.py"]
 objective = "Walking skeleton: python3 -m notes add and list, kept in the note store, with tests/test_skeleton.py walking add then list"
 verify = "python3 -m unittest tests.test_skeleton"
 

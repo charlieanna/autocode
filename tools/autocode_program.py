@@ -755,7 +755,7 @@ def check_ownership(workstream, record):
         result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True, check=True)
         found = {p for p in result.stdout.split("\0") if p}
         if args[0] == "ls-files":
-            found = {p for p in found if not p.startswith(".autocode/")}
+            found = {p for p in found if not p.startswith(".autocode/") and not _bytecode(p)}
         paths.update(found)
     outside = sorted(p for p in paths if not any(p == own or p.startswith(own + "/") for own in workstream["owns"]))
     if outside:
@@ -776,11 +776,16 @@ def check_interfaces(manifest, state, workstream, paths):
                           "request-change` and approve the new interface version as an agreement revision")
 
 
+def _bytecode(path):
+    """Python's bytecode cache, which running a workstream's tests leaves behind; never part of a delivery."""
+    return "/__pycache__/" in f"/{path}" or path.endswith(".pyc")
+
+
 def _commit_all(workspace, message):
-    """Commit every change except runner metadata; return the new commit or None when clean."""
+    """Commit every change except runner metadata and bytecode caches; return the new commit or None when clean."""
     if workspaces.git(workspace, "diff", "--cached", "--name-only", "--", ".autocode"):
         raise util.Paused("PAUSED_METADATA", "Runner metadata is staged; unstage .autocode before integrating")
-    workspaces.git(workspace, "add", "-A", "--", ".", ":!.autocode")
+    workspaces.git(workspace, "add", "-A", "--", ".", ":!.autocode", ":(exclude)*__pycache__*", ":(exclude)*.pyc")
     if not workspaces.git(workspace, "diff", "--cached", "--name-only"):
         return None
     workspaces.git(workspace, *GIT_IDENTITY, "commit", "-q", "-m", message)

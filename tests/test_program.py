@@ -701,6 +701,16 @@ class ExecutionTests(ProgramHarness):
         self.assertEqual(2, len(self.launches))
         self.assertTrue(self.launches[1]["resume"])
 
+    def test_bytecode_caches_are_neither_foreign_paths_nor_delivered(self):
+        # A workstream's tests leave __pycache__ beside files it does not own; that is not a change to them.
+        path = self.write_manifest(manifest())
+        self.child_extra_files["a"] = {"tests/__pycache__/test_a.cpython-311.pyc": "cache", "a/stale.pyc": "cache"}
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        files = self.integration_files(result)
+        self.assertIn("a/service.py", files)
+        self.assertFalse([name for name in files if "__pycache__" in name or name.endswith(".pyc")], files)
+
     def test_failed_child_blocks_the_program(self):
         path = self.write_manifest(manifest())
         self.approve(path)
