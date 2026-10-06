@@ -6,6 +6,9 @@ original code); later Builders apply the chosen solution. AutoCode's runner prov
 The scripted Resolver writes its diagnosis from its handoff's regression_proof only, which shows the handoff
 carries what a real Resolver needs; it says nothing about how well a real model diagnoses.
 SCENARIO_FAKE_RESOLVER=misattribute makes it blame stock.py and name no test (the oracle's negative control).
+SCENARIO_FAKE_SCOPE_SLIP=retry|pause makes the repair Builder's first attempt also leave stock_current.py, a backup
+of stock.py, in the project root, outside its assignment (as a live repair Builder did on 2026-10-06). With retry the
+Investigator then recommends one more attempt (``investigate``); with pause it leaves the run to a person.
 """
 from __future__ import annotations
 
@@ -30,6 +33,18 @@ def _apply(source: Path, paths):
             shutil.copy2(source / rel, Path.cwd() / rel)
 
 
+def investigate(data):
+    """SCENARIO_FAKE_SCOPE_SLIP's Investigator: the strengthened tests are in place; only the backup was wrong."""
+    return {"diagnosis": "The repair Builder strengthened tests/test_stock.py correctly but also left "
+                         "stock_current.py, a backup of stock.py, in the project root, outside its assignment.",
+            "cause": "stage_output", "recommendation": "retry", "user_question": "",
+            "guidance": "Keep the strengthened tests in tests/test_stock.py. Create no file outside the assigned paths.",
+            "evidence_refs": ["tests/test_stock.py"],
+            "example": "Given the attempt left stock_current.py in the root, when the runner compared the tree with "
+                       "the assigned paths, then it rejected the attempt and removed that file.",
+            "probe": "grep -q 'invalid choice' tests/test_stock.py", "untestable": ""}
+
+
 def report_for(stage, data, common, config, run_check, requirements):
     trace = Path(os.environ["SCENARIO_FAKE_CONFIG"]).parent / "vacuous-trace.jsonl"
     previous = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
@@ -44,6 +59,8 @@ def report_for(stage, data, common, config, run_check, requirements):
     if stage == "terra":
         attempt = 1 + sum(row["stage"] == "terra" for row in previous)
         _apply(scenario / "broken" / "vacuous-refusal-tests" if attempt == 1 else reference, config["paths"])
+        if attempt == 2 and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") in ("retry", "pause"):
+            shutil.copy2(Path.cwd() / "stock.py", Path.cwd() / "stock_current.py")
         code = run_check()
         result = {**common, "summary": f"Scripted build {attempt}", "changed_files": config["paths"],
                   "commands_run": [config["check"]], "results": [f"exit {code}"], "remaining_risks": [],

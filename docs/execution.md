@@ -545,8 +545,10 @@ their existing approval gates.
 For a timed-out provider stage with no terminal response, Autocode confirms its
 tracked workers are gone, archives the incomplete request and preserves its partial
 edits/logs, clears the uncertain role session, and continues from a fresh recovery
-checkpoint. It never replays that timed-out request. Each automatic recovery consumes
-the existing no-progress budget. Consecutive timeouts without an accepted stage also
+checkpoint. It never replays that timed-out request. An automatic recovery of a
+Builder stage also counts as an unchanged implementation batch; recoveries of
+planning and review stages do not, and unchanged batches never spend the recovery
+ceiling below. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
 three automatic recoveries covers timeouts and provider-capacity failures. External-directory
@@ -565,7 +567,14 @@ an N at or below the count holds without launching the Builder. Information alon
 (`--resolver-response provide_information`) never acknowledges it. Reasserting an
 already saved N on resume also acknowledges it, for example after a response
 consumed the request. The flag never acknowledges another cause's pause, such as
-the active-time limit.
+the active-time limit. When the limit caused the pause, its published request and
+`stop_reason` name this command and the retained count. They also name the saved
+limit when reasserting it is accepted, for example a limit raised in its own invocation
+before a plain resume asked again. After a response consumes the request, the status
+view's resume need has `action` `--resume-paused --no-progress-limit N` and the
+retained count in `no_progress_batches`. Other holds that pause as
+`PAUSED_NO_PROGRESS`, such as a recovery novelty hold or owned workers to reconcile,
+name their own action instead.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
@@ -706,6 +715,24 @@ recovery archives does not use it up (#422). The Builder receives the diagnosis
 and its recommendation. A change the diagnosis proposed that the incident packet
 cannot attest reaches the Builder only as advice, with the reason, and is never
 treated as a new experiment.
+
+The packet binds the source its incident was captured on. A Builder attempt it
+admitted may stop without being accepted and leave its work: a rejected attempt
+keeps its in-scope edits for the retry (the runner removes or restores only what
+it wrote outside its assignment), and a timed-out one keeps partial edits. That
+work is not a stale handoff. The next Builder attempt is bound as at the packet's
+source when each file, checked one by one, holds either that source's content or
+what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
+other content, such as a person's new edit while the run is paused, still pauses as
+`PAUSED_STALE_HANDOFF`. Because the check is per file, a file restored to its
+bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
+a mix of the two states across files is admitted. That is safe: each file holds
+the packet's own source or AutoCode's own output, the assignment scope check still
+covers the whole assignment after the retry, and the retry is validated afresh.
+When the runner rejected such an attempt's output and the stuck-stage
+Investigator recommends a retry, that retry admits the Builder until one attempt
+returns a result, as an accepted operational diagnosis's does; a spent diagnosis
+retry does not hide it. An investigation of a novelty hold grants nothing.
 
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous

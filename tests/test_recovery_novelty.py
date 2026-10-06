@@ -495,6 +495,56 @@ class RecoveryPacketTests(unittest.TestCase):
                     recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "third.json")},
                                             self.root, self.run)
 
+    def test_an_investigators_retry_of_a_rejected_repair_admits_one_builder_attempt(self):
+        # autocode_stuck_job: the Investigator's retry of a rejected output runs the stage once more. The
+        # runner rejected the repair Builder's returned report before any check of the incident (2026-10-06).
+        pointer = self.request["recovery_packet"]
+        incident = novelty.Incident(**self.packet()["incidents"][0]).id
+        def state_with(investigation=None, in_force=True, **last):
+            state = copy.deepcopy(self.state)
+            state["repair_plan"] = {"tasks": [copy.deepcopy(state["current_task"])], "recovery_packet": pointer}
+            state["stages"].append({"stage": "terra", "rejected": True, "finished_at": "2026-10-06T02:15:18+00:00",
+                                    "recovery_novelty": {"dispatch_id": "rejected", "incident_ids": [incident],
+                                                         "action": "repair", "change_id": None, "packet": pointer},
+                                    **last})
+            if investigation:
+                identity = "terra:" + investigation
+                state["stuck_investigations"] = [{"identity": identity, "stage": "terra", "status": investigation,
+                    "requested_at": "2026-10-06T02:15:19+00:00", "outcome": "retried",
+                    "trigger": "rejected_output" if investigation != "PAUSED_NO_PROGRESS" else "non_convergence"}]
+                state["stuck_investigation"] = {"identity": identity, "stage": "terra", "status": investigation,
+                                                "in_force": in_force}
+            return state
+        attempt = lambda: {"stage": "terra", "output": str(self.run / f"builder-{uuid.uuid4().hex}.json")}
+        state = state_with("PAUSED_INVALID_OUTPUT")
+        granted = attempt()
+        recovery.admit_dispatch(state, granted, self.root, self.run)
+        self.assertEqual(("explicit_retry", "investigation"),
+                         (granted["recovery_novelty"]["reason"], granted["recovery_novelty"]["grant_kind"]))
+        # A provider timeout that automatic recovery archived without a report does not spend it.
+        state["stages"].append({**granted, "finished_at": "2026-10-06T02:20:00+00:00", "timed_out": True,
+                                "accounted": True, "automatic_recovery": True, "abandoned": True, "rejected": True})
+        relaunch = attempt()
+        recovery.admit_dispatch(state, relaunch, self.root, self.run)
+        self.assertEqual(granted["recovery_novelty"]["grant_id"], relaunch["recovery_novelty"]["grant_id"])
+        state["stages"].append({**relaunch, "finished_at": "2026-10-06T02:25:00+00:00", "rejected": True})
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):  # one attempt that returns a result
+            recovery.admit_dispatch(state, attempt(), self.root, self.run)
+        for name, state in (("no investigation", state_with()),
+                            ("a novelty hold's investigation", state_with("PAUSED_NO_PROGRESS")),
+                            ("its guidance retired", state_with("PAUSED_INVALID_OUTPUT", in_force=False)),
+                            ("an accepted attempt", state_with("PAUSED_INVALID_OUTPUT", rejected=False)),
+                            ("another packet's attempt", state_with("PAUSED_INVALID_OUTPUT", recovery_novelty={
+                                "dispatch_id": "x", "incident_ids": [incident], "action": "repair",
+                                "packet": {"path": "other", "sha256": "other"}})),
+                            ("a rejection after the investigation", state_with(
+                                "PAUSED_INVALID_OUTPUT", finished_at="2026-10-06T02:16:00+00:00"))):
+            with self.subTest(name):
+                held = attempt()
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(state, held, self.root, self.run)
+                self.assertNotIn("recovery_novelty", held)
+
     def test_task_reassignment_and_comment_change_do_not_rename_incident(self):
         initial = novelty.Incident(**self.packet()["incidents"][0]).id
         self.state["current_task"].update(id="T9", requirements=["Different repair wording"])

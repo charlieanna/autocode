@@ -853,6 +853,8 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "check_design":
         return check_design(data)
     if stage == "investigate_stuck":
+        if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
+            return scripted_fault("vacuous_refusal_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.
         return {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [],
                 "example": "", "probe": "", "untestable": ""}

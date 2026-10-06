@@ -485,7 +485,7 @@ class ActivityRuntimeTests(unittest.TestCase):
     def test_legacy_recent_failures_seed_the_aggregate_recovery_ceiling(self):
         self.state['settings']['limits']['no_progress_batches'] = 0
         self.state.update(consecutive_timeout_recoveries=1, no_progress_batches=runner.MAX_AUTOMATIC_RECOVERIES,
-                          automatic_timeout_recoveries=[{}, {}, {}],
+                          automatic_timeout_recoveries=[{}, {}],
                           automatic_permission_recoveries=[{}])
         self.assertEqual(runner.MAX_AUTOMATIC_RECOVERIES, runner.recovery_count(self.state))
         with self.assertRaises(support.Paused):

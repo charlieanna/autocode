@@ -8,20 +8,23 @@ import autocode_recovery_accounting as accounting
 class SpentTests(unittest.TestCase):
     def test_a_run_saved_before_the_aggregate_counter_counts_its_larger_older_counter(self):
         self.assertEqual(2, accounting.spent({"consecutive_timeout_recoveries": 1, "no_progress_batches": 2,
-                                              "automatic_timeout_recoveries": [{}, {}]}))
+                                              "automatic_timeout_recoveries": [{}]}))
         self.assertEqual(0, accounting.spent({}))
 
-    def test_builder_batches_without_source_changes_spend_no_recovery(self):
-        # #511: three unchanged Builder batches are not an exhausted recovery budget.
+    def test_unchanged_implementation_batches_are_not_recoveries(self):
+        """#448: a run that never recovered paused as recovery-exhausted at its third unchanged batch.
+
+        Every counted recovery writes the aggregate key, so its absence with no timeout history
+        means none was spent; the no-progress limit, not the recovery budget, governs those batches.
+        """
         self.assertEqual(0, accounting.spent({"no_progress_batches": 3}))
-        # A permission retry never spends the budget either, though a Builder's raises no_progress_batches.
-        self.assertEqual(0, accounting.spent({"no_progress_batches": 3, "automatic_permission_recoveries": [{}] * 3}))
-        self.assertEqual(1, accounting.spent({"consecutive_timeout_recoveries": 1, "no_progress_batches": 3}))
-        self.assertEqual(2, accounting.spent({"no_progress_batches": 3, "automatic_timeout_recoveries": [{}, {}]}))
+        self.assertEqual(0, accounting.spent({"no_progress_batches": 3, "automatic_permission_recoveries": [{}]}))
+        self.assertEqual(1, accounting.spent({"no_progress_batches": 3, "consecutive_timeout_recoveries": 1}))
+        self.assertEqual(2, accounting.spent({"no_progress_batches": 3, "automatic_recoveries_since_resume": 2}))
 
     def test_reading_writes_nothing(self):
         # An issued request binds these keys' raw values: a default written on read would make it stale.
-        state = {"consecutive_timeout_recoveries": 1, "no_progress_batches": 2}
+        state = {"consecutive_timeout_recoveries": 1, "no_progress_batches": 2, "automatic_timeout_recoveries": [{}]}
         before = copy.deepcopy(state)
         accounting.spent(state)
         accounting.consecutive_timeouts(state)

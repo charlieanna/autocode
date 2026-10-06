@@ -57,3 +57,14 @@ gc.auto=0` without changing the scenario project's configuration, so live runs
 keep Git's default. Fixtures that commit again and are then copied or deleted
 call `harness.project.without_maintenance`. `FixtureMaintenanceTests` in
 `scenarios/test_harness.py` checks both through `GIT_TRACE2_EVENT`.
+
+The "none in the suite runs git" claim above did not age a day: #538's
+verification copy (`autocode_verification_copy.create`) builds its git
+environment from scratch and runs `git init`/`add`/`commit` in it, so the
+suite-wide `GIT_CONFIG_COUNT` never reached it. In master run 37482744577
+(2026-10-06) the commit's detached maintenance repacked under `.git/objects`
+after the manifest walk, and `execution()` read the change as `Verification
+directory changed: .git/objects/a6`. The copy now writes `maintenance.auto=false`
+and `gc.auto=0` into its own repository config — the third case to set them
+there — and `tests.test_source_snapshot` probes that config with an environment
+in which only the repository's own config can answer.
