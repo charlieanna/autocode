@@ -328,9 +328,10 @@ answer already moved the route, and it must not share that model's GLM or MiMo f
 models a refusal's question lists pass the same checks. When two members stop, AutoCode asks
 about them one at a time.
 
-A member its provider's content filter refused never runs on that model again: the status
-view offers no per-member retry for it, and `--retry-builder M1` is refused until the answer
-has named another model. A member stopped on quota keeps its per-member retry, which runs the
-same model again (for example once its quota has reset).
+AutoCode never reruns a member its provider's content filter refused on the model that refused
+it: the status view offers no per-member retry for it, and `--retry-builder M1` is refused while
+its route is still that model, so it runs again only on the model your answer names. A member
+stopped on quota keeps its per-member retry, which runs the same model again (for example once
+its quota has reset).
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
