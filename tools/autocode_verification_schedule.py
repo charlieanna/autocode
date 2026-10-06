@@ -159,12 +159,26 @@ def guard(root):
         _reconcile_pending(root)
 
 
+def _finish(pending, directory, out, pointer, completed):
+    """Make one attempt's receipt durable, then clear the pending launch."""
+    receipt_path = out / "receipt.json"
+    util.atomic_json(receipt_path, completed)
+    sha = util.file_hash(receipt_path)
+    # The pointer names a nested attempt, never a caller-supplied path.
+    util.atomic_json(pointer, {"name": str(receipt_path.relative_to(directory)), "sha256": sha})
+    pending.unlink()
+    return receipt_path, sha
+
+
 def run(directory, identity, execute, *, reuse_allowed, reason, current_identity):
     """Execute or resume exactly one obligation, preserving every attempt.
 
-    An interrupted launch is deliberately not retried automatically: no process
-    identity can prove whether its descendants are still mutating fixtures.
-    Completed receipts survive controller restart without a second launch.
+    An attempt that ends in an exception is known-failed state, not uncertainty:
+    it is recorded as a failed receipt (never reused) and its pending launch is
+    cleared, so the next attempt runs a fresh check instead of pausing forever
+    (#414). Only a hard crash, which runs nothing that could record an outcome,
+    leaves the pending launch for a person to reconcile. Completed receipts
+    survive controller restart without a second launch.
     """
     root = Path(directory)
     directory = root / util.digest(identity)
@@ -202,19 +216,23 @@ def run(directory, identity, execute, *, reuse_allowed, reason, current_identity
         attempt = uuid.uuid4().hex
         out = directory / attempt
         util.atomic_json(pending, {"attempt_id": attempt, "identity": identity, "started_at": started_at})
-        result = execute(out)
-        after = current_identity()
+        result = None
+        try:
+            result = execute(out)
+            after = current_identity()
+        except BaseException as error:
+            failed = dict(result) if isinstance(result, dict) else {}
+            failed["error"] = f"Verification attempt did not complete ({type(error).__name__}): {error}"
+            _finish(pending, directory, out, pointer, {"runner_owned": True, "attempt_id": attempt,
+                     "identity": identity, "reason": reason, "started_at": started_at,
+                     "finished_at": util.now(), "result": failed})
+            raise
         if after != identity:
             result = {**result, "error": "Source, runtime, dependencies or environment changed during verification",
                       "observed_after_identity": after}
         completed = {"runner_owned": True, "attempt_id": attempt, "identity": identity, "reason": reason,
                      "started_at": started_at, "finished_at": util.now(), "result": result}
-        receipt_path = out / "receipt.json"
-        util.atomic_json(receipt_path, completed)
-        sha = util.file_hash(receipt_path)
-        # The pointer names a nested attempt, never a caller-supplied path.
-        util.atomic_json(pointer, {"name": str(receipt_path.relative_to(directory)), "sha256": sha})
-        pending.unlink()
+        receipt_path, sha = _finish(pending, directory, out, pointer, completed)
         return {**result, "scheduling": {"action": "execute", "reason": reason,
                 "receipt": str(receipt_path), "receipt_sha256": sha, "identity": util.digest(identity),
                 "attempt_id": attempt, "started_at": started_at, "finished_at": completed["finished_at"],
