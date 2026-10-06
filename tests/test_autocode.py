@@ -70,12 +70,31 @@ class InterruptedInvocationTest(unittest.TestCase):
                     signal.raise_signal(sig)  # while the pause is saved
                 except KeyboardInterrupt:
                     reached.append("SIGINT")
+            self.assertEqual([], reached)
             return 2
 
         with patch.object(runner, "_main_body", side_effect=interrupted_stage):
             self.assertEqual(2, runner.main())
-        self.assertEqual([], reached)
+        self.assertEqual(["SIGTERM", "SIGHUP"], reached, "an in-process caller's own handlers hear of them afterwards")
         self.assertEqual([original, original, signal.default_int_handler],
+                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
+
+    def test_the_cli_goes_on_ignoring_them_until_it_exits(self):
+        # Restored as main() returned, the defaults let a late Ctrl-C or hangup kill the CLI
+        # after its pause was saved: exit -2, -15 or -1 instead of 2 (#454).
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, signal.SIG_DFL))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+
+        def interrupted_stage(unit=None):
+            with self.assertRaises(KeyboardInterrupt), runner.processes.interruption_handler():
+                signal.raise_signal(signal.SIGHUP)
+            return 2
+
+        with patch.object(runner, "_main_body", side_effect=interrupted_stage), \
+                patch.object(sys, "stdout", sys.stdout), patch.object(sys, "stderr", sys.stderr):
+            self.assertEqual(2, runner.cli())
+        self.assertEqual([signal.SIG_IGN] * 3,
                          [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
 
 

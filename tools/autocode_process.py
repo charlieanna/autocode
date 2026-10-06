@@ -325,27 +325,45 @@ class ProcessTree:
 
 # A stage's cleanup defers every signal interruption_handler turns into an interrupt.
 INTERRUPTS = tuple(getattr(signal, name) for name in ('SIGINT', 'SIGTERM', 'SIGHUP') if hasattr(signal, name))
-# For each open interrupts_held scope, the dispositions an interrupted stage replaced.
+# The open interrupts_held scope, if any: the dispositions an interrupted stage replaced,
+# and the signals absorbed after its interrupt.
 _held = []
+# The open interruption_handler scope, if any. A scope nested in it shares its one interrupt.
+_handling = []
+
+
+def _callers_own(handler):
+    """A handler the caller installed, as opposed to a default or ignored disposition."""
+    return callable(handler) and handler is not signal.default_int_handler
 
 
 @contextmanager
-def interrupts_held():
+def interrupts_held(*, until_exit=False):
     """Keep an interrupted stage's later signals absorbed until this scope ends.
 
     The stage's handler scope closes before its caller saves the pause and the CLI
     exits. A second signal there escaped as a bare KeyboardInterrupt or killed the
     controller by default, often leaving the run RUNNING (#454). Wrap one CLI
-    invocation in it; the dispositions return when it ends.
+    invocation in it; a scope nested in another defers to that one. When it ends a
+    caller's own handler comes back and receives each signal absorbed meanwhile, once.
+    A default disposition comes back too, except with until_exit, for the CLI process
+    that ends with this scope: the signal then stays ignored, so a late Ctrl-C or
+    hangup cannot turn the saved pause into a death by signal.
     """
-    held = {}
+    if _held:
+        yield
+        return
+    held = {'replaced': {}, 'absorbed': []}
     _held.append(held)
     try:
         yield
     finally:
         _held.pop()
-        for sig, handler in held.items():
-            signal.signal(sig, handler)
+        for sig, handler in held['replaced'].items():
+            signal.signal(sig, handler if _callers_own(handler) or not until_exit else signal.SIG_IGN)
+        for sig in dict.fromkeys(held['absorbed']):
+            if _callers_own(held['replaced'].get(sig)):
+                signal.raise_signal(sig)
 
 
 @contextmanager
@@ -356,12 +374,16 @@ def interruption_handler():
     shell) and people press Ctrl-C again; a second raise while the first unwound
     skipped cleanup, misreported the pause or hung the controller in a leaked
     threading lock (#454). Inside interrupts_held, later signals stay absorbed
-    after this scope too, until the held scope ends.
+    after this scope too, until the held scope ends. A scope opened inside another
+    on the main thread changes nothing: the enclosing one raises the one interrupt.
     """
+    if _handling and threading.current_thread() is threading.main_thread():
+        yield
+        return
     held = _held[-1] if _held else None
 
     def before(sig):  # the disposition before a stage of this invocation was interrupted
-        return (held or {}).get(sig, signal.getsignal(sig))
+        return (held['replaced'] if held else {}).get(sig, signal.getsignal(sig))
     signals = [signal.SIGTERM]
     # A terminal hangup follows the same retained interrupt path. Respect nohup
     # and callers that explicitly inherited SIGHUP ignored.
@@ -374,16 +396,20 @@ def interruption_handler():
 
     def interrupt(signum, frame):
         if raised:
+            if held is not None:
+                held['absorbed'].append(signum)
             return  # the first interrupt's cleanup is under way
         raised.append(signum)
         raise KeyboardInterrupt(signal.Signals(signum).name)
     previous = {sig: signal.signal(sig, interrupt) for sig in signals}
+    _handling.append(raised)
     try:
         yield
     finally:
+        _handling.pop()
         if raised and held is not None:
             for sig, handler in previous.items():
-                held.setdefault(sig, handler)  # this scope's handler goes on absorbing
+                held['replaced'].setdefault(sig, handler)  # this scope's handler goes on absorbing
         else:
             for sig, handler in previous.items():
                 signal.signal(sig, handler)

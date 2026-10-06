@@ -1410,12 +1410,12 @@ def _main_body(unit=None) -> int:
 
 
 def cli(unit=None):
-    # A caller can close its stdout/stderr pipe while a provider is still
-    # working. Progress output must not turn that run into an uncertain stage.
+    # Neither a closed terminal nor a late signal after a saved pause may change how the run ends (#454).
     sys.stdout = detached_output.DetachedOutput(sys.stdout)
     sys.stderr = detached_output.DetachedOutput(sys.stderr)
     try:
-        return main() if unit is None else main(unit=unit)
+        with processes.interrupts_held(until_exit=True):
+            return main() if unit is None else main(unit=unit)
     except (RuntimeError, ValueError, OSError) as error:
         print(f"autocode: {error}", file=sys.stderr)
         return 2

@@ -837,17 +837,58 @@ time.sleep(30)
         with processes.interrupts_held():
             with self.assertRaises(KeyboardInterrupt), processes.interruption_handler():
                 signal.raise_signal(signal.SIGHUP)
-            for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
                 try:
                     signal.raise_signal(sig)  # while the pause is saved
                 except KeyboardInterrupt:
                     reached.append('SIGINT')
+            self.assertEqual([], reached)
             with self.assertRaises(KeyboardInterrupt) as caught, processes.interruption_handler():
                 signal.raise_signal(signal.SIGINT)
             self.assertEqual('SIGINT', str(caught.exception))
-        self.assertEqual([], reached)
+        # A caller's own handlers hear of them once, afterwards; Ctrl-C's default was answered.
+        self.assertEqual(['SIGTERM', 'SIGHUP'], reached)
         self.assertEqual([original, original, signal.default_int_handler],
                          [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
+
+    def test_a_process_that_ends_with_the_invocation_goes_on_ignoring_them(self):
+        # The CLI restored the defaults as main() returned, so a late Ctrl-C or hangup killed it
+        # after its pause was saved: exit -2, -15 or -1 instead of 2 (#454).
+        def own(signum, frame):
+            pass
+        self.addCleanup(signal.signal, signal.SIGTERM, signal.signal(signal.SIGTERM, signal.SIG_DFL))
+        self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, own))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+        with processes.interrupts_held(until_exit=True):
+            pass
+        self.assertEqual([signal.SIG_DFL, own, signal.default_int_handler],
+                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)],
+                         'nothing changes without an interrupted stage')
+        with processes.interrupts_held(until_exit=True):
+            with processes.interrupts_held():  # main() inside cli()
+                with self.assertRaises(KeyboardInterrupt), processes.interruption_handler():
+                    signal.raise_signal(signal.SIGTERM)
+        self.assertEqual([signal.SIG_IGN, own, signal.SIG_IGN],
+                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
+
+    def test_a_nested_scope_shares_the_stages_one_interrupt(self):
+        # A scope inside a stage's (a captured command, say) recorded the stage's own handler as
+        # the disposition to restore, so the stage's later signals were no longer absorbed.
+        reached = []
+        def original(signum, frame):
+            reached.append(signal.Signals(signum).name)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, original))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+        with processes.interrupts_held():
+            with self.assertRaises(KeyboardInterrupt) as caught, processes.interruption_handler():
+                with processes.interruption_handler():
+                    signal.raise_signal(signal.SIGTERM)
+            self.assertEqual('SIGTERM', str(caught.exception))
+            signal.raise_signal(signal.SIGHUP)  # while the pause is saved
+            self.assertEqual([], reached)
+        self.assertEqual(['SIGHUP'], reached)
+        self.assertEqual([original, original], [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP)])
 
     def test_ignored_or_replaced_sigint_is_left_alone(self):
         # A background job inherits SIGINT ignored; a caller may install its own handler.
