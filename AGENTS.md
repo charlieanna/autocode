@@ -170,8 +170,7 @@ never runs live models; the pull request carries the evidence.
 - **The agent runs it.** The agent making the change also runs the live
   qualification itself, passing `--i-authorize-live-model-spend`: this file is
   the authorization, and asking the user to approve each run is not part of the
-  workflow. Asking is reserved for spending beyond one qualifying run of the
-  chosen scenario (reruns after a failure, extra scenarios, larger campaigns).
+  workflow.
 
 - **Any provider.** The rule asks for real models, not a particular tool:
   OpenCode, Kilo Code, or any command-line tool set up as a provider
