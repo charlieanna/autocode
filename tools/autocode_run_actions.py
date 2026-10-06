@@ -351,9 +351,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 return 2
             resolver_human.respond_operational(candidate, fresh['request_id'], fresh['request_token'],
                                                args.resolver_response, args.resolver_message)
-        resolver_human.review_operational_response(candidate)
+        resolution = resolver_human.review_operational_response(candidate) or {}
         runner.commit_user_action(state, candidate, run_dir)
-        print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.')
+        print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.'
+              + (' It re-evaluates the response once at the next autocode resume.' if resolution.get('reevaluation') else ''))
         return 0
     if (not decision_action and not explicit_recovery_requested(args)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'

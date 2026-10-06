@@ -74,7 +74,8 @@ class OperationalInformationCLITests(unittest.TestCase):
             state['settings'].setdefault('budget_origins', {})['max_seconds'] = 'user_explicit'
             state['active_seconds'] = 7300
         view = self.checkpoint('PAUSED_TIME_LIMIT', 'Saved active-time limit reached at stage boundary', explicit_cap)
-        self.inform(view, 'The operator inspected the run; the approved scope is unchanged')
+        result = self.inform(view, 'The operator inspected the run; the approved scope is unchanged')
+        self.assertIn('re-evaluates the response once at the next autocode resume', result.stdout)
         view = self.status()
         self.assertEqual('pending', view['information_review']['status'])
         self.assertEqual('--resume-paused', view['needs']['action'])
