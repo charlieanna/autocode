@@ -28,17 +28,14 @@ try:
 except ImportError:
     import autocode_source_snapshot as source_snapshot
 
-import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import tempfile
 import sys
-import time
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
@@ -53,6 +50,7 @@ try:
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
     from . import autocode_first_suite as first_suite
+    from . import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
@@ -64,6 +62,7 @@ except ImportError:
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
     import autocode_first_suite as first_suite
+    import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -328,13 +327,6 @@ def detect_framework(root, *, python=None) -> Framework | None:
 
 # --- execution --------------------------------------------------------------
 
-def _kill_group(process):
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
 def test_environment(tree, env=None):
     """Environment for a command run in ``tree``.
 
@@ -358,30 +350,10 @@ def test_environment(tree, env=None):
     return environment
 
 
-def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None) -> dict:
-    """Run one shell command in its own process group and return a receipt."""
-    log_path = Path(log_path)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    timed_out = False
-    with log_path.open("wb") as output:
-        process = subprocess.Popen(["/bin/sh", "-c", command], cwd=cwd, stdin=subprocess.DEVNULL,
-                                   stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
-                                   env=test_environment(cwd, env))
-        try:
-            exit_code = process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _kill_group(process)
-            process.wait()
-            exit_code = None
-        finally:
-            _kill_group(process)  # descendants that outlived the shell, or an interrupted run
-    data = log_path.read_bytes()
-    return {"command": command, "exit_code": exit_code, "timed_out": timed_out,
-            "duration_seconds": round(time.monotonic() - started, 2), "output": str(log_path),
-            "output_sha256": hashlib.sha256(data).hexdigest(),
-            "tail": data[-TAIL_CHARS:].decode("utf-8", "replace")}
+def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, checkpoint=None) -> dict:
+    """Run one owned shell command and return its collected execution receipt."""
+    return command_supervision.run(command, cwd, log_path, timeout=timeout,
+                                   env=test_environment(cwd, env), checkpoint=checkpoint)
 
 
 def _go_test(command):
@@ -999,7 +971,7 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
                     ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
                     if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
                         return {**receipt, "error": "Test command reported zero tests or incomplete output"}
-        return {**receipt, "error": ""}
+        return {**receipt, "error": receipt.get("error") or ""}
     finally:
         remove_tree(workspace, tree)
 
@@ -1022,6 +994,8 @@ def suite_health(receipt) -> str:
     results = receipt.get("results")
     if receipt["timed_out"]:
         return "timeout"
+    if not command_receipt.completed(receipt):
+        return "broken"  # interrupted ownership cannot establish passing tests
     if receipt["exit_code"] in (126, 127):
         return "broken"  # the command itself could not run
     if receipt.get("results_expected") and results is None:
@@ -1157,6 +1131,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
+    for label, receipt in checks.items():
+        if not command_receipt.completed(receipt):
+            unverified.append(f"{label} has no complete owned-command evidence")
     stats = diff_stats(workspace, base, changes)
     if stats["binary_files"]:
         review_reasons.append("binary files changed: " + ", ".join(stats["binary_files"][:5]))
@@ -1190,6 +1167,15 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
     """
     candidate = on_candidate.get("results")
     base = (on_base or {}).get("results")
+    if (not command_receipt.completed(on_candidate)
+            or on_base is not None and not command_receipt.completed(on_base)):
+        unverified.append("Command ownership was interrupted; no complete regression proof exists")
+        failed = set((candidate or {}).get("failed") or [])
+        if failed:
+            unexplained = sorted(failed - (known_failures() or set()))
+            if unexplained:
+                fail.append("The regression tests fail on the candidate: " + ", ".join(unexplained[:20]))
+        return
     if on_candidate["timed_out"]:
         fail.append("The regression tests timed out on the candidate")
         return
@@ -1323,7 +1309,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     finally:
         remove_tree(workspace, tree)
     checks["regression_files_on_base"] = receipt
-    return set(receipt["results"]["failed"]) if receipt.get("results") else None
+    return (set(receipt["results"]["failed"])
+            if command_receipt.completed(receipt) and receipt.get("results") else None)
 
 
 def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
@@ -1334,6 +1321,18 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
+    candidate_owned = command_receipt.completed(on_candidate)
+    base_owned = command_receipt.completed(base_receipt)
+    if not candidate_owned or not base_owned:
+        unverified.append("Command ownership was interrupted; preservation is unproven")
+        failed = set((candidate or {}).get("failed") or [])
+        if base_owned and (base_results or {}).get("complete"):
+            new = sorted(failed - set(base_results["failed"]))
+        else:
+            new = sorted(failed & set((base_results or {}).get("passed") or []))
+        if new:
+            fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
+        return
     # A module that never imported, collected or built is not an executed test; a failed
     # hook or cancellation is (Node and Vitest report both as collection errors, so only
     # ``uncollected`` carries the rule, #503). Keep comparison below so a separately
