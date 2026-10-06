@@ -17,7 +17,8 @@ def png(path, width=2, height=1):
 
 def make_capture(root, reference, case, *, asset='greet.py'):
     root = Path(root).resolve()
-    configs = root / '.autocode' / 'fixture-capture-configs'
+    # Where the capture instruction tells a reviewer to write its configs; acceptance refuses most other .autocode/ areas.
+    configs = root / '.autocode' / 'evidence' / 'fixture-capture-configs'
     configs.mkdir(parents=True, exist_ok=True)
     fixture = configs / 'fixture.cjs'
     fixture.write_text('// Synthetic acquisition metadata for offline gate tests only.\n')

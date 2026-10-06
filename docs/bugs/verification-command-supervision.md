@@ -39,13 +39,16 @@ Independent supervision of Builder workers, version-2 preflight workers and
 other standalone capture/oracle owners remains separate #454 work. Builder
 retry admission still honors any command ownership hold within its own run.
 
-The harness owner-loss fixture previously signalled readiness during `codex login
-status`, before any supervised model stage. Retained local argv identified that
-startup probe; one Linux harness run also failed its owned-process cleanup check,
-without enough actor detail to establish its cause. The fixture now completes
-login setup and requires an armed stage receipt with fresh native birth identities
-before either fault. Startup authentication/version probes still need separate
-owner-loss supervision and qualification under #454.
+The original harness readiness event could occur during `codex login status`,
+before a supervised model stage. Retained local argv proved that barrier gap;
+the first Linux harness failure did not identify its surviving actor or establish
+its exact cause. The harness now preserves separate startup and stage faults.
+Startup faults retain #558's guarded CLI ownership and group cleanup; stage
+faults complete login and require an armed receipt with fresh native
+owner/keeper/provider identities immediately before either fault.
 
-The integration with #555 preserves the enclosing keeper's bounded provider-discovery
-barrier and survivor diagnostics before the fresh stage identity checks.
+The integration preserves #555's enclosing keeper discovery barrier, #558's
+survivor diagnostics, and all four fault cases with their original cleanup and
+sentinel assertions and time limits. Guarded harness startup coverage does not
+qualify standalone authentication/version probes; those boundaries remain
+separate #454 work.
