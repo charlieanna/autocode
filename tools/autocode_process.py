@@ -168,14 +168,25 @@ class ProcessTree:
         """Groups of recorded leaders, still owned after a leader is killed and reaped.
 
         A child started after the last sample is reparented when its leader
-        dies, so ancestry cannot find it, but it keeps the leader's group. A PID
-        is not reused while a process group with that ID has members, so a
-        different process at the leader's PID means the group emptied first:
-        ownership of that group ends for good.
+        dies, so ancestry cannot find it, but it keeps the leader's group. The
+        kernel does not reuse a PID while a process group with that ID has
+        members, zombies included. Ownership of a group therefore ends for good
+        at the first sample that finds it empty or finds a different process at
+        the leader's PID; only after that can the ID name an unrelated group.
+        A group that empties and is re-created at a reused PID between two
+        samples is not detected: that needs the PID space to wrap in between.
         """
         for pid, leader in list(self.groups.items()):
-            if pid in table and not matches(leader, table[pid]):
+            if pid in table:
+                if not matches(leader, table[pid]):
+                    del self.groups[pid]
+                continue
+            try:
+                os.killpg(pid, 0)  # signal 0 delivers nothing; it reports whether the group has members
+            except ProcessLookupError:
                 del self.groups[pid]
+            except PermissionError:
+                pass  # members exist that this process may not signal
         return set(self.groups)
 
     def capture_root(self):
@@ -238,8 +249,9 @@ class ProcessTree:
             owned.update(found)
         while True:
             # A group is owned only while a recorded group leader has the same
-            # process identity, or is a retained leader whose PID has not been
-            # reused. This avoids signalling an unrelated reused PID.
+            # process identity, or is a retained group not yet seen empty or
+            # taken over at its leader's PID (_retained_groups). This avoids
+            # signalling an unrelated reused PID.
             groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid} | retained
             added = {pid for pid, row in table.items()
                      if row["parent"] in owned or row["group"] in groups} - owned
