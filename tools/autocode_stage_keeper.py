@@ -162,11 +162,20 @@ class Lifeline:
                     os.close(fd)
             spec_path.unlink(missing_ok=True)
 
-    def supervise(self, wait, *args, **kwargs):
+    def supervise(self, wait, child, *args, **kwargs):
+        """Run ``wait(child, ...)``; release the keeper only once the provider has stopped.
+
+        The wait stops the tree before it returns or propagates an interrupt. An interrupt
+        that ended the wait with the provider still running (before its cleanup began)
+        closes without a release instead, so the keeper stops the tree (#454).
+        """
         try:
-            result = wait(*args, **kwargs)
+            result = wait(child, *args, **kwargs)
         except KeyboardInterrupt:
-            self.release()  # the wait stopped the tree before propagating the interrupt
+            if self._lifeline is not None and child.poll() is None:
+                self.close()
+            else:
+                self.release()
             raise
         except BaseException:
             self.close()  # cleanup failed or is uncertain: the keeper stops what is left

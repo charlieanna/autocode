@@ -166,7 +166,7 @@ class StageKeeperTests(unittest.TestCase):
         self.assertEqual([], psutil.Process(child.pid).children(recursive=True), "the keeper is not the provider's child")
         self.assertNotIn(os.getpgid(guard.pid), (child.pid, os.getpgid(0)))
         os.write(hold, b"x")
-        self.assertEqual(7, keeper.supervise(child.wait, timeout=15))
+        self.assertEqual(7, keeper.supervise(subprocess.Popen.wait, child, timeout=15))
         self.await_condition(lambda: gone(guard.pid), "the released keeper to exit")
         self.assertFalse(Path(record["supervision"]["report"]).exists())
 
@@ -179,19 +179,19 @@ class StageKeeperTests(unittest.TestCase):
         with (self.root / "kept.txt").open("w") as out:
             child = keeper.launch([env_program], env=environment, stdout=out, start_new_session=True)
         self.own(child.pid)
-        self.assertEqual(0, keeper.supervise(child.wait, timeout=15))
+        self.assertEqual(0, keeper.supervise(subprocess.Popen.wait, child, timeout=15))
         self.assertEqual(sorted((self.root / "direct.txt").read_text().splitlines()),
                          sorted((self.root / "kept.txt").read_text().splitlines()))
         keeper, record = self.lifeline()
         child = keeper.launch(["/bin/sh", "-c", "kill -PIPE $$; exit 3"], start_new_session=True)
         self.own(child.pid)
-        self.assertEqual(-signal.SIGPIPE, keeper.supervise(child.wait, timeout=15),
+        self.assertEqual(-signal.SIGPIPE, keeper.supervise(subprocess.Popen.wait, child, timeout=15),
                          "SIGPIPE must reach the provider with its default action, as Popen leaves it")
 
     def test_signal_exit_is_preserved(self):
         keeper, record, child, _, hold = self.held("self-term")
         os.write(hold, b"x")
-        self.assertEqual(-signal.SIGTERM, keeper.supervise(child.wait, timeout=15))
+        self.assertEqual(-signal.SIGTERM, keeper.supervise(subprocess.Popen.wait, child, timeout=15))
 
     def test_release_leaves_provider_untouched(self):
         keeper, record, child, _, hold = self.held("0")
@@ -201,6 +201,33 @@ class StageKeeperTests(unittest.TestCase):
         self.assertIsNone(child.poll(), "a released keeper never touches the provider")
         os.write(hold, b"x")
         self.assertEqual(0, child.wait(timeout=15))
+        self.assertFalse(Path(record["supervision"]["report"]).exists())
+
+    def test_interrupt_that_left_the_provider_running_does_not_release(self):
+        # An interrupt can end the wait before its cleanup ran (a second signal, or one just
+        # before the wait began). The keeper then stops the provider instead of being released.
+        keeper, record, child, _, hold = self.held("0")
+
+        def interrupted_before_cleanup(child):
+            raise KeyboardInterrupt("SIGHUP")
+        with self.assertRaises(KeyboardInterrupt):
+            keeper.supervise(interrupted_before_cleanup, child)
+        self.await_condition(lambda: gone(self.keeper_pid(record)), "the keeper to finish")
+        self.assertEqual(-signal.SIGTERM, child.poll(), "the keeper stops the provider the interrupt left running")
+        report = self.report(record)
+        self.assertEqual("lifeline_closed_by_live_owner", report["cause"], report)
+        self.assertIn(child.pid, report["live_at_detection"])
+
+    def test_interrupt_after_the_wait_stopped_the_provider_releases(self):
+        keeper, record, child, _, hold = self.held("0")
+
+        def stopped_then_interrupted(child):
+            child.terminate()
+            child.wait(timeout=15)
+            raise KeyboardInterrupt("SIGTERM")
+        with self.assertRaises(KeyboardInterrupt):
+            keeper.supervise(stopped_then_interrupted, child)
+        self.await_condition(lambda: gone(self.keeper_pid(record)), "the released keeper to exit")
         self.assertFalse(Path(record["supervision"]["report"]).exists())
 
     def test_lifeline_eof_stops_provider_group_and_records_cause(self):
@@ -295,7 +322,7 @@ class StageKeeperTests(unittest.TestCase):
         self.assertEqual("stopped", self.report(first_record)["outcome"])
         self.assertIsNone(second_child.poll(), "closing one attempt's lifeline leaves the other provider alone")
         os.write(second_hold, b"x")
-        self.assertEqual(0, second.supervise(second_child.wait, timeout=15))
+        self.assertEqual(0, second.supervise(subprocess.Popen.wait, second_child, timeout=15))
         self.await_condition(lambda: gone(self.keeper_pid(second_record)), "the second keeper to exit")
         self.assertFalse(Path(second_record["supervision"]["report"]).exists())
 

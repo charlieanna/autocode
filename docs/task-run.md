@@ -402,7 +402,8 @@ supervises it. Who stops its process tree, and when:
   SIGHUP twice (the kernel and the shell), and a second Ctrl-C waits for the cleanup.
 - **The stage keeper** owns it after that. Every provider attempt gets one
   (`tools/autocode_stage_keeper.py`), tied to the controller by a pipe. A controller
-  that ends supervision normally releases it. If the controller dies without doing so
+  that ends supervision normally releases it; after an interrupt, only once the provider
+  has stopped. If the controller dies without doing so
   (SIGKILL, a process-group teardown, a crash) or gives up after failed cleanup, the
   keeper stops the tree at once: freeze, TERM, then KILL after 2 s. It then writes
   `<attempt>.supervision.json` next to the attempt's other files, with the `cause`
