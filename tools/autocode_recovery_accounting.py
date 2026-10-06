@@ -14,7 +14,8 @@ and only a grant validated against its request lowers the count.
 
 The state keys:
 - automatic_recoveries_since_resume: int, recoveries spent since the run last resumed. A run saved
-  before the key existed counts the larger of its two older counters instead.
+  before the key existed, with timeout recoveries in its history, counts the larger of its two older
+  counters instead; any other run without the key counts its consecutive timeout recoveries.
 - consecutive_timeout_recoveries: int, timeout recoveries since the last saved stage
   (autocode_stage_recovery increments it).
 - recovery_grants: list of {at, actor, amount, request_id, previous_count, remaining_count}.
@@ -32,9 +33,19 @@ MAX_AUTOMATIC_RECOVERIES = 3
 
 
 def spent(state: dict) -> int:
-    """The recoveries spent since the run last resumed. Writes nothing."""
-    return state.get("automatic_recoveries_since_resume",
-                     max(state.get("consecutive_timeout_recoveries", 0), state.get("no_progress_batches", 0)))
+    """The recoveries spent since the run last resumed. Writes nothing.
+
+    Every counted recovery writes automatic_recoveries_since_resume, so a run without it has spent
+    none since the key existed: unchanged implementation batches in no_progress_batches are not
+    recoveries (#448). Only a run saved before the key, with timeout recoveries in its history, also
+    counted its recoveries in no_progress_batches.
+    """
+    if "automatic_recoveries_since_resume" in state:
+        return state["automatic_recoveries_since_resume"]
+    consecutive = state.get("consecutive_timeout_recoveries", 0)
+    if state.get("automatic_timeout_recoveries"):
+        return max(consecutive, state.get("no_progress_batches", 0))
+    return consecutive
 
 
 def count(state: dict) -> None:

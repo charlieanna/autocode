@@ -52,3 +52,25 @@ sampling also cannot recover an arbitrary child that detaches and reparents
 before any observer discovers it. Those limits keep #454 open for the remaining
 ownership work rather than equating these passing controls with universal
 process containment.
+
+A CLI killed between two keeper samples used to leave its newest child behind.
+The harness's CLI shared the harness's process group, and its keeper finds
+children only by polling. A child started since the last sample (in the
+owner-loss tests, the unsupervised `codex login status` settings check) was
+reparented when the CLI died, so the keeper's cleanup found nothing and still
+recorded a clean `stopped` receipt. The harness now starts a guarded CLI in its
+own session. The CLI's keeper keeps owning that session's group after the CLI is
+killed and reaped, until a sample finds the group empty or finds a different
+process at the CLI's PID; the kernel cannot reuse that PID before then. A group
+that empties and is re-created at a reused PID between two samples, which the
+keeper takes every 50 ms, is not detected; that needs the PID space to wrap in
+between. The harness owner-loss tests kill the harness or the CLI at two
+barriers: that settings check, and the first supervised provider stage.
+
+The CLI's group also widens the keeper's discharge check. A CLI that finishes
+normally while a child it started still runs in its group, including one
+reparented after its parent exited, is not discharged: the keeper stops that
+child and the CLI. The call ends with exit -9, and the keeper receipt that the
+call record names under `receipt` is `uncertain`, with cleanup error `CLI
+discharged with live child processes`. A direct child still running at discharge
+already ended this way; a reparented one used to escape and leak.
