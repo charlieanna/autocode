@@ -61,14 +61,18 @@ another successful command cannot replace them. Empty Python test bodies cannot 
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
 must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
 In read-only contained stages, capture commands execute in a runner-prepared copy of the current source,
-where build outputs are writable but existing source and tests remain protected. Receipts remain in the
-original task evidence directory. Use repository-relative paths for product files. Each reported check must
+where build outputs are writable but existing source and tests remain protected. Receipts are still written
+to the --output path you give capture. Use repository-relative paths for product files. Each reported check must
 include its own setup (for example build and execute in the same command): clean replay does not retain
 artifacts from earlier checks. An execution in the prepared copy is still subject to clean-source replay.
-Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/);
-the runner's changed-file measurement ignores .autocode/. Never use /tmp, mktemp or any path outside the
-workspace: the provider sandbox denies external directories and the whole attempt is lost (a live run paused
-after three such denials, 2026-10-01).
+Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/,
+or tool_containment.scratch when your handoff has one); the runner's changed-file measurement ignores .autocode/.
+Capture receipts where your output contract's capture example says. A later repair re-verifies each pin, so
+under .autocode/ cite only this run directory, .autocode/evidence/, your own tool_containment.scratch, or
+runner-written design captures and inputs: never .autocode/scratch/ or another stage's tool-containment
+scratch (the Builder's or an earlier attempt's). The runner refuses a report that cites them.
+Never use /tmp, mktemp or any path outside the workspace: the provider sandbox denies external directories
+and the whole attempt is lost (a live run paused after three such denials, 2026-10-01).
 Probe mixed-type numeric interactions. For staged/transactional operations inject failures after work begins:
 assert the public error contract, unchanged persistent state and complete cleanup across failure modes.
 """ + acceptance_policy.DOMAIN + acceptance_policy.COVERAGE

@@ -46,8 +46,10 @@ manifest does not name, a bundle for another design) is refused.
 
 Three places apply the rule:
 
-- `route` uses the scratch of any of the run's stage records.
-- `resolver_recovery._artifact_owned` does the same.
+- `route` uses only the scratch named by the accepted Validator's own launch record, which
+  is the scratch acceptance allowed (see `contained-validator-rework-ownership.md`).
+- `resolver_recovery._artifact_owned` uses the scratch of any of the run's stage records,
+  because its pins come from several stages.
 - `autopilot.apply_review_result` now applies it to every independent validation (`sol`,
   including a checkpoint's) when the report is accepted (`rework_policy.require_owned`),
   using only the stage's own scratch.

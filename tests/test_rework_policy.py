@@ -372,7 +372,7 @@ class ReworkPolicyTests(unittest.TestCase):
         self.assertIn(str(raw), case.state['resolution_request']['evidence_hashes'])
         self.assertEqual(seals, (case.record['rework_evidence'], case.accepted['rework_evidence']))
 
-    def test_containment_scratch_is_owned_only_through_this_runs_own_launch_record(self):
+    def test_containment_scratch_is_owned_only_through_the_accepted_validators_own_launch_record(self):
         case, _, _ = self.contained_case(self.scratch())
         self.assert_fallback(case)
 
@@ -383,8 +383,18 @@ class ReworkPolicyTests(unittest.TestCase):
         sibling_scratch = self.scratch()
         sibling, _, _ = self.capture_case(shared=False, directory=sibling_scratch.with_name('scratch-copy'))
         sibling.accepted['tool_containment'] = {'scratch': str(sibling_scratch)}
+        # This run recorded these too, but the accepted Validator's own launch did not.
+        builder_scratch = self.scratch()
+        builder, _, _ = self.capture_case(shared=False, directory=builder_scratch)
+        builder.state['stages'][0]['tool_containment'] = {'scratch': str(builder_scratch)}
+        earlier_scratch = self.scratch()
+        earlier, _, _ = self.capture_case(shared=False, directory=earlier_scratch)
+        earlier.state['stages'].insert(1, {'stage': 'sol', 'role': 'sol', 'rejected': True,
+                                           'output': str(earlier.run / 'earlier.json'),
+                                           'tool_containment': {'scratch': str(earlier_scratch)}})
         for label, case in (('unrecorded', unrecorded), ('recorded by another run', foreign),
-                            ('beside the recorded scratch', sibling)):
+                            ('beside the recorded scratch', sibling), ("recorded by this run's Builder", builder),
+                            ('recorded by an earlier, rejected Validator attempt', earlier)):
             with self.subTest(label=label):
                 with self.assertRaisesRegex(util.Paused, 'another run'):
                     self.route(case)
@@ -514,6 +524,66 @@ class ReworkPolicyTests(unittest.TestCase):
         case.state['validation']['evidence_hashes'][str(scratch)] = util.file_hash(scratch)
         with self.assertRaisesRegex(util.Paused, 'another run'):
             self.route(case)
+
+    def require_owned(self, case):
+        policy.require_owned(case.state['validation']['evidence_hashes'], case.state, case.accepted,
+                             self.workspace, case.run)
+
+    def test_acceptance_refuses_the_contained_pins_rework_routing_would_refuse(self):
+        # Live self-build 2026-10-06: route() refused accepted Validator pins only at REWORK, where the
+        # Completion Reviewer cannot change them, so every retry of the review paused the same way.
+        own = self.scratch()
+        for label, (case, _, _) in (('own scratch', self.contained_case(own)),
+                                    ('run directory', self.capture_case(shared=False)),
+                                    ('shared evidence', self.capture_case(shared=True))):
+            with self.subTest(label=label):
+                self.require_owned(case)
+                self.route(case)  # assigned directly or queued for the Resolver, never paused
+                case.queue.assert_called_once()
+        for label, scratch in (("the Builder's scratch", self.scratch()), ('an unrecorded scratch', self.scratch())):
+            with self.subTest(label=label):
+                case, path, _ = self.capture_case(shared=False, directory=scratch)
+                if label.startswith('the Builder'):
+                    case.state['stages'][0]['tool_containment'] = {'scratch': str(scratch)}
+                case.accepted['tool_containment'] = {'scratch': str(own)}
+                with self.assertRaises(ValueError) as caught:
+                    self.require_owned(case)
+                self.assertIn('does not belong to this run: ' + str(path), str(caught.exception))
+                self.assertIn(str(own), str(caught.exception))
+                with self.assertRaisesRegex(util.Paused, 'another run'):
+                    self.route(case)
+        # A file under .autocode/captures/ is owned only through a manifest bound to this run's design
+        # (test_capture_bundle_files_are_owned_only_through_their_manifest_for_this_runs_design); an unbound
+        # one is refused when accepted, not only at REWORK.
+        case, _, _ = self.capture_case(shared=False)
+        capture = self.workspace / '.autocode' / 'captures' / 'bundle' / 'manifest.json'
+        capture.parent.mkdir(parents=True)
+        capture.write_text('{}')
+        case.state['validation']['evidence_hashes'] = {str(capture): util.file_hash(capture)}
+        with self.assertRaisesRegex(ValueError, 'does not belong to this run: ' + re.escape(str(capture))):
+            self.require_owned(case)
+
+    def test_a_validator_report_pinning_another_stages_scratch_is_rejected_when_accepted(self):
+        # A ValueError from acceptance is the ordinary rejected-report path: a bounded report repair can
+        # still drop or replace the citation, which no stage can do once a REWORK has started.
+        scratch = self.scratch()
+        case, path, _ = self.capture_case(shared=False, directory=scratch)
+        case.state['stages'][0]['tool_containment'] = {'scratch': str(scratch)}
+        report = util.read_object(case.accepted['output'])
+        case.state['criteria_revision'] = util.digest(util.criteria_definition(case.state['acceptance_criteria']))
+        state = copy.deepcopy(case.state)
+        # Stop just after a report is accepted, before the fixture workspace would need a Git checkout.
+        with patch.object(autopilot.findings_ledger, 'record_validation', side_effect=RuntimeError('accepted')):
+            with self.assertRaisesRegex(ValueError, 'does not belong to this run: ' + re.escape(str(path))):
+                autopilot.apply_review_result(runtime, state, 'sol', copy.deepcopy(report), case.accepted,
+                                              self.workspace, case.run)
+            self.assertEqual(case.state, state)
+            # The same report from the stage whose launch recorded that scratch gets past the ownership rule.
+            case.accepted['tool_containment'] = {'scratch': str(scratch)}
+            with self.assertRaisesRegex(RuntimeError, 'accepted'):
+                autopilot.apply_review_result(runtime, state, 'sol', copy.deepcopy(report), case.accepted,
+                                              self.workspace, case.run)
+        self.assertIn(str(path), state['validation']['evidence_hashes'])
 
     def test_shared_receipt_requires_the_original_executed_capture_event(self):
         case, _, _ = self.capture_case(shared=True)
