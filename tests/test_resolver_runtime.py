@@ -905,6 +905,36 @@ class OperationalDiagnosisTests(unittest.TestCase):
         with self.assertRaisesRegex(support.Paused, 'No causal progress'):
             builder('third.json')
 
+    def test_a_spent_diagnosis_retry_does_not_shadow_the_investigators_retry(self):
+        # The diagnosis's Builder returned output the runner rejected (it also wrote outside its
+        # assignment, 2026-10-06). The Investigator's verified retry of that rejection is the next
+        # attempt; the spent diagnosis grant must not hide it, and neither grant is spent twice.
+        self.repeated_terra_failure()
+        self.admit()
+        self.assertTrue(runner.resolver_runtime.finish_operational_diagnosis(
+            self.state, self.run, {'action': 'retry', 'rationale': 'Missing summary field; add it explicitly.'}))
+
+        def builder(name):
+            record = {'stage': 'terra', 'output': str(self.run / name), 'started_at': name}
+            runner.resolver_recovery.admit_dispatch(self.state, record, self.root, self.run)
+            return record
+        first = builder('first.json')
+        self.assertEqual('diagnosis', first['recovery_novelty']['grant_kind'])
+        self.state['stages'].append({**first, 'rejected': True, 'finished_at': '2026-10-06T02:15:18+00:00'})
+        with self.assertRaisesRegex(support.Paused, 'No causal progress'):
+            builder('unguided.json')
+        identity = 'terra:PAUSED_INVALID_OUTPUT'
+        self.state['stuck_investigations'] = [{'identity': identity, 'stage': 'terra', 'status': 'PAUSED_INVALID_OUTPUT',
+                                               'requested_at': '2026-10-06T02:15:19+00:00', 'outcome': 'retried',
+                                               'trigger': 'rejected_output'}]
+        self.state['stuck_investigation'] = {'identity': identity, 'stage': 'terra',
+                                             'status': 'PAUSED_INVALID_OUTPUT', 'in_force': True}
+        second = builder('second.json')
+        self.assertEqual('investigation', second['recovery_novelty']['grant_kind'])
+        self.state['stages'].append({**second, 'rejected': True, 'finished_at': '2026-10-06T02:20:00+00:00'})
+        with self.assertRaisesRegex(support.Paused, 'No causal progress'):
+            builder('third.json')
+
     def test_shared_dispatch_real_timeout_recovery_reload_and_replacement_cap(self):
         # Automatic timeout recovery's relaunch is admitted (#422) and still charged.
         self.repeated_terra_failure()

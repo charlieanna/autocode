@@ -665,9 +665,10 @@ def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _builder_grant(state, packet, request, record, prior)
     if ident is not None:
         return ident, "builder"
-    # One use is decided by novelty against attempts that returned a result.
+    # One use is decided by novelty against attempts that returned a result. A diagnosis grant
+    # one of those already carries is spent; it must not hide an Investigator's later grant.
     ident = _diagnosis_grant(state, packet, request, record)
-    if ident is not None:
+    if ident is not None and not any(row.get("grant_id") == ident for row in receipts(state, returned=True)):
         return ident, "diagnosis"
     ident = _investigation_grant(state, request, record)
     return ident, "investigation" if ident is not None else None
