@@ -12,10 +12,10 @@ from pathlib import Path
 
 try:
     from . import autocode_util as util, autocode_check_refs as check_refs
-    from . import autocode_tool_containment as containment
+    from . import autocode_tool_containment as containment, autocode_visual_evidence as visual
 except ImportError:
     import autocode_util as util, autocode_check_refs as check_refs
-    import autocode_tool_containment as containment
+    import autocode_tool_containment as containment, autocode_visual_evidence as visual
 
 
 def _require(condition, reason):
@@ -31,45 +31,52 @@ def _run_root(output):
                  and parent.parent.parent.name == '.autocode'), None)
 
 
-def _captures(record, workspace):
-    """Where a Validator's captures outside the run directory may live: the workspace-shared area, and
-    the tool-containment scratch its own launch record names, the only place under .autocode/ a contained
-    stage can write (#419). Another stage's or another run's scratch is not in that record."""
-    return (workspace / '.autocode' / 'evidence',
-            *containment.recorded_scratch([record], workspace))
+def owned(path, workspace, run_dir, *, settings=None, scratch=()):
+    """Whether a pinned file is this run's evidence: the one rule for acceptance and every later repair.
 
-
-def require_own_scratch(pins, record, workspace):
-    """Refuse, when a Validator report is accepted, a pin in tool-containment storage its own launch did not make.
-
-    route() re-verifies the accepted Validator's pins and owns contained evidence only through that
-    Validator's launch record. Refused only then, the pin would pause every REWORK, and the Completion
-    Reviewer cannot change the Validator's pins. Other .autocode/ areas keep route()'s existing handling:
-    runner-written ones such as .autocode/captures/ are cited legitimately and route() does not list them.
+    A file outside workspace/.autocode/ is the project's. Inside it, only these belong to this run: its
+    run directory; .autocode/evidence/, the shared area capture commands name; its own permission-recovery
+    directory; the tool-containment `scratch` its launch records name (#419); its retained design reference
+    (.autocode/design-inputs/<manifest hash>/); and a capture bundle file that the bundle's manifest names
+    for that design (.autocode/captures/<id>/). Anything else there may be another run's.
     """
-    private = Path(workspace) / '.autocode'
-    own = containment.recorded_scratch([record], workspace)
+    target, private, settings = Path(path), Path(workspace) / '.autocode', settings or {}
+    if not target.is_relative_to(private):
+        return True
+    retained = [Path(row['root']) for row in (settings.get('design_manifest'), *(settings.get('design_manifest_history') or ()))
+                if isinstance(row, dict) and isinstance(row.get('root'), str)
+                and Path(row['root']) == private / 'design-inputs' / str(row.get('manifest_hash'))]
+    roots = (Path(run_dir), private / 'evidence',
+             private / 'recovery-evidence' / util.digest(str(Path(run_dir).resolve())), *scratch, *retained)
+    return any(target.is_relative_to(root) for root in roots) or visual.bundle_file(settings, workspace, target)
+
+
+def require_owned(pins, state, record, workspace, run_dir):
+    """Refuse, when a validation is accepted, a pin that a later repair would refuse to re-verify.
+
+    route() and resolver recovery re-verify the accepted validation's pins through owned(). Refused only
+    then, a pin would pause every REWORK, and the Completion Reviewer cannot change the Validator's pins;
+    refused here, it is an ordinary rejected report. Only the stage's own launch made its containment scratch.
+    """
+    workspace, run_dir = Path(workspace).resolve(), Path(run_dir).resolve()
+    scratch = containment.recorded_scratch([record], workspace)
     for path in pins:
-        target = Path(path)
-        if (target.is_relative_to(private) and target != private
-                and containment.CONTROL_NAME.fullmatch(target.relative_to(private).parts[0])
-                and not any(target.is_relative_to(root) for root in own)):
+        if not owned(path, workspace, run_dir, settings=state.get('settings'), scratch=scratch):
             raise ValueError(
-                f'Evidence belongs to another stage\'s tool containment: {path}. A later repair re-verifies every '
-                'evidence pin, so cite contained captures only from '
-                + (f'this stage\'s own tool_containment.scratch ({own[0]})' if own else 'a stage\'s own scratch')
-                + ', or this run directory or .autocode/evidence/.')
+                f'Evidence under .autocode/ does not belong to this run: {path}. A later repair re-verifies every '
+                'evidence pin, so cite .autocode/ files only from this run directory, .autocode/evidence/'
+                + (f', this stage\'s tool_containment.scratch ({scratch[0]})' if scratch else '')
+                + ', a capture bundle\'s manifest.json and the artifacts it lists, or the retained design inputs.')
 
 
-def _owned(path, workspace, run_dir, *, artifact=False, captures=()):
+def _owned(path, workspace, run_dir, *, artifact=False, settings=None, scratch=()):
     _require(isinstance(path, str) and bool(path), 'Repair evidence has no file path')
     target = Path(path)
     target = target if target.is_absolute() else workspace / target
     _require('..' not in target.parts and target.is_relative_to(workspace),
              'Repair evidence is outside this workspace')
     _require(not artifact or target.is_relative_to(run_dir), 'Stage evidence belongs to another run')
-    shared = any(target.is_relative_to(root) for root in captures)
-    _require(not target.is_relative_to(workspace / '.autocode') or target.is_relative_to(run_dir) or shared,
+    _require(owned(target, workspace, run_dir, settings=settings, scratch=scratch),
              'Repair evidence belongs to another run')
     _require(not any(parent.is_symlink() for parent in (target, *target.parents)
                      if parent.is_relative_to(workspace)), 'Repair evidence traverses a symlink')
@@ -265,11 +272,12 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         ('task_id', task.get('id')), ('contract_hash', state['goal_contract']['hash']),
         ('contract_revision', state['goal_contract']['revision']), ('source_revision', record.get('source_revision'))))
     pins = validation.get('evidence_hashes') or {}
-    # Pins are re-verified only through a sealed accepted Validator, whose own launch names its scratch.
-    captures = _captures(accepted or {}, workspace)
+    # Pins are re-verified only through a sealed accepted Validator: only its own launch made the
+    # containment scratch it may cite, as at acceptance (require_owned). Another stage's or run's is not.
+    rule = {'settings': state.get('settings'), 'scratch': containment.recorded_scratch([accepted or {}], workspace)}
     if report is not None and current_validation:
         for path, digest in pins.items():
-            _require(_hash(_owned(path, workspace, root, captures=captures)) == digest,
+            _require(_hash(_owned(path, workspace, root, **rule)) == digest,
                      'Validator evidence changed before repair')
     queue(state, decision, record)
     _require(not any(row.get('source_output') == record.get('output') for row in state.get('direct_rework_assignments', [])),
@@ -302,9 +310,9 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
             if accepted['events'] not in pins:
                 return False
         else:
-            receipt_path = _owned(ref, workspace, root, captures=captures)
+            receipt_path = _owned(ref, workspace, root, **rule)
             receipt = _report(receipt_path)
-            raw = _owned(receipt.get('full_output'), workspace, root, captures=captures)
+            raw = _owned(receipt.get('full_output'), workspace, root, **rule)
             if str(receipt_path) not in pins or str(raw) not in pins:
                 return False
             shared_receipt |= not receipt_path.is_relative_to(root) or not raw.is_relative_to(root)

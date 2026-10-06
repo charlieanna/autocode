@@ -1,5 +1,5 @@
 import copy
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import io
 import json
 import os
@@ -159,6 +159,47 @@ class StatusTests(unittest.TestCase):
             self.assertIs(expected, payload['view']['efficiency']['delivery']['current_completion'])
             self.assertEqual(int(expected), payload['view']['efficiency']['delivery']['verified_deliveries'])
             self.assertEqual(inspected, payload['view']['verification'])
+        self.assertEqual(before, state)
+
+
+    def test_runner_command_supervision_is_fresh_read_only_and_denied_access_stays_unknown(self):
+        import autocode as runner
+        import autocode_status_command as command
+        from tests.test_liveness import metadata, inspection
+        saved = metadata()
+        state = {'status': 'RUNNING', 'iteration': 1, 'sessions': {}, 'next_stage': 'sol',
+                 'stages': [], 'active_runner_check': {'stage': 'regression_proof', 'summary': 'Testing',
+                                                      'supervision': saved}}
+        before = copy.deepcopy(state)
+        args = SimpleNamespace(inspect_evidence=False, run_dir='fixture', engine=None)
+        denied = {role: {'checked': False, 'alive': None} for role in ('owner', 'keeper', 'provider')}
+        for current, stale, kind in ((inspection(saved), False, 'supervised'),
+                                    (inspection(saved, keeper=False), True, 'unsupervised'),
+                                    (inspection(saved, owner=False, keeper=False, provider=False,
+                                                phase='stopped', cause='owner_lost'), True, 'interrupted'),
+                                    (denied, False, 'unknown')):
+            output = io.StringIO()
+            with self.subTest(inspection=current), \
+                    patch.object(runner.processes, 'recorded_worker_state',
+                                 return_value={'checked': True, 'alive': True, 'live_pids': [101]}), \
+                    patch.object(runner.supervision, 'observe', return_value=current) as observe, \
+                    patch.object(runner.milestones, 'summary', return_value={'accepted_milestones': []}), \
+                    patch.object(runner.dependency, 'export', return_value={}), \
+                    patch.object(runner, 'intervention_metadata', return_value={}), \
+                    patch.object(runner.resolver_human, 'projection', return_value={}), \
+                    redirect_stdout(output), redirect_stderr(io.StringIO()):
+                command.render(runner, state, args, Path('.'), Path('fixture'))
+            observe.assert_called_once_with(saved)
+            payload = json.loads(output.getvalue())
+            self.assertIs(stale, payload['stale'])
+            self.assertEqual(kind, payload['view']['runner_check']['liveness']['kind'])
+            self.assertEqual('unknown', payload['view']['liveness']['kind'])
+            self.assertIsNone(payload['attempt_id'])
+            self.assertEqual([101], payload['runner_check_workers']['live_pids'])
+            if stale:
+                self.assertIn('runner check', payload['next_action'])
+            else:
+                self.assertIsNone(payload['next_action'])
         self.assertEqual(before, state)
 
 

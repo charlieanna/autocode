@@ -131,6 +131,32 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     return body, list(dict.fromkeys(refs))
 
 
+def bundle_file(settings, workspace, path):
+    """Whether `path` is a file its own capture bundle's manifest names for this design reference.
+
+    The capture command writes each bundle in its own .autocode/captures/<id>/ and binds it, in
+    manifest.json, to the design reference it was captured for. The manifest and each artifact it
+    lists with the hash it recorded are runner-written evidence of that design; nothing else there is.
+    Ownership only: verify() still decides freshness, and the reviewer the visual verdict.
+    """
+    root, path = Path(workspace), Path(path)
+    captures = root / '.autocode' / 'captures'
+    if not path.is_relative_to(captures) or len(path.relative_to(captures).parts) != 2:
+        return False
+    manifest = path.parent / 'manifest.json'
+    try:
+        body = util.read_object(local_file(root, manifest))
+        reference = body.get('reference_hash')
+        if (body.get('version') != 1 or body.get('kind') != 'implementation_capture' or not reference
+                or reference != reference_hash(settings)
+                and not design_identity.matches(settings, reference, (body.get('case') or {}).get('id'))):
+            return False
+        return path == manifest or any(root / item['path'] == path and util.file_hash(path) == item['sha256']
+                                       for item in body['artifacts'].values())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError):
+        return False
+
+
 def context(state, current):
     """Select current bundles explicitly; historical captures stay on disk."""
     reference = reference_hash(state.get('settings', {}))
@@ -216,8 +242,10 @@ The fixture establishes the actual page state. All browser responses must match 
 local assets. Generated assets require a build in this capture operation. Use the task's
 existing Playwright/browser installation; respect worker permissions and readiness failures.
 Prepare all fixtures and separate per-case configs before the first capture; keep their
-inputs unchanged across the review. Write comparison/review artifacts under .autocode/
-so they do not modify captured source. Never edit an existing capture bundle.
+inputs unchanged across the review. Write those configs, any fixture you create and every
+comparison/review artifact under .autocode/evidence/ so they do not modify captured source.
+A later repair re-verifies each cited file: under .autocode/ the runner accepts only that
+directory, the run directory, capture bundles and retained design inputs. Never edit an existing capture bundle.
 For design_results copy capture_ref and capture_sha256 with the exact candidate_ref.
 For native Figma without an inventory report implementation_captures receipts and cite
 their candidate images in criterion evidence. Inspect those images independently against

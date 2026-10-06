@@ -170,8 +170,7 @@ never runs live models; the pull request carries the evidence.
 - **The agent runs it.** The agent making the change also runs the live
   qualification itself, passing `--i-authorize-live-model-spend`: this file is
   the authorization, and asking the user to approve each run is not part of the
-  workflow. Asking is reserved for spending beyond one qualifying run of the
-  chosen scenario (reruns after a failure, extra scenarios, larger campaigns).
+  workflow.
 
 - **Any provider.** The rule asks for real models, not a particular tool:
   OpenCode, Kilo Code, or any command-line tool set up as a provider
@@ -206,6 +205,25 @@ A session with no working provider — after trying the setup rules above and
 one alternative provider — opens its pull request as a draft that says the live
 run is still owed, naming what blocked it; it is marked ready only after a live
 run on a local machine.
+
+## Taking an issue
+
+Several agents (Claude Code and Codex sessions) work on this repository at once,
+all as the same GitHub account, so an assignee cannot show who is working on
+what. Two sessions fixing the same issue in parallel has happened repeatedly.
+Mark the work instead:
+
+- **Before starting**, check the issue. If it has the `in progress` label, or
+  `gh pr list --state all --search <N>` shows a pull request for it, someone
+  else has it: pick another issue or ask the user.
+- **When you take it**, before your first change, add the `in progress` label
+  and post one comment: who is working on it (the agent or session), the branch,
+  and the next step.
+- **Keep that comment current** when the plan changes: handed off, blocked,
+  waiting on a live run, branch renamed.
+- **When you stop**, remove the label and say why in a comment. When you open
+  the pull request, the pull request tracks the work from then on. When you
+  drop the work, it is free for someone else.
 
 ## Hygiene
 

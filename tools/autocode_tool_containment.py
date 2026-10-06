@@ -18,10 +18,39 @@ import uuid
 
 
 SUPPORTED_VERSION = "1.18.33"
+SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 SYSTEM_READ_ROOTS = ("/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib",
                      "/usr/share", "/System/Library", "/Library/Apple/System/Library")
 # prepare() names each launch's control directory uuid4().hex; nothing else matches.
 CONTROL_NAME = re.compile('tool-containment-[0-9a-f]{32}')
+
+
+def unavailable(workspace=None, environment=None):
+    """Why strict containment cannot be established on this machine, or None.
+
+    Cheap run-setup check of what every launch's configure() refuses first: the
+    platform, sandbox-exec and the installed OpenCode version. It runs no
+    conformance; None is not a proof, and each launch still runs configure().
+    """
+    if sys.platform != 'darwin':
+        return f'strict tool containment requires macOS sandbox-exec; this machine is {sys.platform}'
+    if not Path(SANDBOX_EXEC).is_file():
+        return f'strict tool containment requires macOS sandbox-exec, which is missing at {SANDBOX_EXEC}'
+    env = dict(os.environ if environment is None else environment)
+    executable = shutil.which('opencode', path=env.get('PATH', ''))
+    if not executable:
+        return 'strict tool containment cannot find the opencode executable on PATH'
+    try:
+        result = subprocess.run([executable, '--version'], env=env, cwd=workspace,
+                                capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f'strict tool containment could not read the OpenCode version: {error}'
+    version = result.stdout.strip()
+    if result.returncode or version != SUPPORTED_VERSION:
+        found = version if version and not result.returncode else f'unknown (exit {result.returncode})'
+        return (f'strict tool containment is qualified only for OpenCode {SUPPORTED_VERSION}; '
+                f'this machine has OpenCode {found}')
+    return None
 
 
 def _path(value):

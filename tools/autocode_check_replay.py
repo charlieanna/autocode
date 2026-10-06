@@ -37,10 +37,12 @@ try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
     from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     from . import autocode_util as util, autocode_verification_schedule as schedule
+    from . import autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
     import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     import autocode_util as util, autocode_verification_schedule as schedule
+    import autocode_command_receipt as command_receipt
 
 PASS, FAIL = "PASS", "FAIL"
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -67,9 +69,10 @@ include its own setup (for example build and execute in the same command): clean
 artifacts from earlier checks. An execution in the prepared copy is still subject to clean-source replay.
 Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/,
 or tool_containment.scratch when your handoff has one); the runner's changed-file measurement ignores .autocode/.
-Capture receipts where your output contract's capture example says. Never cite a file in another stage's
-tool-containment scratch (the Builder's or an earlier attempt's): a later repair re-verifies each pin and owns
-contained evidence only through your own launch, so the runner refuses such a report.
+Capture receipts where your output contract's capture example says. A later repair re-verifies each pin, so
+under .autocode/ cite only this run directory, .autocode/evidence/, your own tool_containment.scratch, or
+runner-written design captures and inputs: never .autocode/scratch/ or another stage's tool-containment
+scratch (the Builder's or an earlier attempt's). The runner refuses a report that cites them.
 Never use /tmp, mktemp or any path outside the workspace: the provider sandbox denies external directories
 and the whole attempt is lost (a live run paused after three such denials, 2026-10-01).
 Probe mixed-type numeric interactions. For staged/transactional operations inject failures after work begins:
@@ -87,11 +90,15 @@ def evidence_pins(result):
     """Bind accepted runner output to the existing completion evidence guard."""
     pins = {}
     for row in (result or {}).get("checks", []):
+        pins.update(command_receipt.pins(row))
         if row.get("output") and row.get("output_sha256"):
             pins[row["output"]] = row["output_sha256"]
         receipt = row.get("scheduling") or {}
         if receipt.get("receipt") and receipt.get("receipt_sha256"):
             pins[receipt["receipt"]] = receipt["receipt_sha256"]
+    protected = (result or {}).get("protected_tests") or {}
+    for name in ("candidate", "original"):
+        pins.update(command_receipt.pins(protected.get(name)))
     pins.update(brief_evidence.evidence_pins((result or {}).get("brief_acceptance")))
     pins.update(risk_evidence.evidence_pins((result or {}).get("risk_acceptance")))
     return pins
@@ -181,7 +188,8 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                               "duration_seconds": receipt.get("duration_seconds"), "results": receipt.get("results"),
                               "purpose": "approved_execution" if command in prescribed else "independent_clean_replay",
                               "scheduling": receipt.get("scheduling"),
-                             "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:]}
+                             "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:],
+                             **command_receipt.project(receipt)}
         rows.append({**seen[key], "reported_exit_code": check.get("exit_code"),
                      "evidence_ref": check.get("evidence_ref")})
     brief = brief_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
@@ -190,7 +198,8 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     risk = risk_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
                                source_revision=record.get("source_revision"), progressive_context=progressive_context,
                                all_observations=all_risk_observations)
-    failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
+    failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0
+              or not command_receipt.completed(row)]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
               "protected_tests": protected, "brief_acceptance": brief, "risk_acceptance": risk, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     decisions = [row for row in seen.values() if row.get("scheduling")]
@@ -209,6 +218,8 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
             what = f"could not run ({row['error']})"
         elif row["timed_out"]:
             what = f"timed out after {timeout} seconds"
+        elif not command_receipt.completed(row):
+            what = "has no complete owned-command evidence"
         else:
             what = f"exited {row['exit_code']}"
         raise ValueError(

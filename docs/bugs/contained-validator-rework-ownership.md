@@ -23,18 +23,19 @@ later repair can use:
   The Builder's scratch, an earlier rejected attempt's scratch and another run's scratch
   are refused. The record is in the runner-written `state.json`, and pins are
   re-verified only through a sealed, accepted report.
-- `autopilot.apply_review_result` applies the same containment rule when it accepts a
-  Validator report (`rework_policy.require_own_scratch`). A pin in any
-  `tool-containment-*` directory other than the stage's own scratch is now an ordinary
-  rejected report, which a bounded report repair can still fix. Before, it became a
-  REWORK that could never pass. A repaired report is checked with its original
-  attempt's record, whose launch made the scratch.
-- Acceptance does not apply the rest of `route`'s rule. Design Validators cite
-  runner-written captures under `.autocode/captures/`, and their prompt asks for
-  comparison artifacts anywhere under `.autocode/`; `route` does not list those
-  locations. Applied at acceptance, the full rule refused design captures in the
-  suite's CLI tests. A REWORK whose accepted Validator pinned such a file still
-  pauses as it did before this change.
+- `autopilot.apply_review_result` applies the same rule when it accepts a Validator
+  report (`rework_policy.require_owned`, with only the stage's own scratch). A pin in
+  another stage's `tool-containment-*` scratch is now an ordinary rejected report, which
+  a bounded report repair can still fix. Before, it became a REWORK that could never
+  pass. A repaired report is checked with its original attempt's record, whose launch
+  made the scratch.
+- An earlier form of this fix checked only containment directories at acceptance,
+  because design Validators legitimately cite runner-written captures under
+  `.autocode/captures/` and `route` did not own them. `rework_policy.owned` now owns a
+  capture-bundle file through its manifest for the run's design, and the retained
+  design inputs (`2026-10-06-design-capture-rework-ownership.md`). So acceptance and
+  `route` apply the whole rule to design runs as well as build runs. An unbound file
+  under `.autocode/captures/` is refused at acceptance.
 - In a contained launch, `provider_launch.containment_prompt` rewrites both capture
   examples, the provider contract's and COMMON's, to the stage's scratch. The boundary
   note says this replaces any other evidence directory. `VALIDATOR_NOTE` says which
