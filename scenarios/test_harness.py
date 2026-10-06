@@ -619,6 +619,8 @@ class HarnessOwnerLossTests(unittest.TestCase):
             self.addCleanup(os.close, reader)
             provider = (f"#!{sys.executable}\nimport os,json,signal,sys\n"
                         "if '--version' in sys.argv: print('codex-cli 0.92.0'); raise SystemExit(0)\n"
+                        "if sys.argv[1:]==['login','status']: print('Logged in using ChatGPT'); raise SystemExit(0)\n"
+                        "if sys.argv[1:2]!=['exec']: raise SystemExit(2)\n"
                         "signal.signal(signal.SIGTERM,signal.SIG_IGN)\n"
                         "fd=os.open(os.environ['OWNER_READY'],os.O_WRONLY)\n"
                         "os.write(fd,(json.dumps({'provider':os.getpid(),'cli':os.getppid()})+'\\n').encode()); os.close(fd)\n"
@@ -660,6 +662,15 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 call = attempts.read(call_path)
                 self.assertEqual(cli.pid, call["cli"]["pid"])
                 self.assertEqual("running", call["phase"])
+                stage_receipts = [attempts.read(path) for path in evidence.rglob('*.supervision.json')]
+                stage_receipt, = [receipt for receipt in stage_receipts
+                                  if receipt.get('provider', {}).get('pid') == event['provider']]
+                self.assertEqual('armed', stage_receipt['phase'], stage_receipt)
+                self.assertEqual(cli.pid, stage_receipt['owner']['pid'], stage_receipt)
+                self.assertIn(stage_receipt['keeper']['pid'], [process.pid for process in owned])
+                identities = [stage_receipt[role] for role in ('owner', 'keeper', 'provider')]
+                self.assertTrue(all(attempts.owner_alive(identity) is True
+                                    for identity in identities), stage_receipt)
                 if target == "harness":
                     harness.kill()
                 else:

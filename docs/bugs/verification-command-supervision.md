@@ -38,3 +38,11 @@ termination. No paid models or larger run allowances are needed for these faults
 Independent supervision of Builder workers, version-2 preflight workers and
 other standalone capture/oracle owners remains separate #454 work. Builder
 retry admission still honors any command ownership hold within its own run.
+
+The harness owner-loss fixture previously signalled readiness during `codex login
+status`, before any supervised model stage. Retained local argv identified that
+startup probe; one Linux harness run also failed its owned-process cleanup check,
+without enough actor detail to establish its cause. The fixture now completes
+login setup and requires an armed stage receipt with fresh native birth identities
+before either fault. Startup authentication/version probes still need separate
+owner-loss supervision and qualification under #454.
