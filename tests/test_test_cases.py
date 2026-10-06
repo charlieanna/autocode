@@ -362,6 +362,45 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("fails on the original code" in failure for failure in proof["failures"]), proof["failures"])
 
+    def prove_unchanged(self, criteria, seed):
+        project = Project(seed)
+        self.addCleanup(project.close)
+        return regression.prove(feature_state(project, criteria), project.root,
+                                Path(tempfile.mkdtemp(prefix="unchanged-proof-")))
+
+    # A program re-checks a merged workstream after an accepted interface change: its files already
+    # conform, so its validation-only plan marks every criterion guard: and changes nothing. A live
+    # skeleton re-check (2026-10-06) stopped on "No change" with its guard tests passing.
+    def test_a_guard_only_check_of_unchanged_source_passes_when_its_tests_hold(self):
+        proof = self.prove_unchanged([ORDINARY, self.GUARD], {**SEED, "test_guard.py": self.OWN_FILE})
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual({"suite_on_candidate"}, set(proof["checks"]))
+        state = {"regression_proof": proof, "goal_contract": {"body": {"acceptance_criteria": [self.GUARD]}}}
+        self.assertTrue(regression.complete(state, proof["source_revision"]))
+
+    def test_an_unchanged_source_still_fails_a_guard_without_its_test(self):
+        proof = self.prove_unchanged([self.GUARD], SEED)
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"C4": []}, proof["case_tests"])
+        self.assertTrue(any("C4" in failure and "test_c4_add_still_works" in failure
+                            for failure in proof["failures"]), proof["failures"])
+        self.assertFalse(any("No change" in failure for failure in proof["failures"]), proof["failures"])
+
+    def test_an_unchanged_source_fails_a_guard_whose_test_fails(self):
+        broken = self.OWN_FILE.replace("self.assertEqual(3, add(1, 2))", "self.assertEqual(4, add(1, 2))")
+        proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": broken})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"C4": []}, proof["case_tests"])
+        self.assertTrue(any("passes both with the change and on the original code" in failure
+                            for failure in proof["failures"]), proof["failures"])
+
+    def test_an_unchanged_source_never_proves_new_behavior(self):
+        proof = self.prove_unchanged([EXAMPLE, self.GUARD], {**FEATURE, "test_guard.py": self.OWN_FILE})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn("No change: the candidate is identical to the base revision", proof["failures"])
+
 
 class BaseAndTimeoutTests(unittest.TestCase):
     """Runs created before base_commit was saved, and suites that outlast the default timeout."""

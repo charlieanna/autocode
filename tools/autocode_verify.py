@@ -1062,7 +1062,10 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     and fail on base (an import error is not a reproduction).
 
     ``preserve_only`` is coverage of behavior the product already implements: the diff may
-    be test files alone, and each new test must pass on the base and on the candidate.
+    be test files alone, and each new test must pass on the base and on the candidate. The
+    diff may also be empty, when the tests the cases name already exist (a validation-only
+    re-check of a merged workstream): the suite then runs on the unchanged source and its
+    tests that pass there and on base are the ``pass_to_pass`` the cases are matched against.
 
     ``dependencies_from`` is the checkout make_tree copies dependencies and ignored code
     from. ``independent_dependencies=False`` says an earlier Builder of this run worked in
@@ -1083,7 +1086,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                suite_command=suite_command, regression_command=regression_command,
                                reported=reported)
     notes += commands["notes"]
-    if not changes:
+    # Coverage that already exists: nothing to change, so nothing to flip; the guards must hold.
+    unchanged_guards = not changes and preserve_only
+    if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
     elif not sources and not preserve_only:
         fail.append("Only test files changed; a fix must change product code")
@@ -1094,7 +1099,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
     runnable_tests = [p for p in tests if changes[p] != "deleted"]
-    if not runnable_tests:
+    if not runnable_tests and not unchanged_guards:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced")
     for kind in ("regression", "suite"):
@@ -1105,7 +1110,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
     trees = {}
     try:
-        if changes and (commands["regression"] or commands["suite"]):
+        if (changes or unchanged_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
                                            dependencies_from=dependencies_from)
         if trees and runnable_tests and (sources or preserve_only):
@@ -1164,6 +1169,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                                             independent=independent_dependencies))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base)
+            if unchanged_guards:
+                _held_guards(on_candidate, comparable, proof)
         elif sources or preserve_only:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1295,6 +1302,20 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
+
+
+def _held_guards(on_candidate, base_suite, proof):
+    """An unchanged candidate's guards: the suite's tests that passed on base and on the same source again.
+
+    Nothing changed, so nothing can flip (``fail_to_pass`` is empty) and every test ran on base. Without
+    complete per-test results on both runs the lists stay unset, and the cases cannot be matched.
+    """
+    candidate = on_candidate.get("results")
+    base = ((base_suite or {}).get("receipt") or {}).get("results")
+    if not (candidate and base and candidate.get("complete") and base.get("complete")):
+        return
+    proof.update(fail_to_pass=[], pass_to_pass=sorted(set(base["passed"]) & set(candidate["passed"])),
+                 not_run_on_base=[])
 
 
 def _seam_names(workspace, base, changes, receipt):

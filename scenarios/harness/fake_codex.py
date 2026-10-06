@@ -374,6 +374,19 @@ def milestone_task(milestone_id: str) -> dict:
             "contract_hash": (DATA.get("goal_contract") or {}).get("hash", "")}
 
 
+def verification_method(row: dict) -> str:
+    """A milestone's check; a re-checked workstream whose files already conform guards its criteria with a
+    test it already has, as a live Planner marked a skeleton's re-check (2026-10-06), so the runner's
+    regression proof runs on an unchanged source."""
+    if milestone_task(row["id"])["kind"] == "validate":
+        for path in row["paths"]:
+            if Path(path).name.startswith("test_") and path.endswith(".py"):
+                found = re.search(r"^\s+def (test_\w+)\(", (Path(CONFIG["reference"]) / path).read_text(), re.M)
+                if found:
+                    return "guard: " + found.group(1)
+    return row["verify"]
+
+
 def done_milestones(data: dict) -> set:
     task = data.get("current_task") or {}
     done = set(((data.get("milestone_checkpoint") or {}).get("accepted_milestones")) or [])
@@ -503,7 +516,7 @@ def contract(final: bool = False) -> dict:
                                "affected_paths": list(row["paths"])} for row in MILESTONES]
         body["deliverables"] = [p for row in MILESTONES for p in row["paths"]]
         body["acceptance_criteria"] = [{"id": cid, "criterion": row["objective"],
-                                        "verification_method": row["verify"], "human_review": False}
+                                        "verification_method": verification_method(row), "human_review": False}
                                        for row in MILESTONES for cid in criterion_ids(row["id"])]
         if final:
             first = milestone_task(MILESTONES[0]["id"])

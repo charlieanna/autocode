@@ -413,7 +413,12 @@ approval.
 
 A re-check whose files already conform can stall when its run plans an implementation
 task, since its Builder has nothing to change
-([open bug](bugs/2026-10-06-program-recheck-implement-stall.md)).
+([open bug](bugs/2026-10-06-program-recheck-implement-stall.md)). A validation-only re-check
+completes with nothing changed when its criteria are checked by the Validator or marked
+`guard:` with a test the workstream already has: the runner's regression proof then runs
+the suite on the unchanged source and needs each guard's test to pass there
+([named test proof](named-test-proof.md)). A criterion marked `test:` needs a change, so it
+cannot pass a re-check that changes nothing.
 
 The final check runs in the shared integration worktree, and retiring its run (a
 revision that changes its scope before it merged, or an approved plan that drops a

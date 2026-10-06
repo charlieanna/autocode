@@ -23,7 +23,9 @@ autocode_test_cases.contract_cases): each such test must pass with the change
 and must not have passed without it (verify's ``new_behavior``). A milestone
 whose due criteria are all ``guard:`` (behavior the product already implements)
 is coverage: the diff may be test files alone, and each test must pass on the
-base and on the candidate (verify's ``preserve_only``). A saved permission
+base and on the candidate (verify's ``preserve_only``). It may also be empty when
+those tests already exist, as in a program's validation-only re-check: each must
+then pass on the unchanged source. A saved permission
 answer that grants a test-only regression-proof exception for the current
 contract is the same coverage proof, so a plan that marked that coverage
 ``test:`` can still finish. With several milestones, a checkpoint proves the

@@ -544,7 +544,9 @@ workstream its own `[fake] milestones` row with no dependencies, under the ids
 it inherits; the integration workstream every requirement and journey it
 inherits, verified by `[fake] check`, delivering the solution files no milestone
 owns. A code workstream whose files already match the solution (a re-check after
-an agreement revision) plans a validate-only task. That is the fake's choice, not
+an agreement revision) plans a validate-only task, and marks its criteria
+`guard:` with a test the workstream already has, as a live Planner did, so the
+runner's regression proof runs on an unchanged source. That is the fake's choice, not
 the product's: a re-check planned as an implementation of a workstream that
 already conforms stalls the program, since its Builder has nothing to change
 ([docs/bugs/2026-10-06-program-recheck-implement-stall.md](../docs/bugs/2026-10-06-program-recheck-implement-stall.md)).
