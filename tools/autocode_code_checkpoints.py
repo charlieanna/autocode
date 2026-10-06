@@ -7,6 +7,12 @@ from older runs cannot be upgraded into missing source snapshots.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+except ImportError:
+    import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+
+
 from copy import deepcopy
 import hashlib
 import os
@@ -66,10 +72,10 @@ def capture_tree(workspace, source, directory):
         git(workspace, 'read-tree', '--empty', env=env)
         if files:
             # NUL-delimited literal paths support spaces, newlines and leading dashes.
-            git(workspace, '--literal-pathspecs', 'add', '--pathspec-from-file=-', '--pathspec-file-nul',
+            git(workspace, '--literal-pathspecs', 'add', '-f', '--pathspec-from-file=-', '--pathspec-file-nul',
                 env=env, data=b'\0'.join(name.encode() for name in files) + b'\0')
         tree = git(workspace, 'write-tree', env=env).decode().strip()
-        if tree_files(workspace, tree) != files or util.snapshot(workspace) != source:
+        if tree_files(workspace, tree) != files or source_snapshot.snapshot(workspace, paths=source.get('source_paths', ())) != source:
             raise ValueError('Source changed during checkpoint capture, or Git filters changed the captured content')
         commit = git(workspace, '-c', 'user.name=AutoCode', '-c', 'user.email=autocode@localhost',
                      'commit-tree', tree, '-p', source['head'], data=b'AutoCode saved code checkpoint\n').decode().strip()
@@ -103,7 +109,7 @@ def update(state, run_dir):
                 'finding_ids': [row['id'] for row in state.get('findings_ledger', []) if row.get('id')],
                 'recorded_check': None}
         try:
-            source = util.snapshot(state['workspace'])
+            source = source_scope.snapshot(state['workspace'], state)
             if source['revision'] != implementation['source_revision']:
                 return
             directory = Path(run_dir) / 'code-checkpoints'

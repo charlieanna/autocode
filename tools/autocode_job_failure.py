@@ -4,6 +4,8 @@ Runtime services are passed by callers so this policy never imports a controller
 or a cycle member. This module alone writes state.job_failure and
 state.job_retry_authorization; run_view reads the former and provider admission
 consumes the latter. The archive retains fragments, usage and source captures.
+The failure source_paths preserve the captured inventory scope for authorize,
+reroute and admission; legacy failures retain their original Git-only scope.
 
 A job stopped on quota or by its provider's content filter (#463) also keeps, on
 state.job_failure: ``pause_status`` (PAUSED_BUDGET or PAUSED_CONTENT_FILTER; read by
@@ -18,13 +20,14 @@ import json
 import re
 from pathlib import Path
 try:
-    from . import autocode_jobs as jobs, autocode_job_source as source, autocode_util as util, autocode_roles as roles
+    from . import autocode_jobs as jobs, autocode_job_source as source, autocode_util as util, autocode_roles as roles, autocode_source_scope as scope
     from . import autocode_provider_refusal as provider_refusal, autocode_quota_route as quota_route
 except ImportError:
     import autocode_jobs as jobs
     import autocode_job_source as source
     import autocode_util as util
     import autocode_roles as roles
+    import autocode_source_scope as scope
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
 
@@ -162,12 +165,14 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, 
     runtime.account_stage(state, record)
     record.update(job_failure_kind=kind, write_diagnosis=restoration, abandoned=abandoned)
     config = record.get('job_configuration') or configuration(state)
-    source_identity = (record.get('job_source') or {}).get('before_identity')
+    captured = record.get('job_source') or {}
+    source_paths = captured.get('source_paths', scope.paths(state))
+    source_identity = captured.get('before_identity')
     if not source_identity and not (record.get('changed_files') or []):
         # Crashed before capturing its source binding, changed nothing: anchor the
         # retry gate on the live workspace identity so an exact retry stays possible
         # (authorize still refuses if the workspace changes before the retry).
-        source_identity = util.digest(source.identity(workspace))
+        source_identity = util.digest(source.identity(workspace, source_paths=source_paths))
     token = 'jr:' + util.digest({'run': str(run_dir), 'attempt': original_attempt,
                     'started_at': record.get('started_at'), 'source': source_identity, 'configuration': config})
     originals = runtime.archive_rejected_stage(state, run_dir, record, reason)
@@ -175,6 +180,7 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, 
     failure = state['job_failure'] = {
         'stage': stage, 'attempt_id': original_attempt, 'job_retry_token': token,
         'reason': reason, 'kind': kind, 'source_identity': source_identity,
+        'source_paths': source_paths,
         'configuration': config, 'archive': str(Path(record['events']).parent),
         'write_diagnosis': restoration, 'unrestored': restoration['unrestored']}
     if kind in _ROUTE_STOPS:
@@ -212,7 +218,8 @@ def authorize(runtime, state, run_dir, workspace, token):
     # The restoration diagnosis describes the failed attempt. Missing capture
     # files or a later exact manual restoration must not make it a permanent
     # veto: recheck the saved full identity, then check it again at admission.
-    if not source.matches_original(workspace, failure['source_identity']):
+    if not source.matches_original(workspace, failure['source_identity'],
+                                   source_paths=failure.get('source_paths', ())):
         if failure.get('unrestored'):
             raise ValueError('Unrestored source blocks job retry: ' + ', '.join(failure['unrestored']))
         raise ValueError('Source changed since the failed attempt; retry is stale')
@@ -249,7 +256,8 @@ def reroute(runtime, state, run_dir, workspace, assignment):
                          f"{failure.get('attempt_id')}")
     if not failure.get('source_identity'):
         raise ValueError('Exact retry is unavailable: this attempt has no saved original source identity')
-    if not source.matches_original(workspace, failure['source_identity']):
+    if not source.matches_original(workspace, failure['source_identity'],
+                                   source_paths=failure.get('source_paths', ())):
         if failure.get('unrestored'):
             raise ValueError('Unrestored source blocks job retry: ' + ', '.join(failure['unrestored']))
         raise ValueError('Source changed since the failed attempt; retry is stale')
@@ -277,7 +285,9 @@ def admit(state, record, workspace):
     if not owner(record):
         return
     record['job_configuration'] = configuration(state)
-    if (record.get('job_source') or {}).get('before_identity') != util.digest(source.identity(workspace)):
+    capture = record.get('job_source') or {}
+    if capture.get('before_identity') != util.digest(source.identity(
+            workspace, source_paths=capture.get('source_paths', ()))):
         raise util.Paused('PAUSED_STALE_VALIDATION', 'Source changed before workflow-job admission')
     if not state.get('job_failure'):
         return

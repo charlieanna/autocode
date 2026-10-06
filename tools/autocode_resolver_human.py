@@ -1,4 +1,10 @@
 """AutoResolver's request-only authority; publication never grants execution."""
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 import shlex
 import subprocess
@@ -36,7 +42,7 @@ def _binding(state):
     source = None
     if state.get('workspace'):
         try:
-            source = {'revision': support.snapshot(Path(state['workspace']))['revision']}
+            source = {'revision': source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)['revision']}
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
             source = {'unavailable': type(error).__name__ + ': ' + str(error)}
     interruptions = {'pending': [], 'pause_requested': False}

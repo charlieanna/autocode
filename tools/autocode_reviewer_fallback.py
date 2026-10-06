@@ -6,6 +6,12 @@ or diagnose why a provider stream was silent.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 from pathlib import Path
 
@@ -168,7 +174,7 @@ def _binding(state, stage, workspace, current, selected, evidence):
     inputs = _input_pins(state)
     contract = state.get("goal_contract") or {}
     return {
-        "source_revision": support.snapshot(workspace)["revision"],
+        "source_revision": source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"],
         "contract_hash": contract.get("hash"),
         "contract_digest": support.digest(contract),
         "cycle": _cycle(state, stage),
@@ -211,7 +217,7 @@ def reserve(state, run_dir, workspace, stage=None):
     old = _existing(state, cycle)
     if old:
         return old if not old.get("consumed") else None
-    source_revision = support.snapshot(workspace)["revision"]
+    source_revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"]
     evidence = _evidence(state, stage, current, source_revision)
     selected = _candidate(state, stage, reviewer_role, reviewer)
     if not evidence or not selected:

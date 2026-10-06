@@ -7,6 +7,12 @@ Runtime services are passed in so this module does not import the controller.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import json
 from pathlib import Path
 import re
@@ -93,7 +99,7 @@ def recover_startup(runtime, state, run_dir, workspace, error, *, sleep=time.sle
             return False
         runtime.assert_stage_stopped(record)
         before = runtime.read_json(before_path)
-        after = runtime.support.snapshot(workspace)
+        after = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
         if not before.get("revision") or before["revision"] != after["revision"]:
             return False
     except (OSError, ValueError, KeyError, runtime.support.Paused):
