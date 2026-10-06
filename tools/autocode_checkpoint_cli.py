@@ -8,6 +8,12 @@ idempotent replay reconciles only its exact owned path; it never resets files.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+except ImportError:
+    import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+
+
 import argparse
 from contextlib import contextmanager
 import difflib
@@ -72,7 +78,7 @@ def source_token(state, saved, source):
 
 def compare(state, run_dir, ident):
     saved = receipt(state, run_dir, ident)
-    source = util.snapshot(state['workspace'])
+    source = source_scope.snapshot(state['workspace'], state)
     changed = util.changed_paths(saved['source'], source)
     patch = ''
     before = checkpoints.content_files(saved['source'])
@@ -96,7 +102,7 @@ def compare(state, run_dir, ident):
                                                      'checkpoint/' + name, 'current/' + name))
         except UnicodeError:
             patch += 'Binary file changed.\n'
-    if source != util.snapshot(state['workspace']):
+    if source != source_scope.snapshot(state['workspace'], state):
         raise ValueError('Source changed while comparing; refresh the comparison')
     return {'version': 1, 'checkpoint_id': ident, 'checkpoint_commit': saved['commit'],
             'expected_token': source_token(state, saved, source), 'changed_files': changed,
@@ -127,7 +133,7 @@ def inbox_boundary(run_dir, state):
 
 
 def _same_files(workspace, saved):
-    return checkpoints.content_files(util.snapshot(workspace)) == checkpoints.content_files(saved['source'])
+    return checkpoints.content_files(source_snapshot.snapshot(workspace, paths=saved['source'].get('source_paths', ()))) == checkpoints.content_files(saved['source'])
 
 
 def record_restore(state, run_dir, result):
@@ -164,7 +170,7 @@ def restore(state, run_dir, ident, expected, operation):
     if reason:
         raise ValueError(reason)
     saved = receipt(state, run_dir, ident)
-    if not expected or expected != source_token(state, saved, util.snapshot(state['workspace'])):
+    if not expected or expected != source_token(state, saved, source_scope.snapshot(state['workspace'], state)):
         raise ValueError('The paused task or source changed. Compare again before restoring.')
     legacy.assert_no_legacy_process(run_dir, state['workspace'])
     project = Path(state.get('project_workspace') or state['workspace']).resolve()
@@ -216,7 +222,7 @@ def restore(state, run_dir, ident, expected, operation):
         util.atomic_json(metadata_path, metadata)
         child_dir.mkdir(parents=True, exist_ok=True)
         child = continuation.create(state, saved, workspace, child_dir, branch, project, operation, at=intent['created_at'])
-        if expected != source_token(state, saved, util.snapshot(state['workspace'])):
+        if expected != source_token(state, saved, source_scope.snapshot(state['workspace'], state)):
             raise ValueError('Original source changed during restoration; partial candidate retained')
         expected_child = util.digest(child)
         if intent.get('child_digest') and intent['child_digest'] != expected_child:

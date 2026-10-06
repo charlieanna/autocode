@@ -11,6 +11,12 @@ selected for this invocation (runner.opencode) is the one used. It never imports
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 import sys
 from pathlib import Path
@@ -172,7 +178,7 @@ def revalidate_on_resume(state, workspace):
     """A validation older than the workspace cannot support completion (#302)."""
     validation = state.get('validation') or {}
     revision = validation.get('source_revision')
-    if not revision or revision == support.snapshot(workspace)['revision']:
+    if not revision or revision == source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']:
         return False
     state.setdefault('validation_archive', []).append({
         'reason': 'Validation is non-current: the workspace revision changed after it ran',
@@ -214,7 +220,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print(f'Input rejected: {error}', file=sys.stderr)
         return 2
     dependency_result = dependency.apply(args, state, run_dir, resolver_human.current(state), runner.write_json,
-                                         lambda: support.snapshot(workspace)["revision"])
+                                         lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"])
     if dependency_result is not None:
         return dependency_result
     if not args.abandon_stage and job_failure.recover(runner, state, run_dir, workspace):
@@ -577,13 +583,13 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if args.approve_goal:
                 lifecycle.approve(candidate, args.approve_goal)
             for criterion in args.approve_review:
-                goals.approve_review(candidate, criterion, args.review_token, support.snapshot(workspace))
+                goals.approve_review(candidate, criterion, args.review_token, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
             if args.reconcile_review:
                 criterion, separator, answer_id = args.reconcile_review.partition("=")
                 if not separator or not criterion or not answer_id:
                     raise ValueError("--reconcile-review uses CRITERION_ID=ANSWER_ID")
                 goals.reconcile_legacy_review(candidate, criterion, answer_id,
-                                              args.review_token, support.snapshot(workspace))
+                                              args.review_token, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
             if args.accept_completion:
                 runner.accept_completion(candidate, workspace)
             if args.close_finding:

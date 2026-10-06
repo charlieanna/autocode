@@ -22,6 +22,12 @@ imports nothing from the runner.
 """
 from __future__ import annotations
 
+from functools import partial
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import datetime as dt
 import json
 from pathlib import Path
@@ -44,7 +50,7 @@ CHECKS IN A PASS: every check in a PASS report must exit 0; the runner re-runs e
 refuses the report otherwise. To show that something fails as it should (a negative control), write a check
 that exits 0 exactly when the failure happens, for example sh -c '! python3 -m unittest tests/test_x.py' or a
 test that asserts the error. Never cite a check that exits non-zero in a PASS.
-The clean copy is the repository's source only: no ignored files and no .autocode/. A check that reads run files
+The clean copy is the repository's source, including explicitly approved ignored deliverables; no .autocode/. A check that reads run files
 (state.json, regression/proof-*/verification.json) cannot pass there. regression_proof in your handoff is the
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
 Replay uses a clean Git worktree: .git may be a file or a directory. Exclude .git in either form
@@ -91,6 +97,11 @@ def evidence_pins(result):
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
             required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False, all_risk_observations=False) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    selected = source_scope.paths(approved_state or {})
+    if selected:
+        scratch_run = partial(scratch_run, source_paths=selected)
+        if execution_identity:
+            execution_identity = partial(execution_identity, source_paths=selected)
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     # Report stems repeat across iterations, repairs and retries of one attempt.
     # Allocate before any scratch/protected-test writes so old citations stay intact.

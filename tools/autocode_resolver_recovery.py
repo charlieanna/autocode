@@ -7,6 +7,12 @@ There is no controller, process termination, model call, or acceptance shortcut.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import base64
 import copy
 from dataclasses import asdict
@@ -259,7 +265,7 @@ def prepare_resolution(state, decision, record):
         request["recovery_novelty_skipped"] = "parallel_or_integrated_scope_uses_existing_resolver_bounds"
         return
     run, workspace = _run_root(state, record), Path(state["workspace"]).resolve()
-    current = util.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state)
     if current["revision"] != request["source_revision"]:
         _stale("source changed during incident capture")
     if "recovery_packet" in record:
@@ -750,7 +756,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
                          expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
         return False
-    current = runtime.support.snapshot(state["workspace"])
+    current = source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)
     if _binding(state, current["revision"]) != packet["binding"]:
         _stale("known correction changed scope or source before assignment")
     failed = [check for check in validation.get("checks", []) if type(check.get("exit_code")) is int and check["exit_code"]]
@@ -762,7 +768,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     except ValueError as error:
         _stale("known correction lacks an executed independent failure: " + str(error))
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the failed evidence")
     candidate = copy.deepcopy(state)
     candidate["iteration"] += 1
@@ -774,7 +780,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         if not error.status.startswith("PAUSED_MILESTONE_"):
             raise
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the proposed correction")
     action = retry_policy.failure(candidate, record["output"], "Attested bounded correction: " + change["hypothesis"])
     if action in ("pause", "defer"):
@@ -806,7 +812,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     candidate.update(status="RUNNING", phase="EXECUTING", next_action=decision["next_objective"],
                      next_stage=runtime.dispatch.build_stage(candidate))
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, runtime.support.snapshot(state["workspace"])["revision"]) != packet["binding"]:
+    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed before committing the proposed correction")
     state.clear()
     state.update(candidate)
@@ -822,7 +828,7 @@ def authorize_retry(runner, state, run_dir, workspace):
     if any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "orchestration_batch", "pending_report_repair")):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
-    if held.get("binding") != _binding(state, util.snapshot(workspace)["revision"]) or held.get("scope") != _scope(state):
+    if held.get("binding") != _binding(state, source_scope.snapshot(workspace, state)["revision"]) or held.get("scope") != _scope(state):
         raise ValueError("Scoped recovery retry is stale; source, settings or approved scope changed")
     if state.get("status") not in ("PAUSED_NO_PROGRESS", "WAITING_FOR_USER", "RESOLVER_PENDING"):
         raise ValueError("Scoped recovery retry requires its no-progress hold")
@@ -953,7 +959,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
             _stale(str(error))
         if current_inputs != packet["inputs"] or current_pins != packet["input_pins"]:
             _stale("external input changed after incident capture")
-    bound = _binding(state, util.snapshot(workspace)["revision"])
+    bound = _binding(state, source_scope.snapshot(workspace, state)["revision"])
     # A repair has a newly assigned task, but the approved stable scope must match;
     # a pinned repair task may only narrow the failed task's criteria (#423).
     expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]

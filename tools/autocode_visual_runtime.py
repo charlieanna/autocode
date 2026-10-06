@@ -7,6 +7,12 @@ calls, package installation, credentials or global configuration are managed her
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 from copy import deepcopy
 from functools import partial
 import hashlib
@@ -217,7 +223,7 @@ def prepare(state, stage, workspace, run_dir, base, command, env, prompt, *,
         root, run = Path(workspace).resolve(), Path(run_dir).resolve()
         _require(root == Path(state['workspace']).resolve() and run.is_relative_to(root / '.autocode' / 'runs'),
                  'Visual launch requires the actual owned run')
-        snapshot = current_snapshot or util.snapshot(root)
+        snapshot = current_snapshot or source_scope.snapshot(root, state)
         selected = evidence.context(state, snapshot)
         _require(selected and selected['current'] and not selected['unavailable_cases'],
                  'Missing CURRENT captures for declared cases; run declared validate preflight capture commands')
