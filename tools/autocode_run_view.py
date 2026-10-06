@@ -252,7 +252,7 @@ def evidence(state: dict) -> dict:
         "test_cases": [{key: case.get(key) for key in ("id", "given", "when", "then")}
                        for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
                       if investigation.get("outcome") == "reproduced" else [],
-        "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
+        "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "brief_acceptance": deepcopy(replay.get("brief_acceptance")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
                          "scheduling": deepcopy(replay.get("scheduling")),
                          "checks": [{key: deepcopy(row.get(key)) for key in
                                      ("command", "exit_code", "timed_out", "output", "output_sha256", "duration_seconds",

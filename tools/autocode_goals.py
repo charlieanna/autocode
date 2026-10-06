@@ -119,6 +119,8 @@ TASK_KINDS = ("build", "bugfix")
 TASK_KIND = {"type": "string", "enum": list(TASK_KINDS)}
 for _schema in (LEGACY_BODY_SCHEMA, REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANNING_BODY_SCHEMA):
     _schema["properties"]["task_kind"] = TASK_KIND
+    # Runner-owned provenance is checked by the brief obligation policy, not the model schema.
+    _schema["properties"]["brief_acceptance"] = {"type": "object"}
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
 JOB_TYPE_POLICY = """
 JOB TYPE. task_kind is "bugfix" when the request reports existing behavior that is wrong

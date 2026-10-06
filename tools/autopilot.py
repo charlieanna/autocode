@@ -18,9 +18,11 @@ try:
     from .units import autoplanner as planning_unit, common as units_common
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     from . import autocode_validation_rounds as validation_rounds
+    from . import autocode_brief_obligations as brief_obligations
 except ImportError:
     import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     import autocode_validation_rounds as validation_rounds
+    import autocode_brief_obligations as brief_obligations
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
@@ -225,7 +227,11 @@ def _bind_plan(state, value, origin, record):
     if origin in ("glm_draft", "glm_revise"):
         _check_code_refs(state, value.get("code_refs") or [])
     progressive_state.accept_proposal(state, value, origin=origin)
-    lifecycle.install_draft(state, value["contract"], origin=origin, changes=value.get("contract_changes") or [], record=record)
+    body = value["contract"]
+    if origin == "astra_finalize":
+        body = brief_obligations.reviewed_body(state, body, value.get("brief_observations") or [],
+            record, changes=value.get("brief_observation_changes") or [])
+    lifecycle.install_draft(state, body, origin=origin, changes=value.get("contract_changes") or [], record=record)
 
 
 def apply_planning(state, stage, value, record, *, run_dir=None):
@@ -288,7 +294,9 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
                 if not value["contract"]["open_blocking_questions"] and "initial_task" not in value["contract"]:
                     raise ValueError("Final plan needs an initial_task before approval")
                 derived = planning_graph.validate(value["contract"])
-                lifecycle.install_draft(state, value["contract"], origin="plan_finalize", record=record)
+                body = brief_obligations.reviewed_body(state, value["contract"],
+                    value.get("brief_observations") or [], record, changes=value.get("brief_observation_changes") or [])
+                lifecycle.install_draft(state, body, origin="plan_finalize", record=record)
                 planning["derived_graph"] = derived
                 planning["final_token"] = goals.token(state["goal_contract"])
                 planning_artifacts.prepare_final_outputs(state, prepared)
@@ -549,9 +557,12 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
         row["status"] == "PASS" for row in value.get("criterion_results", []))
     if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
         raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
+    replay_context = progressive_state.context(state)
     validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run,
-                                                   approved_state=state, progressive_context=progressive_state.context(state),
-                                                   execution_identity=verify.execution_identity)
+                                                   approved_state=state, progressive_context=replay_context,
+                                                   execution_identity=verify.execution_identity,
+                                                   all_brief_observations=human_pending or brief_obligations.whole_product_claim(
+                                                       state, value, progressive_context=replay_context))
                                   if value["verdict"] == "PASS" or human_pending or progressive_pass else None)
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
