@@ -141,9 +141,10 @@ def _scope(state):
 
 def _source_revision(state, stage, pointer, packet, workspace):
     """The source revision a dispatch is bound at: the current one, or for a Builder the packet's own
-    when the only difference is work this packet's earlier Builder attempts left in the tree
-    (retained_work.own_repair_source). Anything else still binds the current revision, so a person's
-    edit, or a further change after the last attempt, remains a stale handoff."""
+    when every file holds its bound content or what this packet's latest Builder attempt left, at an
+    unmoved HEAD (retained_work.own_repair_source says exactly what it admits). Anything else binds
+    the current revision, so other content, such as a person's new edit or a further change after
+    the last attempt, remains a stale handoff."""
     current, bound = util.snapshot(workspace), packet["binding"]["source_revision"]
     if (stage == "terra" and current["revision"] != bound
             and retained.own_repair_source(state.get("stages", []), pointer, bound, current)):

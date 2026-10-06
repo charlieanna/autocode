@@ -39,20 +39,28 @@ once more, could not be admitted, so its paid diagnosis bought nothing (compare
 
 ## Fix
 
-- `autocode_retained_work.own_repair_source` decides whether the current tree
-  differs from the packet's bound source only by this packet's own Builder
-  attempts. Every file must hold its bound content (the first such attempt's
-  before-snapshot, at the bound revision) or what the latest one left (its
-  after-snapshot), and HEAD must be the one both snapshots recorded. `autocode_resolver_recovery` then binds a
-  Builder dispatch, and an operator's `--retry-failed-stage` of its hold, at the
-  packet's revision. A person's edit, a further change, a new commit or an
-  unreadable snapshot still binds the current revision and pauses as stale.
+- `autocode_retained_work.own_repair_source` checks the tree file by file. Each
+  file must hold its bound content (the first such attempt's before-snapshot, at
+  the bound revision) or what this packet's latest Builder attempt left (its
+  after-snapshot), and HEAD must be the one both snapshots recorded.
+  `autocode_resolver_recovery` then binds a Builder dispatch, and an operator's
+  `--retry-failed-stage` of its hold, at the packet's revision. Other content (a
+  person's new edit, a further change), a moved HEAD or an unreadable snapshot
+  still binds the current revision and pauses as stale. Being per file, the check
+  also admits a file a person restored to its bound content, an out-of-scope edit
+  re-applied exactly as the attempt left it, and a mix of the two states across
+  files. Each file then holds the packet's own source or AutoCode's own output,
+  the scope gate (`autocode_assignment.outside`) still measures the whole
+  assignment after the retry, and the retry is validated afresh.
 - An Investigator's verified retry of a packet-bound Builder output the runner
   rejected (`PAUSED_INVALID_OUTPUT` or `PAUSED_REPEATED_FAILURE`, trigger
   `rejected_output`) is a one-use novelty grant (`grant_kind` `investigation`),
   like an accepted operational diagnosis's. It is bound to that investigation
-  while its guidance is in force, and to the packet. An investigation of a novelty
-  hold grants nothing, and a plain resume of the rejected attempt is still held.
+  while its guidance is in force, and to the packet. Like the diagnosis's, it is
+  spent by one attempt that returns a result, so a relaunch after a provider
+  timeout keeps it, and a diagnosis retry already spent does not hide it. An
+  investigation of a novelty hold grants nothing, and a plain resume of the
+  rejected attempt is still held.
 
 `tests/test_rejected_repair_retry.py` drives both routes
 through the CLI. The Investigator's retry completes from the retained edit. With

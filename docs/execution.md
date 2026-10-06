@@ -712,9 +712,14 @@ admitted may stop without being accepted and leave its work: a rejected attempt
 keeps its in-scope edits for the retry (the runner removes or restores only what
 it wrote outside its assignment), and a timed-out one keeps partial edits. That
 work is not a stale handoff. The next Builder attempt is bound as at the packet's
-source when every file holds either that source's content or what the packet's
-latest Builder attempt left, and Git HEAD has not moved. Any other change, such as a
-person's edit while the run is paused, still pauses as `PAUSED_STALE_HANDOFF`.
+source when each file, checked one by one, holds either that source's content or
+what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
+other content, such as a person's new edit while the run is paused, still pauses as
+`PAUSED_STALE_HANDOFF`. Because the check is per file, a file restored to its
+bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
+a mix of the two states across files is admitted. That is safe: each file holds
+the packet's own source or AutoCode's own output, the assignment scope check still
+covers the whole assignment after the retry, and the retry is validated afresh.
 When the runner rejected such an attempt's output and the stuck-stage
 Investigator recommends a retry, that retry admits the Builder until one attempt
 returns a result, as an accepted operational diagnosis's does; a spent diagnosis

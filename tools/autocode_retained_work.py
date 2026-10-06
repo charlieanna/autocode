@@ -108,18 +108,25 @@ def _snapshot(ref):
 
 
 def own_repair_source(stages, packet, bound_revision, current) -> bool:
-    """Whether ``current`` differs from an incident packet's bound source only by its own Builders' work.
+    """Whether every file of ``current`` holds its bound content or what this packet's latest Builder left.
 
     A recovery packet binds the source its incident was captured on, and each Builder attempt it
     admits carries the packet in its receipt (``recovery_novelty``). Such an attempt can stop without
     being accepted and leave its edits: the runner rejects one that also wrote outside its assignment,
     removes or restores those files (autocode_assignment.undo_created) and keeps the in-scope work for
     the retry, and a timed-out attempt leaves partial edits. The retry must not read that as somebody
-    else's change (live feature-stock-refusals run, 2026-10-06). So every file must hold either its
-    bound content, from the first such attempt's before-snapshot (taken at the bound revision), or
-    what the latest such attempt left, from its after-snapshot, and Git HEAD must be the one both
-    snapshots recorded. Any other content, or a snapshot that cannot be read, is a change AutoCode
-    did not make.
+    else's change (live feature-stock-refusals run, 2026-10-06).
+
+    The check is per file: each must hold either its bound content, from the first such attempt's
+    before-snapshot (taken at the bound revision), or what the latest such attempt left, from its
+    after-snapshot; and Git HEAD must be the one both snapshots recorded. Any other content, a moved
+    HEAD or a snapshot that cannot be read fails. Being per file, it also admits a file a person
+    restored to its bound content, an out-of-scope edit re-applied exactly as the latest attempt left
+    it, and a per-file mix of the two states that no single attempt produced. Those are safe: bound
+    content is the packet's own evidence, the latest attempt's content is AutoCode's own output, the
+    scope gate (autocode_assignment.outside) still measures the whole assignment after the retry, and
+    the retry still needs fresh validation. An edit made while an attempt ran is in its after-snapshot
+    and counts as that attempt's, as it does for the scope gate.
     """
     attempts = [row for row in stages if packet and (row.get("recovery_novelty") or {}).get("packet") == packet
                 and (row.get("original_stage") or row.get("stage")) == assignment.BUILDER
