@@ -124,9 +124,9 @@ signal.pause()
 
     def test_catalogue_records_timeout_before_propagating_and_does_not_cache_it(self):
         from tests import test_catalogue_t12 as catalogue
-        error = subprocess.TimeoutExpired(["node", "fixture"], 420)
+        error = subprocess.TimeoutExpired(["node", "fixture"], 900)
         error.receipt = {"reason": "timeout", "stdout": "partial", "stderr": "diagnostic",
-                         "command": error.cmd, "timeout_seconds": 420,
+                         "command": error.cmd, "timeout_seconds": 900,
                          "cleanup": {"checked": True, "live_pids": []}}
         case = catalogue.DashboardCase()
         case.bundle = Mock()
@@ -138,7 +138,7 @@ signal.pause()
             self.assertEqual({}, catalogue._SUITE_CACHE)
         case.bundle.log.assert_called_once_with(
             "dashboard_suite", suite="a11y", kind="browser", **error.receipt)
-        self.assertEqual(420, invoke.call_args.kwargs["timeout"])
+        self.assertEqual(900, invoke.call_args.kwargs["timeout"])
 
 
 if __name__ == "__main__":
