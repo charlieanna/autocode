@@ -241,18 +241,24 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("
     The record holds the program's final ``program`` summary (`autocode program status`), its integration
     ``verifications`` in order, the ``children`` runs of every workstream (retired ones too) with when each
     was created, the agreement tokens the person was ``shown`` and ``approved``, the agreement's
-    ``interfaces``, and the ``changes`` the scenario scripted (``[[program.change]]``).
+    ``interfaces``, the ``changes`` the scenario scripted (``[[program.change]]``), and ``workstream_ids``:
+    which derived workstream each scenario workstream id stands for (the same id under the scripted model).
     """
     if run is None:
         return []
     program = run.get("program") or {}
     rows = {row["id"]: row for row in program.get("workstreams") or []}
+    ids = run.get("workstream_ids") or {}
     checks = []
-    tokens = run.get("agreement") or {}
-    approved, shown = tokens.get("approved") or [], tokens.get("shown") or []
-    unshown = [token for token in approved if token not in shown]
-    checks.append(Check("agreement_approved_by_shown_token", bool(approved) and not unshown,
-                        f"approved {approved}; never shown: {unshown}" if unshown else f"approved {approved}"))
+    # The program itself, not the driver, says which agreement it holds: approved, with nothing pending, and
+    # exactly the revision whose token the person was last shown.
+    shown = (run.get("agreement") or {}).get("shown") or []
+    held = program.get("agreement") or {}
+    checks.append(Check("agreement_approved_by_shown_token",
+                        bool(shown) and held.get("approved") is True and held.get("token") == shown[-1]
+                        and held.get("pending") is None,
+                        f"the program holds {held.get('token')!r} (approved {held.get('approved')!r}, pending "
+                        f"{held.get('pending')!r}); the person was last shown {shown[-1] if shown else None!r}"))
     # #22: every workstream is an ordinary run, its own plan approved, built from the approved agreement.
     loose = sorted(wid for wid, row in rows.items()
                    if row.get("status") != "MERGED" or row.get("run_status") != "TASK_COMPLETE"
@@ -291,8 +297,9 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("
     requests = program.get("change_requests") or []
     interfaces = {row.get("id"): row for row in run.get("interfaces") or []}
     for step in getattr(scenario, "program_changes", ()) or ():
+        by = ids.get(step["by"], step["by"])
         request = next((row for row in requests if row.get("interface") == step["interface"]
-                        and row.get("by") == step["by"]), {})
+                        and row.get("by") == by), {})
         wanted = "accepted" if step["decide"] == "accept" else "rejected"
         checks.append(Check(f"change_request_{wanted}[{step['interface']}]", request.get("status") == wanted,
                             f"{request.get('id')}: {request.get('status')!r}"))

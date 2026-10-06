@@ -465,7 +465,22 @@ branch. A scenario with `category = "program"` is driven that way by
 The driver never relaunches, resumes or follows up a workstream's run (the
 program advances each run once per pass), never answers a question only a
 person may answer, never authorizes deployment and never retries a failed
-workstream: the program is judged where it stopped.
+workstream: the program is judged where it stopped. Under a live profile it
+still approves the agreement and every workstream's plan, as the single-run
+driver approves the plans it is shown; `tools/live_trial.py`, by contrast,
+stops a live program for a person at the agreement and at every plan.
+
+**Workstream ids.** `[program] revise` and `[[program.change]]` name
+workstreams by their `[fake] milestones` ids, which the scripted planner keeps.
+A live planner names its milestones itself, so after `program derive` the
+driver maps each id the scenario names to the derived workstream whose `owns`
+cover every path of that milestone (the store's producer is whoever owns
+`notes/store.py`), and renames the interface producers and consumers, `by` and
+`after = "merged:<id>"` accordingly (`result.json` `program.workstream_ids`). When
+the live plan's split does not line up with the scenario's (a milestone's
+paths owned by no single workstream, by several, or two milestones landing on
+one workstream), the driver stops before approving anything and the run is
+`ERROR`.
 
 ```toml
 [program]
@@ -489,7 +504,8 @@ never the project's own branch, so the oracle judges the integration worktree
 always. `oracle.changed_since_seed` compares a worktree with the seed commit,
 since `git status` is clean where the product was committed.
 `oracle.program_checks(run, scenario)` judges how the program went from the
-run record: the agreement approved by the exact shown token, every workstream a
+run record: the program holding, approved and with nothing pending, the
+agreement revision whose token the person was last shown, every workstream a
 merged run with its own approved plan, the walking skeleton verified first and
 nothing else started before that, every merge re-running the checks of all
 merged before it, each journey verified by name by the integration
@@ -498,8 +514,9 @@ acceptance: exactly the producer and consumers retired and re-checked under the
 new revision). The run record holds the program's final summary (`program
 status`), its verifications, every workstream run (retired ones too) with its
 stages, the plan run in a single run's shape (`plan`), the agreement tokens,
-interfaces and changes, and every model stage of the plan and workstream runs,
-which `[run] requires_stages` counts.
+interfaces and changes, the scenario's workstream ids mapped to the derived
+ones, and every model stage of the plan and workstream runs, which `[run]
+requires_stages` counts.
 
 **Verdicts.** `COMPLETE` is judged like a completed run (`PASS` or
 `FALSE_COMPLETE`); `PAUSED_*` stops (an integration check, the skeleton
@@ -508,10 +525,12 @@ unverified) and the program-only stops `WAITING`, `WAITING_AGREEMENT_APPROVAL`,
 `WAITING_CHANGE_REQUEST` and `AUTHORIZATION_REQUIRED` are `HONEST_BLOCKER`;
 `BLOCKED` (a workstream run failed) and `RUNNING` are `ERROR`. A program that
 did not complete names each unmerged workstream's status and its run's status
-and progress. A scripted change request whose moment never came is
-`NOT_EXERCISED`. Single runs are judged as before (`verdict.judge_program` is
-used for programs only). `compare`, `build-compare` and `--hybrid` skip program
-scenarios.
+and progress. A program that passes without raising a scripted change request
+(its moment never came) is `NOT_EXERCISED`. Any other verdict stands, with the
+request that was never raised added to its summary: a regression that stops the
+program before the skeleton merges is still a failure. Single runs are judged
+as before (`verdict.judge_program` is used for programs only). `compare`,
+`build-compare` and `--hybrid` skip program scenarios.
 
 **The scripted model.** Child runs inherit the fake on `PATH`. The fake reads a
 workstream's brief (`PROGRAM WORKSTREAM <id> (<kind>)`, and the ids on its
@@ -520,16 +539,19 @@ workstream its own `[fake] milestones` row with no dependencies, under the ids
 it inherits; the integration workstream every requirement and journey it
 inherits, verified by `[fake] check`, delivering the solution files no milestone
 owns. A code workstream whose files already match the solution (a re-check after
-an agreement revision) plans a validate-only task. It remembers each worktree's
-workstream beside its configuration, never in the worktree, for report repairs,
-whose packets carry no task. `tests/test_program.py` (`ScenarioFakeBriefTests`)
-runs the fake on real `compose_brief` output, so a brief reworded out from
-under it fails there. `catalog.load` requires a program scenario's milestone
-paths to be disjoint and its reference to hold a file no milestone owns (the
-integration workstream's delivery; a run that changes nothing stops for want of
-progress), and every `broken/<name>/` must be a complete overlay for the same
-reason. The seed should ignore `__pycache__/`: a workstream may change only
-the paths it owns.
+an agreement revision) plans a validate-only task. That is the fake's choice, not
+the product's: a re-check planned as an implementation of a workstream that
+already conforms stalls the program, since its Builder has nothing to change
+([docs/bugs/2026-10-06-program-recheck-implement-stall.md](../docs/bugs/2026-10-06-program-recheck-implement-stall.md)).
+The fake remembers each worktree's workstream beside its configuration, never
+in the worktree, for report repairs, whose packets carry no task.
+`tests/test_program.py` (`ScenarioFakeBriefTests`) runs the fake on real
+`compose_brief` output, so a brief reworded out from under it fails there.
+`catalog.load` requires a program scenario's milestone paths to be disjoint,
+and its reference and every `broken/<name>/` to be a complete overlay: every
+milestone path, and a file no milestone owns (the integration workstream's
+delivery). A run that changes nothing stops for want of progress. The seed
+should ignore `__pycache__/`: a workstream may change only the paths it owns.
 
 ```sh
 $PY scenarios/run.py run program-notes-cli --fake                                   # PASS, about 30 s

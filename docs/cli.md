@@ -20,7 +20,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autocode ui` / `autocode-ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` / `autocode-tasks` | Run a multi-lane task flow file. |
 | `autocode components` / `autocode-components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
-| `autocode program plan\|derive\|run\|status` / `autocode-program` | Plan a large requirement, derive a workstream manifest from the approved plan, run workstreams in parallel worktrees merged onto an integration branch (see [Programs](program.md)). |
+| `autocode program plan\|derive\|show\|approve\|run\|status\|request-change\|resolve-change` / `autocode-program` | Plan a large requirement, derive a workstream manifest from the approved plan, read and approve that manifest as the program agreement by exact token, run workstreams in parallel worktrees merged onto an integration branch, and raise or reject interface change requests (see [Programs](program.md)). |
 | `autocode-dashboard` | Local browser dashboard. |
 | `autocode --unit autoplanner\|autocode\|autoreview\|autoresolver` | Select one unit; omitting `--unit` runs all. |
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
@@ -168,15 +168,27 @@ still require their own actions. Recovery eligibility and token checks are uncha
 
 ### Programs
 
-| Flag | Meaning |
+| Command or flag | Meaning |
 | --- | --- |
+| `program plan BRIEF --workspace DIR` | Plan the request with the ordinary planning unit (`--unit autoplanner`, in place) and a program preamble. `--engine` and unrecognized flags go to that run. |
+| `program derive --run-dir RUN --output program.json` | Write the manifest from the run's `approved_contract`; refuses unapproved plans. `--workspace` names the plan run's project, `--name` the program; without `--output` it prints the manifest. |
+| `program show MANIFEST --workspace DIR` | Print the program agreement and the exact token (`a<revision>:<digest>`) that approves its pending revision, or the approved revision. Saves nothing. |
+| `program approve MANIFEST --workspace DIR --token TOKEN` | Approve that agreement revision; refuses any other token. No workstream starts before the first approval, and every later revision is approved the same way. |
 | `program run MANIFEST --max-parallel N` | Concurrent workstreams (default 2). |
 | `program run MANIFEST --authorize-deployment` | Allow `deployment` workstreams to start or resume; their runs still need plan approval. Descriptor generation is ordinary `code`. |
 | `program run MANIFEST --retry-workstream ID` | Explicitly retry a failed workstream in its existing worktree/checkpoint, without bypassing child gates. Repeat for multiple failed workstreams. |
+| `program run MANIFEST --check-timeout S` | Seconds each cumulative check may take after a merge (default 900). |
+| `program run MANIFEST --engine codex\|opencode` | Engine for the workstream runs it starts; a workstream's own `engine` wins. |
 | `program run MANIFEST --dry-run` | Validate and preview without creating branches or worktrees. |
-| `program derive --run-dir RUN --output program.json` | Write the manifest from an approved plan; refuses unapproved plans. |
+| `program status MANIFEST --workspace DIR` | The same summary as `run`, read from the saved state and each unfinished child's status view, without launching or saving anything. |
+| `program request-change MANIFEST --workspace DIR --interface ID --by WORKSTREAM --reason TEXT [--proposal TEXT]` | Open a change request (`CR-N`) on a shared interface; its producer and consumers neither start nor merge while it is open. |
+| `program resolve-change MANIFEST --workspace DIR --request CR-N --reject --reason TEXT` | Reject an open change request. Accepting one is an approved agreement revision that publishes the interface's next version. |
 
-Unrecognized `program run` flags (for example `--engine`, model overrides) are passed through to every child code run.
+Every program command except `derive` takes `--workspace` (default: the current
+directory), the root of the project's Git checkout. Unrecognized `program run` flags
+(for example model overrides) are passed through, with `--workflow build`, to every
+workstream run that pass starts; a resumed run keeps its saved settings. `program run`
+exits 0 only when the program is `COMPLETE`.
 
 Program manifests support `code`, `integration`, and `deployment`. UI workstreams are
 deferred until the UI runner supports checkpoint recovery; use `autocode ui` separately.

@@ -111,7 +111,7 @@ Run everything from the repository root, with the venv interpreter.
 PY=.venv/bin/python   # has psutil; the system python3 does not
 $PY -m unittest tests.test_architecture                        # seconds
 $PY tools/run_suite.py --changed                               # the tests for what you changed, in parallel
-$PY scenarios/run.py run --fake                                # every scenario end to end, under a minute
+$PY scenarios/run.py run --fake                                # every scenario end to end, about 5.5 minutes (63 scenarios)
 $PY tools/run_suite.py --scenario-harness                      # harness and catalog, one test per process
 $PY tools/run_suite.py                                         # every test, in parallel; what master's CI runs
 ```

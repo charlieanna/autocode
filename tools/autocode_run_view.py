@@ -120,8 +120,12 @@ def approved_contract(state: dict) -> dict | None:
     Approved by the user, or, for a bug fix's small correction, under the workflow policy
     the user agreed to (autocode_workflows.POLICY_ORIGINS); the view does not say which.
     None while there is no approval, after a new draft revision replaces the approved one,
-    and while a blocking question is open (the runner's own approval check). A program
-    coordinating several runs reads the child's approved criteria here, never state.json.
+    and while the contract itself records an open blocking question (approval refuses one);
+    a question the run asks after approval does not remove it (the runner's own approval
+    check, contract_identity.approved). Until a --follow-up drafts its own plan, and for a
+    follow-up answered by a review, design or discussion, it is the earlier request's plan.
+    A program coordinating several runs reads the child's approved criteria here, never
+    state.json.
     """
     contract = state.get("goal_contract") or {}
     try:

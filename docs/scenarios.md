@@ -85,6 +85,22 @@ see [programs](program.md)). As with plans, only the offline fixture profile app
 it; a live profile stops there, an `HONEST_BLOCKER`, until a person reads it with
 `autocode program show` and approves its exact token.
 
+The scenario harness has a program mode of its own, separate from `live_trial.py`: a
+catalog scenario with `category = "program"` is driven through `autocode program plan`,
+`derive`, `show`, `approve` and `run` passes, with real workstream runs. The
+`program-notes-cli` scenario covers the walking skeleton, two parallel workstreams, an
+accepted interface change request that re-checks the producer and its consumers, and
+the final check by journey; its broken variants are caught by the cumulative checks
+(`HONEST_BLOCKER`) and only by the hidden journey test (`FALSE_COMPLETE`):
+
+```sh
+.venv/bin/python scenarios/run.py run program-notes-cli --fake
+```
+
+Unlike `live_trial.py`, that driver approves the agreement and every workstream's plan
+under a live profile too, as its single-run driver approves the plans it is shown. See
+[scenarios/README.md, Programs](../scenarios/README.md#programs).
+
 ## When a scenario counts as reliably passing
 
 The live qualification rule (#110, as practised): a rung passes only with

@@ -142,12 +142,17 @@ def program_summary(summary: dict) -> str:
 
 
 def change_not_reached(outcome: str, text: str, changes: list[dict]) -> tuple[str, str]:
-    """A program that ended well before a scripted change request could be raised says nothing about
-    change requests: NOT_EXERCISED, like a stage it never reached. Other verdicts stand."""
+    """A program that passed without raising a scripted change request says nothing about change requests:
+    NOT_EXERCISED, like a stage it never reached. Any other verdict stands, so a stop, a false completion or
+    an error before the request's moment (such as a regression before the skeleton merges) still counts;
+    its text only adds which request was never raised."""
     missing = [f"{row['interface']} (after {row['after']})" for row in changes if not row.get("request")]
-    if outcome in (PASS, HONEST_BLOCKER) and missing:
-        return NOT_EXERCISED, f"never raised the change request on {', '.join(missing)} ({outcome}: {text})"
-    return outcome, text
+    if not missing:
+        return outcome, text
+    never = f"never raised the change request on {', '.join(missing)}"
+    if outcome == PASS:
+        return NOT_EXERCISED, f"{never} ({outcome}: {text})"
+    return outcome, f"{text}; {never}"
 
 
 def judge(status: str, oracle: OracleResult, expected: str = "complete") -> tuple[str, str]:

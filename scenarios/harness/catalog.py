@@ -214,8 +214,9 @@ def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
     """The validated [program] table ({} for any other category).
 
     The scripted model plans a program from [fake] milestones and each workstream delivers its milestone's
-    paths, so the paths must be disjoint, and the reference must hold a file no milestone owns: the
-    integration workstream's own delivery (a run that changes nothing stops for want of progress)."""
+    paths, so the paths must be disjoint. A run that changes nothing stops for want of progress, so the
+    reference and every broken overlay must be complete: every milestone path, and a file no milestone owns
+    (the integration workstream's own delivery)."""
     program = meta.get("program", {})
     if meta["category"] != "program":
         if program:
@@ -233,10 +234,16 @@ def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
     owned = [path for row in milestones for path in row.get("paths", [])]
     if not milestones or len(owned) != len(set(owned)):
         raise ValueError(f"{scenario_id}: a program scenario needs [fake] milestones whose paths are disjoint")
-    reference = root / "reference"
-    if reference.is_dir() and not set(overlay_paths(reference)) - set(owned):
-        raise ValueError(f"{scenario_id}: the reference needs a file no milestone owns, which the integration "
-                         "workstream delivers")
+    broken = root / "broken"
+    overlays = [root / "reference", *(sorted(broken.iterdir()) if broken.is_dir() else ())]
+    for overlay in (path for path in overlays if path.is_dir()):
+        name, files = overlay.relative_to(root).as_posix(), set(overlay_paths(overlay))
+        missing = sorted(set(owned) - files)
+        if missing:
+            raise ValueError(f"{scenario_id}: {name}/ is not a complete overlay: it lacks milestone paths {missing}")
+        if not files - set(owned):
+            raise ValueError(f"{scenario_id}: {name}/ needs a file no milestone owns, which the integration "
+                             "workstream delivers")
     for number, step in enumerate(program.get("change", []), start=1):
         where = f"{scenario_id}: [[program.change]] {number}"
         if not isinstance(step, dict) or set(step) - CHANGE_KEYS:

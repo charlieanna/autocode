@@ -266,6 +266,7 @@ def run_program(scenario, args, out: Path, result: dict, project: Path, flags: l
                   checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error,
                   diagnosis=diagnosis,
                   program={"agreement": summary.get("agreement"), "tokens": record["agreement"],
+                           "workstream_ids": record["workstream_ids"],
                            "integration_branch": summary.get("integration_branch"),
                            "skeleton": summary.get("skeleton"), "journeys": summary.get("journeys"),
                            "change_requests": summary.get("change_requests"), "changes": record["changes"],

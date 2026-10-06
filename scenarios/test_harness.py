@@ -719,21 +719,24 @@ class ProgressiveLearningOracleTests(unittest.TestCase):
                 self.assertEqual(verdict.FALSE_COMPLETE, verdict.judge("TASK_COMPLETE", result)[0])
 
 
-def program_scenario(root, *changes, revise=None):
+def program_scenario(root, *changes, revise=None, milestones=()):
     """A program scenario for driver tests; nothing in it is run."""
     return catalog.Scenario(id="demo-program", dir=Path(root), title="Demo program", category="program",
                             brief="Build the demo.", requires=(), fake_check="true", max_steps=40, timeout_minutes=5,
-                            program_revise=revise or {}, program_changes=tuple(changes))
+                            fake_milestones=tuple(milestones), program_revise=revise or {},
+                            program_changes=tuple(changes))
 
 
 class ProgramCLI:
     """Stands in for `autocode`: the program commands, and each run's --status and gate answers.
 
     ``passes`` are the summaries successive `program run` calls print; a workstream row's ``view`` becomes
-    that run's status view. A call that would relaunch a run is recorded in ``relaunched`` and refused."""
+    that run's status view. ``derived`` are the workstreams `program derive` writes. A call that would relaunch
+    a run is recorded in ``relaunched`` and refused."""
 
-    def __init__(self, passes):
+    def __init__(self, passes, derived=()):
         self.passes, self.calls, self.views, self.relaunched, self.last = list(passes), [], {}, [], {}
+        self.derived = list(derived)
 
     @staticmethod
     def view(status, needs, **extra):
@@ -767,7 +770,8 @@ class ProgramCLI:
         return "", 2
 
     def derive(self, args):
-        Path(args[args.index("--output") + 1]).write_text(json.dumps({"version": 1, "name": "demo", "workstreams": []}))
+        Path(args[args.index("--output") + 1]).write_text(json.dumps({"version": 1, "name": "demo",
+                                                                      "workstreams": self.derived}))
         return "wrote", 0
 
     def show(self, args):
@@ -778,6 +782,8 @@ class ProgramCLI:
         return "{}", 0
 
     def run(self, args):
+        if isinstance(self.passes[0], str):
+            return self.passes.pop(0), 2  # printed verbatim: output the driver cannot read
         summary = self.last = json.loads(json.dumps(self.passes.pop(0)))
         for row in summary["workstreams"]:
             if "view" in row:
@@ -813,15 +819,16 @@ class ProgramDriverTests(unittest.TestCase):
     FLAGS = ["--engine", "codex", "--joint-planning"]
     APPROVE = {"kind": "approve_plan", "token": "r2:child"}
 
-    def drive(self, passes, *changes):
+    def drive(self, passes, *changes, cli=ProgramCLI, derived=(), **scenario):
         from harness.program_driver import ProgramDriver
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         (root / "project").mkdir()
-        cli = ProgramCLI(passes)
-        driver = ProgramDriver(program_scenario(root, *changes), root / "project", root, self.FLAGS, {},
+        cli = cli(passes, derived)
+        driver = ProgramDriver(program_scenario(root, *changes, **scenario), root / "project", root, self.FLAGS, {},
                                autocode=["autocode"], max_steps=40, timeout_seconds=60)
+        self.cli_calls = cli.calls
         with patch("harness.program_driver.run_cli", cli), patch("harness.driver.run_cli", cli):
             try:
                 return driver.drive(), driver, cli
@@ -896,6 +903,84 @@ class ProgramDriverTests(unittest.TestCase):
         self.assertEqual({"shared": {"constraints": ["stdlib"], "interfaces": [{"id": "store"}]},
                           "journeys": [{"id": "J1", "name": "Capture"}]}, revise(manifest, edits))
 
+    def test_a_scenario_id_names_the_derived_workstream_that_owns_its_paths(self):
+        from harness.driver import DriveError
+        from harness.program_driver import workstream_ids
+        milestones = [{"id": "S", "paths": ["notes/cli.py", "notes/store.py"]},
+                      {"id": "T", "paths": ["notes/commands/search.py"]}]
+
+        def derived(*rows):
+            return {"workstreams": [*({"id": wid, "owns": owns} for wid, owns in rows),
+                                    {"id": "integration", "kind": "integration", "owns": []}]}
+
+        # The scripted planner keeps the scenario's ids and paths.
+        self.assertEqual({"S": "S", "T": "T"}, workstream_ids(
+            derived(("S", ["notes/cli.py", "notes/store.py"]), ("T", ["notes/commands/search.py"])), milestones))
+        # A live planner names its own, and may own a directory rather than each file.
+        self.assertEqual({"S": "core", "T": "search"}, workstream_ids(
+            derived(("core", ["notes/cli.py", "notes/store.py"]), ("search", ["notes/commands/"])), milestones))
+        for rows, error in (
+                ([("core", ["notes"]), ("search", ["notes/commands/search.py"])], "2 workstreams \\(core, search\\)"),
+                ([("cli", ["notes/cli.py"]), ("store", ["notes/store.py"]), ("T", ["notes/commands"])],
+                 "no one workstream owns all of S's"),
+                ([("core", ["notes"])], "S and T would be one workstream, core")):
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(DriveError, "do not line up with the scenario's: .*" + error):
+                    workstream_ids(derived(*rows), milestones)
+
+    def test_a_live_plan_s_own_ids_stand_in_for_the_scenario_s_everywhere_it_names_a_workstream(self):
+        reject = {"after": "merged:S", "interface": "store", "by": "T", "reason": "it needs order", "decide": "reject",
+                  "resolution": "order is not part of the interface"}
+        revise = {"shared": {"interfaces": [{"id": "store", "summary": "the store", "paths": ["store.py"],
+                                             "version": 1, "producer": "S", "consumers": ["T"]}]}}
+        status, driver, cli = self.drive([
+            summary("WAITING", workstream("M1", "MERGED"), workstream("M2", "PENDING")),
+            summary("WAITING_CHANGE_REQUEST", workstream("M1", "MERGED"), workstream("M2", "PENDING"),
+                    requests=[{"id": "CR-1", "status": "open"}]),
+            summary("COMPLETE", workstream("M1", "MERGED"), workstream("M2", "MERGED"))], reject,
+            derived=[{"id": "M1", "owns": ["store.py"]}, {"id": "M2", "owns": ["search.py", "tests/test_search.py"]}],
+            milestones=[{"id": "S", "paths": ["store.py"]},
+                        {"id": "T", "paths": ["search.py", "tests/test_search.py"]}],
+            revise=revise)
+        self.assertEqual("COMPLETE", status)
+        interface = json.loads(driver.manifest.read_text())["shared"]["interfaces"][0]
+        self.assertEqual(("M1", ["M2"]), (interface["producer"], interface["consumers"]))
+        request = self.commands(cli, "request-change")[0]
+        self.assertEqual("M2", request[request.index("--by") + 1])
+        self.assertEqual(("M2", "merged:M1", "CR-1"), tuple(self.record["changes"][0][key]
+                                                            for key in ("by", "after", "request")))
+        self.assertEqual({"S": "M1", "T": "M2"}, self.record["workstream_ids"])
+
+    def test_a_plan_whose_split_does_not_line_up_stops_before_anything_is_approved(self):
+        from harness.driver import DriveError
+        reject = {"after": "merged:S", "interface": "store", "by": "T", "reason": "order", "decide": "reject",
+                  "resolution": "no"}
+        with self.assertRaisesRegex(DriveError, "do not line up"):
+            self.drive([], reject, derived=[{"id": "M1", "owns": ["store.py", "search.py"]}],
+                       milestones=[{"id": "S", "paths": ["store.py"]}, {"id": "T", "paths": ["search.py"]}])
+        # Nothing shown or approved; `status` is only finish() reading the evidence.
+        self.assertEqual(["plan", "derive", "status"], [call[1] for call in self.cli_calls if call[0] == "program"])
+
+    def test_output_the_driver_cannot_read_stops_the_drive_with_what_was_printed(self):
+        from harness.driver import DriveError
+
+        class Garbled(ProgramCLI):
+            def request_change(self, args):
+                return "Traceback (most recent call last): boom", 0
+
+        reject = {"after": "merged:S", "interface": "store", "by": "T", "reason": "order", "decide": "reject",
+                  "resolution": "no"}
+        with self.assertRaisesRegex(DriveError, "request-change printed no change request: Traceback .*boom"):
+            self.drive([summary("WAITING", workstream("S", "MERGED"), workstream("T", "PENDING"))], reject, cli=Garbled)
+        # The program waits for an agreement approval but names no token to approve.
+        with self.assertRaisesRegex(DriveError, "names no pending token"):
+            self.drive([summary("WAITING_AGREEMENT_APPROVAL", workstream("S", "PENDING"))])
+        for printed in ("Traceback: boom", '["WAITING"]', '{"status": "WAITING"}',
+                        '{"status": "WAITING", "workstreams": [{"id": "S"}]}'):
+            with self.subTest(printed=printed):
+                with self.assertRaisesRegex(DriveError, "program run printed no summary: " + re.escape(printed)):
+                    self.drive([printed])
+
 
 class ProgramJudgeTests(unittest.TestCase):
     passing = verdict.OracleResult([verdict.Check("a", True)])
@@ -929,13 +1014,20 @@ class ProgramJudgeTests(unittest.TestCase):
         self.assertNotIn("S MERGED", text)
         self.assertNotIn("WAITING", verdict.judge_program("COMPLETE", self.passing, summary=rows)[1])
 
-    def test_a_change_request_never_raised_is_not_exercised(self):
+    def test_only_a_pass_that_never_raised_its_change_request_is_not_exercised(self):
         never = [{"interface": "store", "after": "merged:S", "request": None}]
         raised = [{"interface": "store", "after": "merged:S", "request": "CR-1"}]
-        self.assertEqual(verdict.NOT_EXERCISED, verdict.change_not_reached(verdict.PASS, "ok", never)[0])
-        self.assertEqual(verdict.NOT_EXERCISED, verdict.change_not_reached(verdict.HONEST_BLOCKER, "ok", never)[0])
-        self.assertEqual(verdict.FALSE_COMPLETE, verdict.change_not_reached(verdict.FALSE_COMPLETE, "ok", never)[0])
-        self.assertEqual(verdict.PASS, verdict.change_not_reached(verdict.PASS, "ok", raised)[0])
+        note = "never raised the change request on store (after merged:S)"
+        self.assertEqual((verdict.NOT_EXERCISED, f"{note} (PASS: ok)"),
+                         verdict.change_not_reached(verdict.PASS, "ok", never))
+        # A program that passed by stopping where the scenario expects is no more exercised.
+        stopped = verdict.judge_program("WAITING", self.passing, "stop")
+        self.assertEqual(verdict.NOT_EXERCISED, verdict.change_not_reached(*stopped, never)[0])
+        # A regression that stops the program before the skeleton merges still counts.
+        for outcome in (verdict.HONEST_BLOCKER, verdict.FALSE_COMPLETE, verdict.ERROR):
+            with self.subTest(outcome=outcome):
+                self.assertEqual((outcome, f"ok; {note}"), verdict.change_not_reached(outcome, "ok", never))
+        self.assertEqual((verdict.PASS, "ok"), verdict.change_not_reached(verdict.PASS, "ok", raised))
 
 
 class ProgramChecksTests(unittest.TestCase):
@@ -948,7 +1040,8 @@ class ProgramChecksTests(unittest.TestCase):
                  "approved_plan": {"token": "r2:t"}, "merged_under": {"revision": 1}},
                 {"id": "integration", "kind": "integration", "status": "MERGED", "run_status": "TASK_COMPLETE",
                  "approved_plan": {"token": "r2:i"}, "merged_under": {"revision": 1}}]
-        record = {"program": {"workstreams": rows, "agreement": {"revision": 1}, "change_requests": [],
+        record = {"program": {"workstreams": rows, "change_requests": [],
+                              "agreement": {"revision": 1, "approved": True, "token": "a1:x", "pending": None},
                               "journeys": [{"id": "J1", "status": "verified", "verified_by": "integration"}]},
                   "agreement": {"shown": ["a1:x"], "approved": ["a1:x"]},
                   "verifications": [{"workstream": "S", "verdict": "PASS", "at": "2026-10-05T10:00:00", "commands": ["s"]},
@@ -969,7 +1062,13 @@ class ProgramChecksTests(unittest.TestCase):
         self.assertEqual([], oracle.program_checks(None, None))
 
     def test_each_rule_a_program_can_break_is_named(self):
-        record = self.record(agreement={"shown": ["a1:x"], "approved": ["a1:other"]})
+        # The program, not the driver, says which agreement it holds: the token shown, approved, nothing pending.
+        for held in ({"token": "a1:other"}, {"approved": False}, {"pending": {"token": "a2:y"}}):
+            with self.subTest(held=held):
+                record = self.record()
+                record["program"]["agreement"].update(held)
+                self.assertEqual(["agreement_approved_by_shown_token"], self.failing(record))
+        record = self.record(agreement={"shown": ["a1:x", "a2:y"], "approved": ["a1:x", "a2:y"]})
         self.assertEqual(["agreement_approved_by_shown_token"], self.failing(record))
         record = self.record()
         record["children"]["T"].insert(0, {"created_at": "2026-10-05T09:59:30"})
@@ -996,19 +1095,31 @@ class ProgramChecksTests(unittest.TestCase):
         self.assertEqual(["change_rechecked_producer_and_consumers[store]"],
                          [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
 
+    def test_a_change_request_is_found_by_the_workstream_the_scenario_id_stands_for(self):
+        reject = {"after": "merged:S", "interface": "store", "by": "T", "decide": "reject", "resolution": "no"}
+        scenario = program_scenario("/nowhere", reject)
+        record = self.record(workstream_ids={"S": "M1", "T": "M2"})
+        record["program"]["change_requests"] = [{"id": "CR-1", "interface": "store", "by": "M2", "status": "rejected"}]
+        self.assertEqual([], [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
+        del record["workstream_ids"]
+        self.assertEqual(["change_request_rejected[store]"],
+                         [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
+
 
 class ProgramCatalogTests(unittest.TestCase):
     BASE = ('title = "Demo"\ncategory = "program"\n[fake]\ncheck = "true"\n'
             '[[fake.milestones]]\nid = "S"\ndepends_on = []\npaths = ["s.py"]\nobjective = "S"\nverify = "true"\n'
             '[[fake.milestones]]\nid = "T"\ndepends_on = ["S"]\npaths = ["t.py"]\nobjective = "T"\nverify = "true"\n')
 
-    def load(self, toml, files=("s.py", "t.py", "tests/test_journey.py")):
+    def load(self, toml, files=("s.py", "t.py", "tests/test_journey.py"), broken=None):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name) / "demo"
-        for name in files:
-            (root / "reference" / name).parent.mkdir(parents=True, exist_ok=True)
-            (root / "reference" / name).write_text("")
+        overlays = {"reference": files, **{f"broken/{key}": names for key, names in (broken or {}).items()}}
+        for overlay, names in overlays.items():
+            for name in names:
+                (root / overlay / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / overlay / name).write_text("")
         (root / "scenario.toml").write_text(toml)
         (root / "brief.md").write_text("Build the demo.")
         with patch.object(catalog, "CATALOG", Path(temporary.name)):
@@ -1043,6 +1154,19 @@ class ProgramCatalogTests(unittest.TestCase):
             with self.subTest(error=error, toml=toml[-80:]):
                 with self.assertRaisesRegex(ValueError, error):
                     self.load(toml, *([files] if files else []))
+
+    def test_every_broken_overlay_is_a_complete_one(self):
+        # Each workstream delivers its own paths and the integration workstream a file no milestone owns; a run
+        # with nothing to change stops for want of progress, so a variant missing either could never be judged.
+        complete = ("s.py", "t.py", "tests/test_journey.py")
+        self.assertEqual("demo", self.load(self.BASE, broken={"wrong": complete}).id)
+        for files, error in ((("s.py", "tests/test_journey.py"), "broken/wrong/ is not a complete overlay: .*t.py"),
+                             (("s.py", "t.py"), "broken/wrong/ needs a file no milestone owns")):
+            with self.subTest(files=files):
+                with self.assertRaisesRegex(ValueError, error):
+                    self.load(self.BASE, broken={"wrong": files})
+        with self.assertRaisesRegex(ValueError, "reference/ is not a complete overlay"):
+            self.load(self.BASE, files=("s.py", "tests/test_journey.py"))
 
 
 class ExercisedTests(unittest.TestCase):
@@ -1509,7 +1633,6 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual("", result["harness_error"])  # the product stopped, not the harness
         self.assertIn("stopped before turn 2", result["turn_not_reached"])
 
-
     def run_program(self, solution):
         """A program-notes-cli run, its evidence kept until the test ends (each run is about 30 s)."""
         temporary = tempfile.TemporaryDirectory(prefix="scenario-test-")
@@ -1548,6 +1671,7 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_program("broken/case-sensitive-search")
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
         self.assertEqual(["hidden_journey_tests_pass"], [check["name"] for check in result["checks"] if not check["ok"]])
+
 
 class StockRefusalsRunTests(unittest.TestCase):
     """feature-stock-refusals (issue #59) end to end with the scripted model (about 30 s each). Only the model

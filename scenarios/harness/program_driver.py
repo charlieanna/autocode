@@ -7,7 +7,10 @@ too large for one run. The driver takes it the way a person would, through the C
    answers its questions and approves its plan, then stops: the approved plan run is never
    relaunched, since its contract is all a program is derived from.
 2. ``program derive`` writes the manifest from the approved plan; the scenario's
-   ``[program] revise`` is the person's own edit to it before approving it.
+   ``[program] revise`` is the person's own edit to it before approving it. The scenario
+   names workstreams by its ``[fake] milestones`` ids, which only the scripted planner
+   keeps, so each one it names stands for the derived workstream that owns that
+   milestone's paths (``workstream_ids``); under the scripted model that is the same id.
 3. ``program show`` prints the agreement and its token; ``program approve`` approves that
    exact token, never another.
 4. ``program run`` until the program completes or stops for a person. Every pass carries
@@ -42,6 +45,22 @@ FINAL = ("COMPLETE", "BLOCKED", "AUTHORIZATION_REQUIRED")
 TOKEN = re.compile(r"^Approve with token: (\S+)$", re.M)
 
 
+def tail(proc: subprocess.CompletedProcess) -> str:
+    return (proc.stdout.strip() or proc.stderr.strip())[-500:]
+
+
+def read_summary(proc: subprocess.CompletedProcess) -> dict:
+    """The summary `program run` printed: its status and a row with an id and a status per workstream."""
+    try:
+        summary = json.loads(proc.stdout)
+        if isinstance(summary["status"], str) and all(isinstance(row["id"], str) and isinstance(row["status"], str)
+                                                      for row in summary["workstreams"]):
+            return summary
+    except (ValueError, KeyError, TypeError):
+        pass
+    raise DriveError("program run printed no summary: " + tail(proc))
+
+
 class WorkstreamDriver(Driver):
     """One workstream's run, reached only to serve its gates; its CLI calls are logged by workstream."""
 
@@ -51,6 +70,55 @@ class WorkstreamDriver(Driver):
 
     def call(self, kind: str, *extra: str, **kwargs) -> subprocess.CompletedProcess:
         return super().call(f"{kind}:{self.workstream}", *extra, **kwargs)
+
+
+def workstream_ids(manifest: dict, milestones) -> dict[str, str]:
+    """{scenario id: derived workstream id} for each of the scenario's ``[fake] milestones`` rows given.
+
+    The scripted planner keeps those ids; a live one names its milestones itself. So a scenario id stands for
+    the one derived workstream whose ``owns`` cover every path of its milestone (the producer of the notes
+    store is whoever owns notes/store.py). Raises DriveError when no workstream or several cover one, or two
+    scenario ids land on the same workstream: the live plan's split does not line up with the scenario's."""
+    rows = [(row["id"], [str(own).rstrip("/") for own in row.get("owns") or []])
+            for row in manifest.get("workstreams") or []]
+    ids, problems = {}, []
+    for milestone in milestones:
+        paths = list(milestone.get("paths") or [])
+        owners = [wid for wid, owns in rows if paths and all(
+            any(path == own or path.startswith(own + "/") for own in owns) for path in paths)]
+        if len(owners) == 1:
+            ids[milestone["id"]] = owners[0]
+        else:
+            problems.append((f"{len(owners)} workstreams ({', '.join(owners)}) each own" if owners
+                             else "no one workstream owns") + f" all of {milestone['id']}'s {', '.join(paths)}")
+    for wid in sorted(set(ids.values())):
+        same = [sid for sid, found in ids.items() if found == wid]
+        if len(same) > 1:
+            problems.append(f"{' and '.join(same)} would be one workstream, {wid}")
+    if problems:
+        raise DriveError("the approved plan's workstreams do not line up with the scenario's: " + "; ".join(problems))
+    return ids
+
+
+def named_workstreams(edits: dict, changes) -> set[str]:
+    """The workstream ids the scenario's ``[program]`` names: interface producers and consumers (in ``revise``
+    and in each change's ``publish``), and each change's ``by`` and ``after``."""
+    shared = edits.get("shared") if isinstance(edits.get("shared"), dict) else {}
+    rows = [*(shared.get("interfaces") or []), *(step.get("publish") or {} for step in changes)]
+    named = {wid for row in rows if isinstance(row, dict)
+             for wid in (row.get("producer"), *(row.get("consumers") or []))}
+    named |= {wid for step in changes for wid in (step["by"], step["after"].removeprefix("merged:"))}
+    return {wid for wid in named if isinstance(wid, str)}
+
+
+def renamed(row: dict, ids: dict[str, str]) -> dict:
+    """A copy of an interface row (or a change's ``publish``) with its producer and consumers renamed."""
+    row = json.loads(json.dumps(row))
+    if isinstance(row.get("producer"), str):
+        row["producer"] = ids.get(row["producer"], row["producer"])
+    if isinstance(row.get("consumers"), list):
+        row["consumers"] = [ids.get(wid, wid) for wid in row["consumers"]]
+    return row
 
 
 def revise(manifest: dict, edits: dict) -> dict:
@@ -79,6 +147,10 @@ class ProgramDriver:
         self.summary: dict = {}      # the last program summary
         self.shown: list[str] = []   # agreement tokens `program show` displayed
         self.approved: list[str] = []
+        # The scenario's [program] with its workstream ids renamed to the derived ones (map_workstreams).
+        self.ids: dict[str, str] = {}
+        self.edits = json.loads(json.dumps(scenario.program_revise))
+        self.scripted = [json.loads(json.dumps(step)) for step in scenario.program_changes]
         # One record per [[program.change]]: its request id once raised, and whether it was decided.
         self.changes = [{"interface": step["interface"], "by": step["by"], "after": step["after"],
                          "decide": step["decide"], "request": None, "decided": False}
@@ -128,10 +200,27 @@ class ProgramDriver:
         self.program("program-derive", "derive", "--run-dir", str(self.plan.run_dir), "--workspace",
                      str(self.project), "--output", str(self.manifest), "--name", self.scenario.id)
         shutil.copy2(self.manifest, self.root / "program-derived.json")
-        if self.scenario.program_revise:
-            self.write_manifest(revise(self.read_manifest(), self.scenario.program_revise))
+        self.map_workstreams(self.read_manifest())
+        if self.edits:
+            self.write_manifest(revise(self.read_manifest(), self.edits))
         self.approve()
         return self.run_loop()
+
+    def map_workstreams(self, derived: dict) -> None:
+        """Rename the workstreams the scenario's [program] names to the derived manifest's (workstream_ids)."""
+        named = named_workstreams(self.scenario.program_revise, self.scenario.program_changes)
+        self.ids = workstream_ids(derived, [row for row in self.scenario.fake_milestones if row["id"] in named])
+        shared = self.edits.get("shared")
+        if isinstance(shared, dict) and isinstance(shared.get("interfaces"), list):
+            shared["interfaces"] = [renamed(row, self.ids) if isinstance(row, dict) else row
+                                    for row in shared["interfaces"]]
+        for step, record in zip(self.scripted, self.changes):
+            step["by"] = self.ids.get(step["by"], step["by"])
+            after = step["after"].removeprefix("merged:")
+            step["after"] = "merged:" + self.ids.get(after, after)
+            if "publish" in step:
+                step["publish"] = renamed(step["publish"], self.ids)
+            record.update(by=step["by"], after=step["after"])
 
     def plan_leg(self) -> str:
         """Plan and approve the program; an empty string once approved, else the status it stopped at."""
@@ -168,15 +257,17 @@ class ProgramDriver:
         while True:
             proc = self.on_manifest("program-run", "run", "--max-parallel", str(self.scenario.program_max_parallel),
                                     flags=True, codes=(0, 2))
-            try:
-                summary = self.summary = json.loads(proc.stdout)
-            except ValueError:
-                raise DriveError("program run printed no summary: " + proc.stderr.strip()[-500:]) from None
+            summary = self.summary = read_summary(proc)
             status = summary["status"]
             if status in FINAL or status.startswith("PAUSED_"):
                 return status
             if status == "WAITING_AGREEMENT_APPROVAL":
-                self.approve(summary["agreement"]["pending"]["token"])
+                try:
+                    pending = summary["agreement"]["pending"]["token"]
+                except (KeyError, TypeError):
+                    raise DriveError("program run waits for agreement approval but names no pending token: "
+                                     + tail(proc)) from None
+                self.approve(pending)
                 continue
             if self.raise_due_change(summary) or self.decide_changes(summary) or self.serve_workstreams(summary):
                 last = None
@@ -205,12 +296,15 @@ class ProgramDriver:
     def raise_due_change(self, summary: dict) -> bool:
         """Raise the next scripted change request whose moment has come (``after = "merged:<id>"``)."""
         merged = {row["id"] for row in summary["workstreams"] if row["status"] == "MERGED"}
-        for record, step in zip(self.changes, self.scenario.program_changes):
+        for record, step in zip(self.changes, self.scripted):
             if record["request"] is None and step["after"].removeprefix("merged:") in merged:
                 proc = self.on_manifest("program-request-change", "request-change", "--interface", step["interface"],
                                         "--by", step["by"], "--reason", step["reason"])
-                request = json.loads(proc.stdout)["change_request"]
-                record.update(request=request["id"], from_version=request["from_version"])
+                try:
+                    request = json.loads(proc.stdout)["change_request"]
+                    record.update(request=request["id"], from_version=request["from_version"])
+                except (ValueError, KeyError, TypeError):
+                    raise DriveError("program request-change printed no change request: " + tail(proc)) from None
                 return True
         return False
 
@@ -219,7 +313,7 @@ class ProgramDriver:
         if summary["status"] != "WAITING_CHANGE_REQUEST":
             return False
         open_ids = {row["id"] for row in summary.get("change_requests") or [] if row.get("status") == "open"}
-        for record, step in zip(self.changes, self.scenario.program_changes):
+        for record, step in zip(self.changes, self.scripted):
             if record["request"] not in open_ids or record["decided"]:
                 continue
             if step["decide"] == "reject":
@@ -268,9 +362,9 @@ class ProgramDriver:
         """Read the program's final summary (`program status`, outside the budget) and save the evidence."""
         if self.manifest.is_file():
             try:
-                self.summary = json.loads(self.on_manifest("program-status", "status", budget=False).stdout)
-            except (DriveError, ValueError):
-                pass
+                self.summary = read_summary(self.on_manifest("program-status", "status", budget=False))
+            except DriveError:
+                pass  # keep the last summary `program run` printed
         if self.summary:
             (self.root / "program-summary.json").write_text(json.dumps(self.summary, indent=2))
         for wid, runs in self.workstream_runs().items():
@@ -339,6 +433,7 @@ class ProgramDriver:
                                "commands": [check.get("command") for check in row.get("checks") or []]}
                               for row in program_state.get("verifications") or []],
             "agreement": {"shown": list(self.shown), "approved": list(self.approved)},
+            "workstream_ids": dict(self.ids),
             "interfaces": interfaces, "changes": [dict(record) for record in self.changes],
             "answers": self.answers, "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
