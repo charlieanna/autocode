@@ -707,6 +707,19 @@ and its recommendation. A change the diagnosis proposed that the incident packet
 cannot attest reaches the Builder only as advice, with the reason, and is never
 treated as a new experiment.
 
+The packet binds the source its incident was captured on. A Builder attempt it
+admitted may stop without being accepted and leave its work: a rejected attempt
+keeps its in-scope edits for the retry (the runner removes or restores only what
+it wrote outside its assignment), and a timed-out one keeps partial edits. That
+work is not a stale handoff. The next Builder attempt is bound as at the packet's
+source when every file holds either that source's content or what the packet's
+latest Builder attempt left, at either snapshot's Git HEAD. Any other change, such as a
+person's edit while the run is paused, still pauses as `PAUSED_STALE_HANDOFF`.
+When the runner rejected such an attempt's output and the stuck-stage
+Investigator recommends a retry, that retry admits one Builder attempt, as an
+accepted operational diagnosis does. An investigation of a novelty hold grants
+nothing.
+
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous
 attempts and evidence; ordinary resume is not that authorization. Unlike a
