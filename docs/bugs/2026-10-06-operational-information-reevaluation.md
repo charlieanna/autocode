@@ -20,8 +20,11 @@ must not bypass an operational pause). The missing piece was a transition from
 `provide_information` schedules it, bound to the request ID and token, the
 response, the pause status, the frontier binding (source revision, settings and
 transport identity, task, contract, recovery accounting, interventions) and
-the request's evidence receipt. The next explicit resume without another
-recovery flag consumes it once, with no provider call:
+the request's evidence receipt. The next explicit resume at that pause without
+another recovery flag consumes it once, with no provider call. A plain
+relaunch only reports that it is pending, and a run that left the pause
+through an explicit control (a grant, a raised bound, an abandoned attempt)
+never evaluates it:
 
 - `stale`: something it is bound to changed, or the records were altered. It is
   retired and the existing fail-closed path runs (hold, or a fresh request for
@@ -54,6 +57,9 @@ control. `leave_paused`, requirements answers, plan approval,
 - A `blocker`-scope request (an agent's question or a Resolver diagnosis)
   answered with `provide_information` still holds at the same frontier; only
   `operational_exhaustion` is re-evaluated.
+- A guard the evaluation does not run itself, such as the validation-round
+  limit (`PAUSED_RESOLVER` from autocode_validation_rounds), stops an admitted
+  run again before any launch and asks a new request rather than holding.
 - A planning stop whose reserved recovery is exhausted
   (`PAUSED_RESOLVER_OPERATIONAL` at a plan review) is held without a command:
   `--planning-review-call-limit` accepts only `PAUSED_PLANNING_BUDGET`.
