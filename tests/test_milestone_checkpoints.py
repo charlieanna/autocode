@@ -13,6 +13,7 @@ import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
 import autocode_support as s
 import autocode_milestones as m
+import autocode_milestone_replan as replan
 import autocode_findings as findings
 from goal_fixtures import body, envelope
 
@@ -677,6 +678,47 @@ class PendingReplanThroughTheCLI(unittest.TestCase):
                          (self.state['current_task']['kind'], self.state['current_task']['objective']))
         current = self.checkpoint()
         self.assertEqual((False, 1), (current['needs_replan'], current['replans']))
+
+    def instruction(self, prompt):
+        return prompt.split('CURRENT HANDOFF DATA\n', 1)[0]
+
+    def test_spent_replans_prompt_says_any_task_pauses_and_it_does(self):
+        # Replan 1 of 1 is used, then M1 stalls again. The policy still asked for a changed REWORK and the
+        # general rule for CONTINUE/validate; the gate refuses both with PAUSED_MILESTONE_STALLED.
+        self.stall()
+        self.assign(status='REWORK', next_objective='Isolate empty input first with a smaller regression fixture')
+        for _ in range(3):
+            self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+        prompts, answer = self.provider({'astra_review': [self.revalidation('CONTINUE')]})
+        self.assertEqual(2, self.invoke('--no-chat', role=answer))
+        instruction = self.instruction(prompts[0][1])
+        self.assertIn('MILESTONE REPLANS SPENT', instruction)
+        self.assertIn('3 validations without progress (limit 3) and its replans are spent (1 made, limit 1)', instruction)
+        self.assertIn('a next task on M1 with any status, REWORK or CONTINUE', instruction)
+        self.assertIn('PAUSED_MILESTONE_STALLED', instruction)
+        self.assertIn('except on the milestone\nnamed in MILESTONE REPLANS SPENT below', instruction)
+        self.assertNotIn('MILESTONE REPLAN REQUIRED', instruction)
+        self.assertNotIn(replan.GENERAL_VALIDATE_RULE, instruction)  # only the qualified rule remains
+        # What the prompt says is what the gate does: the review's task pauses the run at once, before any
+        # Resolver or writer (the Investigator then diagnoses the pause; the fixture stops it).
+        self.assertEqual(['astra_review', 'investigate_stuck'], [stage for stage, _ in prompts])
+        self.assertTrue(self.state['stop_reason'].startswith('Milestone still fails after bounded replanning'))
+        current = self.checkpoint()
+        self.assertEqual((True, 1), (current['needs_replan'], current['replans']))
+
+    def test_unbounded_replans_prompt_does_not_also_promise_a_single_replan(self):
+        # --max-milestone-replans 0 and the continuous-v1 routes save max_replans None (unbounded).
+        self.start()
+        self.state['settings']['milestone_checkpoints']['max_replans'] = None
+        for _ in range(3):
+            self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+        prompts, answer = self.provider({})
+        self.assertEqual(2, self.invoke('--no-chat', role=answer))
+        self.assertEqual('astra_review', prompts[0][0])
+        instruction = self.instruction(prompts[0][1])
+        self.assertIn('Replans are unbounded', instruction)
+        self.assertIn('milestone_checkpoint.limits.max_replans bounds such replans (null: unbounded)', instruction)
+        self.assertNotIn('allows one such automatic replan', instruction)
 
 
 if __name__ == '__main__':
