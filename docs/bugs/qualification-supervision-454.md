@@ -36,8 +36,10 @@ and a known finished deadline follows the existing bounded timeout recovery
 route instead of accepting a late terminal response. SIGHUP uses the retained interrupt path while inherited
 SIGHUP ignore is respected.
 
-Only the first SIGTERM, SIGHUP or Ctrl-C raises a stage's interrupt, which names
-the signal; later ones are absorbed while its cleanup runs. A closed terminal
+Only the first SIGTERM, SIGHUP or Ctrl-C raises a stage's interrupt (a
+KeyboardInterrupt whose message is the signal's name). Later ones are absorbed
+while its cleanup runs and, once the stage's own handler scope has closed, until
+the CLI invocation returns, after the pause is saved. A closed terminal
 sends SIGHUP twice (the kernel and the shell) and people press Ctrl-C again. A
 second raise while the first unwound skipped the controller's own cleanup (the
 keeper still stopped the provider, but no exit code was saved), turned the pause
@@ -46,11 +48,30 @@ KeyboardInterrupt that left the run `RUNNING`, or, rarely, hung the controller o
 a leaked threading lock with SIGINT and SIGTERM ignored. Of 351 fake scenario
 runs given two signals 0 to 200 ms apart, 3 hung and 77 more did not pause as
 `PAUSED_INTERRUPTED` with the provider's exit code saved; no provider outlived
-its controller. Ctrl-C is taken over only from
-Python's default handler, so an ignored (background job) or replaced SIGINT is
-left alone. The stage cleanup itself (stopping the provider tree and joining its
-process worker) ignores SIGHUP as it already ignored SIGINT and SIGTERM, so a
-hangup that arrives first during it, as a provider ends, no longer cuts it short.
+its controller. A latch that ended with the stage's handler scope still left a
+second signal 175 to 290 ms after the first, while the pause was being saved,
+to escape or kill the controller (exit -2, -1 or -15, often `RUNNING`). Ctrl-C
+is taken over only from Python's default handler, so an ignored (background
+job) or replaced SIGINT is left alone.
+
+The stage cleanup itself (stopping the provider tree and joining its process
+worker) defers these signals. One that arrives first during it, as a provider
+ends on its own, reaches the stage's interrupt once the provider is collected,
+so the run pauses as `PAUSED_INTERRUPTED` with the exit code saved. Raised
+inside the cleanup it cut the cleanup short; ignored, it was lost and the
+controller went on to the next stages. A first signal while the provider
+launches (after its attempt is saved) or while its keeper is discharged (after
+the provider was collected) pauses the same way instead of escaping and leaving
+the run `RUNNING`; the attempt keeps its artifacts for inspection and
+`--abandon-stage`. One during admission, before anything of the stage is saved,
+still ends the CLI as an interrupt between stages does.
+
+With these changes, fake scenario runs through the reviewers' probes all paused
+as `PAUSED_INTERRUPTED` with exit 2, no traceback and no provider outliving its
+controller: 57 runs given two signals (SIGHUP and SIGHUP, Ctrl-C twice, SIGHUP
+then SIGTERM) 0 to 400 ms apart, 20 given one SIGHUP 0 to 40 ms after the
+provider exited, 7 given one signal during the launch, and a hangup injected
+into the cleanup of the first stage that ended normally.
 
 Qualification on macOS uses fake providers only: controller SIGKILL, process-group
 SIGKILL, SIGHUP, controlling PTY close, harness SIGKILL, keeper loss before/after
