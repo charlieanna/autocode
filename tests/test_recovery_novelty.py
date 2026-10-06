@@ -521,8 +521,14 @@ class RecoveryPacketTests(unittest.TestCase):
         recovery.admit_dispatch(state, granted, self.root, self.run)
         self.assertEqual(("explicit_retry", "investigation"),
                          (granted["recovery_novelty"]["reason"], granted["recovery_novelty"]["grant_kind"]))
-        state["stages"].append(granted)
-        with self.assertRaisesRegex(util.Paused, "No causal progress"):  # one attempt, not one per resume
+        # A provider timeout that automatic recovery archived without a report does not spend it.
+        state["stages"].append({**granted, "finished_at": "2026-10-06T02:20:00+00:00", "timed_out": True,
+                                "accounted": True, "automatic_recovery": True, "abandoned": True, "rejected": True})
+        relaunch = attempt()
+        recovery.admit_dispatch(state, relaunch, self.root, self.run)
+        self.assertEqual(granted["recovery_novelty"]["grant_id"], relaunch["recovery_novelty"]["grant_id"])
+        state["stages"].append({**relaunch, "finished_at": "2026-10-06T02:25:00+00:00", "rejected": True})
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):  # one attempt that returns a result
             recovery.admit_dispatch(state, attempt(), self.root, self.run)
         for name, state in (("no investigation", state_with()),
                             ("a novelty hold's investigation", state_with("PAUSED_NO_PROGRESS")),

@@ -716,9 +716,9 @@ source when every file holds either that source's content or what the packet's
 latest Builder attempt left, at either snapshot's Git HEAD. Any other change, such as a
 person's edit while the run is paused, still pauses as `PAUSED_STALE_HANDOFF`.
 When the runner rejected such an attempt's output and the stuck-stage
-Investigator recommends a retry, that retry admits one Builder attempt, as an
-accepted operational diagnosis does. An investigation of a novelty hold grants
-nothing.
+Investigator recommends a retry, that retry admits the Builder until one attempt
+returns a result, as an accepted operational diagnosis's does; a spent diagnosis
+retry does not hide it. An investigation of a novelty hold grants nothing.
 
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous

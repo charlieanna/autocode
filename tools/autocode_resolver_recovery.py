@@ -647,8 +647,10 @@ def _investigation_grant(state, request, record):
         return None
     entry = next((row for row in reversed(state.get("stuck_investigations") or [])
                   if row.get("identity") == current.get("identity")), {})
+    # The rejected attempt it followed is the latest that returned a result: a relaunch automatic
+    # recovery archived without a report (a provider timeout) neither replaces it nor spends the grant.
     last = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"
-                 and not row.get("report_only") and not row.get("dry_run")), {})
+                 and not row.get("report_only") and not row.get("dry_run") and not _returned_nothing(row)), {})
     asked, rejected = _time(entry.get("requested_at")), _time(last.get("finished_at"))
     if (entry.get("outcome") != "retried" or entry.get("trigger") != "rejected_output" or not last.get("rejected")
             or (last.get("recovery_novelty") or {}).get("packet") != pointer
