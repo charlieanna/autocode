@@ -189,6 +189,20 @@ def reviewed_patch(state, workspace):
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
+def proof_dependencies(state, workspace):
+    """verify.verify's ``dependencies_from`` and ``independent_dependencies`` for this run.
+
+    The proof trees take dependencies and ignored code from the original checkout of a task
+    worktree (``project_workspace``) or, in place, from the workspace itself. That checkout
+    is not independent of the candidate when a Builder of the run this one continues worked
+    in it: ``project_worked_in_place``, which autocode_checkpoint_continuation.create writes
+    for a continuation restored from a checkpoint of an --in-place run (and every later
+    restore of it). This is its only reader. None leaves verify to compare the paths.
+    """
+    return {"dependencies_from": state.get("project_workspace") or str(workspace),
+            "independent_dependencies": False if state.get("project_worked_in_place") else None}
+
+
 def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
@@ -299,9 +313,10 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                  "source_revision": current, "test_files": [], "source_files": []}
         path = None
     else:
-        dependencies = state.get("project_workspace") or str(workspace)
+        dependencies = proof_dependencies(state, workspace)
         suite = options.get("test_command") or (framework.suite if framework else None)
-        base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch, progress)
+        base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies["dependencies_from"],
+                                base_patch, progress)
                       if suite else None)
         number = len(state.get("regression_proofs", [])) + 1
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
@@ -315,7 +330,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
             regression_command = options.get("test_command")
         result = verify.verify(workspace, base, out, framework=framework, suite_command=options.get("test_command"),
                                regression_command=regression_command,
-                               reported=None, base_suite=base_suite, dependencies_from=dependencies,
+                               reported=None, base_suite=base_suite, **dependencies,
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
                                preserve_only=coverage, base_patch=base_patch)

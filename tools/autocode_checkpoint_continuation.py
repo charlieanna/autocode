@@ -6,6 +6,7 @@ retained separately as history. No old implementation, validation, completion,
 human artifact acceptance or provider session can authorize the new candidate.
 """
 from copy import deepcopy
+from pathlib import Path
 
 try:
     from . import autocode_util as util, autocode_contract_identity as contract
@@ -23,7 +24,7 @@ INPUTS = ('version', 'target', 'task', 'task_id', 'goal_contract', 'settings',
           'automatic_recoveries_since_resume', 'consecutive_timeout_recoveries',
           'consecutive_timeouts', 'automatic_timeout_recoveries',
           'automatic_capacity_recoveries', 'automatic_permission_recoveries',
-          'recovery_grants', 'recovery_context')
+          'recovery_grants', 'recovery_context', 'project_worked_in_place')
 
 
 def create(original, checkpoint, workspace, run_dir, branch, project, operation, *, at=None):
@@ -36,6 +37,15 @@ def create(original, checkpoint, workspace, run_dir, branch, project, operation,
                  phase='READY_TO_EXECUTE', next_stage='astra_plan', sessions={}, history=[], stages=[],
                  pending_questions=[], human_reviews={},
                  stop_reason='Checkpoint restored on a new branch. Resume explicitly for fresh implementation and independent checks.')
+    # project_worked_in_place: the checkout project_workspace names is one a Builder of this
+    # lineage worked in, so it is not independent of the candidate. Restoring an --in-place
+    # run (no task worktree metadata, autocode_checkpoint_cli.restore) names the original's own
+    # workspace as the project; later restores keep the mark through INPUTS. It is written here
+    # only and read only by autocode_regression.proof_dependencies: the regression proof then
+    # treats ignored code it reads from that checkout as possibly hidden, so only a README.md-only
+    # base may skip preservation (autocode_verify._document_only_base).
+    if Path(project) == Path(original['workspace']):
+        child['project_worked_in_place'] = True
     # A new source commit changes candidate identity. All milestones face fresh
     # verification, including earlier ones; time/failure allowances never reset.
     # Preserve the one-time budget-extension fence without inheriting pending

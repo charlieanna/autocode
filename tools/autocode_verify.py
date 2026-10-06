@@ -106,20 +106,52 @@ def _git(cwd, *args, check=True):
     return result.stdout
 
 
-def _document_only_base(workspace, base):
-    """Only an empty pinned tree or a regular non-executable root README.md.
+def _document_only_base(workspace, base, *, dependencies_from=None, independent=None):
+    """True when the base the proof runs holds no behavior: every entry of the
+    pinned tree is a regular non-executable blob that is the root README.md or,
+    when ``dependencies_from`` is a checkout independent of the candidate, a
+    .gitignore or an empty file; and make_tree copies no git-ignored code from
+    ``dependencies_from`` into the proof trees (``_generated_sources`` is empty).
 
     Source/test filename conventions cannot establish absence of existing
-    behavior. Keep this positive documentation inventory deliberately narrow:
-    unknown files, executable documents, links and submodules need preservation.
+    behavior. Keep this positive inventory deliberately narrow: other non-empty
+    files, executable files (even empty ones), links and submodules need
+    preservation. A .gitignore and an empty file cannot hold behavior to
+    preserve. An ignore rule (.gitignore, .git/info/exclude) keeps code out of
+    the pinned tree but not out of the proof: copy_generated_sources puts
+    ignored code that sits next to tracked files into the base and candidate
+    trees, so any such file counts as existing behavior, whatever made it.
+    Ignored files are not versioned, so that check is only as good as the
+    checkout it reads. The original checkout of a task worktree is one the
+    candidate does not edit. The workspace itself (an --in-place run, compared
+    with both paths resolved, so a symlink to it is the workspace too) is not:
+    the candidate can delete ignored code, or stop ignoring it, before the proof
+    reads it. Nor is a checkout an earlier Builder of the run worked in, which
+    the caller states with ``independent=False``: a continuation restored from a
+    checkpoint of an --in-place run works in a new worktree whose original
+    checkout is that run's workspace (autocode_regression.proof_dependencies).
+    There (or with no ``dependencies_from``) only the root README.md is
+    accepted, the rule this function had before .gitignore and empty files.
+    ``independent=None`` (or True) leaves the decision to the path comparison:
+    no caller can make the workspace independent of itself. Third-party
+    dependencies make_tree links or copies separately (node_modules, venvs, an
+    ignored vendor/) count only where ``_generated_sources`` lists a file, which
+    it never does under node_modules or a venv
+    (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
     """
-    for entry in _git(workspace, "ls-tree", "-r", "-z", base).split("\0"):
+    separate = (independent is not False and bool(dependencies_from)
+                and Path(dependencies_from).resolve() != Path(workspace).resolve())
+    for entry in _git(workspace, "ls-tree", "-r", "-l", "-z", base).split("\0"):
         if not entry:
             continue
         metadata, separator, path = entry.partition("\t")
-        if not separator or metadata.split()[:2] != ["100644", "blob"] or path != "README.md":
+        fields = metadata.split()  # mode, type, object, size ("-" for a submodule)
+        if not separator or len(fields) != 4 or fields[:2] != ["100644", "blob"]:
             return False
-    return True
+        if not (path == "README.md"
+                or (separate and (PurePosixPath(path).name == ".gitignore" or fields[3] == "0"))):
+            return False
+    return not _generated_sources(dependencies_from)
 
 
 def _ignored(path: str) -> bool:
@@ -1016,7 +1048,8 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None) -> dict:
+           independent_dependencies=None, allow_no_test=False, new_behavior=False, preserve_only=False,
+           base_patch=None) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1030,6 +1063,11 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
     ``preserve_only`` is coverage of behavior the product already implements: the diff may
     be test files alone, and each new test must pass on the base and on the candidate.
+
+    ``dependencies_from`` is the checkout make_tree copies dependencies and ignored code
+    from. ``independent_dependencies=False`` says an earlier Builder of this run worked in
+    it, so it may no longer show the ignored code the base had; None compares it with
+    ``workspace`` (see _document_only_base, the only reader).
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1111,12 +1149,19 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                               "suite-on-candidate", timeout=timeout)
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
-            # A positively identified document-only project may introduce its
-            # first source and suite. Filename heuristics cannot rule out old
-            # behavior: empty collection can hide a filtered existing program.
+            # A positively identified document-only project (a root README.md,
+            # plus .gitignore files and empty files when the ignored code is read
+            # from a checkout the candidate does not edit, all regular and
+            # non-executable, and no ignored code copied into the trees) may
+            # introduce its first source and suite. Filename heuristics cannot
+            # rule out old behavior: empty collection can hide a filtered
+            # existing program, so any other base file or copied ignored code
+            # still counts.
             allow_empty_base = bool(new_behavior and not preserve_only and not base_patch
                                     and comparable and comparable.get("base") == base
-                                    and _document_only_base(workspace, base))
+                                    and _document_only_base(workspace, base,
+                                                            dependencies_from=dependencies_from,
+                                                            independent=independent_dependencies))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base)
         elif sources or preserve_only:
