@@ -11,13 +11,13 @@ These run real unittest suites in scratch Git worktrees; no provider is launched
 from __future__ import annotations
 
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import autocode_regression as regression
 import autocode_verify as verify
+from tests.test_verify import isolated_python
 
 SEED = {
     "rates.py": 'POLICIES = {"de": 1}\n\n\ndef attempts(tld):\n    return POLICIES.get(tld, 3)\n',
@@ -54,6 +54,7 @@ def write(root, files):
 
 class ReviewedPatchProofTests(unittest.TestCase):
     def setUp(self):
+        self.python = isolated_python(self)
         temp = tempfile.TemporaryDirectory(prefix="reviewed-patch-")
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve() / "project"
@@ -74,7 +75,7 @@ class ReviewedPatchProofTests(unittest.TestCase):
         write(self.root, FIXED)
 
     def verify(self, base_patch=None):
-        framework = verify.detect_framework(self.root)
+        framework = verify.detect_framework(self.root, python=self.python)
         base_suite = verify.baseline(self.root, self.base, self.evidence, framework=framework,
                                      suite_command=framework.suite, timeout=120, base_patch=base_patch)
         return verify.verify(self.root, self.base, self.evidence, framework=framework, base_suite=base_suite,
@@ -124,7 +125,7 @@ class ReviewedPatchProofTests(unittest.TestCase):
         patch = self.root / '.autocode' / 'review.patch'
         patch.parent.mkdir()
         patch.write_text((self.root / 'change.patch').read_text())
-        state = {'base_commit': self.base, 'settings': {'regression': {'python': sys.executable}},
+        state = {'base_commit': self.base, 'settings': {'regression': {'python': self.python}},
                  'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'workflow': {'kind': 'build'},
                  'turns': [{'say': 'Fix them.', 'previous': {'workflow': 'review', 'review': {
                      'report_path': 'review/findings.json', 'change_under_review': '',

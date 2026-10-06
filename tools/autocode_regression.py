@@ -230,8 +230,12 @@ def prove(state, workspace, run_dir):
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state))
     options = settings(state)
-    python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
-    framework = verify.detect_framework(workspace, python=python)
+    command = options.get("test_command")
+    # A trusted explicit collector chooses the result parser and targeted tests.
+    framework = verify.command_framework(command) if command else None
+    python = ((framework.python if framework and framework.name in ("pytest", "unittest") else None)
+              or options.get("python") or verify.python_for(state.get("project_workspace") or workspace))
+    framework = framework or verify.detect_framework(workspace, python=python)
     base = base_commit(state, workspace)
     operator = operator_patch.pinned(state)
     # Stored only in regression_proof; prove reads it before reusing evidence.
