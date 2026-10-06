@@ -622,6 +622,7 @@ class HarnessOwnerLossTests(unittest.TestCase):
             reader = os.open(ready, os.O_RDONLY | os.O_NONBLOCK)
             self.addCleanup(os.close, reader)
             login = ("if sys.argv[1:]==['login','status']: print('Logged in using ChatGPT'); raise SystemExit(0)\n"
+                     "if sys.argv[1:2]!=['exec']: raise SystemExit(2)\n"
                      if barrier == "stage" else "")
             provider = (f"#!{sys.executable}\nimport os,json,signal,sys\n"
                         "if '--version' in sys.argv: print('codex-cli 0.92.0'); raise SystemExit(0)\n"
@@ -668,12 +669,10 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 call = attempts.read(call_path)
                 self.assertEqual(cli.pid, call["cli"]["pid"])
                 self.assertEqual("running", call["phase"])
-                # The keeper discovers the provider tree by sampling, and owner-loss
-                # cleanup stops only what its receipt has recorded. Wait for that
-                # discovery before faulting: killing at the provider's first words
-                # races the keeper's first sample window, and the unrecorded
-                # SIGTERM-immune provider then outlives every escalation (CI ubuntu
-                # failed 3 of 8 runs on 2026-10-06; deterministic in a container).
+                # Retain the enclosing keeper's provider-discovery barrier (#555)
+                # for both settings and stage faults. The original startup-probe
+                # fixture could fault before its first sample. Stage faults also
+                # require an armed inner receipt and fresh native identities below.
                 deadline = time.monotonic() + 10
                 while True:
                     recorded = attempts.read(call["receipt"])
@@ -682,6 +681,16 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                     if time.monotonic() > deadline:
                         self.fail(f"Keeper never recorded the provider process: {recorded}")
                     time.sleep(.02)
+                if barrier == "stage":
+                    stage_receipts = [attempts.read(path) for path in evidence.rglob('*.supervision.json')]
+                    stage_receipt, = [receipt for receipt in stage_receipts
+                                      if receipt.get('provider', {}).get('pid') == event['provider']]
+                    self.assertEqual('armed', stage_receipt['phase'], stage_receipt)
+                    self.assertEqual(cli.pid, stage_receipt['owner']['pid'], stage_receipt)
+                    self.assertIn(stage_receipt['keeper']['pid'], [process.pid for process in owned])
+                    identities = [stage_receipt[role] for role in ('owner', 'keeper', 'provider')]
+                    self.assertTrue(all(attempts.owner_alive(identity) is True
+                                        for identity in identities), stage_receipt)
                 if target == "harness":
                     harness.kill()
                 else:

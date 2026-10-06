@@ -223,5 +223,35 @@ class LivenessViewTests(unittest.TestCase):
         self.assertEqual(101, saved['owner']['pid'])
 
 
+    def test_runner_check_exposes_its_own_fresh_liveness_without_claiming_a_provider(self):
+        saved = metadata()
+        state = {'status': 'RUNNING', 'next_stage': 'sol', 'active_runner_check': {
+            'stage': 'regression_proof', 'summary': 'Testing', 'command': 'python -m unittest -v',
+            'output': '/run/suite.log', 'supervision': saved, 'liveness': inspection(saved)}}
+        before = copy.deepcopy(state)
+        result = run_view.view(state)
+        self.assertEqual('unknown', result['runner_check']['liveness']['kind'])
+        self.assertEqual(saved, result['runner_check']['supervision'])
+        for current in (inspection(saved), inspection(saved, owner=False),
+                        inspection(saved, owner=False, keeper=False, provider=False,
+                                   phase='stopped', cause='owner_lost')):
+            with self.subTest(inspection=current):
+                result = run_view.view(state, runner_check_liveness=current)
+                self.assertEqual(liveness.classify(saved, current), result['runner_check']['liveness'])
+                self.assertEqual('unknown', result['liveness']['kind'])
+                self.assertEqual(('RUNNING', False, {'kind': 'continue'}),
+                                 (result['status'], result['done'], result['needs']))
+        result['runner_check']['supervision']['owner']['pid'] = 999
+        self.assertEqual(before, state)
+
+    def test_runner_check_with_explicit_invalid_metadata_stays_unknown(self):
+        for saved in (None, {}, False, 'invalid'):
+            with self.subTest(supervision=saved):
+                state = {'status': 'RUNNING', 'active_runner_check': {'supervision': saved}}
+                result = run_view.view(state, runner_check_liveness={'owner': {'checked': True, 'alive': False}})
+                self.assertEqual('unknown', result['runner_check']['liveness']['kind'])
+                self.assertIsNone(result['runner_check']['liveness']['owner']['alive'])
+
+
 if __name__ == '__main__':
     unittest.main()

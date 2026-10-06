@@ -16,6 +16,7 @@ import autocode_brief_obligations as obligations
 import autocode_util as util
 import autocode_verify as verify
 from tests.test_brief_acceptance import PRODUCT, TASK
+from tests.test_command_receipt import guarded_command_receipt
 
 
 def build_state(root, task=TASK):
@@ -81,6 +82,27 @@ class BriefEvidenceTests(unittest.TestCase):
                          evidence.evidence_pins(result))
         self.assertEqual(30, self.calls[0]['timeout'])
         self.assertEqual(15, json.loads(shlex.split(self.calls[0]['command'])[-1])['timeout'])
+
+    def test_guarded_observation_requires_its_intact_complete_ownership_extension(self):
+        def runner(*args, **kwargs):
+            return guarded_command_receipt(self.runner(*args, **kwargs))
+        result = evidence.replay(self.state, '/candidate', self.root / 'guarded', runner,
+                                 timeout=30, source_revision='current')
+        self.state['validation'] = {'check_replay': {'brief_acceptance': result}}
+        row = result['checks'][0]
+        ownership = Path(row['supervision']['receipt'])
+        self.assertTrue(evidence.ready(self.state, 'current'))
+        self.assertEqual(row['supervision_sha256'], evidence.evidence_pins(result)[str(ownership)])
+        original = ownership.read_bytes()
+        ownership.write_bytes(original + b'changed')
+        self.assertFalse(evidence.ready(self.state, 'current'))
+        ownership.unlink()
+        self.assertFalse(evidence.ready(self.state, 'current'))
+        ownership.write_bytes(original)
+        self.assertTrue(evidence.ready(self.state, 'current'))
+        del row['supervision_errors']
+        self.rewrite_summary(result)
+        self.assertFalse(evidence.ready(self.state, 'current'))
 
     def test_no_supported_declarations_have_no_new_completion_obligation(self):
         state = {'task': 'Explain an API.'}

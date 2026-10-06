@@ -143,6 +143,20 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual({"model": "saved"}, state["settings"]["roles"]["investigator"])
 
 
+class InvestigationQuestionValidationTests(unittest.TestCase):
+    def test_duplicate_questions_are_rejected_even_with_surrounding_whitespace(self):
+        question = "Which version failed?"
+        for duplicate in (question, "  " + question + "  "):
+            with self.subTest(duplicate=duplicate):
+                report = diagnosis("not_reproduced", questions=[question, duplicate])
+                with self.assertRaisesRegex(ValueError, "questions must be distinct"):
+                    bug_job.check(report, [])
+
+    def test_distinct_questions_are_accepted(self):
+        report = diagnosis("not_reproduced", questions=["Which version failed?", "What input failed?"])
+        bug_job.check(report, [])
+
+
 class ApplyTests(unittest.TestCase):
     def apply(self, value, changed=()):
         workspace = tempfile.mkdtemp()

@@ -749,6 +749,7 @@ class InProcessCli(Fixture):
              patch.object(Path, "cwd", return_value=cwd or self.project), \
              patch.object(autocode, "run_role", side_effect=AssertionError("No provider may launch")), \
              patch.object(opencode_provider, "local_settings", return_value={"engine": "opencode"}), \
+             patch.object(opencode_provider.tool_containment, "unavailable", return_value=None), \
              contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 code = autocode.main()
