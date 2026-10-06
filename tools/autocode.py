@@ -506,6 +506,11 @@ def run_role(
             raise
         except processes.ProcessError as error:
             raise support.Paused('PAUSED_PROCESS_CLEANUP', str(error)) from error
+        except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
+            if state.get("active_stage") is not record:
+                raise  # before admission finished, nothing of this stage was saved
+            raise support.Paused("PAUSED_INTERRUPTED", f"Provider launch interrupted by {str(error) or 'a signal'}; "
+                                 "inspect saved artifacts before reconciliation") from error
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
         activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
                                    idle_origin=idle_origin,
@@ -552,6 +557,8 @@ def run_role(
                 provider_guard.close()
             except processes.ProcessError as error:
                 cleanup_error = str(error)
+            except KeyboardInterrupt:  # the stage's one interrupt, after its provider was collected
+                interrupted = True
             independent = supervision.receipt(record['supervision'])
             if independent and independent.get('cause') == 'stage_deadline':
                 timed_out = True

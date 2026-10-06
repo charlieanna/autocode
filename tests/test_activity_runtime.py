@@ -268,6 +268,54 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertIn('idle=300s/300', stalled)
         self.assertEqual(300, active['activity']['idle_seconds'])
 
+    def interrupted_builder(self, launch):
+        """Run an admitted Builder whose stage's one interrupt lands outside its wait (#454)."""
+        self.start_task()
+        with patch.object(runner.supervision, 'launch', launch), \
+             patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
+             patch.object(runner.processes, 'preflight', return_value=None), \
+             patch.object(runner.processes, 'wait_for_stage', return_value=(0, False)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            try:
+                runner.run_role(role='terra', prompt='Finish the bounded greeting task',
+                    sandbox='workspace-write', workspace=self.root, run_dir=self.run,
+                    state=self.state, schema=runner.SCHEMA_DIR / 'v2/terra-report.schema.json',
+                    model='fixture-terra', allow_write=True, dry_run=False)
+            except KeyboardInterrupt as error:
+                self.fail(f'One {error} escaped as a bare KeyboardInterrupt, leaving the run RUNNING')
+            except support.Paused as error:
+                return error, support.read(self.run / 'state.json')['active_stage']
+        self.fail('An interrupted stage must pause')
+
+    def test_a_first_signal_during_the_provider_launch_pauses_as_interrupted(self):
+        # Arming the keeper and starting the provider take a moment after the attempt is admitted.
+        @contextlib.contextmanager
+        def launch(command, *, receipt_path, timeout=None, checkpoint=None, **options):
+            raise KeyboardInterrupt('SIGINT')  # once the launch's own cleanup stopped what it started
+            yield
+        error, active = self.interrupted_builder(launch)
+        self.assertEqual('PAUSED_INTERRUPTED', error.status)
+        self.assertIn('SIGINT', str(error))
+        self.assertEqual('terra', active['stage'], 'the admitted attempt stays for inspection')
+        self.assertTrue(Path(active['events']).is_file())
+
+    def test_a_first_signal_after_the_provider_was_collected_pauses_as_interrupted(self):
+        # The provider ended on its own; the signal landed while its keeper was discharged.
+        class Child:
+            pid = 987654321
+
+            def __init__(child, command, **kwargs):
+                pass
+
+        @contextlib.contextmanager
+        def launch(*args, **kwargs):
+            with launcher(Child)(*args, **kwargs) as child:
+                yield child
+            raise KeyboardInterrupt('SIGHUP')
+        error, active = self.interrupted_builder(launch)
+        self.assertEqual('PAUSED_INTERRUPTED', error.status)
+        self.assertEqual((0, True), (active['exit_code'], active['interrupted']))
+
     def test_resume_with_max_idle_seconds_applies_to_the_next_launch(self):
         self.start_task()
         self.state['settings']['limits']['idle_timeout_seconds'] = 300
