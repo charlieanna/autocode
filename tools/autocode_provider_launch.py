@@ -78,7 +78,7 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
                "command": command, "environment": environment, "provider_session": session}
     if prior_session and session is None:
         worker['fresh_session_reason'] = 'Native tool containment requires a newly bound provider session'
-    if uncontained and engine == "opencode" and not planning:
+    if uncontained and engine == "opencode" and not planning and not worker["configured"]:
         worker['uncontained_tools'] = True
     if environment.get('AUTOCODE_TOOL_CONTAINMENT'):
         worker['tool_containment'] = json.loads(environment['AUTOCODE_TOOL_CONTAINMENT'])
