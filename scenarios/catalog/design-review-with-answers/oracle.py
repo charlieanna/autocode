@@ -16,14 +16,18 @@ from harness.oracle import Check, load_json, only_changed_under, run_checks
 
 REPORT = "review/design-review.json"
 SAYS = ("Ordering is per-domain.", "Per-registry is fine.")
+ORDERING = (r"\border(ing|ed)?\b(?! to\b)|\breorder|out of order|sequenc|\bseq\b|per[- ](domain|registry)"
+            r"|partition key|keyed by")
 # What a concern is about: its area label decides, else its summary; the first match wins.
 AREAS = (
     ("migration", r"rollback|roll back|revert|switch(ing|es)? back|reconcil|dual[- ]?writ|cut ?over|migrat"),
     # The DLQ's gap is that a poison event stops its partition and nobody owns getting it going again. Live
-    # Architects named it "a poison event stops its partition" and "a halted partition has no owner".
-    ("dlq", r"\bdlq\b|dead[- ]letter|poison|(?=.*\bpartition)(?=.*\b(halt|stop|stall|paus|resum|stuck))"),
-    ("ordering", r"\border(ing|ed)?\b(?! to\b)|out of order|sequenc|\bseq\b|per[- ](domain|registry)|partition key"
-                 r"|keyed by"),
+    # Architects named it "a poison event stops its partition" and "a halted partition has no owner"; a
+    # halted partition counts only when nothing says the concern is about order.
+    ("dlq", r"\bdlq\b|dead[- ]letter|poison"),
+    ("ordering", ORDERING),
+    ("dlq", r"\b(halt|stop|stall|paus|stuck)\w*\W+(\w+\W+){0,3}partition"
+            r"|partition\w*\W+(\w+\W+){0,3}(halt|stop|stall|paus|resum|stuck)"),
     ("idempotency", r"idempot|duplicat|dedup|twice|double[- ]charg|exactly[- ]once|redeliver"),
     ("throughput", r"throughput|events/s|per second|capacity|sizing|headroom|hot partition|\bskew"),
 )
@@ -66,7 +70,8 @@ def report_checks(report):
     checks = [Check("three_revisions", report.get("revision") == 3 and len(trail) == 3 and said[1:] == list(SAYS),
                     f"revision {report.get('revision')}; messages {said}")]
     ordering = {key for key, concern in concerns.items() if area_of(concern) == "ordering"}
-    asked = [q.get("question") for q in first.get("questions") or [] if about(q.get("question")) == "ordering"]
+    # A question has no area label; one that asks about order counts whatever else it mentions.
+    asked = [q.get("question") for q in first.get("questions") or [] if re.search(ORDERING, str(q.get("question")), re.I)]
     checks.append(Check("asked_about_ordering_first", bool(asked),
                         f"first review's questions: {[q.get('question') for q in first.get('questions') or []]}"))
     early = sorted(ordering & set(first.get("blocking") or []))
@@ -77,10 +82,16 @@ def report_checks(report):
                         f"second review blocks on {second.get('blocking')}; ordering concerns {sorted(ordering)}"))
     settled = [key for key in raised if key in (third.get("resolved") or [])
                and concerns[key].get("status") == "resolved"
-               and re.search(r"registr", str(concerns[key].get("resolution") or ""), re.I)]
+               and re.search(r"registr|transfer", str(concerns[key].get("resolution") or ""), re.I)]
     blocking = sorted(key for key in ordering if concerns[key].get("status") != "resolved"
                       and concerns[key].get("severity") == "blocking")
-    still_asked = [q.get("question") for q in third.get("questions") or [] if about(q.get("question")) == "ordering"]
+    # Still asked: an ordering question kept from an earlier review (questions keep their ids), or a new one
+    # about ordering. A later question that only mentions order in passing is not re-asking it.
+    earlier = {q.get("id") for row in (first, second) for q in row.get("questions") or []
+               if re.search(ORDERING, str(q.get("question")), re.I)}
+    seen = {q.get("id") for row in (first, second) for q in row.get("questions") or []}
+    still_asked = [q.get("question") for q in third.get("questions") or [] if q.get("id") in earlier
+                   or (q.get("id") not in seen and about(q.get("question")) == "ordering")]
     checks.append(Check("ordering_resolved_after_second_answer", bool(settled) and not blocking and not still_asked,
                         f"resolved {third.get('resolved')}; still blocking on ordering {blocking}; "
                         f"still asking {still_asked}"))

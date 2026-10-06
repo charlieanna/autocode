@@ -101,6 +101,7 @@ CONCERN_ORDER = ("id", "area", "severity", "status", "resolution", "summary", "e
 ENTRY_ORDER = ("revision", "said", "event_id", "verdict", "blocking", "advisory", "resolved", "questions")
 # A repository path in design_under_review: one with a directory, or a document's file name.
 PATH = re.compile(r"(?:[\w.-]+/)+[\w.-]*\w|[\w-][\w.-]*\.(?:md|markdown|rst|txt|adoc|html)\b", re.I)
+DOCUMENT = re.compile(r"\.(?:md|markdown|rst|txt|adoc|html)$", re.I)
 
 PROMPT = """You are the Architect: a senior engineer asked to judge a design before anyone builds it.
 You report. You do not write code and you do not edit the design or anything else in the repository.
@@ -166,6 +167,8 @@ REVISION_RULES = """- Keep every concern id from previous_review, open or resolv
   the message settled. Ask a new question only when the answer leaves a requirement choice open.
 - If the message asks you to review a different design, review that one fresh: every concern open,
   none resolved, and design_under_review names it.
+- If the message asks for a new or rewritten design rather than replying to this review, return mode
+  propose as the first section says (verdict not_applicable, design_under_review "", empty lists).
 verdict: request_changes when at least one OPEN concern is blocking, otherwise approve.
 """
 REVISE = """
@@ -177,12 +180,19 @@ and return the whole review again (design_under_review as previous_review names 
 concern, the open questions).
 """ + REVISION_RULES
 REPAIR_RULES = ("When the rejected report revises an earlier design review (its concerns have a status), the "
-                "revision rules hold:\n" + REVISION_RULES)
+                "revision rules hold; previous_review and user_message in the handoff data are that review and "
+                "the user's reply, and an earlier concern is restored as previous_review has it:\n" + REVISION_RULES)
 
 
 def revising(state: dict) -> dict | None:
     """The design review the request replies to (autocode_follow_up.design_review_to_revise), or None."""
     return follow_up.design_review_to_revise(state)
+
+
+def repair_context(state: dict) -> dict:
+    """For a report-only repair of a revision: the review it must keep and the reply (jobs.repair_context)."""
+    handoff = packet(state)
+    return {key: handoff[key] for key in ("previous_review", "user_message") if key in handoff}
 
 
 def schema_for(state: dict) -> dict:
@@ -198,7 +208,7 @@ def packet(state: dict, inventory: dict | None = None, engine: str | None = None
             "goal_contract": None, "current_task": None, "saved_answers": {},
             **({"previous_review": {key: previous.get(key) for key in (
                     "revision", "design_under_review", "verdict", "summary", "satisfied", "concerns", "questions")},
-                "user_message": previous["said"]} if previous else {})}
+                "user_message": previous.get("said")} if previous else {})}
 
 
 def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
@@ -209,12 +219,16 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
 
 
 def same_design(before, after) -> bool:
-    """Whether two reviews' design_under_review name the same design: the first repository path each
-    names, when both name one (a bare file name matches the path it ends), and otherwise the same words."""
-    paths = [PATH.findall(str(text or "")) for text in (before, after)]
+    """Whether two reviews' design_under_review name the same design: a repository path both name (a bare
+    file name matches the path it ends), comparing design documents when both name one, so a code path
+    or a word like read/write mentioned beside the design does not count; otherwise the same words."""
+    paths = [[path.lower().removeprefix("./") for path in PATH.findall(str(text or ""))] for text in (before, after)]
+    documents = [[path for path in found if DOCUMENT.search(path)] for found in paths]
+    if all(documents):
+        paths = documents
     if all(paths):
-        first, second = (found[0].lower().removeprefix("./") for found in paths)
-        return first == second or first.endswith("/" + second) or second.endswith("/" + first)
+        return any(first == second or first.endswith("/" + second) or second.endswith("/" + first)
+                   for first in paths[0] for second in paths[1])
     words = [" ".join(str(text or "").lower().split()) for text in (before, after)]
     return bool(words[0]) and words[0] == words[1]
 
@@ -249,8 +263,10 @@ def check(value: dict, changed_files, previous: dict | None = None) -> None:
     resolved = [c for c in concerns if _status(c) == "resolved"]
     if previous is None or not same_design(previous.get("design_under_review"), value["design_under_review"]):
         if resolved:
+            again = (f" If it is the review of {previous.get('design_under_review')!r} again, name that design as "
+                     "previous_review does." if previous is not None else "")
             raise ValueError("A first review of a design resolves nothing: every concern is open; resolved here: "
-                             + ", ".join(c["id"] for c in resolved))
+                             + ", ".join(c["id"] for c in resolved) + "." + again)
         return
     earlier = {c.get("id"): c for c in previous.get("concerns") or []}
     missing = [f"{key} ({earlier[key].get('summary', '')})" for key in earlier if key not in ids]
@@ -280,8 +296,8 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     concerns = [{key: concern.get(key, "") for key in CONCERN_ORDER} | {"status": _status(concern)}
                 for concern in value["concerns"]]
     revised = previous is not None and same_design(previous.get("design_under_review"), value["design_under_review"])
-    revision = previous["revision"] + 1 if revised else 1
-    entry = {"revision": revision, "said": previous["said"] if previous else None,
+    revision = (previous.get("revision") or 1) + 1 if revised else 1
+    entry = {"revision": revision, "said": previous.get("said") if previous else None,
              "event_id": previous.get("event_id") if previous else None, "verdict": value["verdict"],
              **_ids(concerns),
              "questions": [{"id": q["id"], "question": q["question"]} for q in value["questions"]]}
@@ -312,9 +328,13 @@ def _ids(concerns: list[dict]) -> dict:
 
 
 def _first_entry(previous: dict) -> dict:
-    """The trail entry of a review saved before reports kept their revisions."""
+    """The trail entry of a review saved before reports kept their revisions. A reply recorded before
+    then carried only its open concerns' ids (blocking, advisory), not the concerns."""
+    ids = (_ids(previous["concerns"]) if previous.get("concerns") is not None else
+           {key: [row.get("id") for row in previous.get(key) or []] for key in ("blocking", "advisory")}
+           | {"resolved": []})
     return {"revision": previous.get("revision") or 1, "said": None, "event_id": None,
-            "verdict": previous.get("verdict"), **_ids(previous.get("concerns") or []),
+            "verdict": previous.get("verdict"), **ids,
             "questions": [{"id": q.get("id"), "question": q.get("question")} for q in previous.get("questions") or []]}
 
 

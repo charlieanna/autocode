@@ -300,8 +300,8 @@ its wording may change, so programs read the fields beside it:
 - `problems`: `open` counts the open findings (`items`: `id`, `finding`, `source`,
   `severity`, `blocking`) plus, for a code or design review and a design-conflict
   stop, the findings that job saved instead (`reports`: `kind`, `blocking`,
-  `advisory`, `report_path`; a design review also has `questions`, the questions
-  its report asks, and `revision`, 1 until a reply revises it). A design review's
+  `advisory`, `report_path`; a design review also has `questions`, the number of
+  questions its report asks, and `revision`, 1 until a reply revises it). A design review's
   `blocking` and `advisory` count its open concerns: a concern a reply resolved
   is not a problem.
 - `for_earlier_request`: true after a `--follow-up` until the follow-up's own plan is

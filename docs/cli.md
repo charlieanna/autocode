@@ -121,25 +121,28 @@ the message lists that run, and the command that continues the finished one anyw
 #### Replying to a design review
 
 A design review never waits for its questions: the run completes with them in
-`review/design-review.json`, and you answer with `--follow-up` ("Ordering is per-domain."). A
-concern that is a problem only under one answer to a question stays advisory until you answer.
-A reply recognized as design makes the Architect revise the same review instead of writing a new
-one:
+`review/design-review.json`, and you answer with `--follow-up` ("Ordering is per-domain."). The
+Architect is asked to keep a concern that is a problem only under one answer to its question
+advisory until you answer. A reply recognized as design makes the Architect revise the same
+review instead of writing a new one. It is asked to:
 
-- Every earlier concern keeps its id, open or resolved; none is dropped or renumbered.
-- A concern the reply settles is kept with `status` `resolved` and a `resolution` saying what
-  settled it; an answer can also make a concern blocking. A new concern is added only for a
-  problem the reply exposes, and only an earlier concern can be resolved.
-- Answered questions are dropped and the others keep their ids. The verdict counts open
-  blocking concerns only.
-- `revision` is the review's number (1 for the first), and `revisions` keeps one entry per
-  review: the message that prompted it (`said`, null for the first), its feedback receipt
-  (`event_id`), the verdict, and the ids of its open blocking, open advisory and resolved
-  concerns and of its questions.
+- keep every earlier concern under its id, open or resolved, and to drop or renumber none;
+- keep a concern the reply settles with `status` `resolved` and a `resolution` saying what
+  settled it (an answer can also make a concern blocking), and to add a concern only for a
+  problem the reply exposes;
+- drop the questions the reply answered and keep the others under their ids.
 
-The runner refuses a revision that breaks these rules; a reply that names a different design
-gets a fresh review (revision 1). The report you reply to must be the one the Architect wrote:
-if `review/design-review.json` was edited since, `--follow-up` exits 2 with "changed since the
+The runner refuses a revision that leaves out an earlier concern id, uses an id twice, resolves
+a concern without a resolution or resolves one raised in that revision, or whose verdict is not
+`request_changes` exactly when an open concern is blocking. A reply that names a different
+design gets a fresh review (revision 1); a reply asking for a new design hands it to the build
+pipeline, as a first request would.
+
+`revision` is the review's number, and `revisions` keeps one entry per review: the message that
+prompted it (`said`, null for the run's first review), its feedback receipt (`event_id`), the
+verdict, and the ids of its open blocking, open advisory and resolved concerns and of its
+questions. The report you reply to must be the one the Architect wrote: if
+`review/design-review.json` was edited since, `--follow-up` exits 2 with "changed since the
 Architect's review; restore it or start a new run".
 
 ### Execution and recovery
