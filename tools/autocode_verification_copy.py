@@ -13,9 +13,10 @@ import shutil
 import subprocess
 
 try:
-    from . import autocode_util as util
+    from . import autocode_util as util, autocode_source_snapshot as source
 except ImportError:
     import autocode_util as util
+    import autocode_source_snapshot as source
 
 
 def _identity(path):
@@ -26,38 +27,32 @@ def _identity(path):
     return 'deleted' if not path.exists() else 'directory'
 
 
-def _inventory(root):
-    result = {}
-    for name, identity in util.snapshot(root)['files'].items():
-        if identity.startswith('submodule:'):
-            result.update({name + '/' + child: value for child, value in _inventory(root / name).items()})
-        elif identity != 'uninitialized-submodule':
-            result[name] = identity
-    return result
+def _inventory(root, source_paths=()):
+    return source.inventory(root, paths=source_paths)
 
 
-def create(workspace, scratch):
+def create(workspace, scratch, *, source_paths=()):
     root, scratch = Path(workspace).resolve(), Path(scratch).resolve()
     if not scratch.is_relative_to(root / '.autocode'):
         raise ValueError('Verification copy must be inside the owned task scratch')
     tree = scratch / 'verification'
     tree.mkdir()  # Never reuse a previous stage's outputs.
-    before = util.snapshot(root)
-    inputs = _inventory(root)
+    before = source.snapshot(root, paths=source_paths)
+    inputs = _inventory(root, source_paths)
     for name, identity in inputs.items():
-        source, target = root / name, tree / name
+        original, target = root / name, tree / name
         if identity == 'deleted':
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_symlink():
-            link = os.readlink(source)
+        if original.is_symlink():
+            link = os.readlink(original)
             if os.path.isabs(link) and Path(link).is_relative_to(root):
                 link = str(tree / Path(link).relative_to(root))
             target.symlink_to(link)
         else:
-            shutil.copy2(source, target)
-        expected = 'symlink:' + link if source.is_symlink() else identity
-        if _identity(source) != identity or _identity(target) != expected:
+            shutil.copy2(original, target)
+        expected = 'symlink:' + link if original.is_symlink() else identity
+        if _identity(original) != identity or _identity(target) != expected:
             raise ValueError('Source changed while copying: ' + name)
     # A real standalone Git repository avoids accidentally inspecting the
     # parent task's index when a check invokes Git from the copy.
@@ -71,17 +66,17 @@ def create(workspace, scratch):
     # Match the clean replay's read-only task-local dependency lookup. These
     # links grant no new authority; the sandbox keeps their originals read-only.
     for name in ('node_modules', '.venv', 'venv', 'vendor'):
-        source, target = root / name, tree / name
-        if source.is_dir() and not target.exists() and not target.is_symlink():
-            target.symlink_to(source.resolve(), target_is_directory=True)
-    if util.snapshot(root) != before:
+        original, target = root / name, tree / name
+        if original.is_dir() and not target.exists() and not target.is_symlink():
+            target.symlink_to(original.resolve(), target_is_directory=True)
+    if source.snapshot(root, paths=source_paths) != before:
         raise ValueError('Source changed while preparing verification copy')
     files = {str(p.relative_to(tree)): _identity(p) for p in tree.rglob('*')
              if p.is_symlink() or p.is_file()}
     protected = [str(tree), *(str(p) for p in tree.rglob('*'))]
     manifest = scratch.parent / 'verification-copy.json'
     data = {'version': 1, 'workspace': str(root), 'tree': str(tree),
-            'source_revision': before['revision'], 'files': files,
+            'source_revision': before['revision'], 'source_paths': before.get('source_paths', []), 'files': files,
             'directories': [str(p.relative_to(tree)) for p in tree.rglob('*')
                             if p.is_dir() and not p.is_symlink()]}
     util.atomic_json(manifest, data)
@@ -101,7 +96,7 @@ def execution(manifest, expected_hash, workspace):
     tree = control / 'scratch' / 'verification'
     if data.get('version') != 1 or data.get('workspace') != str(root) or data.get('tree') != str(tree):
         raise ValueError('Unexpected verification copy layout')
-    if tree.resolve() != tree or util.snapshot(root)['revision'] != data['source_revision']:
+    if tree.resolve() != tree or source.snapshot(root, paths=data.get('source_paths', []))['revision'] != data['source_revision']:
         raise ValueError('Verification source changed; request fresh validation')
     for name in data['directories']:
         relative = Path(name)

@@ -7,6 +7,12 @@ The Builder is the only designated writer; review roles are checked for source d
 
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
+except ImportError:
+    import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
+
+
 import argparse
 import datetime as dt
 import errno
@@ -146,7 +152,7 @@ def recover_default_budget(state, run_dir, workspace, kind):
                 or (Path(run_dir) / 'pause-requested').exists() or interventions.pending(run_dir)):
             return False
         latest = next((row for row in reversed(state.get('stages', [])) if not row.get('runner_owned')), None)
-        if not latest or latest.get('source_revision') != support.snapshot(workspace)['revision']:
+        if not latest or latest.get('source_revision') != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']:
             return False
         candidate = copy.deepcopy(state)
         if not budget_recovery.recover(candidate, kind=kind, now=now()):
@@ -370,6 +376,7 @@ def run_role(
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
         sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
+        source_paths=source_scope.paths(state),
         tool_commands=verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
         if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
     session = worker_context.get('provider_session', session)
@@ -391,7 +398,7 @@ def run_role(
             raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Visual transport changed since its approved profile')
         visual_context, command, child_environment, prompt = visual_runtime.prepare(
             state, original_stage, workspace, run_dir, base, command, child_environment, prompt,
-            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir), current_snapshot=support.snapshot(workspace))
+            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir), current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
         worker_context['visual_runtime'] = visual_context
         child_options['env'] = child_environment
         worker_context.update(command=command, environment=child_environment)
@@ -440,7 +447,7 @@ def run_role(
 
     if engine == "opencode" and not configured_tool:
         readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
-    before = support.snapshot(workspace)
+    before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if record['output_mode'] == 'report_file':
         record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
                                      'source_revision': before['revision']}
@@ -569,14 +576,13 @@ def run_role(
     elif not output.is_file():
         refused_at_clean_exit(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     write_json(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
     record["source_revision"] = after["revision"]
     record["changed_files"] = support.changed_paths(before, after)
     diff_path = base.with_suffix(".diff")
-    with diff_path.open("w") as diff:
-        subprocess.run(["git", "diff", "--no-ext-diff", "--binary", "HEAD"], cwd=workspace, stdout=diff, check=True)
+    source_diff.write(workspace, diff_path, after)
     record["diff_ref"] = str(diff_path)
     summary_path = base.with_suffix(".tools.json")
     support.summarize_events(events, summary_path)
@@ -663,7 +669,7 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
     state = copy.deepcopy(state)
     pending = state['pending_report_repair']
     original = copy.deepcopy(pending['original'])
-    current = support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if (current['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
@@ -739,7 +745,7 @@ def execute_report_repair(state, run_dir, workspace):
         raise support.Paused('PAUSED_STALE_VALIDATION',
             f"The source changed after the rejected {original['stage']} report, so its repair cannot run. Resume with "
             f"autocode resume to archive the repair (evidence retained) and start a fresh {original['stage']} attempt.")
-    if (support.snapshot(workspace)['revision'] != original['source_revision']
+    if (source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Saved report-repair inputs changed; do not retry')
@@ -900,7 +906,7 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
     if not record:
         return
     repeated = failures.repeated(state, record)
-    if repeated and support.snapshot(workspace)['revision'] == record.get('source_revision'):
+    if repeated and source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] == record.get('source_revision'):
         if (authorization and not authorization.get('consumed')
                 and authorization.get('failure_key') == record.get('failure_key')
                 and authorization.get('identity') == repeated['identity']
@@ -986,7 +992,7 @@ def reconcile_active(state, run_dir, workspace):
             reject_completed_stage(state, run_dir, record, error)
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Recovered stage lacks its original source snapshot')
     before = read_json(Path(record["before_ref"]))
-    after = support.snapshot(workspace)
+    after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if (record["role"] != "terra" or record.get('report_only')) and before["revision"] != after["revision"]:
         raise support.Paused("PAUSED_STALE_VALIDATION",
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
@@ -994,7 +1000,7 @@ def reconcile_active(state, run_dir, workspace):
             f"After inspecting the change, use --abandon-stage {attempt_id(record)} to set the result aside "
             "(evidence and edits retained), then autocode resume for a fresh attempt on the current source.")
     base = Path(record["output"]).with_suffix("")
-    write_json(base.with_suffix(".after.json"), after)
+    source_snapshot.preserve_after(base.with_suffix(".after.json"), after, write_json=write_json)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), recovered_at=now(), metrics=support.event_metrics(record["events"]))
     try:
@@ -1084,7 +1090,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
         raise ValueError("Run is already complete")
     if not goals.approved(state):
         raise ValueError("Completion acceptance requires an approved goal")
-    current = support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     contract = state["goal_contract"]
     # The probe must carry the current task identity: execution_guard rejects a
     # result whose task_id is absent while a task is assigned, so omitting it
@@ -1116,7 +1122,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
 def recheck_completion(state, workspace):
     if state.get("status") != "TASK_COMPLETE":
         return
-    if completion_gate.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace)):
+    if completion_gate.completion_ready(state, state.get("final_decision", {}), source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)):
         return
     state.setdefault("completion_archive", []).append({"completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)})
     state.pop("completion_actor", None)
@@ -1230,7 +1236,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                 if reply not in ("y", "yes"):
                     print("Artifact review remains pending.")
                     return False
-                current = support.snapshot(Path(state["workspace"]))
+                current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
                 action(lambda candidate: goals.approve_review(candidate, criterion, state["displayed_review"], current),
                        resolver_human.current(state))
             return state["status"] == "RUNNING"

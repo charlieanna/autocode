@@ -1,6 +1,12 @@
 """Autopilot: deterministic controller for planning, building, review and repair."""
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 import json
 import re
@@ -136,7 +142,7 @@ def publish_handoffs(state, run_dir):
 def admit_validation(runtime, state, stage, workspace, run_dir):
     """Ask the user instead of launching another validation-only round that cannot close its blockers."""
     blocking = findings_ledger.blocking_entries(state) if stage == "sol" else []
-    stop = blocking and validation_rounds.admit(state, blocking, support.snapshot(workspace)["revision"])
+    stop = blocking and validation_rounds.admit(state, blocking, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"])
     if not stop:
         return
     error = support.Paused(validation_rounds.STATUS, stop["reason"])
@@ -249,7 +255,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             decision = {"status": "CONTINUE", "next_task": {key: entry for key, entry in first.items()
                         if key not in ("objective", "affected_paths")}, "next_objective": first["objective"],
                         "affected_paths": first["affected_paths"], "evidence": []}
-            kind = lifecycle.assign_task(state, decision, support.snapshot(Path(state["workspace"])))
+            kind = lifecycle.assign_task(state, decision, source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot))
             state.update(next_stage="sol" if kind == "validate" else "terra", phase="EXECUTING")
         return
     # Older saved reports predate explicit, user-backed conflict resolutions.
@@ -430,7 +436,7 @@ def assert_within_assignment(state, record):
 def retained_validated_candidate(state, value, record, workspace):
     """Compatibility entry point for previously validated retained work."""
     return retained_work.validated_candidate(state, value, record, workspace,
-                                             support.snapshot(workspace)['revision'])
+                                             source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'])
 
 
 def recover_retained_candidate(state, workspace):
@@ -442,7 +448,7 @@ def recover_retained_candidate(state, workspace):
     record = next((row for row in reversed(state.get('stages', []))
                    if (row.get('original_stage') or row.get('stage')) == 'terra'
                    and not row.get('runner_owned') and not row.get('changed_files')
-                   and row.get('source_revision') == support.snapshot(workspace)['revision']), None)
+                   and row.get('source_revision') == source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']), None)
     if not record:
         return False
     value = reports[-1]
@@ -478,7 +484,7 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
                 'builder_output': record['output'], **retained})
             state['next_stage'] = workflow.review_stage(state)
             return
-        fresh = retained_work.fresh_candidate(state, record, support.snapshot(workspace)['revision'])
+        fresh = retained_work.fresh_candidate(state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'])
         if fresh:
             # The runner's snapshots, rather than this attempt's empty report,
             # identify the files left by an earlier Builder. They are a candidate
@@ -576,12 +582,12 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
     if stage == 'sol' and (record.get('visual_runtime') or visual_runtime.requested(state)):
         visual_receipt = visual_runtime.accept_review(record.get('visual_runtime'), state, record, run_dir=run_dir,
-                                                       current_snapshot=support.snapshot(workspace), accepted_validation=validation)
+                                                       current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), accepted_validation=validation)
         if visual_receipt:
             validation['evidence_hashes'].update(visual_receipt['evidence_hashes'])
     if progressive_state.enabled(state):
-        progressive_state.check_result_binding(state, record, support.snapshot(workspace))
-        progressive_state.assert_product_claims(state, support.snapshot(workspace), validation)
+        progressive_state.check_result_binding(state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
+        progressive_state.assert_product_claims(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), validation)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
@@ -595,7 +601,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     else:
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
-    milestones.observe_validation(state, support.snapshot(workspace))
+    milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
@@ -612,7 +618,7 @@ def queue_resolution(state, decision, record, *, source_stage='astra_review', so
     revision = record.get('source_revision')
     if (not task.get('id') or task.get('contract_hash') != state['goal_contract']['hash']
             or task.get('contract_revision') != state['goal_contract']['revision']
-            or not revision or revision != support.snapshot(Path(state['workspace']))['revision']
+            or not revision or revision != source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)['revision']
             or not record.get('output') or not Path(record['output']).is_file()
             or record.get('rejected') or record.get('exit_code', 0) != 0
             or (source_stage != 'terra' and record.get('changed_files'))
@@ -727,7 +733,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         return
     if modern:
         if progressive_state.enabled(state):
-            progressive_state.check_result_binding(state, record, support.snapshot(workspace))
+            progressive_state.check_result_binding(state, record, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
         goals.execution_guard(state, value)
         for entry in value.get("deferred_backlog", []):
             if entry not in state.setdefault("deferred_backlog", []):
@@ -812,12 +818,12 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             proven = {row["id"] for row in (state.get("validation") or {}).get("criterion_results", []) if row["status"] == "PASS"}
             if any(row["status"] == "verified" and row["id"] not in proven for row in value["acceptance_criteria"]):
                 raise ValueError("slice checkpoint cannot claim verified original criteria without the Validator's current product proof")
-            progressive_state.checkpoint(state, support.snapshot(workspace), record,
+            progressive_state.checkpoint(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), record,
                                          product_findings=findings_ledger.blocking_entries(state))
             goals.record_decision(state, value)
             save_record(state, record)
             return
-        current = support.snapshot(workspace)
+        current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
         request = (completion_gate.artifact_review_request(state, value, current)
                    if modern and stage in ("astra_review", "astra_checkpoint") else None)
         if request:
@@ -859,7 +865,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             # Passing Validator evidence cannot override the Plan Reviewer's rework or unverified criteria.
             if modern and value["status"] == "CONTINUE":
                 completion_probe = {**value, "status": "TASK_COMPLETE"}
-                probe_snapshot = support.snapshot(workspace)
+                probe_snapshot = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
                 if visual_runtime.completion_allowed(state, current_snapshot=probe_snapshot) and completion_gate.completion_ready(state, completion_probe, probe_snapshot):
                     state.update(next_stage="astra_review", **unit_module("astra_review").completion_review(state, probe_snapshot))
                     state["iteration"] += 1
@@ -879,7 +885,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                     goals.record_decision(state, value)
                     save_record(state, record)
                     return
-            current = support.snapshot(workspace)
+            current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             try:
                 kind = lifecycle.assign_task(state, value, current) if modern else "implement"
             except support.Paused as error:

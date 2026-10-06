@@ -3,6 +3,12 @@
 Only runner-observed conditions get automatic proposals. Agent prose cannot
 authorize a retry, mutate the contract, grant permission, or declare success.
 """
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 from dataclasses import fields, is_dataclass
 from collections.abc import Mapping
 from pathlib import Path
@@ -73,7 +79,7 @@ def _planning_binding(state, stage, workspace):
     return {'cycle': cycle, 'discovery_record_hash': support.digest(accepted),
             'stage': stage, 'contract_token': goals.token(contract),
             'contract_hash': contract['hash'], 'contract_digest': support.digest(contract),
-            'source_revision': support.snapshot(workspace)['revision'],
+            'source_revision': source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'],
             'settings_hash': support.digest(state['settings']), 'inputs': inputs,
             'ordinary_limit': planning.get('review_call_limit', 2),
             'astra_calls': planning['astra_calls'],
@@ -678,7 +684,7 @@ def boundary(runner, state, run_dir, workspace):
         proposal = policy.Proposal('escalate', {'reason': description}, 'User decision boundary')
     elif pending:
         failed = pending['original']
-        if (support.snapshot(workspace)['revision'] != failed.get('source_revision')
+        if (source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != failed.get('source_revision')
                 or pending.get('contract_hash') != state['goal_contract']['hash']
                 or any(not Path(path).is_file() or support.file_hash(path) != digest
                        for path, digest in pending.get('pins', {}).items())):
@@ -691,7 +697,7 @@ def boundary(runner, state, run_dir, workspace):
     elif (validation.get('verdict') == 'BLOCKED' and failed
           and validation.get('output') == failed.get('output')):
         if (not Path(validation['output']).is_file()
-                or support.snapshot(workspace)['revision'] != failed.get('source_revision')):
+                or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision'] != failed.get('source_revision')):
             raise support.Paused('PAUSED_STALE_VALIDATION', 'Failed validation artifact changed before resolution')
         kind, description = 'validation', 'Independent validation could not complete'
         evidence = [validation['output']]
@@ -836,7 +842,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
         return
     request = state.get('diagnosis_request') or {}
     if (request.get('contract_hash') != state['goal_contract']['hash']
-            or request.get('source_revision') != support.snapshot(workspace)['revision']):
+            or request.get('source_revision') != source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']):
         raise support.Paused('PAUSED_STALE_HANDOFF', 'Diagnosis needs the current source and approved contract')
     for path, digest in request.get('evidence_hashes', {}).items():
         if not Path(path).is_file() or support.file_hash(path) != digest:

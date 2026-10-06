@@ -7,6 +7,12 @@ from here, so a module that only reads a contract does not pull that machinery i
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 
 try:
@@ -467,7 +473,7 @@ def _approve(state, selected):
     joint = state.get("settings", {}).get("joint_planning")
     if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
         raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
-    current = s.snapshot(Path(state["workspace"])) if joint else None
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot) if joint else None
     prepared_progressive = progressive_state.prepare_seal(state, selected)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
     state.setdefault("user_events", []).append(event)
@@ -476,7 +482,7 @@ def _approve(state, selected):
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
     carried = []
     if checkpoints.enabled(state):
-        current = current or s.snapshot(Path(state['workspace']))
+        current = current or source_scope.snapshot(Path(state['workspace']), state, base_snapshot=s.snapshot)
         carried = checkpoints.carryforward.carry(state, current)
     if joint:
         if contract['body']['initial_task']['milestone_id'] in carried:
@@ -511,7 +517,7 @@ def resolve_passing_checkpoint(state, question_id, text):
     description = str(request.get("discovered", "")).lower()
     if not all(word in description for word in ("checkpoint", "evidence")) or not ("sol" in description or "validator" in description):
         raise ValueError("The pending request is not a Validator milestone checkpoint")
-    current = s.snapshot(Path(state["workspace"]))
+    current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
     if not checkpoints.evidence_ready(state, current) or missing_human_reviews(state):
         raise ValueError("Current independent evidence or a required human review is still missing")
     event = {"kind": "checkpoint_answer", "actor": "user_cli", "at": s.now(),

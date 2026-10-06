@@ -1,4 +1,10 @@
 """CLI status rendering, with controller services supplied by the caller."""
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import json
 import sys
 
@@ -22,7 +28,7 @@ def render(runner, state, args, workspace, run_dir):
     stale_check = bool(check and not active and state.get("status") == "RUNNING"
                        and check_workers.get("checked") and not check_workers.get("alive"))
     strict_visual = runner.visual_runtime.requested(state)
-    current = runner.support.snapshot(workspace) if state["status"] == "TASK_COMPLETE" or strict_visual or state.get('settings', {}).get('design_manifest') else None
+    current = source_scope.snapshot(workspace, state, base_snapshot=runner.support.snapshot) if state["status"] == "TASK_COMPLETE" or strict_visual or state.get('settings', {}).get('design_manifest') else None
     visual_acceptance = (runner.visual_runtime.projection(state, current_snapshot=current)
                          if (state.get('settings', {}).get('design_manifest') or strict_visual) and current else None)
     completion_current = (runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
@@ -35,7 +41,7 @@ def render(runner, state, args, workspace, run_dir):
         criteria = (contract.get('body') or {}).get('acceptance_criteria') or []
         missing = runner.goals.missing_human_reviews(state) if contract else []
         accepted = [row['id'] for row in criteria if row.get('human_review') and row['id'] not in missing]
-        inspected = verification.inspect(state, workspace, snapshot=runner.support.snapshot,
+        inspected = verification.inspect(state, workspace, snapshot=lambda root: source_scope.snapshot(root, state, base_snapshot=runner.support.snapshot),
             read_state=lambda: runner.read_json(run_dir / 'state.json'), accepted_human_ids=accepted, initial_snapshot=current)
         if completion_current is not None and (inspected['freshness'] != 'current'
                 or inspected.get('inspected_source_revision') != current['revision']):

@@ -23,6 +23,11 @@ Missing evidence is UNVERIFIED, never PASS.
 """
 from __future__ import annotations
 
+try:
+    from . import autocode_source_snapshot as source_snapshot
+except ImportError:
+    import autocode_source_snapshot as source_snapshot
+
 import hashlib
 import json
 import os
@@ -128,7 +133,7 @@ def _ignored(path: str) -> bool:
             or path.endswith(".pyc") or path in DEPENDENCY_DIRS)
 
 
-def changed_files(workspace, base) -> dict[str, str]:
+def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
     """Every path whose content differs from ``base``: committed, staged, dirty or untracked."""
     changes: dict[str, str] = {}
     tokens = _git(workspace, "diff", "--name-status", "-z", "--no-renames", base, "--").split("\0")
@@ -138,6 +143,15 @@ def changed_files(workspace, base) -> dict[str, str]:
     for path in _git(workspace, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
         if path:
             changes[path] = "added"
+    if source_paths:
+        tracked = set(filter(None, _git(workspace, 'ls-files', '-z', '--cached').split('\0')))
+        selected = source_snapshot.snapshot(workspace, paths=source_paths)
+        for path, identity in selected['files'].items():
+            if identity.startswith(('submodule:', 'uninitialized-submodule')):
+                changes.pop(path, None)
+        for path, identity in source_snapshot.inventory(workspace, paths=source_paths).items():
+            if path not in tracked and identity != 'deleted':
+                changes[path] = 'added'
     return {path: status for path, status in sorted(changes.items()) if not _ignored(path)}
 
 
@@ -768,7 +782,7 @@ def command_framework(command):
     return None
 
 
-def execution_identity(workspace, *, command=None, dependencies_from=None, full=True):
+def execution_identity(workspace, *, command=None, dependencies_from=None, full=True, source_paths=()):
     """Conservative observable source/runtime/environment identity for receipts.
 
     Full dependency bytes are included, not only manifests or changed paths.
@@ -776,11 +790,11 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
     remote service, wall clock or provider sandbox; those remain fresh checks.
     """
     workspace = Path(workspace)
-    source_snapshot = util.snapshot(workspace)
-    source_symlinks = [name for name, value in source_snapshot.get("files", {}).items()
+    source_snapshot_value = source_snapshot.snapshot(workspace, paths=source_paths)
+    source_symlinks = [name for name, value in source_snapshot_value.get("files", {}).items()
                        if value.startswith("symlink:") and name not in DEPENDENCY_DIRS]
     source_metadata = {}
-    for name in source_snapshot.get("files", {}):
+    for name in source_snapshot_value.get("files", {}):
         path = workspace / name
         if path.is_file() and not path.is_symlink():
             stat = path.stat()
@@ -862,7 +876,7 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                  _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split("\0")
                  if p and not p.endswith("/") and PurePosixPath(p).suffix in CODE_SUFFIXES
                  and not _ignored(p) and not any(part in DEPENDENCY_DIRS for part in PurePosixPath(p).parts)}
-    return {"source_revision": source_snapshot["revision"], "source_metadata": util.digest(source_metadata),
+    return {"source_revision": source_snapshot_value["revision"], "source_metadata": util.digest(source_metadata),
             "unbound_source_symlinks": source_symlinks,
             "reuse_supported": python_command and full, "cache_binding_complete": full,
             "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
@@ -926,7 +940,7 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
 
 
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
-                files=None, links=None) -> dict:
+                files=None, links=None, source_paths=()) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
 
     The copy is HEAD plus every uncommitted change (so files a stage just delivered are there),
@@ -941,7 +955,7 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     head = _git(workspace, "rev-parse", "HEAD").strip()
-    tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace, changed_files(workspace, head),
+    tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace, changed_files(workspace, head, source_paths=source_paths),
                      dependencies_from=workspace)
     try:
         if patch:
@@ -1021,7 +1035,7 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None) -> dict:
+           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=()) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1038,8 +1052,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
-    before = util.snapshot(workspace)["revision"]
-    changes = changed_files(workspace, base)
+    before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
+    changes = changed_files(workspace, base, source_paths=source_paths)
     tests = [p for p in changes if is_test_path(p)]
     sources = [p for p in changes if not is_test_path(p)]
     test_changes = {p: changes[p] for p in tests}
@@ -1130,7 +1144,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     finally:
         for tree in trees.values():
             remove_tree(workspace, tree)
-    after = util.snapshot(workspace)["revision"]
+    after = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     if after != before:
         unverified.append("The candidate changed while it was being verified; verify again")
     stats = diff_stats(workspace, base, changes)

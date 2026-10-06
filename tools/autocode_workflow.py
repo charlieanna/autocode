@@ -1,6 +1,12 @@
 """Opt-in reviewer routing for the existing runner; no provider or state store."""
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 from pathlib import Path
 
@@ -101,7 +107,7 @@ def dispatch_guard(state, stage, workspace):
     saved=state.get('final_audit_request' if stage=='astra_checkpoint' else 'targeted_consultation') or {}
     if (saved.get('contract_hash')!=state['goal_contract']['hash'] or
             saved.get('task_id')!=state.get('current_task',{}).get('id','') or
-            saved.get('source_revision')!=support.snapshot(workspace)['revision']):
+            saved.get('source_revision')!=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']):
         raise support.Paused('PAUSED_STALE_HANDOFF','GPT dispatch lacks a current explicit escalation/final-audit request')
     if stage=='astra_checkpoint' and (not saved.get('evidence_hashes') or
             any(not Path(p).is_file() or support.file_hash(p)!=h for p,h in saved['evidence_hashes'].items())):
@@ -112,7 +118,7 @@ def apply_implementation(runner,state,value,record,workspace,run_dir):
     support.validate_schema(value,implementation_schema(runner.SCHEMA_DIR))
     goals.execution_guard(state,value)
     c=value['continuation']; action=c['action']
-    if record['source_revision']!=support.snapshot(workspace)['revision']:
+    if record['source_revision']!=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']:
         raise support.Paused('PAUSED_STALE_HANDOFF','Implementation handoff is stale')
     if action=='WAITING_FOR_USER':
         raise ValueError('WAITING_FOR_USER needs a material structured user_request')
@@ -145,7 +151,7 @@ def apply_implementation(runner,state,value,record,workspace,run_dir):
         decision={'status':'COMPLETE','contract_hash':value['contract_hash'],'contract_revision':value['contract_revision'],
             'task_id':value['task_id'],'user_request':value['user_request'],
             'acceptance_criteria':[{**a,'status':'verified','evidence':'Builder self-check; not independent'} for a in state['acceptance_criteria']]}
-        if not completion_gate.completion_ready(probe,decision,support.snapshot(workspace),require_human_reviews=False,require_independent=False):
+        if not completion_gate.completion_ready(probe,decision,source_scope.snapshot(workspace, state, base_snapshot=support.snapshot),require_human_reviews=False,require_independent=False):
             raise ValueError('Final audit requires current executed self-check evidence for every approved criterion')
         state['final_audit_request']={**probe['validation'],'requested_at':support.now(),'independent':False}
         state['next_stage']='astra_checkpoint'
@@ -282,7 +288,7 @@ def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     if not enabled(state) or record.get("role") != "astra":
         raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
     support.validate_schema(value, design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "astra_checkpoint"))
-    current = support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if record.get("source_revision") != current["revision"] or record.get("changed_files"):
         raise support.Paused("PAUSED_STALE_VALIDATION", "Checkpoint does not match a read-only current artifact")
     validation, decision, consult = value["validation"], value["decision"], value["consult_sol"]

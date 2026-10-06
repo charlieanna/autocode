@@ -5,6 +5,12 @@ user_events and content-addressed bundles preserve explicit revisions. The
 caller supplies test classification, framework discovery and scratch execution.
 """
 from __future__ import annotations
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 from pathlib import Path
 import uuid
@@ -133,7 +139,7 @@ def replay(state, workspace, out, scratch_run, *, timeout):
     if not record:
         return None  # compatibility: do not invent an original binding for old runs
     verify_binding(record)
-    revision = util.snapshot(workspace)['revision']
+    revision = source_scope.snapshot(workspace, state)['revision']
     changed = []
     for name, expected in record['files'].items():
         try:
@@ -164,7 +170,7 @@ def replay(state, workspace, out, scratch_run, *, timeout):
         if any(row.get('exit_code') != 0 or row.get('error') or row.get('timed_out') for row in receipts):
             result['verdict'] = 'FAIL'
     verify_binding(record)
-    if util.snapshot(workspace)['revision'] != revision:
+    if source_scope.snapshot(workspace, state)['revision'] != revision:
         result.update(verdict='NOT_VERIFIED', error='Candidate changed during protected-test replay')
     directory.mkdir(parents=True, exist_ok=True)
     receipt = directory / 'receipt.json'

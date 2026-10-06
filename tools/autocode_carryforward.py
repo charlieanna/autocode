@@ -3,6 +3,12 @@
 Reuse unlocks scheduling only. Original validation keeps its original lineage
 and cannot satisfy the new contract's final integration/completion gate.
 """
+
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
 import copy
 from pathlib import Path
 
@@ -189,7 +195,7 @@ def current_ids(state, accepted):
             if row.get('contract_hash') == state.get('goal_contract', {}).get('hash') and row.get('carried_from')]
     if not rows:
         return accepted
-    current = s.snapshot(Path(state['workspace']))
+    current = source_scope.snapshot(Path(state['workspace']), state, base_snapshot=s.snapshot)
     accepted = set(accepted)
     for row in rows:
         if not matches(row.get('reuse_manifest'), current):

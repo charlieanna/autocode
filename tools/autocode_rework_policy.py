@@ -1,6 +1,12 @@
 """Evidence-bound first serial repair assignment; ambiguity still goes to the Resolver."""
 from __future__ import annotations
 
+try:
+    from . import autocode_source_scope as source_scope
+except ImportError:
+    import autocode_source_scope as source_scope
+
+
 import copy
 from pathlib import Path
 
@@ -286,7 +292,7 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Failed check lacks an executed Validator receipt') from error
     if shared_receipt:
         return False  # Captures outside the run directory still need ordinary Resolver admission.
-    current = runtime.support.snapshot(workspace)
+    current = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
     _require(current['revision'] == record['source_revision'], 'Source changed while admitting the repair')
     probe = copy.deepcopy(state)
     probe['iteration'] += 1
