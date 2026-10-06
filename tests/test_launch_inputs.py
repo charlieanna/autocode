@@ -451,7 +451,7 @@ class PublicLaunchCaptureTests(Project):
         self.assertFalse(marker.exists())
         self.write({"_version.py": "VERSION = 'changed after public start'\n"})
         stopped = run.resume_paused()
-        self.assertEqual("PAUSED_TASK_PREFLIGHT", stopped["status"], stopped)
+        self.assertEqual("PAUSED_STALE_VALIDATION", stopped["status"], stopped)
         self.assertIn("_version.py", stopped["stop_reason"])
         self.assertFalse(marker.exists())
 
