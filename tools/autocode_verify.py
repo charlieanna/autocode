@@ -52,6 +52,7 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
+    from . import autocode_first_suite as first_suite
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_scratch_overlay as scratch_overlay
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
+    import autocode_first_suite as first_suite
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -1376,7 +1378,11 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             unverified.append("The base suite provided no complete passing-test evidence; "
                               "preservation of existing behavior is unproven")
     elif base_suite is not None and base_suite.get("health") == "broken":
-        unverified.append("The base suite could not run; preservation of existing behavior is unproven")
+        if first_suite.absent_base_suite(base_receipt, on_candidate, document_only=allow_empty_base):
+            notes.append("The pinned documentation-only base has no existing behavior to preserve; "
+                         "its new suite is absent on base and passes completely on the candidate")
+        else:
+            unverified.append("The base suite could not run; preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
         if base_results.get("complete") and not base_receipt.get("timed_out"):
             new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
