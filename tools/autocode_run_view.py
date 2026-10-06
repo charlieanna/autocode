@@ -21,7 +21,8 @@ try:
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    from . import autocode_quota_route as quota_route, autocode_recovery_limits as recovery_limits
+    from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
+    from . import autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -29,7 +30,8 @@ except ImportError:
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    import autocode_quota_route as quota_route, autocode_recovery_limits as recovery_limits
+    import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
+    import autocode_recovery_limits as recovery_limits
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -210,6 +212,9 @@ def evidence(state: dict) -> dict:
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
     findings          the findings ledger: id, status, severity, finding
+    finding_scope_moves  present once an approved revision moved criteria that open findings cite:
+                      one row per finding it re-attributed (autocode_finding_rescope): finding, from,
+                      to (every resulting row's id, milestone_id, criteria), contract_token, at
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
                       case_tests maps each English test case to the tests that prove it
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
@@ -236,6 +241,7 @@ def evidence(state: dict) -> dict:
     proof = state.get("regression_proof")
     replay = validation.get("check_replay")
     investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
+    moves = finding_rescope.history(state.get("findings_ledger"))
     return {
         "outcome": contract.get("intended_outcome"),
         "base_commit": state.get("base_commit"),
@@ -245,6 +251,7 @@ def evidence(state: dict) -> dict:
         "validator_source_revision": validation.get("source_revision"),
         "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
+        **({"finding_scope_moves": moves} if moves else {}),
         "regression_proof": {key: proof.get(key) for key in
                              ("verdict", "fail_to_pass", "failures", "unverified", "commands", "source_revision",
                               "case_tests")}

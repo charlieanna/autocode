@@ -134,7 +134,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--grant-recovery N` | With `--resume-paused`, authorize N more automatic timeout recoveries for a run paused at `PAUSED_TIMEOUT_RECOVERY` after its cause was fixed. Audited as a `recovery_grant` user event; recovery history is retained. |
 | `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a total allowance for the current cycle. `0` disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately. |
 | `--pause-after-stage` | Stop at the next saved boundary. |
-| `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
+| `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members (not a member its provider's content filter refused: answer its `route-terra` question). Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
 | `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after report repair or repeated-failure limits stop a rejected report, using the exact attempt ID status names; saved source and evidence pins must still match. After a source edit, `--resume-paused` validates the current source instead. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
