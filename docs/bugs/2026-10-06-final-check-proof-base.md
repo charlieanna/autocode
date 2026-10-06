@@ -70,9 +70,9 @@ Three things were wrong, and fixing any one alone would still have stopped the r
   - All three stay in `verification.json`, out of the stage prompts.
 - `autocode_regression.check_cases` (with `untouched` and `_variant`) uses that list only within
   limits:
-  - It drops a test whose own name appears in any changed file. A changed test file is the
+  - It drops a test whose own name appears in any changed code file. A changed test file is the
     targeted run's to decide, and a changed product module may define a test (a mixin) that ran
-    its old content on base.
+    its old content on base. A changed README or note that mentions a test does not count.
   - It drops a test whose own name appears in an ignored test file.
   - It never matches a case by its id alone, such as a diagnosis's T4.
   - It sends the list through the node:test wrapper refusal (#380), like every other candidate.
@@ -81,9 +81,14 @@ Three things were wrong, and fixing any one alone would still have stopped the r
     only shares the guard's name, elsewhere, does not.
   - With ignored test files, a guard left without a test says the whole suite was not consulted
     and why.
-- A guard-only change that edits no test-path file has no `base_with_tests`. The base suite ran
-  the same tests, so its pass-to-pass is the proof's own `pass_to_pass`, matched by id as before
-  (a plan guard naming two tests holds). With ignored test files in the trees, that run is
+  - If the suite run with the change's test files timed out or did not report every test
+    (`guard_run_incomplete`), a guard that names its test and is left without one is
+    `UNVERIFIED`, not refuted.
+- A guard-only change that edits no test-path file (`no_test_changed`) has no `base_with_tests`.
+  The base suite ran the same tests, so its guards are matched against that suite's pass-to-pass
+  by id as well as by name. A plan guard naming two tests holds, and breaks when one of them
+  fails beside a test it matched. The proof's own `pass_to_pass` stays empty, so the whole
+  suite never reaches a reviewer's prompt. With ignored test files in the trees, that run is
   `UNVERIFIED`.
 
 ## Tests
@@ -106,13 +111,15 @@ Three things were wrong, and fixing any one alone would still have stopped the r
     command that skips that file: `FAIL`;
   - a guard whose untouched test reads a fixture the change rewrote along with the behavior:
     `FAIL`;
-  - on an unchanged source, a guard whose test a second class also runs and fails: `FAIL`, and a
-    guard naming two tests: `PASS`.
+  - on an unchanged source, a guard whose test a second class also runs and fails: `FAIL`. A guard
+    naming two tests: `PASS`, with an empty `pass_to_pass`, and `FAIL` when one of them fails;
+  - a guard whose test a changed document mentions: `PASS`.
 - `tests/test_test_cases.py`, through `check_cases`:
   - a failing parameter variant, Go subtest or second class breaks a guard, and a failing
     namesake in another file does not;
   - an id-only case is never proven by the suite;
   - ignored test files keep the suite out, and the failure says so;
+  - an unfinished guard run leaves a named guard `UNVERIFIED`;
   - `untouched` drops the tests a changed test file or product module names.
 - `tests/test_wrapped_runner.py`: a node:test wrapper in a file the change leaves alone does not
   prove a guard.
@@ -140,4 +147,16 @@ stops the way live run 8 did: the final check at `PAUSED_INVALID_OUTPUT`, oracle
   merges again under it. A merged final check is run again only when its scope changes.
 - A fresh run in a code workstream's own worktree, after a retire in place, keeps that worktree's
   original base. That is the base the workstream's whole change is measured from, and its brief
-  leaves out the `guard:` advice for that reason.
+  leaves out the `guard:` advice for that reason. The advice is also left out for a worktree made
+  in an earlier launch whose base does hold everything on its branch (a retry before any run
+  started), which is merely less helpful.
+- The proof tells tests from product by path. A guard test that reads its expected value from a
+  file outside the test paths (a root `fixtures/` file, a product module) runs that file's
+  original content on the original code and the changed content on the change. A change that
+  rewrites both the behavior and that expectation therefore still holds the guard. That was
+  already true of a guard whose test sits in a changed test file. The first version of this fix
+  failed such guards closed only because it never matched tests in untouched files. Carrying
+  every changed non-test file into the guard run would fail correct guards whenever the product's
+  own data changes.
+- A guard-only change that edits only a test helper, not a test module, has no targeted command.
+  Its proof still rests on the whole suite's exit code and stays `UNVERIFIED`, as before this fix.

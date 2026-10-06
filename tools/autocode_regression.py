@@ -343,14 +343,17 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
-        changed = [path for path, status in (result.get("changes") or {}).items() if status != "deleted"]
+        # Code only: a changed README or note that mentions a test is not a test.
+        changed = [path for path, status in (result.get("changes") or {}).items()
+                   if status != "deleted" and verify.is_code_path(path)]
         suite = untouched(result.get("suite_pass_to_pass") or [],
                           [Path(workspace) / path for path in changed]
                           + [Path(dependencies["dependencies_from"]) / path for path in result.get("ignored_test_files") or []])
         named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
         check_cases(proof, due, wrapped_runner.refusals(workspace, [*named, *suite]) if due else {},
                     suite_passing=suite, failing=result.get("failed_on_candidate") or [],
-                    ignored=result.get("ignored_test_files") or [])
+                    ignored=result.get("ignored_test_files") or [], by_id=bool(result.get("no_test_changed")),
+                    incomplete=bool(result.get("guard_run_incomplete")))
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
                            for label, receipt in result["checks"].items()}
@@ -420,7 +423,8 @@ def _variant(test):
     return container, test_cases.function_name(test)
 
 
-def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ignored=()):
+def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ignored=(), by_id=False,
+                incomplete=False):
     """Each English test case needs a test named after it.
 
     A restore case (the default, and what a case without a kind means) needs a
@@ -444,7 +448,12 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     test) of a test matched to a preserve case breaks it, even when that variant
     failed on base too. ``ignored`` names the git-ignored test files the proof
     copied into its trees; with any, the whole suite is not consulted, and a
-    preserve case left without a test says so.
+    preserve case left without a test says so. ``by_id``: no test changed, so
+    there is no targeted run and every preserve case is matched against the
+    suite, by its id too (a plan case, never a diagnosis's: such a run is never a
+    bug fix). ``incomplete``: the suite run on the original code with the
+    change's test files did not finish, so a preserve case that names its test
+    and is left without one is unproven rather than refuted.
     """
     if not cases:
         return
@@ -478,7 +487,7 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass")), framework=framework))
     suite_ids = usable(suite_passing)
     for case in preserve:
-        if case.get("test_name") and not proof["case_tests"][case["id"]]:
+        if (case.get("test_name") or by_id) and not proof["case_tests"][case["id"]]:
             proof["case_tests"][case["id"]] = test_cases.match_cases([case], suite_ids, framework=framework)[case["id"]]
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
@@ -500,10 +509,15 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
     mistagged = [case for case in preserve
                  if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]), framework=framework)[case["id"]]) - set(unrun)]
     # One failing variant of a test matched to a guard breaks it, though the suite comparison only notes a
-    # failure that was there before too; a failing test that merely shares the guard's name does not.
-    broken = {case["id"]: [test for test in failing
-                           if _variant(test) in {_variant(found) for found in proof["case_tests"][case["id"]]}]
-              for case in preserve}
+    # failure that was there before too; a failing test that merely shares the guard's name does not. A guard
+    # matched by its id alone (naming several tests) also breaks on a failing one beside a test it matched.
+    broken = {}
+    for case in preserve:
+        found = proof["case_tests"][case["id"]]
+        variants, files = {_variant(test) for test in found}, {_variant(test)[0] for test in found}
+        by_name = test_cases.match_cases([case], failing, framework=framework)[case["id"]] if not case.get("test_name") else []
+        broken[case["id"]] = [test for test in failing
+                              if _variant(test) in variants or (test in by_name and _variant(test)[0] in files)]
     for case in preserve:
         if broken[case["id"]]:
             proof["case_tests"][case["id"]] = []
@@ -513,11 +527,19 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
                 if not proof["case_tests"][case["id"]] and case not in mistagged and not broken[case["id"]]]
     limited = (" (the whole suite was not consulted: ignored test files are copied into the proof trees: "
                + ", ".join(list(ignored)[:5]) + ")") if ignored else ""
+    unproven = [case for case in untested if incomplete and case.get("test_name") and not refusal("Preserve case", case)]
     failures += [refusal("Preserve case", case) or
                  f"Preserve case {test_cases.case_text(case)} has no test named "
                  f"{test_cases.case_test_name(case['id'], case.get('test_name'))} "
                  "that passes both with the change and on the original code"
-                 + (limited if case.get("test_name") else "") for case in untested]
+                 + (limited if case.get("test_name") else "") for case in untested if case not in unproven]
+    if unproven:
+        proof["unverified"] = list(proof.get("unverified") or []) + [
+            f"Preserve case {test_cases.case_text(case)}: the suite run on the original code with the change's "
+            "test files timed out or did not report every test, so its test "
+            f"{case['test_name']} is not shown to pass before and after the change" for case in unproven]
+        if proof["verdict"] == verify.PASS:
+            proof["verdict"] = verify.UNVERIFIED
     failures += [
         f"Preserve case {test_cases.case_text(case)} has a test that fails on the original code, so it "
         "describes behavior the fix restores: tag it restore, or rewrite the test to assert the behavior "

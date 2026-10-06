@@ -196,6 +196,11 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
         self.assertEqual({"T4": []}, proof["case_tests"])
         proof = self.suite_checked(self.GUARDED, ["tests/test_calc.py::test_c4_adds"])
         self.assertEqual(("PASS", {"C4": ["tests/test_calc.py::test_c4_adds"]}), (proof["verdict"], proof["case_tests"]))
+        # A guard run that did not finish leaves a guard naming its test unproven, not refuted.
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
+        regression.check_cases(proof, [self.GUARDED], incomplete=True)
+        self.assertEqual(("UNVERIFIED", []), (proof["verdict"], proof["failures"]))
+        self.assertIn("timed out or did not report every test", proof["unverified"][0])
         # Ignored test files copied into the trees keep the whole suite out, and the failure says why.
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
         regression.check_cases(proof, [self.GUARDED], ignored=["tests/test_scratch.py"])
@@ -454,7 +459,8 @@ class FeatureProofTests(unittest.TestCase):
         project.write({"test_guard.py": self.OWN_FILE})
         proof = regression.prove(feature_state(project, [self.GUARD]), project.root,
                                  Path(tempfile.mkdtemp(prefix="ignored-guard-")))
-        self.assertEqual("UNVERIFIED", proof["verdict"], proof["failures"])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertTrue(any("the whole suite was not consulted" in failure for failure in proof["failures"]))
         self.assertTrue(any("Ignored test files" in reason and "test_guard.py" in reason
                             for reason in proof["unverified"]), proof["unverified"])
 
@@ -503,6 +509,23 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove_unchanged([both], {**SEED, "test_guard.py": zero})
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(2, len(proof["case_tests"]["C4"]), proof["case_tests"])
+        # The whole suite stays out of the proof the reviewers read; only the tests matched to a case appear.
+        self.assertEqual([], proof["pass_to_pass"])
+        # One of its tests failing, before and after, breaks it (review, 2026-10-06).
+        failing = zero.replace("assertEqual(1, add(1, 0))", "assertEqual(2, add(1, 0))")
+        proof = self.prove_unchanged([both], {**SEED, "test_guard.py": failing})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertTrue(any("fails: test_guard.GuardTests.test_c4_adds_zero" in failure
+                            for failure in proof["failures"]), proof["failures"])
+
+    def test_a_document_that_mentions_a_guards_test_does_not_drop_it(self):
+        project = Project({**SEED, "test_guard.py": self.OWN_FILE})
+        self.addCleanup(project.close)
+        project.write({**FEATURE, "docs/verification.md": "C4 is guarded by test_c4_add_still_works.\n"})
+        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="doc-guard-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
 
     def test_a_guard_whose_expectation_the_change_rewrote_in_a_fixture_does_not_hold(self):
         # The guard's test file is untouched, but it reads its expectation from a fixture the change rewrites

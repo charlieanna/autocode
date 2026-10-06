@@ -15,8 +15,11 @@ so the whole suite also runs on the original code with the change's test files (
 fixtures and goldens), and such a guard is matched against the tests that pass there and on
 the candidate, with these limits:
 
-- a test whose own name appears in any changed file is left to the targeted run (a changed
-  test file) or not used (a changed product module that defines it);
+- a test whose own name appears in any changed code file is left to the targeted run (a changed
+  test file) or not used (a changed product module that defines it); a document that mentions it
+  does not count;
+- if that suite run times out or does not report every test, a guard left without its test is
+  unverified rather than refuted;
 - with git-ignored test files that the proof copies into its trees, the whole suite is not
   consulted, so a guard cannot rest on an ignored file, and the failure says so;
 - a case matched by its id alone (a diagnosis's T4) is never matched this way, since another
@@ -25,6 +28,10 @@ the candidate, with these limits:
   too: the same function in the same file or module, with other parameters, as a Go subtest, or
   run by another class. A failing test elsewhere that only shares the name does not;
 - a node:test file that spawns another test runner is refused here as everywhere.
+
+When the change edits no test file, the guards are matched against the base suite's own
+pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
+of them failing beside a test it matched breaks the guard.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, and Vitest 4.

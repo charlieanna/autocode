@@ -1216,6 +1216,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             "fail_to_pass": proof.get("fail_to_pass"), "pass_to_pass": proof.get("pass_to_pass"),
             "not_run_on_base": proof.get("not_run_on_base"), "failed_on_candidate": proof.get("failed_on_candidate"),
             "suite_pass_to_pass": proof.get("suite_pass_to_pass"), "ignored_test_files": hidden,
+            "no_test_changed": existing_guards, "guard_run_incomplete": bool(proof.get("guard_run_incomplete")),
             "checks": checks}
 
 
@@ -1327,8 +1328,9 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
 def _suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None):
     """What the whole suite shows about guards (preserve cases), with complete per-test results on both runs.
 
-    When no test changed (``unchanged``), nothing can flip and the base suite ran the same tests, so its
-    tests that pass on base and on the candidate are the proof's own ``pass_to_pass``. Otherwise
+    When no test changed (``unchanged``), nothing can flip and the base suite ran the same tests, so the
+    targeted lists stay empty and the guards rest on its tests that pass on base and on the candidate, by
+    id as well as by exact name (autocode_regression.check_cases). Otherwise
     ``with_tests`` is the suite on the base with the change's test files: its tests that pass there and on
     the candidate (``suite_pass_to_pass``) ran the same content on the original code and the change, which
     the pristine base cannot show once a test, fixture or golden file changed. ``failed_on_candidate`` is
@@ -1341,14 +1343,16 @@ def _suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None
     if unchanged:
         base = ((base_suite or {}).get("receipt") or {}).get("results")
         if base and base.get("complete"):
-            passing = sorted(set(base["passed"]) & set(candidate["passed"]))
-            proof.update(fail_to_pass=[], pass_to_pass=passing, not_run_on_base=[], suite_pass_to_pass=passing,
+            proof.update(fail_to_pass=[], pass_to_pass=[], not_run_on_base=[],
+                         suite_pass_to_pass=sorted(set(base["passed"]) & set(candidate["passed"])),
                          failed_on_candidate=sorted(candidate["failed"]))
         return
     before = (with_tests or {}).get("results")
     if before and before.get("complete") and not with_tests.get("timed_out"):
         proof.update(suite_pass_to_pass=sorted(set(before["passed"]) & set(candidate["passed"])),
                      failed_on_candidate=sorted(candidate["failed"]))
+    elif with_tests is not None:
+        proof["guard_run_incomplete"] = True  # a guard left without a test is then unproven, not refuted
 
 
 def _seam_names(workspace, base, changes, receipt):
