@@ -1,0 +1,38 @@
+title = "Revise a design review as the user answers its questions"
+category = "conversation"
+# Issue #185. A design review asks what only the user can decide, and each reply
+# revises the same review in the same run. The seed leaves the ordering scope
+# genuinely open (events/processor.py: "has never been written down"), unlike
+# design-review-planted, whose code settles per-domain order. The design keys by
+# registry_id, and a transfer moves a domain to another registry, so per-domain
+# order breaks only across a transfer.
+#
+# Turn 1: the Architect blocks on the planted migration gap (dual-write with no
+# rollback or reconciliation), notes the unowned DLQ as advisory, and asks which
+# ordering consumers need instead of assuming one. Turn 2 answers "per-domain":
+# ordering becomes a blocking concern. Turn 3 accepts per-registry order: that
+# concern is resolved, kept under its id. Idempotency (durable event_id dedupe
+# in the code, an idempotent producer) and throughput (sized with per-key
+# numbers) are covered, so a blocker about them is invented.
+#
+# The first live run (Claude, 2026-10-06) found two real gaps in an earlier seed:
+# its dedupe was held in process memory, lost on a restart, and the design did
+# not say how the producer keeps a key's order through retries. Both are now
+# settled in the seed. It also blocked on ordering before any answer while asking
+# about it; the Architect's prompt now keeps such a concern advisory until the
+# user answers. Three later live runs blocked on the DLQ, rightly: a partition
+# could stay stopped past the topic's 7-day retention, unalerted, and lose
+# renewals. A stopped partition now pages at once and retention is 30 days, so
+# only "dealt with" is left undefined, an advisory gap. Each turn follows a completed review: a design review
+# never waits for its questions, and the reply is a --follow-up.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('review/design-review.json')); print('ok')\""
+
+[[turn]]
+after = "complete"
+say = "Ordering is per-domain."
+
+[[turn]]
+after = "complete"
+say = "Per-registry is fine."

@@ -210,7 +210,10 @@ def _problems(state, turns):
         record = _mapping(state.get(key))
         if kind == workflow and isinstance(record.get("blocking"), int) and _since_last_turn(state, record, turns):
             reports.append({"kind": key, "blocking": record["blocking"], "advisory": record.get("advisory") or 0,
-                            "report_path": record.get("report_path")})
+                            "report_path": record.get("report_path"),
+                            # A design review's open questions and which revision of it this is.
+                            **({"questions": record.get("questions") or 0, "revision": record.get("revision") or 1}
+                               if key == "design_review" else {})})
     check = _mapping(state.get("design_check"))
     if state.get("status") == DESIGN_CONFLICT and isinstance(check.get("conflicts"), int):
         reports.append({"kind": "design_check", "blocking": check["conflicts"], "advisory": 0,

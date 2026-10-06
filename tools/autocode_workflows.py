@@ -108,6 +108,8 @@ How to decide:
   Asking to build or implement what a design turn produced ("build it", "implement the design") is
   build, with design_document set to the one document in follow_up.previous_design.documents (after
   a design review, its design_under_review, and only when its verdict is approve).
+  Answering or correcting a finished design review (follow_up.previous_design.mode is review: "ordering
+  is per-domain", "that is fine", "you missed X") is design: the Architect revises that review.
 - Do not guess build when unsure. Build is the most expensive path; the other kinds are cheaper and can
   lead to a build later in the same conversation.
 

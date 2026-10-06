@@ -42,3 +42,10 @@ def render(state: dict, fallback) -> str:
 def repair_rules(stage: str) -> str:
     """The job's own report rules for a report-only repair of its stage, or "" when it has none."""
     return next((getattr(job, "REPAIR_RULES", "") for job in JOBS if job.STAGE == stage), "")
+
+
+def repair_context(stage: str, state: dict) -> dict:
+    """The handoff data a report-only repair of the job's stage needs beyond the rejected report (the
+    review a revision must keep, for the Architect), or {} when the job has none."""
+    job = next((job for job in JOBS if job.STAGE == stage), None)
+    return job.repair_context(state) if hasattr(job, "repair_context") else {}

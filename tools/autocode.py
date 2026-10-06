@@ -809,7 +809,7 @@ def execute_report_repair(state, run_dir, workspace):
                             'finding_identity_policy': 'Only reuse open IDs belonging to this reviewer; '
                                 'use an empty id for new findings. Copy exact commands and exits from '
                                 'original_executed_checks when citing those events. Never change an exit code.',
-                             'state_file': str(run_dir / 'state.json')}, indent=2))
+                             'state_file': str(run_dir / 'state.json'), **jobs.repair_context(original['stage'], state)}, indent=2))
     if len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Complete report-repair handoff exceeds {REPAIR_HANDOFF_BYTES} bytes; '

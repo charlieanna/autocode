@@ -117,7 +117,11 @@ approval. The rewritten task names what the previous turn wrote (its report or
 note, then the files its stages changed; at most eight paths). After a design
 turn, a follow-up that asks to build the design names that document, so the
 build starts by checking it against the repository (`check_design`) instead of
-gathering requirements; its plan still needs approval. Only a finished run takes
+gathering requirements; its plan still needs approval. After a design review, a
+reply to it (an answer, a correction) is recognized as design and the Architect
+revises the same review: concern ids are kept, settled concerns stay as resolved,
+and `review/design-review.json` records every revision
+([CLI](cli.md#replying-to-a-design-review)). Only a finished run takes
 a follow-up, and a finished run takes no answer, feedback or edited plan: either
 mistake exits 2 and changes nothing (see [CLI](cli.md#waiting-or-finished)). A usage error
 also exits 2, with a message starting `usage:` on stderr; the client checks for
@@ -296,7 +300,10 @@ its wording may change, so programs read the fields beside it:
 - `problems`: `open` counts the open findings (`items`: `id`, `finding`, `source`,
   `severity`, `blocking`) plus, for a code or design review and a design-conflict
   stop, the findings that job saved instead (`reports`: `kind`, `blocking`,
-  `advisory`, `report_path`).
+  `advisory`, `report_path`; a design review also has `questions`, the number of
+  questions its report asks, and `revision`, 1 until a reply revises it). A design review's
+  `blocking` and `advisory` count its open concerns: a concern a reply resolved
+  is not a problem.
 - `for_earlier_request`: true after a `--follow-up` until the follow-up's own plan is
   drafted; the previous request's tasks, requirements and review findings are then
   left out.
