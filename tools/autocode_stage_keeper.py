@@ -94,11 +94,12 @@ def unadoptable(record):
         raise util.Paused("PAUSED_WORKSPACE_BUSY", "The stage keeper is still stopping this attempt's provider; wait for it")
     try:
         report = json.loads(Path(supervision["report"]).read_text())
-        stopped = report["target"]["pid"] in report["live_at_detection"]
+        target, live = report["target"]["pid"], report.get("live_at_detection")
     except (KeyError, TypeError, OSError, ValueError):
         return None
-    if not stopped:
-        return None
+    if isinstance(live, list) and target not in live:
+        return None  # the provider had exited before supervision was lost
+    # Stopped by the keeper, or the keeper could not even tell (it failed before sampling).
     return (f"The stage keeper stopped this provider after its controller was lost ({report.get('cause')}), "
             "so nothing it finished is adopted")
 

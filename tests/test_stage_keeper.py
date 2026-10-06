@@ -313,6 +313,11 @@ class StageKeeperTests(unittest.TestCase):
         self.assertEqual(0, released.supervise(subprocess.Popen.wait, released_child, timeout=15))
         self.await_condition(lambda: gone(self.keeper_pid(released_record)), "the released keeper to exit")
         self.assertIsNone(stage_keeper.unadoptable(released_record), "no keeper report: adoption rules unchanged")
+        undetermined = self.root / "undetermined.supervision.json"  # the keeper failed before it could look
+        undetermined.write_text(json.dumps({"cause": "supervisor_lost", "outcome": "failed",
+                                            "target": {"pid": released_child.pid}}))
+        self.assertIsNotNone(stage_keeper.unadoptable(
+            {"supervision": {**released_record["supervision"], "report": str(undetermined)}}))
 
     def test_receipt_for_another_provider_is_ignored(self):
         keeper, record, child, _, hold = self.held("0")
