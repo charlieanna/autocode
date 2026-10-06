@@ -115,6 +115,25 @@ def matches(manifest, current):
         return False
 
 
+def reviewable(findings, milestones):
+    """Milestones with an open blocking finding recorded against criteria they own, by milestone id.
+
+    Only a review of that milestone covers those criteria (autocode_findings._covers): for example a
+    part of a finding an approved revision moved there (autocode_finding_rescope), or what a recheck
+    of an accepted milestone found. carry revalidates such a milestone instead of carrying it, so it
+    is visibly unaccepted and the run reviews it before the milestones depending on it start."""
+    held = set()
+    for row in findings or []:
+        saved = row.get('scope') if isinstance(row, dict) else None
+        owner = saved.get('milestone_id') if isinstance(saved, dict) else None
+        cited = saved.get('criteria') if isinstance(saved, dict) else None
+        if (owner in milestones and row.get('status') == 'open' and row.get('blocking', True)
+                and isinstance(cited, list) and cited and all(isinstance(cid, str) for cid in cited)
+                and set(cited) <= set(milestones[owner].get('acceptance_criteria') or [])):
+            held.add(owner)
+    return held
+
+
 def carry(state, current):
     """Run only after explicit approval; never transplant a current validation."""
     try:
@@ -130,12 +149,7 @@ def carry(state, current):
     milestones = {row['id']: row for row in target['body']['milestones']}
     previous = next((old for old in reversed(state.get('contract_history', []))
                      if old['revision'] == target['revision'] - 1), {})
-    # A carried milestone is not reviewed again, so an open blocking finding recorded against it
-    # (such as a part an approved revision moved there, autocode_finding_rescope) would have no
-    # reviewer left to close it.
-    held = {(row.get('scope') or {}).get('milestone_id') for row in state.get('findings_ledger') or []
-            if isinstance(row, dict) and row.get('status') == 'open' and row.get('blocking', True)
-            and isinstance(row.get('scope'), dict)}
+    held = reviewable(state.get('findings_ledger'), milestones)
     for row in list(state.get('milestone_progress', {}).values()):
         manifest = row.get('reuse_manifest')
         if not row.get('accepted') or row.get('contract_hash') != previous.get('hash'):
@@ -160,20 +174,26 @@ def carry(state, current):
             reason = 'Accepted validation changed'
         elif not matches(manifest, current):
             reason = 'Source footprint or retained evidence changed'
-        elif row['id'] in held:
-            reason = 'An open blocking finding is recorded against it; revalidate'
         if reason:
             outcomes.append({'milestone_id': row['id'], 'from_contract_hash': row.get('contract_hash'), 'result': 'revalidate', 'reason': reason})
         else:
             candidates[row['id']] = row
     # A dependent milestone may move only with every prerequisite. Missing or
     # changed prerequisites invalidate the downstream candidate transitively.
+    # A held milestone (reviewable) is revalidated, but its dependents are still
+    # carried: current_ids counts them once it is accepted again.
+    waiting = set()
     while candidates:
-        ready = [mid for mid in candidates if set(milestones[mid]['depends_on']) <= set(carried)]
+        ready = [mid for mid in candidates if set(milestones[mid]['depends_on']) <= set(carried) | waiting]
         if not ready:
             break
         for mid in ready:
             old_row = candidates.pop(mid)
+            if mid in held:
+                waiting.add(mid)
+                outcomes.append({'milestone_id': mid, 'from_contract_hash': old_row.get('contract_hash'), 'result': 'revalidate',
+                                 'reason': 'An open blocking finding is recorded against it; revalidate'})
+                continue
             manifest = old_row['reuse_manifest']
             provenance = {'from_contract_hash': old_row['contract_hash'], 'from_revision': manifest['contract']['revision'],
                           'to_contract_hash': target['hash'], 'to_revision': target['revision'],
@@ -192,9 +212,16 @@ def carry(state, current):
 
 
 def current_ids(state, accepted):
-    """Recheck carried prerequisites after subsequent source/evidence changes."""
+    """Recheck carried prerequisites after subsequent source/evidence changes.
+
+    A carried milestone that the run reviewed again and accepted on fresh validation under this
+    contract (milestones.accept, after a validate task, REWORK or drift repair) no longer rests on
+    its manifest, which that acceptance drops: it counts like any other acceptance."""
+    contract_hash = state.get('goal_contract', {}).get('hash')
     rows = [row for row in state.get('milestone_progress', {}).values()
-            if row.get('contract_hash') == state.get('goal_contract', {}).get('hash') and row.get('carried_from')]
+            if row.get('contract_hash') == contract_hash and row.get('carried_from')
+            and not (isinstance(row.get('accepted_validation'), dict)
+                     and row['accepted_validation'].get('contract_hash') == contract_hash)]
     if not rows:
         return accepted
     current = s.snapshot(Path(state['workspace']))

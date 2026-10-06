@@ -26,6 +26,7 @@ import autocode_goals as goals
 import autocode_milestones as m
 import autocode_run_view as run_view
 import autocode_support as support
+import autocode_validation_rounds as validation_rounds
 from goal_fixtures import body as fixture_body, seed_greeting_workspace
 
 # r1: M1 -> M2 -> M5, and AC15 is M2's. r2 moves AC15 to M5.
@@ -214,22 +215,26 @@ class RevisionApprovalTests(unittest.TestCase):
         self.assertEqual([], run.blocking("M2"))
         self.assertEqual([self.fid], run.blocking("M5"))
 
-    def test_a_finding_citing_a_removed_or_redefined_criterion_is_left_as_it_was(self):
-        # AC10 still exists; AC15 is removed, or reworded to a different behavior under the same id.
-        # The whole finding stays for a person, and as before #447 it blocks every milestone.
-        revisions = {"removed": ([("M1", ["AC1"], []), ("M2", ["AC10"], ["M1"]), ("M5", ["AC20"], ["M2"])], None),
-                     "redefined": (R2, {"AC15": "Export writes CSV"})}
-        baseline = copy.deepcopy(self.run.state)
-        for name, (layout, wording) in revisions.items():
-            with self.subTest(name):
-                self.run.state = copy.deepcopy(baseline)
-                self.run.approve(layout, wording)
-                self.assertEqual([self.run.finding], findings.ledger(self.run.state))
-                for mid in ("M1", "M2", "M5"):
-                    self.assertEqual([self.fid], self.run.blocking(mid))
-                self.assertIsNone(self.run.moves())
+    def test_a_finding_citing_a_removed_criterion_is_left_as_it_was(self):
+        # AC10 still exists, AC15 is removed. The whole finding stays for a person (--close-finding),
+        # and as before #447 it blocks every milestone.
+        self.run.approve([("M1", ["AC1"], []), ("M2", ["AC10"], ["M1"]), ("M5", ["AC20"], ["M2"])])
+        self.assertEqual([self.run.finding], findings.ledger(self.run.state))
+        for mid in ("M1", "M2", "M5"):
+            self.assertEqual([self.fid], self.run.blocking(mid))
+        self.assertIsNone(self.run.moves())
 
-    def test_a_permission_answer_naming_one_part_leaves_the_other_open(self):
+    def test_a_moved_criterion_the_revision_reworded_takes_its_finding_to_the_reviewer_of_the_new_wording(self):
+        run = self.run
+        run.approve(R2, {"AC15": "Behavior AC15 holds."})
+        part = next(rid for rid in run.rows() if rid != self.fid)
+        self.assertEqual({"milestone_id": "M5", "criteria": ["AC15"]}, run.rows()[part]["scope"])
+        self.assertEqual([], run.blocking("M1"))
+        run.review("M5", validator(dispositions=[resolved(part)], passed=["AC15", "AC20"]))
+        self.assertEqual("resolved", run.rows()[part]["status"])
+
+    def test_resolving_one_part_by_name_leaves_the_other_open(self):
+        # resolve_named serves a permission answer whose question names findings; none does today.
         run = self.run
         run.approve(R2)
         part = next(rid for rid in run.rows() if rid != self.fid)
@@ -415,24 +420,27 @@ class PlanTests(unittest.TestCase):
                            [("M1", ["AC1"], []), ("M4", ["AC15"], ["M1"]), ("M5", ["AC10", "AC20"], ["M4"])])
         self.assertEqual(["M4", "M5"], [scope["milestone_id"] for scope in move["to"]])
 
-    def test_a_criterion_several_milestones_list_goes_where_it_moved_else_where_it_still_needs_review(self):
+    def test_a_criterion_several_milestones_list_goes_where_it_moved_else_where_it_costs_least_review(self):
         old = [("M1", ["AC1", "AC15"], []), ("M2", ["AC10", "AC15"], ["M1"]), ("M5", ["AC20"], ["M2"]),
-               ("M6", ["AC15"], ["M2"])]
+               ("M6", ["AC15"], ["M2"]), ("M7", ["AC15"], ["M1"])]
         kept = [("M1", ["AC1", "AC15"], []), ("M2", ["AC10"], ["M1"])]
+        unmoved = [*kept, ("M5", ["AC20"], ["M2"]), ("M6", ["AC15"], ["M2"])]
         cases = {
             # M5 gained AC15; M1 and M6 already listed it.
             "moved there": ([*kept, ("M5", ["AC15", "AC20"], ["M2"]), ("M6", ["AC15"], ["M2"])], (), "M5"),
-            # Nobody gained it: M6 still needs its review, M1 was accepted.
-            "not accepted": ([*kept, ("M5", ["AC20"], ["M2"]), ("M6", ["AC15"], ["M2"])], {"M1"}, "M6"),
-            # Both already accepted: the first in contract order (carry-forward then revalidates it).
-            "all accepted": ([*kept, ("M5", ["AC20"], ["M2"]), ("M6", ["AC15"], ["M2"])], {"M1", "M6"}, "M1"),
+            # Nobody gained it: M6 was not accepted, so it is reviewed anyway; M1 would be reused.
+            "not accepted": (unmoved, {"M1"}, "M6"),
+            # Both accepted, but M6 depends on M2, which the revision changed: it is revalidated anyway.
+            "revalidated anyway": (unmoved, {"M1", "M6"}, "M6"),
+            # Both would be reused: M7, on which nothing depends, rather than M1, which M2, M5 and M7 wait on.
+            "fewest dependents": ([*kept, ("M5", ["AC20"], ["M2"]), ("M7", ["AC15"], ["M1"])], {"M1", "M7"}, "M7"),
             # Two milestones gained it: the first in contract order.
             "contract order": ([*kept, ("M5", ["AC15", "AC20"], ["M2"]), ("M6", ["AC15"], ["M2"]),
                                 ("M7", ["AC15"], ["M2"])], (), "M5"),
         }
-        for name, (new, accepted, holder) in cases.items():
+        for name, (new, reusable, holder) in cases.items():
             with self.subTest(name):
-                [move] = self.plan([self.row("M2", ["AC15"])], new, old, accepted=accepted)
+                [move] = self.plan([self.row("M2", ["AC15"])], new, old, reusable=reusable)
                 self.assertEqual([{"milestone_id": holder, "criteria": ["AC15"]}], move["to"])
 
     def test_rows_this_revision_did_not_move_are_left_alone(self):
@@ -445,9 +453,13 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([], self.plan(rows, R2))
         self.assertEqual([], self.plan([self.row("M2", ["AC10", "AC15"])], [("M1", ["AC1"], []), ("M2", ["AC10"], ["M1"])]))
         self.assertEqual([], self.plan([self.row("M2", ["AC10", "AC15"])], R2, old=None))
-        # A moved criterion reworded to a different behavior is a different criterion under the same id.
-        self.assertEqual([], rescope.plan([self.row("M2", ["AC10", "AC15"])], contract_body(R1),
-                                          contract_body(R2, {"AC15": "A different behavior"})))
+
+    def test_a_moved_criterion_the_revision_reworded_still_takes_its_findings(self):
+        # As when a reworded criterion stays with its milestone: its new owner's reviewer judges the
+        # finding against the new wording. Leaving it stale would block every milestone instead.
+        moved = rescope.plan([self.row("M2", ["AC10", "AC15"])], contract_body(R1),
+                             contract_body(R2, {"AC15": "Behavior AC15 holds."}))
+        self.assertEqual(self.plan([self.row("M2", ["AC10", "AC15"])], R2), moved)
 
     def test_apply_splits_copies_without_the_rows_bookkeeping_and_records_on_the_original_row(self):
         rows = [self.row("M2", ["AC10", "AC15"], severity="high", scope_history=[{"from": "earlier"}],
@@ -459,7 +471,8 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(["F", "F-new"], [row["id"] for row in rows])
         self.assertEqual({"id": "F-new", "status": "open", "severity": "high", "split_from": "F", "assigned_task": None,
                           "scope": {"milestone_id": "M5", "criteria": ["AC15"]}}, rows[1])
-        self.assertEqual(["AC10"], rows[0]["pending_resolution"]["unverified_criteria"])
+        self.assertEqual({"report": "r", "unverified_criteria": ["AC10"], "moved_unverified_criteria": ["AC15"]},
+                         rows[0]["pending_resolution"])
         self.assertEqual(("task-1", "task-0"), (rows[0]["assigned_task"], rows[0]["scope_restored_from"]["task_id"]))
         self.assertEqual(2, len(rows[0]["scope_history"]))
         self.assertEqual(records, rescope.history(rows)[1:])
@@ -468,6 +481,16 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([], rescope.apply(rows, moves, contract_token="r2:h", at="again",
                                            new_id=lambda: self.fail("no second split")))
         self.assertEqual(after, rows)
+
+    def test_a_pending_attempt_whose_only_gap_moved_away_says_so(self):
+        rows = [self.row("M2", ["AC10", "AC15"], source="sol", pending_resolution={
+            "report": "r", "reason": "Finding scope lacks fully passing verification", "unverified_criteria": ["AC15"]})]
+        rescope.apply(rows, self.plan(rows, R2), contract_token="r2:h", at="now", new_id=lambda: "F-new")
+        pending = rows[0]["pending_resolution"]
+        self.assertEqual(([], ["AC15"]), (pending["unverified_criteria"], pending["moved_unverified_criteria"]))
+        self.assertEqual("F (Validator): its resolution was not accepted (Finding scope lacked fully passing "
+                         "verification only on AC15, which an approved revision then moved to another milestone; "
+                         "a fresh report must resolve it)", validation_rounds._why(rows[0]))
 
     def test_a_part_split_again_names_the_original_finding(self):
         rows = [{"id": "F-part", "status": "open", "split_from": "F",

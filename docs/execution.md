@@ -151,9 +151,11 @@ permissions and other goal fields must also remain unchanged. Reordering milesto
 or changing only an unrelated milestone/criterion can preserve earlier work.
 
 Reuse requires unchanged source bytes/modes and intact evidence, plus reuse of
-every prerequisite, and no open blocking finding recorded against the milestone
-(a carried milestone is not reviewed again, so nobody could close one). Added
-files under an owned directory count as changes. Missing
+every prerequisite. An otherwise reusable milestone with an open blocking finding
+recorded against criteria it owns is revalidated instead: only its own review can
+close that finding, and the run then reviews it before anything depending on it
+starts. The milestones depending on it are still carried and count once it is
+accepted again. Added files under an owned directory count as changes. Missing
 task history, legacy acceptance without a manifest, ambiguous paths, symlinks,
 submodules, batches and human-review milestones all fall back to revalidation.
 This first version supports only one revision hop; it does not chain old evidence
@@ -166,9 +168,11 @@ compact audit through `milestone_checkpoint.carry_forward`; full manifests remai
 in the run's state file. Carried prerequisites are checked again against source and
 evidence before scheduling. The runner rejects redundant implementation assignments
 for intact carried milestones; an explicit evidence-backed `REWORK` or detected
-source/evidence drift revokes scheduling acceptance. Budgets and retry counters are
-preserved. Final completion still requires fresh independent validation of every
-criterion and the full integration flow on the current code and approved revision.
+source/evidence drift revokes scheduling acceptance. A carried milestone reviewed
+again and accepted on fresh validation under the approved revision counts like any
+other accepted milestone. Budgets and retry counters are preserved. Final
+completion still requires fresh independent validation of every criterion and the
+full integration flow on the current code and approved revision.
 Deploying this code never retroactively manufactures manifests for existing runs.
 
 Three independent reviews without any new passing criteria require an evidence-backed
@@ -474,19 +478,19 @@ into one finding per milestone (the copies carry `split_from`, the original
 finding's ID). Like any finding, each part blocks its milestone, the milestones
 depending on it and any other milestone listing all of the part's criteria, and
 closes only by a review that covered all of those criteria, normally its
-milestone's. When several
-milestones list a moved criterion, the part goes to one the revision moved it to,
-else to one not yet accepted; an accepted milestone that receives a part is
-revalidated rather than carried forward, so its reviewer can close it. Parts are
-not duplicates: a permission answer that names one part does not close the
-others. Nothing is closed or downgraded by the move. A finding that cites a
-criterion the approved contract no longer assigns to any milestone, or whose
-wording the revision changed, is left exactly as it was, even when its other
-criteria still exist; if it is blocking, it still blocks every milestone until a
-person settles it with `--close-finding` or a permission answer, which closes the
-whole finding. Each move is recorded once in the finding's `scope_history` and
-listed in the status view's `evidence.finding_scope_moves`
-(`tools/autocode_finding_rescope.py`).
+milestone's. When several milestones list a moved criterion, the part goes to one
+the revision moved it to, else to one the run reviews anyway, else to the accepted
+one with the fewest milestones depending on it; an accepted milestone that
+receives a part is revalidated rather than carried forward, so its reviewer can
+close it. A criterion the revision reworded moves the same way, and its new
+owner's reviewer judges the finding against the new wording. Nothing is closed or
+downgraded by the move, and resolving one part does not close another. A finding
+that cites a criterion the approved contract no longer assigns to any milestone is
+left exactly as it was, even when its other criteria still exist; if it is
+blocking, it still blocks every milestone until a person settles it with
+`--close-finding`, which closes the whole finding. Each move is recorded once in
+the finding's `scope_history` and listed in the status view's
+`evidence.finding_scope_moves` (`tools/autocode_finding_rescope.py`).
 
 The Plan Reviewer can keep a correction batch small by naming the ledger IDs a REWORK task
 addresses in `next_task.findings`; an empty or missing list takes every open finding.

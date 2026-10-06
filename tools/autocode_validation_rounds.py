@@ -159,14 +159,21 @@ def _settled_matches(state, stalled):
     """A hint, never a closure: stalled findings with the same text or evidence as a resolved one.
 
     Another part of the same split finding is not offered: it covers other criteria
-    (autocode_finding_cause.split_family), so closing this part would drop the defect for its own."""
+    (autocode_finding_cause.split_family), so closing this part would drop the defect for its own.
+    The user is told it was resolved for those criteria, which does not settle this part."""
     resolved = [row for row in state.get("findings_ledger", []) if row.get("status") == "resolved"]
     hints = []
     for row in sorted(stalled, key=lambda row: row["id"]):
+        family = finding_cause.split_family(row)
+        parts = [other["id"] for other in resolved if finding_cause.split_family(other) == family]
         same = [other["id"] for other in resolved
-                if finding_cause.split_family(other) != finding_cause.split_family(row)
+                if finding_cause.split_family(other) != family
                 and ((row.get("finding") and other.get("finding") == row.get("finding"))
                      or (row.get("evidence") and other.get("evidence") == row.get("evidence")))]
+        if parts:
+            hints.append(f"{row['id']} and {', '.join(parts)} are parts of finding {family}, split across milestones by "
+                         f"an approved revision; resolving {', '.join(parts)} covered other criteria and does not "
+                         f"settle {row['id']}")
         if same:
             hints.append(f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; if it is the "
                          f"same problem, close it with --close-finding {row['id']} --close-reason TEXT")

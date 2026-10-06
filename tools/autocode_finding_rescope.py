@@ -23,23 +23,31 @@ when a review covering its criteria resolves it, so every criterion the finding 
 keeps a reviewer. One row would either let one milestone's reviewer close the defect for criteria
 it never reviewed, or let a milestone be accepted while the defect may concern its criterion.
 Split parts are one defect over different criteria, not duplicates: resolving one part does not
-close another (``autocode_finding_cause.split_family``).
+close another (``autocode_finding_cause``).
 
 A moved criterion can be listed by several milestones of the approved contract. It goes to one
-that did not list it before (where the revision moved it), else to one not accepted under the
-previous contract, else to the first in contract order; contract order breaks ties. A milestone
-accepted before that receives a part is not carried forward as accepted
-(``autocode_carryforward.carry`` revalidates a milestone with an open blocking finding recorded
-against it), so its reviewer checks that criterion again and can close the part.
+that did not list it before (where the revision moved it); else to one the run reviews anyway: not
+accepted under the previous contract or not reusable from it, or changed by the revision, or
+depending on one of those; else to the one with the fewest milestones depending on it; contract
+order breaks ties. A milestone that carry-forward would otherwise reuse and that receives a part is
+revalidated instead (``autocode_carryforward.reviewable``), so its reviewer checks that criterion
+again and can close the part; the milestones depending on it are still carried and count again
+once it is accepted.
 
-Left unchanged, so they still fail closed for a person (``--close-finding``, a permission answer):
-a finding citing a criterion that no milestone of the approved contract lists (removed, or left
-unassigned) or whose wording the revision changed (a different criterion under the same id), even
-when its other criteria still exist; and a scope that did not fit the previously approved contract
+Left unchanged, so they still fail closed for a person (``--close-finding``): a finding citing a
+criterion that no milestone of the approved contract lists (removed, or left unassigned), even when
+its other criteria still exist; and a scope that did not fit the previously approved contract
 (unscoped, a batch, or already stale before this revision): this revision did not move it. A
-blocking one of these still blocks every milestone, as before #447. A moved finding fits the new
+blocking one of these still blocks every milestone, as before #447. A criterion the revision
+reworded is still the same criterion, as when it stays with its milestone: its findings move with
+it and the new owner's reviewer judges them against the new wording. A moved finding fits the new
 contract, so running this again (restart, resume) or a later approval that does not move its
 criteria again changes nothing.
+
+A split copy does not take the row's bookkeeping (``_NOT_COPIED``). The row's pending resolution
+attempt keeps only the row's own criteria in ``unverified_criteria``; the moved ones go to its
+``moved_unverified_criteria`` (read by people reading the ledger), and when they were the attempt's
+only gap its ``reason`` says so (read by ``autocode_validation_rounds``).
 
 Each move is recorded once, on the row it started from: ``scope_history`` gains
 ``{"from", "to", "contract_token", "at"}``, ``to`` listing every resulting row's ``id``,
@@ -84,35 +92,63 @@ def previous_approved(state):
     return None
 
 
-def _owned(body):
-    """Milestone id -> its criteria, in contract order, skipping malformed rows."""
+def _milestones(body):
+    """Milestone id -> its row, in contract order, skipping malformed rows."""
     milestones = body.get("milestones") if isinstance(body, dict) else None
-    owned = {}
-    for row in milestones if isinstance(milestones, list) else []:
-        criteria = row.get("acceptance_criteria") if isinstance(row, dict) else None
-        if isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(criteria, list):
-            owned[row["id"]] = set(criteria)
-    return owned
+    return {row["id"]: row for row in (milestones if isinstance(milestones, list) else [])
+            if isinstance(row, dict) and isinstance(row.get("id"), str)
+            and isinstance(row.get("acceptance_criteria"), list)}
 
 
-def _wording(body):
-    """Criterion id -> its wording (the behavior it requires)."""
-    rows = body.get("acceptance_criteria") if isinstance(body, dict) else None
-    return {row["id"]: row.get("criterion") for row in (rows if isinstance(rows, list) else [])
-            if isinstance(row, dict) and isinstance(row.get("id"), str)}
+def _downstream(milestones, roots):
+    """``roots`` and every milestone that depends on one of them, directly or not."""
+    found = set(roots)
+    while True:
+        more = {mid for mid, row in milestones.items()
+                if mid not in found and isinstance(row.get("depends_on"), list)
+                and any(isinstance(dep, str) and dep in found for dep in row["depends_on"])}
+        if not more:
+            return found
+        found |= more
 
 
-def plan(rows, old_body, new_body, accepted=()) -> list[dict]:
+def _reviewed_anyway(old_body, new_body, reusable):
+    """Milestones of ``new_body`` the run reviews whatever this approval moves: those carry-forward
+    cannot reuse (not in ``reusable``, or changed by the revision: their definition or a criterion
+    they list) and every milestone depending on one of those (``autocode_carryforward.carry``)."""
+    old_rows, new_rows = _milestones(old_body), _milestones(new_body)
+    definitions = []
+    for body in (old_body, new_body):
+        rows = body.get("acceptance_criteria") if isinstance(body, dict) else None
+        definitions.append({row.get("id"): row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)})
+    old_definitions, new_definitions = definitions
+    revalidated = {mid for mid, row in new_rows.items()
+                   if mid not in reusable or old_rows.get(mid) != row
+                   or any(old_definitions.get(cid) != new_definitions.get(cid)
+                          for cid in row["acceptance_criteria"] if isinstance(cid, str))}
+    return _downstream(new_rows, revalidated)
+
+
+def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
     """The moves an approved revision makes, as ``{"id", "from", "to"}``; pure.
 
     ``old_body`` is the previously approved contract body, ``new_body`` the one being approved and
-    ``accepted`` the milestones accepted under the previous contract. ``to`` holds one scope per
-    milestone that now owns some of the row's criteria; the first is the one the row keeps. A row is
-    moved only when its scope fitted ``old_body``, no longer fits ``new_body``, and every criterion
-    it cites that left its milestone still has the same wording and an owner there."""
-    old, new = _owned(old_body), _owned(new_body)
-    old_wording, new_wording = _wording(old_body), _wording(new_body)
+    ``reusable`` the milestones accepted under the previous contract that carry-forward could reuse.
+    ``to`` holds one scope per milestone that now owns some of the row's criteria; the first is the
+    one the row keeps. A row is moved only when its scope fitted ``old_body``, no longer fits
+    ``new_body``, and every criterion it cites that left its milestone has an owner there."""
+    milestones = _milestones(new_body)
+    old = {mid: set(row["acceptance_criteria"]) for mid, row in _milestones(old_body).items()}
+    new = {mid: set(row["acceptance_criteria"]) for mid, row in milestones.items()}
     order = {mid: index for index, mid in enumerate(new)}
+    anyway = _reviewed_anyway(old_body, new_body, set(reusable))
+
+    def rank(cid, mid):
+        # Only the holder that would otherwise be reused is revalidated for the part, not the
+        # milestones depending on it; fewer of them wait for that review.
+        reused = mid not in anyway
+        return cid in old.get(mid, ()), reused, len(_downstream(milestones, {mid})) if reused else 0, order[mid]
+
     moves = []
     for row in rows or []:
         saved = row.get("scope") if isinstance(row, dict) else None
@@ -134,12 +170,10 @@ def plan(rows, old_body, new_body, accepted=()) -> list[dict]:
                 parts.setdefault(owner, []).append(cid)
                 continue
             holders = [mid for mid in new if cid in new[mid]]
-            if not holders or cid not in old_wording or old_wording[cid] != new_wording.get(cid):
-                parts = None  # Removed, unassigned or redefined: nowhere to move it; a person decides.
+            if not holders:
+                parts = None  # Removed or unassigned: no milestone to give it to; a person decides.
                 break
-            # Where the revision moved it, else a milestone that still has to be reviewed.
-            holder = min(holders, key=lambda mid: (cid in old.get(mid, ()), mid in accepted, order[mid]))
-            parts.setdefault(holder, []).append(cid)
+            parts.setdefault(min(holders, key=lambda mid: rank(cid, mid)), []).append(cid)
         if not parts:
             continue
         owners = ([owner] if owner in parts else []) + sorted((mid for mid in parts if mid != owner), key=order.get)
@@ -168,21 +202,31 @@ def apply(rows, moves, *, contract_token, at, new_id) -> list[dict]:
             results.append({"id": part["id"], **copy.deepcopy(scope)})
         row["scope"] = copy.deepcopy(kept)
         pending = row.get("pending_resolution")
-        if isinstance(pending, dict) and isinstance(pending.get("unverified_criteria"), list):
-            # An earlier resolution attempt on this row; only the criteria the row still holds remain its own.
-            pending["unverified_criteria"] = [cid for cid in pending["unverified_criteria"] if cid in kept["criteria"]]
+        unverified = pending.get("unverified_criteria") if isinstance(pending, dict) else None
+        moved = [cid for cid in unverified if cid not in kept["criteria"]] if isinstance(unverified, list) else []
+        if moved:
+            # An earlier resolution attempt on this row: only the criteria the row still holds remain
+            # its own. The others stay on record, and the reason says when they were its only gap.
+            pending["unverified_criteria"] = [cid for cid in unverified if cid in kept["criteria"]]
+            pending["moved_unverified_criteria"] = [*(pending.get("moved_unverified_criteria") or []), *moved]
+            if not pending["unverified_criteria"]:
+                pending["reason"] = (f"Finding scope lacked fully passing verification only on {', '.join(moved)}, which "
+                                     "an approved revision then moved to another milestone; a fresh report must "
+                                     "resolve it")
         record = {"from": copy.deepcopy(move["from"]), "to": results, "contract_token": contract_token, "at": at}
         row.setdefault("scope_history", []).append(record)
         records.append({"finding": row["id"], **copy.deepcopy(record)})
     return records
 
 
-def _accepted_under(state, contract_hash):
-    """Milestones accepted under the contract with this hash (``milestone_progress``)."""
+def _reusable(state, contract_hash):
+    """Milestones accepted under the contract with this hash with a reuse manifest that carry-forward
+    could reuse (``milestone_progress``; ``autocode_carryforward.carry`` revalidates the others)."""
     progress = state.get("milestone_progress")
-    return {mid for row in (progress.values() if isinstance(progress, dict) else [])
+    return {row.get("id") for row in (progress.values() if isinstance(progress, dict) else [])
             if isinstance(row, dict) and row.get("accepted") and row.get("contract_hash") == contract_hash
-            for mid in row.get("milestone_ids") or [row.get("id")]}
+            and isinstance(row.get("reuse_manifest"), dict) and not row.get("carried_from")
+            and not row.get("accepted_batch") and not row.get("milestone_ids")}
 
 
 def on_approval(state, previous, *, contract_token, at, new_id) -> list[dict]:
@@ -193,7 +237,7 @@ def on_approval(state, previous, *, contract_token, at, new_id) -> list[dict]:
     if not previous or not rows:
         return []
     moves = plan(rows, previous.get("body"), (state.get("goal_contract") or {}).get("body"),
-                 _accepted_under(state, previous.get("hash")))
+                 _reusable(state, previous.get("hash")))
     return apply(rows, moves, contract_token=contract_token, at=at, new_id=new_id)
 
 
