@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import errno
 import json
 import os
 import re
@@ -28,7 +27,7 @@ try:
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
@@ -37,7 +36,7 @@ except ImportError:
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result
+    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
@@ -1402,47 +1401,11 @@ def _main_body(unit=None) -> int:
         return 0 if state["status"] == "TASK_COMPLETE" else 2
 
 
-class _DiscardedOutput:
-    def write(self, value):
-        return len(value)
-
-    def flush(self):
-        pass
-
-
-class _DetachedOutput:
-    """Keep a detached terminal from interrupting a durable run."""
-
-    def __init__(self, stream):
-        self.original = stream
-        self.stream = stream
-
-    def write(self, value):
-        try:
-            return self.stream.write(value)
-        except OSError as error:
-            if error.errno != errno.EPIPE:
-                raise
-            self.stream = _DiscardedOutput()
-            return self.stream.write(value)
-
-    def flush(self):
-        try:
-            self.stream.flush()
-        except OSError as error:
-            if error.errno != errno.EPIPE:
-                raise
-            self.stream = _DiscardedOutput()
-
-    def __getattr__(self, name):
-        return getattr(self.original, name)
-
-
 def cli(unit=None):
     # A caller can close its stdout/stderr pipe while a provider is still
     # working. Progress output must not turn that run into an uncertain stage.
-    sys.stdout = _DetachedOutput(sys.stdout)
-    sys.stderr = _DetachedOutput(sys.stderr)
+    sys.stdout = detached_output.DetachedOutput(sys.stdout)
+    sys.stderr = detached_output.DetachedOutput(sys.stderr)
     try:
         return main() if unit is None else main(unit=unit)
     except (RuntimeError, ValueError, OSError) as error:
