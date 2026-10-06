@@ -170,15 +170,17 @@ def stopped_attempt(state: dict, *, failure_status) -> dict | None:
             "bound_model": bound_route.get("model") if isinstance(bound_route, dict) else None}
 
 
-def question(state: dict, attempt: dict, *, cross_check=None, configured_tool: bool = False) -> dict:
+def question(state: dict, attempt: dict, *, cross_check=None, configured_tool: bool = False,
+             current: str | None = None, rule=None) -> dict:
     """The model question for ``attempt``: named by the job on screen, answered only by a person.
 
     With ``cross_check`` a content-filter question also lists the configured models that would pass.
+    ``current`` and ``rule`` are as for ``candidates``.
     """
     role = attempt["role"]
     job = roles.screen_name(attempt.get("stage") or role, state)
     settings = state.get("settings") or {}
-    current = ((settings.get("roles") or {}).get(role) or {}).get("model")
+    current = current or ((settings.get("roles") or {}).get(role) or {}).get("model")
     stopped_on = attempt.get("model") or current
     asked = {"id": PREFIX + role,
              "question": f"{job}'s quota is exhausted; name the model to continue on",
@@ -200,7 +202,7 @@ def question(state: dict, attempt: dict, *, cross_check=None, configured_tool: b
                       "model family."))
     if cross_check is not None:
         passing, refused = candidates(state, role, stopped_on, cross_check=cross_check,
-                                      configured_tool=configured_tool, job=job)
+                                      configured_tool=configured_tool, job=job, current=current, rule=rule)
         asked["candidates"] = passing
         asked["recommendation"] = (
             f"Configured models that pass the launch rules for the {job}: {', '.join(passing)}." if passing else
@@ -216,10 +218,12 @@ def _provider(model) -> str | None:
 
 
 def candidates(state: dict, role: str, refused_model, *, cross_check, configured_tool: bool = False,
-               job: str | None = None) -> tuple[list[str], list[str]]:
+               job: str | None = None, current: str | None = None, rule=None) -> tuple[list[str], list[str]]:
     """(models that pass, models refused): the run's other configured models for ``role`` after a refusal.
 
-    The refusing provider's models are left out: the content filter is the provider's.
+    The refusing provider's models are left out: the content filter is the provider's. ``current`` is
+    as for ``validate``, and ``rule`` one more check the answer must pass (raising ValueError), so the
+    list never names a model the answer path refuses (#288/#301).
     """
     settings = state.get("settings") or {}
     role_engine = engine(settings, role)
@@ -231,7 +235,10 @@ def candidates(state: dict, role: str, refused_model, *, cross_check, configured
         if model == refused_model or (_provider(model) and _provider(model) == _provider(refused_model)):
             continue
         try:
-            validate(state, role, model, configured_tool=configured_tool, cross_check=cross_check, job=job)
+            validate(state, role, model, configured_tool=configured_tool, cross_check=cross_check, job=job,
+                     current=current)
+            if rule is not None:
+                rule(model)
         except ValueError:
             refused.append(model)
         else:
@@ -300,10 +307,13 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
     return asked, model
 
 
-def validate(state: dict, role: str, model: str, *, configured_tool: bool, cross_check, job: str | None = None) -> None:
+def validate(state: dict, role: str, model: str, *, configured_tool: bool, cross_check, job: str | None = None,
+             current: str | None = None) -> None:
     """Refuse a model a launch would refuse: wrong format for the engine, unchanged, or a cross-model clash.
 
-    ``job`` names the role as the question does (``Tester``), never by its code name.
+    ``job`` names the role as the question does (``Tester``), never by its code name. ``current`` is the
+    model the stopped attempt ran on when the role's saved route has moved since (a parallel Builder whose
+    sibling's answer already moved it, #465); unchanged means unchanged from that model.
     """
     settings = state.get("settings") or {}
     route = (settings.get("roles") or {}).get(role)
@@ -316,7 +326,7 @@ def validate(state: dict, role: str, model: str, *, configured_tool: bool, cross
         problem = f"{job} needs a model name without spaces"
     if problem:
         raise ValueError(problem)
-    if route.get("model") == model:
+    if (current or route.get("model")) == model:
         raise ValueError(f"The {job} already uses {model}; name a different model")
     clash = _clashes(settings, role, model, cross_check)
     if clash:
@@ -350,13 +360,16 @@ def _carry(state: dict, role: str, stopped: str | None, model: str) -> None:
 
 
 def assign(state: dict, role: str, model: str, *, at: str, via: str, attempt: dict | None = None,
-           request_id: str | None = None) -> dict:
-    """Set the role's model, drop its session and append the route_assignment record; return the record."""
+           request_id: str | None = None, current: str | None = None) -> dict:
+    """Set the role's model, drop its session and append the route_assignment record; return the record.
+
+    The record's ``from`` is ``current`` (as for ``validate``) when given, else the role's saved route.
+    """
     settings = state["settings"]
     route = settings["roles"][role]
     record = {"kind": KIND, "actor": "user_cli", "at": at, "via": via, "role": role,
               "job": roles.screen_name((attempt or {}).get("stage") or role, state),
-              "from": route.get("model"), "to": model, "engine": engine(settings, role),
+              "from": current or route.get("model"), "to": model, "engine": engine(settings, role),
               "stage": (attempt or {}).get("stage"), "attempt_id": (attempt or {}).get("attempt_id"),
               "pause_status": (attempt or {}).get("pause_status") or QUOTA_STATUS,
               "events": (attempt or {}).get("events")}

@@ -12,10 +12,11 @@ from pathlib import PurePath
 
 try:
     from .autocode_role_names import role_name
-    from . import autocode_builder_policy as builder_policy
+    from . import autocode_builder_policy as builder_policy, autocode_provider_refusal as provider_refusal
 except ImportError:
     from autocode_role_names import role_name
     import autocode_builder_policy as builder_policy
+    import autocode_provider_refusal as provider_refusal
 
 ACTIVE = {'RUNNING', 'DISCOVERING', 'EXECUTING', 'TASK_COMPLETE', 'COMPLETE'}
 # These inputs bind the displayed stopped frontier. Polling timestamps and
@@ -168,8 +169,11 @@ def _parallel_members(state):
     workers = _rows(batch.get('workers'))
     if any(row.get('status') in ('RUNNING', 'PENDING') for row in workers):
         return []
+    # A member its provider's content filter refused is asked for another model (route-terra), never
+    # offered a retry on the one that refused (#465); --retry-builder refuses it too.
     return [row['milestone_id'] for row in workers
             if isinstance(row.get('milestone_id'), str) and row.get('milestone_id')
+            and row.get('status') != provider_refusal.STATUS
             and (str(row.get('status', '')).startswith(('PAUSED_', 'FAILED', 'BLOCKED'))
                  or row.get('status') == 'INTERRUPTED')]
 

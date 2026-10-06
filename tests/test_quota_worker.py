@@ -1,4 +1,4 @@
-"""Parallel quota routing through the real CLI and offline concurrent Builders."""
+"""Parallel quota and content-filter routing through the real CLI and offline concurrent Builders."""
 import hashlib
 import json
 import os
@@ -11,9 +11,16 @@ from unittest.mock import patch
 from . import test_subprocess
 import autocode as runner
 import autocode_dispatch as dispatch
+import autocode_run_view as run_view
 import autocode_stuck_job as stuck
 import autocode_support as support
 from goal_fixtures import assert_operational_wait
+
+QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
+# OpenCode's ContentFilterError, as tools/fixtures/opencode-content-filter-run.jsonl captured it (#441, #465).
+REFUSAL = {"type": "error", "error": {"name": "ContentFilterError", "data": {
+    "message": "The response was blocked by the provider's content filter"}}}
+GLM, MIMO = "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"
 
 
 class ParallelQuotaTests(unittest.TestCase):
@@ -22,7 +29,7 @@ class ParallelQuotaTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ()
 
-    def fixture(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE"):
+    def fixture(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", error=QUOTA, members="M1"):
         source = Path(__file__).resolve().parents[1] / "tools"
         target = self.root / "fixture-bin"
         shutil.copy2(source / "fake_parallel_builder.py", target / "codex")
@@ -79,6 +86,13 @@ class ParallelQuotaTests(unittest.TestCase):
             needle = "    if os.environ.get(\"AUTOCODE_BUILDER_FAIL\") == task[\"milestone_id\"]:"
             self.assertIn(needle, code)
             code = code.replace(needle, injection + needle, 1)
+        # Each milestone in a comma-separated list stops once, on the quota error row or ``error`` in its place.
+        once = 'os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE") == task["milestone_id"]'
+        quota = f"print(json.dumps({json.dumps(QUOTA)})"
+        self.assertIn(once, code)
+        self.assertIn(quota, code)
+        code = code.replace(once, 'task["milestone_id"] in os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", "").split(",")', 1)
+        code = code.replace(quota, f"print(json.dumps({json.dumps(error)})", 1)
         (target / "codex").write_text(code)
         (target / "codex").chmod(0o755)
         shutil.copy2(source / "fake_opencode.py", target / "opencode")
@@ -128,16 +142,20 @@ class ParallelQuotaTests(unittest.TestCase):
             "fixture.main()\n")
         self.entry = [sys.executable, str(bootstrap), str(source / "autocode.py")]
         self.env["AUTOCODE_BUILDER_BARRIER"] = str(self.root / "barrier")
-        self.env[marker] = "M1"
+        self.env[marker] = members
 
-    def paused(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE"):
-        self.fixture(marker)
+    def paused(self, marker="AUTOCODE_BUILDER_QUOTA_FAIL_ONCE", error=QUOTA, members="M1"):
+        self.fixture(marker, error, members)
         result = self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"],
                              2, answers="yes\n")
         self.assertTrue(list((self.project / ".autocode/runs").glob("*/state.json")), result.stdout + result.stderr)
         run, state = self.saved()
         self.assertNotEqual("PAUSED_INVALID_OUTPUT", state["status"], state.get("stop_reason"))
         return run, state
+
+    def retry_actions(self, state):
+        return [action["milestone_ids"] for action in run_view.view(state)["recovery"]["actions"]
+                if action["kind"] == "retry_builder"]
 
     def answer(self, run, model, expected=0):
         return self.launch(["--run-dir", str(run), "--answer", "route-terra=" + model, "--no-chat"], expected)
@@ -275,3 +293,74 @@ class ParallelQuotaTests(unittest.TestCase):
         _, state = self.paused("AUTOCODE_BUILDER_RESULT_STATUS")
         request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         self.assertFalse(any(q.get("id") == "route-terra" for q in request.get("questions", [])))
+
+    def test_ac13_a_quota_stopped_member_keeps_its_explicit_same_model_retry(self):
+        # #458 unchanged: the quota can reset, so the view offers the member's retry and the CLI runs it.
+        run, state = self.paused()
+        self.assertEqual([["M1"]], self.retry_actions(state))
+        self.launch(["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"], 0)
+        state = self.saved()[1]
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual([GLM, GLM], self.attempts(self.workers(state)["M1"]))
+
+    def refusal_asked(self, state, milestone):
+        """A batch member its provider's content filter refused (#465): asked like a quota stop, never offered a retry."""
+        request = assert_operational_wait(self, state, "PAUSED_CONTENT_FILTER")
+        asked = next(q for q in request["questions"] if q["id"] == "route-terra")
+        self.assertEqual((f"Builder (milestone {milestone})", "content_filter", GLM),
+                         (asked["job"], asked["cause"], asked["stopped_model"]))
+        self.assertIn(f"Builder (milestone {milestone})'s model was refused by its provider's content filter",
+                      asked["question"])
+        self.assertIn(f"Milestone {milestone}: Builder: the provider's content filter refused the response on {GLM} "
+                      "(ContentFilterError: The response was blocked", state["stop_reason"])
+        self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", state["stop_reason"])
+        # Only commands the parent takes: the worker's own attempt is never named here (#288/#301).
+        self.assertNotIn("--abandon-stage", state["stop_reason"])
+        self.assertEqual([], self.retry_actions(state))
+        return asked
+
+    def test_a_refused_member_is_asked_for_another_model_and_only_it_reruns_there(self):
+        run, state = self.paused(error=REFUSAL)
+        self.assertEqual("PAUSED_CONTENT_FILTER", self.workers(state)["M1"]["status"])
+        self.refusal_asked(state, "M1")
+        self.answer(run, MIMO)
+        state = self.resume(run)
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        [assignment] = [e for e in state["user_events"] if e["kind"] == "route_assignment"]
+        self.assertEqual((GLM, MIMO, "PAUSED_CONTENT_FILTER"),
+                         (assignment["from"], assignment["to"], assignment["pause_status"]))
+        rows = self.workers(state)
+        self.assertEqual([GLM, MIMO], self.attempts(rows["M1"]))
+        self.assertEqual([GLM], self.attempts(rows["M2"]))
+        self.assertEqual(["M1", "M2", "M3"], [
+            (self.project / name).read_text().strip() for name in ("a.txt", "b.txt", "combined.txt")])
+
+    def test_the_refusing_model_is_never_rerun_by_a_resume_or_a_member_retry(self):
+        run, _ = self.paused(error=REFUSAL)
+        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        result = self.launch(["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"], 2)
+        self.assertIn(f"Builder M1 was refused by its provider's content filter on {GLM}", result.stderr)
+        state = self.saved()[1]
+        self.refusal_asked(state, "M1")
+        self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
+        self.assertFalse(any(e["kind"] == "builder_retry" for e in state.get("user_events", [])))
+
+    def test_two_refused_members_are_asked_in_turn_about_the_model_each_ran_on(self):
+        # M1's answer moves the Builder route to MiMo; M2 ran on GLM, so MiMo is listed and accepted for it too.
+        run, state = self.paused(error=REFUSAL, members="M1,M2")
+        self.assertEqual({"M1": "PAUSED_CONTENT_FILTER", "M2": "PAUSED_CONTENT_FILTER"},
+                         {mid: row["status"] for mid, row in self.workers(state).items()})
+        self.refusal_asked(state, "M1")
+        self.answer(run, MIMO)
+        self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        state = self.saved()[1]
+        asked = self.refusal_asked(state, "M2")
+        self.assertEqual((MIMO, GLM), (state["settings"]["roles"]["terra"]["model"], asked["current_model"]))
+        self.assertIn(MIMO, asked["candidates"])
+        self.answer(run, MIMO)
+        state = self.resume(run)
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        rows = self.workers(state)
+        self.assertEqual([[GLM, MIMO], [GLM, MIMO]], [self.attempts(rows["M1"]), self.attempts(rows["M2"])])
+        self.assertEqual([(GLM, MIMO, "PAUSED_CONTENT_FILTER")] * 2, [
+            (e["from"], e["to"], e["pause_status"]) for e in state["user_events"] if e["kind"] == "route_assignment"])
