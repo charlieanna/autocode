@@ -1,0 +1,333 @@
+"""One AutoResolver re-evaluation of corrective information on an operational pause (#486).
+
+`--resolver-response provide_information` answers an AutoResolver `operational_exhaustion`
+request. The response is information, never authority: it cannot launch a provider, raise a
+bound, reset a count or approve anything. Before #486 it was also never evaluated, so the run
+held at the same frontier forever while its status named only `--resume-paused`.
+
+An accepted response now schedules exactly one evaluation (``schedule``, called by
+autocode_resolver_human.review_operational_response for the CLI and chat paths). The next
+explicit continuation (``--resume-paused`` or ``autocode resume`` with no other recovery flag)
+consumes it once (``reevaluate``), with zero provider calls:
+
+- stale: the request/response chain, the pause status, the evidence pins or the frontier the
+  response was bound to (autocode_resolver_human._binding: source revision, settings including
+  the transport identity, task, contract, accounting, interventions) no longer match. The
+  record is retired and the existing fail-closed path holds or asks again for the current
+  frontier.
+- hold: the stop needs authority information cannot supply (an exhausted bound or automatic
+  recovery allowance, a repeated failure, an unreconciled attempt). The run stays paused, its
+  stop_reason names the exact command, and later invocations repeat that decision without
+  evaluating again or republishing the request.
+- continue: no exhausted bound or operator-only control holds the stop, so the request's own
+  advice ("provide information, then autocode resume") applies. The run goes through the
+  ordinary resume path and the build loop's admission guards (limits, permissions, transport,
+  source, approval) before any provider launches.
+
+State: ``resolver.information_reviews`` maps a request ID to its record; this module is its only
+writer. autocode_run_actions acts on ``reevaluate``; the status view reads ``projection``.
+Imports only autocode_util; the runner is passed in, as autocode_run_actions does.
+"""
+from __future__ import annotations
+
+import copy
+import shlex
+from pathlib import Path
+
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
+VERSION = 1
+KEY = 'information_reviews'
+REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
+BOUND_FLAGS = {'PAUSED_TIME_LIMIT': '--max-seconds', 'PAUSED_ITERATION_LIMIT': '--max-iterations',
+               'PAUSED_MILESTONE_TIME_LIMIT': '--max-milestone-seconds',
+               'PAUSED_MILESTONE_BUDGET': '--max-milestone-seconds', 'PAUSED_NO_PROGRESS': '--no-progress-limit'}
+# Stops whose authority is an explicit operator control; information cannot stand in for it.
+OPERATOR_ONLY = {
+    'PAUSED_TIMEOUT_RECOVERY': 'the automatic-recovery allowance for this run is spent',
+    'PAUSED_TIME_LIMIT': 'the saved active-time limit is reached',
+    'PAUSED_ITERATION_LIMIT': 'the saved iteration ceiling is reached',
+    'PAUSED_MILESTONE_TIME_LIMIT': "the milestone's active-time budget is reached",
+    'PAUSED_MILESTONE_BUDGET': "the milestone's active-time budget is reached",
+    'PAUSED_NO_PROGRESS': 'the limit on unchanged implementation batches is reached',
+    'PAUSED_REPEATED_FAILURE': 'the same failure repeated on unchanged source',
+    'PAUSED_BUILDER_RETRY_LIMIT': 'the Builder used its configured attempts for this task',
+    'PAUSED_ORCHESTRATOR_WORKER': 'a parallel Builder member stopped and needs an explicit retry',
+    'PAUSED_MILESTONE_STALLED': 'the milestone still fails after its bounded replanning',
+}
+
+
+class Outcome:
+    """What this invocation does about a scheduled review: hold, continue, pending or stale."""
+
+    def __init__(self, action, message):
+        self.action, self.message = action, message
+
+
+def resume_flags(state, pause):
+    """The explicit operator control for a pause class, or None when a plain resume is its path (#301)."""
+    if pause == 'PAUSED_TIMEOUT_RECOVERY':
+        return '--resume-paused --grant-recovery N'
+    if pause in BOUND_FLAGS:
+        return f'--resume-paused {BOUND_FLAGS[pause]} N'
+    if pause == 'PAUSED_BUILDER_RETRY_LIMIT':
+        return '--resume-paused --retry-builder ' + ((state.get('current_task') or {}).get('milestone_id') or 'MILESTONE_ID')
+    if pause == 'PAUSED_REPEATED_FAILURE':
+        return '--resume-paused --retry-failed-stage'
+    return None
+
+
+def _receipt_pins(resolver, receipt_id):
+    receipt = (resolver.get('operational_receipts') or {}).get(receipt_id) if receipt_id else None
+    if not isinstance(receipt, dict):
+        return None, {}
+    output = receipt.get('output')
+    try:
+        pins = {output: util.file_hash(Path(output))} if output and Path(output).is_file() else {}
+    except OSError:
+        pins = {}
+    return util.digest(receipt), pins
+
+
+def schedule(state, event, entry, frontier):
+    """Schedule one evaluation of an accepted `provide_information` operational response.
+
+    Bound to the request ID and token, the response itself, the pause status, the frontier
+    binding and the request's evidence pins. A request is answered once; it is never rearmed.
+    """
+    proposal = (entry.get('identity') or {}).get('proposal') or {}
+    if event.get('action') != 'provide_information' or proposal.get('scope') != 'operational_exhaustion':
+        return None
+    resolver = state['resolver']
+    reviews = resolver.setdefault(KEY, {})
+    if event['request_id'] in reviews:
+        return reviews[event['request_id']]
+    receipt_id = (proposal.get('evidence') or {}).get('resolver_receipt_id')
+    receipt, pins = _receipt_pins(resolver, receipt_id)
+    reviews[event['request_id']] = record = {
+        'version': VERSION, 'status': 'pending', 'scheduled_at': util.now(),
+        'request_id': event['request_id'], 'request_token': event['request_token'],
+        'response': util.digest(event), 'pause_status': frontier['pause_status'],
+        'cause': (proposal.get('origin') or {}).get('pause_status') or frontier['pause_status'],
+        'binding': copy.deepcopy(frontier['binding']),
+        'receipt_id': receipt_id, 'receipt': receipt, 'pins': pins}
+    return record
+
+
+def _changed(saved, current):
+    keys = sorted(key for key in set(saved) | set(current) if saved.get(key) != current.get(key))
+    return ', '.join(keys) or 'the frontier'
+
+
+def _problem(human, state, record):
+    """Why this record cannot be evaluated against the current run, or None."""
+    try:
+        resolver = state['resolver']
+        rid = record['request_id']
+        entry = resolver['human_escalations'][rid]
+        identity = entry['identity']
+        proposal = identity['proposal']
+        response = entry.get('response') or {}
+        token = util.digest({'request_id': rid, 'binding': identity['binding']})
+        if (record.get('version') != VERSION or util.digest(identity) != rid
+                or identity.get('issuer') != 'resolver' or proposal.get('scope') != 'operational_exhaustion'
+                or entry.get('status') != 'consumed' or util.digest(response) != record['response']
+                or response.get('actor') != 'user_cli' or response.get('action') != 'provide_information'
+                or response.get('request_id') != rid
+                or not (response.get('request_token') == record['request_token'] == token)
+                or (resolver.get('human_response_resolutions') or {}).get(rid, {}).get('response') != response):
+            return 'its request, token or response no longer match the saved AutoResolver records'
+        frontier = resolver.get('human_response_frontier') or {}
+        if frontier.get('request_id') != rid or frontier.get('binding') != record['binding']:
+            return 'a newer response or request replaced it'
+        if human.current(state) or state.get(human.PRIVATE) or state.get('pending_questions'):
+            return 'another AutoResolver request is open'
+        if state.get('status') != record['pause_status']:
+            return f"the run is no longer at {record['pause_status']}"
+        binding = human._binding(state)
+        if binding != record['binding']:
+            return 'the run changed after the response (' + _changed(record['binding'], binding) + ')'
+        receipt, pins = _receipt_pins(resolver, record['receipt_id'])
+        if (not human._evidence_valid(proposal) or receipt != record['receipt'] or pins != record['pins']
+                or (record['receipt_id'] and not pins)):
+            return "the request's recorded evidence changed"
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return 'its saved records are malformed'
+    return None
+
+
+def _attempt(active):
+    if active.get('output') and isinstance(active.get('iteration'), int):
+        return f"{active['iteration']:03d}/{Path(active['output']).stem}"
+    return None
+
+
+def _parallel_members(state):
+    batch = state.get('orchestration_batch') or {}
+    members = [row.get('milestone_id') for row in batch.get('workers') or [] if isinstance(row, dict)
+               and isinstance(row.get('milestone_id'), str)
+               and str(row.get('status', '')).startswith(('PAUSED_', 'FAILED', 'BLOCKED', 'INTERRUPTED'))]
+    return ','.join(members) or 'MILESTONE_ID'
+
+
+def _decide(runner, state, run_dir, workspace, cause):
+    """AutoResolver's decision under existing authority: (action, reason, flags, adopted status)."""
+    Paused = runner.support.Paused
+    active = state.get('active_stage') or {}
+    if active:
+        attempt = _attempt(active)
+        return ('hold', f'the stopped attempt {attempt or "on record"} is still unreconciled; '
+                'information cannot settle what it did', f'--abandon-stage {attempt}' if attempt else None, None)
+    if state.get('uncertain_artifacts'):
+        return 'hold', 'a partial stage remains unreconciled: ' + str(state['uncertain_artifacts']), None, None
+    if cause in OPERATOR_ONLY:
+        flags = ('--resume-paused --retry-builder ' + _parallel_members(state)
+                 if cause == 'PAUSED_ORCHESTRATOR_WORKER' else resume_flags(state, cause))
+        return 'hold', OPERATOR_ONLY[cause], flags, None
+    probe = copy.deepcopy(state)
+    try:
+        if cause == 'PAUSED_PLANNING_BUDGET':
+            planning = probe.get('planning') or {}
+            limit = runner.planning.review_call_limit(probe)
+            if (limit and planning.get('astra_calls', 0) >= limit
+                    and not runner.resolver_runtime.operational_boundary(runner, probe, run_dir, workspace,
+                                                                         persist=False)):
+                return ('hold', 'planning used its review allowance and no reserved recovery remains',
+                        '--planning-review-call-limit N', None)
+        elif probe.get('next_stage') in REVIEW_STAGES:
+            probe.update(status='RUNNING')
+            runner.resolver_runtime.operational_boundary(runner, probe, run_dir, workspace, persist=False)
+        runner.timeout_recovery_guard(probe)
+    except Paused as error:
+        if error.status == 'PAUSED_TIMEOUT_RECOVERY':
+            return 'hold', str(error), resume_flags(state, error.status), error.status
+        return 'hold', str(error), None, None
+    except (KeyError, TypeError, ValueError) as error:
+        return 'hold', f'its admission checks cannot be evaluated: {error}', None, None
+    return 'continue', None, None, None
+
+
+def _message(record, action, reason, flags, run_dir, workspace):
+    rid = record['request_id'][:12]
+    if action == 'continue':
+        return (f"AutoResolver re-evaluated the information sent for request {rid}: no exhausted bound or "
+                f"operator-only control holds this {record['cause']} pause, so the run continues through the "
+                "normal admission checks (limits, permissions, transport, source and approval still apply).")
+    text = (f"AutoResolver re-evaluated the information sent for request {rid}: {reason.rstrip('.')}. "
+            "Information cannot raise a bound, reset a count or authorize another attempt, so the run stays "
+            "paused and no provider launched.")
+    if flags:
+        where = f"--workspace {shlex.quote(str(workspace))} --run-dir {shlex.quote(str(run_dir))}"
+        then = '.' if flags.startswith('--resume-paused') else ', then autocode resume.'
+        text += f" Next command: autocode {flags} {where}{then}"
+    else:
+        text += ' Change the cause it names; AutoResolver then asks again for the changed run.'
+    return text
+
+
+def _view_action(flags):
+    if not flags:
+        return None
+    return flags if flags.startswith('--resume-paused') else flags + ' then --resume-paused'
+
+
+def _current_record(state):
+    resolver = state.get('resolver') if isinstance(state.get('resolver'), dict) else {}
+    reviews = resolver.get(KEY) if isinstance(resolver.get(KEY), dict) else {}
+    frontier = resolver.get('human_response_frontier') if isinstance(resolver.get('human_response_frontier'), dict) else {}
+    record = reviews.get(frontier.get('request_id'))
+    return record if isinstance(record, dict) else None
+
+
+def reevaluate(runner, state, run_dir, workspace, *, resume):
+    """Consume the scheduled review once at an explicit continuation; None when none applies.
+
+    The caller holds the run lock and calls this only for an invocation without another
+    decision or recovery action. Nothing here launches a provider or changes a limit or count.
+    """
+    record = _current_record(state)
+    if record is None:
+        return None
+    human = runner.resolver_human
+    status = record.get('status')
+    if status in ('held', 'admitted'):
+        try:
+            same = (state.get('status') == record['evaluated_status']
+                    and human._binding(state) == record['evaluated_binding'])
+        except (KeyError, TypeError, ValueError):
+            same = False
+        if not same:
+            return None
+        if status == 'held':
+            return Outcome('hold', record['decision']['message'])
+        if resume:  # Saved but not yet carried into the run: continue on that one decision.
+            return Outcome('continue', 'AutoResolver already admitted this continuation for request '
+                           f"{record['request_id'][:12]}; it is not evaluated again.")
+        return Outcome('pending', 'AutoResolver admitted a continuation for request '
+                       f"{record['request_id'][:12]}; run autocode resume to continue. Nothing launched.")
+    if status != 'pending':
+        return None
+    if not resume:
+        return Outcome('pending', 'AutoResolver has the information sent for request '
+                       f"{str(record.get('request_id'))[:12]} and re-evaluates it once at the next "
+                       'autocode resume (--resume-paused). Nothing launched.')
+    state_path = Path(run_dir) / 'state.json'
+    problem = _problem(human, state, record)
+    if problem:
+        record.update(status='stale', retired_at=util.now(), retired_reason=problem)
+        runner.write_json(state_path, state)
+        return Outcome('stale', f"AutoResolver did not re-evaluate the information sent for request "
+                       f"{str(record.get('request_id'))[:12]}: {problem}. No provider launched for it.")
+    try:
+        with runner.interventions.admission(run_dir):
+            candidate = copy.deepcopy(state)
+            saved = _current_record(candidate)
+            action, reason, flags, adopted = _decide(runner, candidate, run_dir, workspace, record['cause'])
+            message = _message(saved, action, reason, flags, run_dir, workspace)
+            decision = {'action': action, 'reason': reason, 'flags': flags, 'view_action': _view_action(flags),
+                        'message': message}
+            evaluated = {'scope': 'operational_information_review', 'request_id': saved['request_id'],
+                         'response': saved['response'], 'cause': saved['cause'], 'binding': saved['binding'],
+                         'receipt_id': saved['receipt_id'], 'pins': saved['pins'], 'decision': decision}
+            identity = util.digest(evaluated)
+            path = Path(run_dir) / 'resolver' / f'information-{identity}.json'
+            util.atomic_json(path, {'stage': 'resolver', 'role': 'resolver', 'engine': 'runner',
+                                    'runner_owned': True, 'runner_calls': 0, 'finished_at': util.now(),
+                                    'metrics': {'provider_tokens': {'input_tokens': 0, 'output_tokens': 0}},
+                                    'decision': {'action': action, 'rationale': message},
+                                    'receipt': {'id': identity, **evaluated}})
+            if adopted:
+                candidate['status'] = adopted
+            candidate['stop_reason'] = message
+            if action == 'continue':
+                # A fresh frontier: a stop the guarded path finds next is a new request, never
+                # the answered one again.
+                candidate.setdefault('user_events', []).append({
+                    'kind': 'resolver_information_review', 'actor': 'runner', 'at': util.now(),
+                    'request_id': saved['request_id'], 'decision': 'continue', 'receipt': identity})
+            saved.update(status='admitted' if action == 'continue' else 'held', evaluated_at=util.now(),
+                         decision=decision, receipt_output=str(path),
+                         evaluated_status=candidate['status'], evaluated_binding=human._binding(candidate))
+            runner.write_json(state_path, candidate)
+    except runner.support.Paused:
+        return None  # An intervention arrived first; nothing was consumed.
+    state.clear()
+    state.update(candidate)
+    return Outcome(action, message)
+
+
+def projection(state):
+    """The status view's read of the current review; plain saved data, never authority."""
+    record = _current_record(state)
+    if record is None:
+        return None
+    decision = record.get('decision') if isinstance(record.get('decision'), dict) else {}
+    return {'request_id': record.get('request_id'), 'status': record.get('status'), 'cause': record.get('cause'),
+            'scheduled_at': record.get('scheduled_at'), 'evaluated_at': record.get('evaluated_at'),
+            'decision': decision.get('action'), 'reason': decision.get('message') or record.get('retired_reason'),
+            'action': decision.get('view_action') if record.get('status') == 'held'
+            and state.get('status') == record.get('evaluated_status') else None,
+            'receipt': record.get('receipt_output')}
