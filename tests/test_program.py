@@ -28,6 +28,7 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 import autocode_brief_literals as brief_literals  # noqa: E402
+import autocode_requirement_cues as requirement_cues  # noqa: E402
 import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
 import autocode_program as program  # noqa: E402
@@ -291,6 +292,20 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(['say "hi" é', '1 say "hi" é'], found)
         found = brief_literals.literals([program.compose_brief(value, rows["M2"], {"workstreams": {}})])
         self.assertEqual(['[{"id": 1}]'], found)
+
+    def test_a_child_owes_requirement_sentences_from_its_own_criteria_not_from_the_parent_plan(self):
+        body = goal_fixtures.body()
+        body["acceptance_criteria"][0]["criterion"] = "The greeting must end with an exclamation mark."
+        body["scope_exclusions"].append("Later workstreams must only extend the CLI.")
+        lifecycle.install_draft(self.state, body, origin="test")
+        lifecycle.human.evaluate(self.state)
+        lifecycle.present(self.state)
+        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        value = program.derive_manifest(run_view.approved_contract(self.state))
+        owed = requirement_cues.cue_sentences(program.compose_brief(value, value["workstreams"][0], {"workstreams": {}}))
+        self.assertTrue(any("must end with an exclamation mark" in sentence for sentence in owed), owed)
+        # The parent plan is quoted only in the fenced block, so its other sentences are context.
+        self.assertFalse(any("must only extend the CLI" in sentence for sentence in owed), owed)
 
     def test_generated_integration_id_does_not_collide_with_an_approved_milestone(self):
         body = goal_fixtures.body()

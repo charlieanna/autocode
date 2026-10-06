@@ -7,6 +7,9 @@ with the text after it into one un-quotable obligation. Substantive headings
 (``## Files must be encrypted``) stay obligations, as clean sentences. A
 delegated answer stores the model's own proposed default as its text: it stays
 a source a report may quote, but it is not itself a must-quote obligation.
+Fenced code blocks are left out of the obligations, as the brief-literal rule
+leaves them out (autocode_brief_literals): pasted code, data or a quoted plan
+is context, not sentences the user voiced, and it stays quotable.
 Pure functions over the state dict; conversation source projection uses only
 the independent handoff protocol.
 """
@@ -16,8 +19,10 @@ import re
 
 try:
     from .autocode_conversation import task_user_texts
+    from .autocode_brief_literals import FENCE
 except ImportError:
     from autocode_conversation import task_user_texts
+    from autocode_brief_literals import FENCE
 
 CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
 _CUE_WORDS = {"must", "not", "never", "do", "don't", "dont", "required",
@@ -46,8 +51,10 @@ def _without_label_headings(text):
 
 
 def cue_sentences(text):
-    """Sentences carrying a requirement cue; heading labels are never obligations."""
-    parts = re.split(r"(?<=[.!?])\s+", _without_label_headings(text).strip())
+    """Sentences carrying a requirement cue; heading labels and fenced blocks are never obligations."""
+    # A program workstream's brief quotes the whole parent plan as a fenced JSON block; a live skeleton's
+    # Requirements were rejected three times for not quoting other workstreams' notes from it (2026-10-06).
+    parts = re.split(r"(?<=[.!?])\s+", _without_label_headings(FENCE.sub("\n", str(text or ""))).strip())
     return [part.strip() for part in parts if part.strip() and CUE.search(part)]
 
 

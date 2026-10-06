@@ -103,6 +103,17 @@ class HeadingCueTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Refunds must credit'):
             goals.check_requirement_handoff({'task': task}, self.report())
 
+    def test_a_fenced_block_is_context_not_an_obligation(self):
+        task = ('Build notes. Notes must be numbered from 1.\n\n```json\n{"note": "M4 must only test the journey."}\n```\n'
+                'Search must ignore case.\n\n```\nexport must never print a header\n')  # the last fence never closes
+        self.assertEqual(['Notes must be numbered from 1.', 'Search must ignore case.'], goals.cue_sentences(task))
+        goals.check_requirement_handoff({'task': task}, self.report('Notes must be numbered from 1.',
+                                                                    'Search must ignore case.'))
+        with self.assertRaisesRegex(ValueError, 'Search must ignore case'):
+            goals.check_requirement_handoff({'task': task}, self.report('Notes must be numbered from 1.'))
+        # A sentence inside the block stays quotable.
+        self.assertIn(task, goals.source_texts({'task': task}))
+
     def test_delegated_answer_is_quotable_but_never_owed(self):
         state = {'task': 'Add receipts.',
                  'answers': {'q1': {'kind': 'delegated', 'text': 'Use plain-text receipts only.'}}}
