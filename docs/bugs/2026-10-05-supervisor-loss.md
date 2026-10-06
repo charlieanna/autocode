@@ -75,4 +75,7 @@ the second line of defence.
   interruption instead of marking it ungraded, and does not own the CLI's lifetime
   (fault 3: the CLI keeps running stages with no supervisor).
 - Builder worker processes and runner check commands are not kept this way.
+- A CLI attached to the terminal that closed is saved as `PAUSED_INTERRUPTED`
+  correctly but exits 1, not 2: its last messages get EIO from the hung-up terminal,
+  and `_DetachedOutput` absorbs only EPIPE.
 - The fault tests have run on Linux only; the incident host was macOS.
