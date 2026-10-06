@@ -54,6 +54,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_accounting as recovery_accounting
+    from . import autocode_recovery_context as recovery_context
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -88,6 +89,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
     import autocode_recovery_accounting as recovery_accounting
+    import autocode_recovery_context as recovery_context
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -848,6 +850,7 @@ def save_record(state, record):
     state["evidence_locations"] = [r["output"] for r in state["stages"][-3:]]
     state.pop("active_stage", None)
     recovery_accounting.stage_saved(state)
+    recovery_context.stage_saved(state, record)
 
 
 def _apply_result(state, stage, value, record, workspace, run_dir):
