@@ -602,9 +602,19 @@ acknowledges it. A flag for any other limit is still saved, even when it restate
 default, but it is only a settings change. The pause stays in force, and AutoResolver
 asks its operational request again under the new settings, answered or not. For
 example, `--max-stage-seconds` on a run paused for exhausted recoveries changes the
-stage limit and launches nothing. A pause intervention submitted while a run is already
-paused does not replace that pause either: `--resume-paused` acknowledges the
-intervention and returns the run to the earlier pause, whose own rules then apply. See
+stage limit and launches nothing. Enabling `--joint-planning` is a settings change too:
+planning restarts once the pause is released.
+
+Input that arrives while an operational pause holds the run is applied by the next
+invocation, without starting a provider, and the pause stays in force. A pause or
+feedback intervention is applied as usual, and `--resume-paused` then acknowledges it
+and returns the run to the earlier pause, whose own rules apply. Feedback acknowledges
+only an exhausted plan-review budget; `--feedback` is refused at any other operational
+pause. Queued milestone checkpoints are enabled. A run-local `pause-requested` file
+keeps the run at its pause until you remove it. After any of these, AutoResolver asks
+its operational request again. If the same command also acknowledges the pause (the
+exhausted bound's flag, `--grant-recovery`), the pause is released first, and a queued
+pause intervention then pauses the released run. See
 `docs/bugs/2026-10-06-operational-pause-authority.md`.
 
 Provider stages track their subprocesses, including detached tool processes. On normal

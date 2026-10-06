@@ -31,5 +31,5 @@
   "tests.test_rejected_repair_retry": "38 s locally (Linux, one module at a time), 2026-10-06; two scripted feature-stock-refusals runs through the real CLI, plan to completion",
   "tests.test_launch_state_cli": "Two real CLI launches with the fake provider, each through planning to a human question; #540, 2026-10-06",
   "tests.test_operational_information": "71 s locally (Linux, 4 CPUs, one module at a time) for thirteen tests; each drives the real CLI through plan, operational pause, provide_information and resume; the control table is in test_operational_information_controls, 2026-10-06",
-  "tests.test_operational_pause_authority": "33 s locally (Linux, one module at a time), 2026-10-06; one fixture run copied per case, every operational pause status through the CLI"
+  "tests.test_operational_pause_authority": "307 s for 21 tests on a loaded 4-CPU Linux container, where its first 11 took 150 s (33 s unloaded), 2026-10-06; one fixture run copied per case, every operational pause status through the CLI"
 }

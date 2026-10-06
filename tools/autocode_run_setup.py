@@ -38,6 +38,7 @@ try:
     from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
+    from . import autocode_stop as stop
     from . import autocode_recovery_view as recovery_view
     from . import autocode_support as support
     from . import autocode_workspaces as task_workspaces
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
+    import autocode_stop as stop
     import autocode_recovery_view as recovery_view
     import autocode_support as support
     import autocode_workspaces as task_workspaces
@@ -361,10 +363,14 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if contract:
                 contract.update(approval_status="draft", approval_event=None)
             goals.invalidate(state, "Independent requirements and plan review requested before further execution")
-            state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
-                         pending_questions=[])
-            state.pop("stop_reason", None)
-            state.pop("paused_at", None)
+            state.update(next_stage="requirements_gather", pending_questions=[])
+            # Enabling it is a settings write: planning restarts once an operational pause holding the
+            # run is released by its own authority, never past it (#486 review).
+            held = stop.interrupted_pause(state)
+            if not (held and pause_authority.operational(held['status'])):
+                state.update(status="RUNNING", phase="DISCOVERING")
+                state.pop("stop_reason", None)
+                state.pop("paused_at", None)
         # A grant validates the original request before its writer publishes
         # the corrected settings. Normalizing here would replace that request
         # with a different resolver decision before the grant can be checked.

@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 from . import test_subprocess
 import autocode as runner
+import autocode_pause_authority as pause_authority
 import autocode_resolver_human as human
 import autocode_resolver_runtime as resolver_runtime
 import autocode_support as support
@@ -33,6 +34,10 @@ STATUSES = ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY', 'PAUSED_PR
             'PAUSED_ORCHESTRATOR_WORKER', 'PAUSED_BUILDER_RETRY_LIMIT', 'PAUSED_MILESTONE_STALLED',
             'PAUSED_MILESTONE_BUDGET', 'PAUSED_MILESTONE_TIME_LIMIT', 'PAUSED_PROVIDER_UNCERTAIN',
             'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY', 'PAUSED_NO_PROGRESS', 'PAUSED_CONTENT_FILTER')
+# One of each kind of handling, for the variants that are not the reported ones: the planning guard,
+# the planning budget (plan feedback acknowledges it), provider stops, reassertable and other bounds.
+SAMPLE = ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY', 'PAUSED_PLANNING_BUDGET', 'PAUSED_RATE_LIMIT',
+          'PAUSED_TIME_LIMIT', 'PAUSED_ITERATION_LIMIT', 'PAUSED_NO_PROGRESS', 'PAUSED_CONTENT_FILTER')
 # The pauses a budget flag acknowledges: the flag that changes the exhausted bound, with headroom.
 ACKNOWLEDGING = {'PAUSED_TIME_LIMIT': ('--max-seconds', '50000'),
                  'PAUSED_ITERATION_LIMIT': ('--max-iterations', '9'),
@@ -40,6 +45,11 @@ ACKNOWLEDGING = {'PAUSED_TIME_LIMIT': ('--max-seconds', '50000'),
                  'PAUSED_MILESTONE_BUDGET': ('--max-milestone-seconds', '50000'),
                  'PAUSED_NO_PROGRESS': ('--no-progress-limit', '5')}
 STOP_AT_TESTER = {'AUTOCODE_FIXTURE_QUOTA_STAGE': 'sol'}  # the admitted stage records its launch, then stops
+FEEDBACK = 'Prefer a shorter greeting'
+# Timeout recoveries spent, so --grant-recovery is that pause's own authority.
+SPENT_TIMEOUT_RECOVERIES = dict(
+    automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3,
+    automatic_timeout_recoveries=[{'stage': 'terra', 'timeout_reason': 'idle watchdog'} for _ in range(3)])
 
 
 def explicit_bound(kind, limit, **fields):
@@ -141,10 +151,13 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             **options)
         self.assertEqual((0, []), (code, stages), output)
 
-    def submit_pause(self, **options):
+    def submit_pause(self, request_id='req-pause', **options):
+        self.submit('pause', request_id, **options)
+
+    def submit(self, kind, request_id, text='', **options):
         code, _, output = self.cli('intervention', 'submit', '--workspace', str(self.flow.project),
-                                   '--run-dir', str(self.run_dir), '--request-id', 'req-pause', '--kind', 'pause',
-                                   '--text', '', **options)
+                                   '--run-dir', str(self.run_dir), '--request-id', request_id, '--kind', kind,
+                                   '--text', text, **options)
         self.assertEqual(0, code, output)
 
     def assert_held(self, result, status='PAUSED_RESOLVER_OPERATIONAL', *, settled=True):
@@ -203,7 +216,10 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.checkpoint()
         self.submit_pause(process=True)
         self.assert_held(self.invoke(process=True), settled=False)
-        self.assert_held(self.invoke('--resume-paused', process=True), settled=False)
+        self.assertEqual('PAUSED_INTERVENTION', self.saved()['status'], 'the queued pause is applied, never stranded')
+        # Resuming the intervention returns to the operational pause and asks its request again.
+        self.assert_held(self.invoke('--resume-paused', process=True))
+        self.answer(self.saved(), process=True)
 
     # Every pause status, in-process.
     def test_no_unrelated_limit_releases_any_operational_pause(self):
@@ -246,6 +262,140 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.stranded('PAUSED_RESOLVER_OPERATIONAL', 'RUNNING')
         self.assert_held(self.invoke('--resume-paused'), settled=False)
 
+    # Review of the fix: every other input that replaced the pause, or arrived with a settings write.
+    def stacked_pauses(self, status, *, answered, process=False):
+        """Two pause interventions, each applied by an invocation, then a resume."""
+        state = self.checkpoint(status)
+        if answered:
+            self.answer(state, process=process)
+        # Unanswered, as reported: a settings write on the first resume applies the first pause.
+        first = () if answered else ('--resume-paused', '--max-stage-seconds', '1200')
+        self.submit_pause('req-pause-1', process=process)
+        self.assert_held(self.invoke(*first, process=process), status, settled=False)
+        self.submit_pause('req-pause-2', process=process)
+        self.assert_held(self.invoke(process=process), status, settled=False)
+        self.assertEqual(status, self.saved()['pause_intent']['held_pause']['status'],
+                         'the second pause keeps the pause the first one interrupted')
+        return self.invoke('--resume-paused', process=process, env=STOP_AT_TESTER)
+
+    def test_a_second_pause_intervention_never_releases_an_operational_pause(self):
+        self.assert_held(self.stacked_pauses('PAUSED_RESOLVER_OPERATIONAL', answered=True, process=True))
+        cases = [*((status, True) for status in STATUSES), *((status, False) for status in SAMPLE)]
+        for status, answered in cases:
+            with self.subTest(status=status, answered=answered):
+                self.assert_held(self.stacked_pauses(status, answered=answered), status)
+                if not answered:  # asked again from its own cause: the earlier advice is not repeated
+                    self.assertEqual(1, self.saved()['stop_reason'].count('AutoResolver could not resolve'),
+                                     self.saved()['stop_reason'])
+
+    def queued_feedback(self, status, variant, *, process=False):
+        """Feedback queued at the operational pause, an invocation that applies it, then a resume."""
+        state = self.checkpoint(status)
+        if variant == 'answered':
+            self.answer(state, process=process)
+        self.submit('feedback', 'req-feedback', FEEDBACK, process=process)
+        flags = ('--max-stage-seconds', '1200') if variant == 'settings write' else ()
+        self.assert_held(self.invoke('--resume-paused', *flags, process=process), status, settled=False)
+        self.assertEqual(FEEDBACK, self.saved()['brief_feedback'][-1]['text'], 'the feedback itself is applied')
+        return self.invoke('--resume-paused', process=process, env=STOP_AT_TESTER)
+
+    def test_queued_feedback_never_releases_an_operational_pause(self):
+        # Only plan feedback acknowledges a pause: the exhausted plan-review budget.
+        self.assert_held(self.queued_feedback('PAUSED_RATE_LIMIT', 'settings write', process=True), 'PAUSED_RATE_LIMIT')
+        for status, variant in itertools.product(SAMPLE, ('settings write', 'unanswered', 'answered')):
+            with self.subTest(status=status, variant=variant):
+                result = self.queued_feedback(status, variant)
+                if status == 'PAUSED_PLANNING_BUDGET':
+                    self.assertTrue(result[1], f'plan feedback acknowledges the planning budget:\n{result[2]}')
+                else:
+                    self.assert_held(result, status)
+
+    def test_brief_feedback_never_releases_an_operational_pause(self):
+        for status in STATUSES:
+            with self.subTest(status=status):
+                self.checkpoint(status)
+                code, stages, output = self.invoke('--feedback', FEEDBACK)
+                if status == 'PAUSED_PLANNING_BUDGET':  # plan feedback is that pause's own authority
+                    self.assertEqual(0, code, output)
+                    continue
+                self.assertEqual((2, []), (code, stages), output)
+                self.assertIn('does not acknowledge', output)
+                self.assert_held(self.invoke(env=STOP_AT_TESTER), status)
+
+    def test_enabling_joint_planning_never_releases_an_operational_pause(self):
+        # Enabling it is a settings write (an unanswered request is refused earlier, by configure).
+        unattended = [sys.executable, str(Path(runner.__file__).with_name('autocode_unattended.py'))]
+        cases = [*((status, False) for status in STATUSES), ('PAUSED_RESOLVER_OPERATIONAL', True)]
+        for status, paused in cases:
+            with self.subTest(status=status, after_pause_intervention=paused):
+                self.answer(self.checkpoint(status))
+                if paused:
+                    self.submit_pause()
+                    self.assert_held(self.invoke(), status, settled=False)
+                if status == 'PAUSED_RATE_LIMIT' and not paused:  # the reported unattended call, as a process
+                    probe = self.flow.root / f'launch-{next(self.launches)}.jsonl'
+                    result = subprocess.run(
+                        [*unattended, '--workspace', str(self.flow.project), '--run-dir', str(self.run_dir),
+                         '--joint-planning'], cwd=self.flow.root, capture_output=True, text=True, timeout=240,
+                        env={**self.flow.env, **STOP_AT_TESTER, 'AUTOCODE_REGISTRY_LAUNCH_PROBE': str(probe)})
+                    self.assertFalse(probe.exists(), result.stdout + result.stderr)
+                else:
+                    self.assert_held(self.invoke('--joint-planning', env=STOP_AT_TESTER), status, settled=not paused)
+                saved = self.saved()
+                self.assertTrue(saved['settings']['joint_planning'], 'the setting itself is kept')
+                self.assertEqual('requirements_gather', saved['next_stage'])
+                self.assert_held(self.invoke('--resume-paused', env=STOP_AT_TESTER), status)
+
+    def test_a_requested_pause_never_releases_an_operational_pause(self):
+        # The run-local pause-requested file, with and without a settings write, answered or not.
+        flags = ((), ('--max-stage-seconds', '1200'))
+        for answered, extra in itertools.product((False, True), flags):
+            with self.subTest(answered=answered, flags=extra):
+                state = self.checkpoint()
+                if answered:
+                    self.answer(state)
+                pause = self.run_dir / 'pause-requested'
+                pause.write_text('operator')
+                code, stages, output = self.invoke('--resume-paused', *extra, env=STOP_AT_TESTER)
+                self.assert_held((code, stages, output), settled=False)
+                self.assertIn('pause-requested', output)
+                pause.unlink()
+                self.assert_held(self.invoke('--resume-paused', env=STOP_AT_TESTER))
+
+    def test_queued_milestone_checkpoints_never_release_an_operational_pause(self):
+        for status, answered in itertools.product(('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIME_LIMIT'), (False, True)):
+            with self.subTest(status=status, answered=answered):
+                state = self.checkpoint(status)
+                if answered:
+                    self.answer(state)
+                code, _, output = self.cli('--workspace', str(self.flow.project), '--run-dir', str(self.run_dir),
+                                           '--request-milestone-checkpoints')
+                self.assertEqual(0, code, output)
+                self.assert_held(self.invoke('--resume-paused', env=STOP_AT_TESTER), status)
+                self.assertTrue(self.saved()['settings']['milestone_checkpoints'],
+                                'the next invocation applies checkpoints without starting a provider')
+                self.assertFalse((self.run_dir / 'pause-requested').exists())
+                self.assert_held(self.invoke('--resume-paused', env=STOP_AT_TESTER), status)
+
+    def test_authority_given_while_a_pause_is_queued_survives_the_intervention(self):
+        # The acknowledgement is applied first; the queued pause then pauses a released run, and
+        # resuming that pause continues without acknowledging the bound again.
+        cases = [(status, ('--resume-paused', *flag), None, answered)
+                 for (status, flag), answered in itertools.product(ACKNOWLEDGING.items(), (False, True))]
+        # A grant checks the answered request it names (an unanswered one is stale while input is queued).
+        cases.append(('PAUSED_TIMEOUT_RECOVERY', ('--resume-paused', '--grant-recovery', '1'),
+                      lambda state: state.update(SPENT_TIMEOUT_RECOVERIES), True))
+        for status, command, edit, answered in cases:
+            with self.subTest(status=status, command=command, answered=answered):
+                state = self.checkpoint(status, edit)
+                if answered:
+                    self.answer(state)
+                self.submit_pause()
+                self.assert_held(self.invoke(*command, env=STOP_AT_TESTER), status, settled=False)
+                self.assertEqual('PAUSED_INTERVENTION', self.saved()['status'])
+                self.assertNotIn('held_pause', self.saved()['pause_intent'])
+                self.assert_resumes(self.invoke('--resume-paused', env=STOP_AT_TESTER))
+
     # Controls: changing the exhausted bound itself is the operator's authority and still resumes in one
     # command, answered or not, and after a pause intervention (#301, #378, #394).
     def test_changing_the_exhausted_bound_still_resumes_every_bounded_pause(self):
@@ -270,6 +420,35 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     self.answer(state)
                 code, stages, output = self.invoke('--resume-paused', *flag, env=STOP_AT_TESTER)
                 self.assertTrue(stages, f'raising the exhausted bound must admit the next stage:\n{output}')
+
+
+class HeldPauseTests(unittest.TestCase):
+    """The pure records behind the CLI tests above."""
+
+    def test_the_tested_statuses_are_every_operational_pause(self):
+        self.assertEqual(sorted(STATUSES), sorted(pause_authority.OPERATIONAL_PAUSES))
+
+    def test_held_cause_drops_the_advice_its_request_appended(self):
+        def request(discovered, pause='PAUSED_RATE_LIMIT'):
+            return {'identity': {'proposal': {'scope': 'operational_exhaustion', 'origin': {'pause_status': pause},
+                                              'request': {'discovered': discovered}}}}
+        state = {'stop_reason': 'Rate limited. AutoResolver could not resolve it. Provide information.',
+                 'resolver': {'human_escalations': {'a': request('Rate limited'), 'b': request('Other', 'PAUSED_TIME_LIMIT'),
+                                                    'c': request('Rate')}}}
+        self.assertEqual('Rate limited', pause_authority.held_cause(state, 'PAUSED_RATE_LIMIT'))
+        self.assertEqual(state['stop_reason'], pause_authority.held_cause(state, 'PAUSED_TIME_LIMIT'))
+        state['stop_reason'] = 'AutoResolver received the human response; no execution was authorized.'
+        self.assertEqual(state['stop_reason'], pause_authority.held_cause(state, 'PAUSED_RATE_LIMIT'))
+
+    def test_a_later_intervention_keeps_the_pause_the_first_one_interrupted(self):
+        import autocode_stop as stop
+        held = {'status': 'PAUSED_RATE_LIMIT', 'stop_reason': 'Rate limited'}
+        state = {'status': stop.STOP_STATUS, 'pause_intent': {'acknowledged_at': None, 'held_pause': held}}
+        self.assertEqual(held, stop.interrupted_pause(state))
+        state['pause_intent']['acknowledged_at'] = '2026-10-06T00:00:00+00:00'
+        self.assertIsNone(stop.interrupted_pause(state))
+        self.assertIsNone(stop.interrupted_pause({'status': 'RUNNING'}))
+        self.assertEqual('PAUSED_TIME_LIMIT', stop.interrupted_pause({'status': 'PAUSED_TIME_LIMIT'})['status'])
 
 
 if __name__ == '__main__':

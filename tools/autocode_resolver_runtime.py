@@ -25,6 +25,7 @@ try:
     from . import autocode_resolver_recovery as recovery
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
     from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
+    from . import autocode_pause_authority as pause_authority
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_quota_route as quota_route
     import autocode_worker_quota as worker_quota
+    import autocode_pause_authority as pause_authority
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -370,16 +372,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         return False
     if progressive.retained_review_budget_pause(state, error.status):
         return False
-    if (error.status not in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY',
-                             'PAUSED_PROVIDER_CAPACITY', 'PAUSED_PLANNING_BUDGET', 'PAUSED_RATE_LIMIT',
-                             'PAUSED_TIME_LIMIT', 'PAUSED_ITERATION_LIMIT', 'PAUSED_BUDGET',
-                             'PAUSED_REPORT_REPAIR_LIMIT',
-                             'PAUSED_REPEATED_FAILURE', 'PAUSED_RESOLVER',
-                             'PAUSED_ORCHESTRATOR_WORKER', 'PAUSED_BUILDER_RETRY_LIMIT',
-                             'PAUSED_MILESTONE_STALLED', 'PAUSED_MILESTONE_BUDGET',
-                             'PAUSED_MILESTONE_TIME_LIMIT',
-                             'PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY',
-                             'PAUSED_NO_PROGRESS', quota_route.REFUSAL_STATUS)
+    if (not pause_authority.operational(error.status)
             or state.get('pending_questions')
             # Input still to apply (a requested pause, a queued intervention) goes first: a request
             # staged now would be bound to it and could never be published (#486).

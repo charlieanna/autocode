@@ -101,6 +101,43 @@ def explicit_recovery_requested(args, state):
                 and pause_authority.changes_held_bound(budget_flags, pause_authority.held_origin(state))))
 
 
+def hold_for_input(runner, state, state_path, run_dir, workspace):
+    """Apply input accepted while an operational pause held the run, under that pause; return 2.
+
+    A request asked while input is pending could never be published (its binding names that input),
+    and continuing past it would release the pause without its own authority (#486 review). So the
+    input is applied here, at the saved boundary, and no provider starts: a queued pause or feedback
+    keeps the held pause (autocode_stop), a stop ends the run, and queued milestone checkpoints are
+    enabled. The request is then asked again. An operator's own pause-requested file keeps the run
+    at its pause, unasked, until it is removed.
+    """
+    pause = state['status']
+    try:
+        if runner.consume_interventions(state, run_dir, workspace):
+            print(f"{state['status']}: {state['stop_reason']}")
+            return 2
+    except interventions.InterventionError as error:
+        print(f'{pause}: queued input could not be applied ({error}); the pause stays in force.')
+        return 2
+    try:
+        if milestones.apply_queued_activation(state, run_dir):
+            print('Milestone checkpoints enabled at this boundary; no provider launched.', flush=True)
+    except ValueError as error:
+        print(f'Milestone checkpoints stay queued: {error}', file=sys.stderr)
+    cause = pause_authority.held_cause(state, pause) or 'Operational recovery stopped'
+    if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, support.Paused(pause, cause)):
+        runner.write_json(state_path, state)
+        if resolver_human.current(state):
+            print(lifecycle.render(state))
+            return 2
+    runner.write_json(state_path, state)
+    print(f"{state['status']}: {state.get('stop_reason', 'Operational recovery stopped')}")
+    if (run_dir / 'pause-requested').exists():
+        print(f'A requested pause ({run_dir / "pause-requested"}) keeps the run at {pause}; remove that file '
+              'and AutoResolver asks its operational request again.')
+    return 2
+
+
 def next_command(state, issued, run_dir, workspace):
     """One concrete operator command for the pause class holding this run.
 
@@ -340,21 +377,33 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    if (not decision_action and not specific_recovery and not information_admitted
-            and not explicit_recovery_requested(args, state) and state.get('status') != 'RUNNING'
-            and not acknowledged_planning_extension and not acknowledged_bound_change
+    # The pause holding the run's own authority, given by this invocation (reconsideration adds one below).
+    acknowledged = (specific_recovery or information_admitted or explicit_recovery_requested(args, state)
+                    or acknowledged_planning_extension or acknowledged_bound_change)
+    unacknowledged = not decision_action and not acknowledged
+    # Input queued after an operational request was shown leaves that request unanswerable (its
+    # binding names the inbox): withdraw it so the input is applied under the pause, then ask again.
+    if (unacknowledged and (state.get(resolver_human.PUBLIC) or {}).get('scope') == 'operational_exhaustion'
+            and not resolver_human.current(state)
+            and any(resolver_human.pending_interruptions(run_dir).values())):
+        resolver_human.supersede_operational(state, 'Input queued after this request was shown is applied first')
+    if (unacknowledged and state.get('status') != 'RUNNING'
             and str(state.get('status', '')).startswith('PAUSED_')
             and not resolver_human.current(state) and not state.get(resolver_human.PRIVATE)):
         # Unbound legacy fields are not authority and must not suppress
         # the resolver's current, evidenced escalation for this pause.
         state.pop('user_request', None)
         state['pending_questions'] = []
-        error = support.Paused(state['status'], state.get('stop_reason', 'Operational recovery stopped'))
+        error = support.Paused(state['status'], pause_authority.held_cause(state, state['status'])
+                               or 'Operational recovery stopped')
         if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error):
             runner.write_json(state_path, state)
             if resolver_human.current(state):
                 print(lifecycle.render(state))
                 return 2
+        elif (pause_authority.operational(state['status'])
+              and any(resolver_human.pending_interruptions(run_dir).values())):
+            return hold_for_input(runner, state, state_path, run_dir, workspace)
     routed = answer_quota_question(runner, args, state, run_dir, workspace)
     if routed is not None:
         return routed
@@ -392,6 +441,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.'
               + (' It re-evaluates the response once at the next autocode resume.' if scheduled else ''))
         return 0
+    reconsidered = False
     if (not decision_action and not explicit_recovery_requested(args, state)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'
                      and resolver_human.current(state))
@@ -402,11 +452,16 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 print(state['stop_reason'])
             print('AutoResolver retained the operational request; no unchanged, permitted recovery credit was proven.')
             return 2
+        reconsidered = True
+    # Authority this invocation gave for the pause holding the run: a pause or feedback applied
+    # below then pauses a released run and holds nothing (autocode_stop, #486 review).
+    released = bool(args.resume_paused and (acknowledged or reconsidered))
     if (not decision_action and args.grant_recovery is None and not information_admitted
             and state.get('status') in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY')
             and planning.is_planning(state, state.get('next_stage'))):
         resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
-            support.Paused(state['status'], state.get('stop_reason', 'Operational recovery exhausted')))
+            support.Paused(state['status'], pause_authority.held_cause(state, state['status'])
+                           or 'Operational recovery exhausted'))
         runner.write_json(state_path, state)
         print(lifecycle.render(state))
         return 2
@@ -539,7 +594,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if milestones.apply_queued_activation(state, run_dir):
         print(f"Run: {run_dir}\nMilestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
     try:
-        if runner.consume_interventions(state, run_dir, workspace):
+        if runner.consume_interventions(state, run_dir, workspace, released=released):
             print(f"{state['status']}: {state['stop_reason']}")
             return 2
     except interventions.InterventionError as error:
@@ -621,6 +676,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:
+                refusal = pause_authority.feedback_refusal(candidate)
+                if refusal:
+                    raise ValueError(refusal)
                 goals.feedback(candidate, args.feedback)
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())

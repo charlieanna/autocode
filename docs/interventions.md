@@ -56,8 +56,13 @@ A pause-only request preserves the selected next stage and any valid goal approv
 pauses at the next safe boundary with a `pause_intent`; `--resume-paused` records its
 acknowledgement and resumes that selected stage. If the run was already held at another
 pause (an operational pause, with or without its AutoResolver request), the intent
-records that pause as `held_pause`. `--resume-paused` then acknowledges the intervention
-and returns the run to that pause, which is released only by its own authority. `--pause-after-stage` and the existing
+records that pause as `held_pause`. A second pause keeps the `held_pause` of the first,
+and applied feedback records one too when the held pause is operational (other than
+an exhausted plan-review budget, which feedback acknowledges). `--resume-paused` then
+acknowledges the intervention and returns the run to that pause, which is released only
+by its own authority. An invocation that acknowledged that pause itself (for example
+with the exhausted bound's flag or `--grant-recovery`) releases it before applying the
+batch, so nothing is held then. `--pause-after-stage` and the existing
 run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.

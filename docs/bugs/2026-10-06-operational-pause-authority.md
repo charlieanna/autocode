@@ -4,7 +4,9 @@ Found while reviewing the #486 fix and reproduced on master `e042daa` with the f
 provider. **Fixed** 2026-10-06; regression in `tests/test_operational_pause_authority.py`.
 The rule (#379, #486): a protected operational pause is released, and a provider
 admitted, only by the operator's authority for that pause. A settings write is not
-that authority, and neither is a pause intervention.
+that authority, and neither is a pause intervention, queued feedback, a requested
+pause or enabling joint planning. A review of the first fix found more paths; they
+are in "Review follow-ups" below.
 
 ## Reproduced behavior
 
@@ -77,16 +79,59 @@ consumed request's iteration and milestone bounds), `REASSERTABLE_BOUNDS`,
 `--grant-recovery`, `--retry-failed-stage`, `--abandon-stage` and route answers. The
 tests cover each budget pause unanswered, answered and after a pause intervention.
 
+## Review follow-ups
+
+Each of these released the pause, on master and after the first fix, and is now held
+(same test module, every pause status unless noted):
+
+- **A second pause intervention.** Applied while the run was already at
+  `PAUSED_INTERVENTION` from the first, it replaced `pause_intent` and lost
+  `held_pause`, so `--resume-paused` took the generic resume. A later intervention now
+  keeps the pause the earlier one interrupted (`autocode_stop.interrupted_pause`).
+- **Queued feedback.** It replaced the status with `PAUSED_INTERVENTION`, and the next
+  resume restarted Requirements discovery. With an unanswered request it was held
+  until a settings write withdrew the request. Feedback that lands on an operational
+  pause now records `held_pause` like a pause does. The exception is an exhausted
+  plan-review budget, whose own authority is plan feedback (`FEEDBACK_ACKNOWLEDGES`).
+  This replaces the "Feedback after an answered request" policy note the first fix
+  left open.
+- **Pending input with no request asked.** `record_operational_exhaustion` refuses
+  while input is pending, and both callers then fell through to the generic resume.
+  The input was a queued intervention, the `pause-requested` file, or
+  `--request-milestone-checkpoints`, which writes that file. Now
+  `run_actions.hold_for_input` applies the input under the pause and launches
+  nothing: interventions as above, and milestone checkpoints are enabled. It then
+  asks the request again. An operator's own `pause-requested` file holds the run at
+  its pause until removed. A request that input queued after its publication left
+  stale is withdrawn first. Before, it could not be answered, and the input was never
+  applied, which was the "needs a recovery action to move" case.
+- **`--joint-planning`.** `load_locked` set `RUNNING` and `requirements_gather`
+  directly on an answered pause, so a plain invocation launched Requirements. That
+  worked even through `autocode-unattended`, which refuses `--resume-paused` as an
+  operator decision. The setting is still saved, and planning restarts once the pause
+  is released. With an unanswered request, `configure` already refused it.
+- **`--feedback TEXT` on an unanswered request.** `goals.feedback` accepted
+  `WAITING_FOR_USER` as a conversation checkpoint and set `RUNNING`. It is now refused
+  at an operational pause other than the planning budget
+  (`pause_authority.feedback_refusal`), as it already was once the request had been
+  answered.
+
+One fail-closed regression of the first fix is corrected. An acknowledgement, such as
+the exhausted bound's flag or `--grant-recovery`, could arrive in the same command
+that applied a queued pause intervention. The intervention then recorded the
+acknowledged pause as held, and the acknowledgement was lost. Restating the saved
+iteration or milestone bound did not acknowledge it again. Now
+`consume_interventions(..., released=True)` records nothing held when this
+invocation already gave that pause's authority, so the next `--resume-paused`
+continues, as on master.
+
+A pause asked again after `resume_interrupted` no longer repeats the earlier
+request's advice in its cause (`pause_authority.held_cause`).
+
 ## Not changed
 
-- **Feedback after an answered request.** A feedback intervention after an answered
-  request still restarts Requirements on resume. Feedback is the operator's direction
-  to replan; whether it may run before the operational pause is acknowledged is a
-  policy decision.
-- **A pause queued while an unanswered request is published.** The pause is never
-  applied, because the invocation stops at that request first. The pending inbox also
-  makes the request's token stale, so an answer is refused as out of date until the
-  input is applied. This fails closed, but the run needs a recovery action to move.
 - **`autopilot.dispatch_unit`.** It has the same save-then-launch shape as the build
   loop's dispatch. It is used only by the `autopilot` entry, and `autopilot.py` is
   not grown here.
+- **`--joint-planning` on an unanswered request** stops in `configure` with an
+  uncaught `ValueError`. That fails closed, but it is not a clean refusal.
