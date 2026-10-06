@@ -177,7 +177,7 @@ def _attempt(active):
     return None
 
 
-def _operator_flags(state, cause):
+def operator_flags(state, cause):
     """The control named for an operator-only stop, only where the CLI accepts it (#288)."""
     if cause == 'PAUSED_ORCHESTRATOR_WORKER':
         batch = state.get('orchestration_batch') or {}
@@ -197,7 +197,7 @@ def _operator_flags(state, cause):
     return resume_flags(state, cause)
 
 
-def _decide(runner, state, run_dir, workspace, cause):
+def decide(runner, state, run_dir, workspace, cause):
     """AutoResolver's decision under existing authority: (action, reason, flags, adopted status)."""
     Paused = runner.support.Paused
     active = state.get('active_stage') or {}
@@ -208,7 +208,7 @@ def _decide(runner, state, run_dir, workspace, cause):
     if state.get('uncertain_artifacts'):
         return 'hold', 'a partial stage remains unreconciled: ' + str(state['uncertain_artifacts']), None, None
     if cause in OPERATOR_ONLY:
-        return 'hold', OPERATOR_ONLY[cause], _operator_flags(state, cause), None
+        return 'hold', OPERATOR_ONLY[cause], operator_flags(state, cause), None
     if cause not in INFORMATION_CAUSES:
         return 'hold', f'no rule lets information release a {cause} stop', None, None
     probe = copy.deepcopy(state)
@@ -327,7 +327,7 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
         with runner.interventions.admission(run_dir):
             candidate = copy.deepcopy(state)
             saved = _current_record(candidate)
-            action, reason, flags, adopted = _decide(runner, candidate, run_dir, workspace, record['cause'])
+            action, reason, flags, adopted = decide(runner, candidate, run_dir, workspace, record['cause'])
             after = _resume_after(candidate, record['cause'])
             message = _message(saved, action, reason, flags, after, run_dir, workspace)
             decision = {'action': action, 'reason': reason, 'flags': flags, 'view_action': _view_action(flags, after),
