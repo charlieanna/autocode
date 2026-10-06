@@ -193,19 +193,13 @@ class RecoveryViewTests(unittest.TestCase):
         state = self.state('PAUSED_ORCHESTRATOR_WORKER', next_stage='orchestrator', orchestration_batch={
             'status': 'BUILDING', 'contract_hash': 'approved', 'workers': [
                 {'milestone_id': 'M1', 'status': 'BUILT'}, {'milestone_id': 'M2', 'status': 'INTERRUPTED'},
-                {'milestone_id': 'M3', 'status': 'SERIAL_ESCALATION'}]})
+                {'milestone_id': 'M3', 'status': 'SERIAL_ESCALATION'},
+                # Stopped on their model: asked for another one, never offered the same model again (#465).
+                {'milestone_id': 'M4', 'status': 'PAUSED_CONTENT_FILTER'}, {'milestone_id': 'M5', 'status': 'PAUSED_BUDGET'}]})
         actions = [row for row in self.card(state)['actions'] if row['kind'] == 'retry_builder']
         self.assertEqual([['M2']], [row['milestone_ids'] for row in actions])
         state['orchestration_batch']['workers'][0]['status'] = 'RUNNING'
         self.assertFalse(any(row['kind'] == 'retry_builder' for row in self.card(state)['actions']))
-
-    def test_a_member_refused_by_its_content_filter_is_never_offered_a_retry_on_the_same_model(self):
-        # #465: its route-terra question names another model; a quota stop keeps #458's explicit retry.
-        state = self.state('PAUSED_CONTENT_FILTER', next_stage='orchestrator', orchestration_batch={
-            'status': 'BUILDING', 'contract_hash': 'approved', 'workers': [
-                {'milestone_id': 'M1', 'status': 'PAUSED_CONTENT_FILTER'}, {'milestone_id': 'M2', 'status': 'PAUSED_BUDGET'}]})
-        actions = [row for row in self.card(state)['actions'] if row['kind'] == 'retry_builder']
-        self.assertEqual([['M2']], [row['milestone_ids'] for row in actions])
 
     def test_job_report_and_dependency_actions_are_specific(self):
         state = self.state('PAUSED_JOB_FAILURE')

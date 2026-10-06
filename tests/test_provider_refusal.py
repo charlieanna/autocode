@@ -183,6 +183,8 @@ class ContentFilterRouteTests(unittest.TestCase):
                                       family=dispatch._model_family)
         self.assertEqual(("Builder (milestone M2)", MIMO, MIMO, [moved]),
                          (asked["job"], asked["current_model"], asked["stopped_model"], asked["candidates"]))
+        self.assertEqual([mimo_elsewhere, moved], worker_quota.question(
+            state, member, cross_check=dispatch.enforce_cross_model_verification)["candidates"])
         # Every listed model passes the parallel answer path's checks; the unlisted MiMo fails one.
         for model in asked["candidates"]:
             quota_route.validate(state, "terra", model, configured_tool=False, current=MIMO,

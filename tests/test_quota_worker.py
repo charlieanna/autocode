@@ -294,10 +294,10 @@ class ParallelQuotaTests(unittest.TestCase):
         request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         self.assertFalse(any(q.get("id") == "route-terra" for q in request.get("questions", [])))
 
-    def test_ac13_a_quota_stopped_member_keeps_its_explicit_same_model_retry(self):
-        # #458 unchanged: the quota can reset, so the view offers the member's retry and the CLI runs it.
+    def test_ac13_a_quota_stopped_member_is_asked_for_a_model_and_retried_only_when_named(self):
+        # #465: the view offers no same-model retry; --retry-builder still runs it, the quota having reset.
         run, state = self.paused()
-        self.assertEqual([["M1"]], self.retry_actions(state))
+        self.assertEqual([], self.retry_actions(state))
         self.launch(["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"], 0)
         state = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", state["status"])
