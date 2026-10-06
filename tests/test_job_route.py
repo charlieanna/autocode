@@ -466,6 +466,55 @@ def unrouted_stop(stage='investigate_stuck', *, kind='content_filter', pause_sta
 class JobWithoutModelQuestionTests(unittest.TestCase):
     """A job stop about its model that keeps only the exact retry names its real cause (pure)."""
 
+    def test_a_job_quota_stop_keeps_the_providers_words_in_any_error_shape(self):
+        # OpenCode's APIError nests the text under error.data (Z.AI's used-up plan, #521); a flat error has
+        # it under error.message. Either way the reason keeps the provider's words, reset time included.
+        import autocode_support as support
+        import types
+        runtime = types.SimpleNamespace(support=support)
+        said = "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-09 10:51:41"
+        with tempfile.TemporaryDirectory() as temp:
+            for name, row in (("apierror", {"type": "error", "error": {"name": "APIError", "data": {
+                                  "message": said, "statusCode": 429, "isRetryable": True}}}),
+                              ("flat", {"type": "error", "error": {"message": said}})):
+                with self.subTest(name):
+                    events = Path(temp) / f"{name}.jsonl"
+                    events.write_text(json.dumps(row) + "\n")
+                    record = {"stage": "review_change", "events": str(events), "exit_code": 1,
+                              "launch_route": {"model": "gpt-6-sol"}}
+                    kind, reason = job_failure._reason(runtime, record, support.Paused("PAUSED_BUDGET", "x"))
+                    self.assertEqual("quota", kind)
+                    self.assertIn(f"used up on gpt-6-sol ({said})", reason)
+
+    def test_a_job_resumed_after_a_crash_asks_no_model_for_another_sessions_response(self):
+        # Recovered with no runner error (a resume or --abandon-stage after AutoCode stopped), the job checks the
+        # saved response's session as the runner would have: another session's quota stop or refusal, after a
+        # clean, unsaved or signalled exit, asks no model; the expected session's, or a failed exit's, does.
+        import autocode_support as support
+        import types
+        runtime = types.SimpleNamespace(support=support)
+        errors = {"quota": {"type": "error", "error": {"message": "subscription usage limit reached"}},
+                  "content_filter": {"type": "turn.failed", "error": {"code": "content_filter", "message": "x"}}}
+        with tempfile.TemporaryDirectory() as temp:
+            for routed, row in errors.items():
+                for thread, expected, code, typed in (("ses_other", "ses_saved", 0, False), (None, None, None, False),
+                                                      ("ses_other", "ses_saved", -15, False),
+                                                      ("ses_saved", "ses_saved", 0, True),
+                                                      ("ses_other", "ses_saved", 1, True)):
+                    with self.subTest(routed=routed, thread=thread, expected=expected, code=code):
+                        events = Path(temp) / f"{routed}-{thread}-{code}.jsonl"
+                        rows = ([{"type": "thread.started", "thread_id": thread}] if thread else []) + [row]
+                        events.write_text("".join(json.dumps(r) + "\n" for r in rows))
+                        record = {"stage": "review_change", "events": str(events), "exit_code": code,
+                                  "supports_sessions": True, "expected_session": expected,
+                                  "launch_route": {"model": "gpt-6-sol"}}
+                        kind, reason = job_failure._reason(runtime, record, None)
+                        if typed:
+                            self.assertEqual(routed, kind)
+                        else:
+                            self.assertEqual("exit", kind)
+                            self.assertIn(job_failure.UNEXPECTED_SESSION, reason)
+
     def test_a_quota_or_refusal_from_an_unexpected_session_asks_no_model(self):
         # When the runner itself stopped on a session it did not expect (#464), the job's stop names that,
         # not a quota stop or a refusal, so recover stores no pause_status and asks no model question.

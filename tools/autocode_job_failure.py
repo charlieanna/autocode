@@ -45,6 +45,36 @@ def configuration(state):
                          'transport_identity', 'transport_identities', 'headroom', 'output_transport', 'test_command', 'regression_command')})
 
 
+UNEXPECTED_SESSION = "its saved response belongs to a session the run did not expect"
+
+
+def _unexpected_session(runtime, record, path):
+    """Whether a resumed job's saved response is from a session the run did not resume (#464).
+
+    The runner checks this before typing a refusal on a clean exit; a job recovered with no runner
+    error (a resume or --abandon-stage after AutoCode stopped) has to check it here. A provider that
+    exited with an error keeps its typed stop, as in run_role.
+    """
+    code = record.get('exit_code')
+    if not record.get('supports_sessions') or (type(code) is int and code > 0):
+        return False
+    thread = next((str(event['thread_id']) for event in runtime.support.events(path)
+                   if event.get('type') == 'thread.started' and event.get('thread_id')), None)
+    return ('expected_session' in record and not thread) or bool(
+        record.get('expected_session') and thread != record['expected_session'])
+
+
+def _error_message(row):
+    """A provider error row's own words: ``error.message``, or ``error.data.message`` (OpenCode's APIError)."""
+    error = row.get('error')
+    if isinstance(error, str):
+        return error.strip()
+    if not isinstance(error, dict):
+        return str(row.get('message') or '').strip()
+    data = error.get('data') if isinstance(error.get('data'), dict) else {}
+    return str(error.get('message') or data.get('message') or '').strip()
+
+
 def _reason(runtime, record, error):
     role = roles.screen_name(owner(record))
     if record.get('timed_out'):
@@ -52,10 +82,12 @@ def _reason(runtime, record, error):
     path = Path(record.get('events', ''))
     raw = path.read_text(errors='replace') if path.is_file() else ''
     status = runtime.support.failure_status(path)
-    if getattr(error, 'status', None) == 'PAUSED_UNCERTAIN_STAGE' and status in quota_route.STATUSES:
+    untrusted = None
+    if status in quota_route.STATUSES and (getattr(error, 'status', None) == 'PAUSED_UNCERTAIN_STAGE' or (
+            error is None and _unexpected_session(runtime, record, path))):
         # The runner did not trust this response (a session it did not expect, #464): name that, not a refusal
         # or a quota stop, so no model question is asked for it (#463).
-        status = 'PAUSED_PROVIDER_UNCERTAIN'
+        status, untrusted = 'PAUSED_PROVIDER_UNCERTAIN', error is None
     diagnostic = raw.strip()
     try:
         event = json.loads(diagnostic)
@@ -77,11 +109,12 @@ def _reason(runtime, record, error):
                                   or f"{role}: the provider's content filter refused the response on {model}; "
                                      "the same model is likely to refuse it again")
     if status == quota_route.QUOTA_STATUS:
-        message = next((str((row.get('error') or {}).get('message') or '').strip()
-                        for row in runtime.support.events(path)
-                        if row.get('type') in ('error', 'turn.failed') and isinstance(row.get('error'), dict)), '')
+        message = next((text for text in (_error_message(row) for row in runtime.support.events(path)
+                                          if row.get('type') in ('error', 'turn.failed')) if text), '')
         return 'quota', (f"{role}: the provider reported its quota, usage limit or credits used up on {model}"
                          + (f" ({message})" if message else ''))
+    if untrusted:
+        return 'exit', f"{role}: provider exited {record.get('exit_code')} without a terminal report; {UNEXPECTED_SESSION}"
     return 'exit', f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
 
