@@ -528,6 +528,12 @@ def compose_brief(manifest, workstream, state):
         base = agreement.skeleton(manifest)
         lines += [f"The walking skeleton ({base}) is merged and verified on this branch: extend it; do not rebuild "
                   "or bypass it. Its checks and every merged workstream's checks are re-run after you merge.", ""]
+    if workstream["kind"] == "code":
+        # A live skeleton checked that `export` was an unknown command; the export workstream then made it valid,
+        # and the re-run check undid a correct merge (2026-10-06).
+        lines += ["Your checks are re-run after every later workstream merges, so check only what the finished "
+                  "product keeps: never that a command, option or file a later workstream adds is missing, unknown "
+                  "or refused.", ""]
     lines += ["This workstream's objective:", workstream["brief"].strip(), ""]
     if workstream.get("acceptance_criteria"):
         criteria = agreement.requirements(manifest)
@@ -792,10 +798,10 @@ def _commit_all(workspace, message):
     return workspaces.git(workspace, "rev-parse", "--verify", "HEAD")
 
 
-def cumulative_checks(manifest, state, wid):
-    """Program checks plus the checks of every merged workstream and of ``wid``, which is landing now."""
+def _owned_checks(manifest, state, wid):
+    """(owner, command) for every cumulative check: owner None for a program check, else the workstream."""
     integration = state["integration"]["workspace"]
-    commands = list(manifest.get("checks", []))
+    found = [(None, command) for command in manifest.get("checks", [])]
     for row in manifest["workstreams"]:
         record = state["workstreams"][row["id"]]
         if record["status"] == "MERGED" or row["id"] == wid:
@@ -804,8 +810,18 @@ def cumulative_checks(manifest, state, wid):
                 # A child's check names its own worktree; on the integration branch it runs there.
                 if child and child != integration:
                     command = command.replace(str(Path(child).resolve()), integration).replace(child, integration)
-                commands.append(command)
-    return list(dict.fromkeys(commands))
+                found.append((row["id"], command))
+    return found
+
+
+def cumulative_checks(manifest, state, wid):
+    """Program checks plus the checks of every merged workstream and of ``wid``, which is landing now."""
+    return list(dict.fromkeys(command for _owner, command in _owned_checks(manifest, state, wid)))
+
+
+def check_owners(manifest, state, wid, command):
+    """Who left a cumulative check: workstream ids, in manifest order, and None for the program's own."""
+    return list(dict.fromkeys(owner for owner, found in _owned_checks(manifest, state, wid) if found == command))
 
 
 def verify_integration(manifest, state, program_dir, wid, timeout):
@@ -827,10 +843,31 @@ def verify_integration(manifest, state, program_dir, wid, timeout):
     return result
 
 
+def _failed_row(result):
+    return next(row for row in result["checks"] if row["error"] or row["timed_out"] or row["exit_code"] != 0)
+
+
 def _failed(result):
-    row = next(row for row in result["checks"] if row["error"] or row["timed_out"] or row["exit_code"] != 0)
+    row = _failed_row(result)
     what = row["error"] or ("timed out" if row["timed_out"] else f"exited {row['exit_code']}")
     return f"`{row['command']}` {what}" + (f"; its output ended: {row['tail'].strip()[-300:]}" if row["tail"].strip() else "")
+
+
+def _check_advice(manifest, state, wid, record, command):
+    """What to do about a failed cumulative check, naming who left it: the landing workstream may have broken
+    it, or an earlier workstream's check may hold only for the product before this merge."""
+    fix = (f"fix {wid} (for example autocode --workspace {record.get('workspace')} --run-dir {record.get('run_dir')} "
+           "--follow-up \"The integrated product fails: ...\")")
+    earlier = [owner for owner in check_owners(manifest, state, wid, command) if owner != wid]
+    if not earlier:
+        return f"The check is {wid}'s own: {fix}, then rerun. "
+    who = ", ".join("the program's checks" if owner is None else f"workstream {owner}" for owner in earlier)
+    retire = ("revise the agreement's top-level checks" if earlier == [None] else
+              "revise the agreement so " + " and ".join(owner for owner in earlier if owner) + " is re-checked "
+              "(its run is retired and its checks are replaced), and approve that revision")
+    return (f"The check was left by {who}. Either {wid} broke what it checks: {fix}. Or the check holds only for "
+            f"the product before {wid} (for example it checks that something {wid} adds is missing or refused): "
+            f"{retire}. Then rerun. ")
 
 
 def land(manifest, state, workstream, record, program_dir, options, *, before, branch_head, manual=False):
@@ -865,9 +902,8 @@ def land(manifest, state, workstream, record, program_dir, options, *, before, b
         else:
             message = (f"After merging workstream {wid}, the integrated product fails its cumulative checks: "
                        + _failed(result) + ". " + ("The merge was undone. " if undone else kept)
-                       + f"Fix the workstream (for example autocode --workspace {record.get('workspace')} --run-dir "
-                       f"{record.get('run_dir')} --follow-up \"The integrated product fails: ...\"), then rerun. "
-                       f"Receipts: {result['receipts']}")
+                       + _check_advice(manifest, state, wid, record, _failed_row(result)["command"])
+                       + f"Receipts: {result['receipts']}")
         record["integration_check"]["message"] = message
         raise util.Paused(status, message)
     record.pop("integration_check", None)

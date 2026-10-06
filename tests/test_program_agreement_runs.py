@@ -58,6 +58,8 @@ class AgreementTests(ProgramHarness):
         brief = self.launches_of("a")[0]["brief"]
         self.assertIn("Program agreement revision 1, approved by the user.", brief)
         self.assertIn("with exactly this id (C2)", brief)
+        self.assertIn("check only what the finished product keeps", brief)
+        self.assertNotIn("check only what the finished product keeps", self.launches_of("integration")[0]["brief"])
         integration_brief = self.launches_of("integration")[0]["brief"]
         self.assertIn("with exactly this id (C1, C2, C3, J1)", integration_brief)
         self.assertIn("- J1 Order through both services: call a -> call b", integration_brief)
@@ -349,6 +351,9 @@ class AgreementTests(ProgramHarness):
         self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]))
         self.assertIn("test ! -f b/service.py", result["next"])
         self.assertIn("The merge was undone", result["next"])
+        # The failing check is a's, not b's: the pause names it and both ways out.
+        self.assertIn("The check was left by workstream a. Either b broke what it checks: fix b", result["next"])
+        self.assertIn("revise the agreement so a is re-checked", result["next"])
         records = self.records(result)
         self.assertEqual(("MERGED", "COMPLETE"), (records["a"]["status"], records["b"]["status"]))
         self.assertNotIn("b/service.py", self.integration_files(result))
@@ -358,6 +363,14 @@ class AgreementTests(ProgramHarness):
         code, again = self.run_program(path)
         self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, again["status"]))
         self.assertEqual(head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))
+
+    def test_a_failing_check_of_the_merging_workstream_itself_asks_only_to_fix_it(self):
+        path = self.write_manifest(manifest())
+        self.child_checks["b"] = ["test -f b/service.py", "test ! -f a/service.py"]  # b's own check fails merged
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]))
+        self.assertIn("The check is b's own: fix b", result["next"])
+        self.assertNotIn("revise the agreement", result["next"])
 
     def test_a_merge_an_interrupted_controller_never_verified_is_undone_when_its_checks_fail(self):
         path = self.write_manifest(manifest())

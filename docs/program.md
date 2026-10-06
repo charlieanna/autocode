@@ -303,7 +303,7 @@ point, the pass pauses at `PAUSED_INTEGRATION_DIRTY` instead.
 | `PAUSED_INTERFACE_CHANGE` | A delivery changes a shared interface without an approved change. Nothing was merged; every rerun repeats it, and nothing starts until it is fixed | Remove that change, or raise it with `program request-change` and approve the new interface version |
 | `PAUSED_INHERITANCE` | A workstream's plan still drops an inherited requirement after the automatic rejections, or its run refused the program's feedback (`plan_check.feedback_error`) | Give its run feedback yourself (the next rerun resumes it to plan again, and checks that plan), or revise the agreement, then rerun |
 | `PAUSED_SKELETON_UNVERIFIED` | The walking skeleton has no runnable check on the integration branch. The program undid its own merge of it (a merge you made by hand stays, but is not accepted), and nothing else starts | Add program checks that walk the journey, approve that revision, rerun |
-| `PAUSED_INTEGRATION_CHECK` | After a merge, the integrated product fails its cumulative checks. The program undid its own merge of a code workstream; the final check's own commits stay, and so does a conflict resolution you merged by hand (the message says it is still on the integration branch). An unchanged rerun repeats it, and nothing starts until it is fixed | Fix the workstream (for example `--follow-up` on its run), or undo or repair your own merge, then rerun; the receipts are listed |
+| `PAUSED_INTEGRATION_CHECK` | After a merge, the integrated product fails its cumulative checks. The program undid its own merge of a code workstream; the final check's own commits stay, and so does a conflict resolution you merged by hand (the message says it is still on the integration branch). An unchanged rerun repeats it, and nothing starts until it is fixed | The message names who left the failing check. Its own check: fix the workstream (for example `--follow-up` on its run). An earlier workstream's (or the program's) check: fix the merging workstream if it broke that behavior, or, if the check held only for the product before this merge, revise the agreement so that workstream is re-checked (its checks are replaced) or change the program checks. Or undo or repair your own merge. Then rerun; the receipts are listed |
 | `PAUSED_JOURNEY_UNVERIFIED` | The final check completed without verifying every user journey, and was not merged. Every rerun repeats it until the run is followed up | Follow up its run so each journey is verified, then rerun |
 | `COMPLETE` | Every workstream is merged on the integration branch, every journey is verified and no change request is open | Review the branch and merge it into your default branch yourself |
 
@@ -533,7 +533,13 @@ verification of the program; the state file keeps the latest 50 (`verifications`
 - **Fail:** the program undoes its own merge of a code workstream (`git reset --hard`
   to the head before the merge) and pauses at `PAUSED_INTEGRATION_CHECK`. The workstream
   stays `COMPLETE` with `integration_check` (verdict, heads, receipts, and the message
-  naming the failing command).
+  naming the failing command and who left it: the merging workstream, an earlier one, or
+  the program). An earlier workstream's check can fail because the merge broke what it
+  checks, or because it held only for the product before the merge (a live skeleton
+  checked that `export` was an unknown command; the export workstream then made it
+  valid). In the second case nothing the merging workstream does can pass it: revise
+  the agreement so the check's workstream is re-checked, which retires its run and
+  replaces its checks.
   Two things are not undone: the final check's own commits on the integration branch,
   and a conflict resolution you merged by hand (the message says your merge is still on
   the integration branch: undo or repair it there). "The merge was undone" appears only
@@ -601,6 +607,9 @@ The composed brief contains, in order:
   with each journey's steps (and what a simulated journey does not prove); for every
   other workstream except a `skeleton_exempt` one, that it extends the verified
   skeleton;
+- for every code workstream, that its checks are re-run after every later merge, so they
+  check only what the finished product keeps, never that something a later workstream
+  adds is missing, unknown or refused;
 - the workstream's own objective and its acceptance criteria, with their full
   definitions when the agreement has requirements;
 - for the final check, each user journey's steps (and what a simulated journey does not
