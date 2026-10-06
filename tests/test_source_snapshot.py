@@ -199,6 +199,25 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Verification source changed'):
             copies.execution(result['manifest'], result['sha256'], self.root)
 
+    def test_the_verification_copy_repository_never_starts_background_maintenance(self):
+        # The copy's git runs with an environment built from scratch, outside the
+        # suite-wide GIT_CONFIG_COUNT (#515), so it must disable maintenance in
+        # its own config: a detached repack under .git/objects after the manifest
+        # walk reads as a changed verification input (master, 2026-10-06).
+        import json
+        import autocode_verification_copy as copies
+        self.write('docs/result.md', 'Selected output\n')
+        scratch = self.root / '.autocode/tool-containment-maintenance/scratch'
+        scratch.mkdir(parents=True)
+        result = copies.create(self.root, scratch, source_paths=['docs/result.md'])
+        tree = json.loads(Path(result['manifest']).read_text())['tree']
+        # Only the repository's own config can answer here.
+        probe = {'PATH': os.environ['PATH'], 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null'}
+        for key, value in (('maintenance.auto', 'false'), ('gc.auto', '0')):
+            read = subprocess.run(['git', '-C', str(tree), 'config', key],
+                                  env=probe, capture_output=True, text=True)
+            self.assertEqual(value, read.stdout.strip(), key)
+
     def test_verification_copy_rejects_new_child_under_selected_directory(self):
         import autocode_verification_copy as copies
         self.write('docs/first.md', 'First output\n')
