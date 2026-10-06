@@ -42,16 +42,22 @@ named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
 
 When the user's brief asks for Go tests by name ("add Go tests
 `TestFixedReturnsTwo` and `TestFixedPreservesCrash`"), the plan declares those
-exact names: `test: TestFixedReturnsTwo`, `guard: TestFixedPreservesCrash`.
-Planning stages are told the names, and the runner refuses a draft, before it
-is installed or approved, that leaves a requested name undeclared or declares
-another identifier with prose saying it "resolves to" the requested one (#498).
-A name counts as requested when the user wrote it introduced as a test (within a
-few words after "test", "tests", "testing" or "func", or after another such name
-in the same list), the proof will run Go tests, and the project's Go files do
-not already contain it: a brief that mentions an existing test or helper is
-naming the suite's own code. `TestMain` is never a test. Other frameworks, and
-bug fixes proven by their diagnosis's cases, keep the criterion-ID convention.
+exact names, in the user's spelling: `test: TestFixedReturnsTwo`, `guard:
+TestFixedPreservesCrash`, one criterion each. A requested test the runner cannot
+run to a pass (one that skips without a database) may instead be named by an
+ordinary criterion, and no other test with it, for the Validator. Planning
+stages are told the names, and the runner refuses a draft, before it is
+installed or approved, that leaves a requested name unaccounted for, declares a
+respelling of it (`test_fixed_returns_two`), or declares another identifier with
+prose saying it "resolves to" the requested one (#498). A name counts as
+requested when the user wrote it right after "test", "tests" or "func" (or as an
+item of a list introduced as tests), not negated or offered as an example, the
+proof will run Go tests, and the project's Go files do not already contain it.
+The user's own `--edit-goal` is never refused by this check and settles which
+requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
+frameworks, and bug fixes proven by their diagnosis's cases, keep the
+criterion-ID convention. The details and limits are in
+`docs/bugs/2026-10-06-native-proof-names.md`.
 
 For Node, register each case as a real test, keeping its existing assertions
 and fixture helpers:

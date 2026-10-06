@@ -9,12 +9,14 @@ import copy
 from pathlib import Path
 import shutil
 import unittest
+from unittest import mock
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_native_test_names as native
 import autocode_planning as planning
 import autocode_regression as regression
 import autocode_test_cases as test_cases
+import autocode_test_examples as test_examples
 import goal_fixtures
 from tests.test_verify import Project
 
@@ -64,6 +66,59 @@ class NamedTests(unittest.TestCase):
         self.assertEqual([], native.named(["Deploy the release to TestNet once it builds."]))
         self.assertEqual([], native.named(["TestFlight builds are out of scope."]))
 
+    def test_every_name_of_a_described_list_counts(self):
+        # Review of #498: only the first of these was seen, so the other two could still be aliased.
+        bullets = ("Fix Fixed in product.go to return 2 instead of 0.\n\n"
+                   "Add these native Go tests in product_test.go:\n"
+                   "- TestFixedReturnsTwo: Fixed() returns 2 for the default product configuration and never 0.\n"
+                   "- TestFixedPreservesExisting: Existing() still returns 7 after the change to Fixed.\n"
+                   "- TestFixedPreservesCrash: calling Fixed() twice in a row does not panic.\n")
+        self.assertEqual(NAMES, native.named([bullets]))
+        numbered = ("Add these tests:\n\n1. `TestFixedReturnsTwo` (Fixed returns 2, never 0, for every\n"
+                    "   configuration we ship)\n2. `TestFixedPreservesExisting`\n3) TestFixedPreservesCrash")
+        self.assertEqual(NAMES, native.named([numbered]))
+        inline = ("Add native Go tests in product_test.go: TestFixedReturnsTwo (returns 2 for the default\n"
+                  "configuration), TestFixedPreservesExisting (Existing is still 7), and\n"
+                  "TestFixedPreservesCrash (no panic on a second call).")
+        self.assertEqual(NAMES, native.named([inline]))
+        self.assertEqual(["TestFixedReturnsTwo"],
+                         native.named(["I'd like a regression test for Fixed named TestFixedReturnsTwo."]))
+
+    def test_an_earlier_clause_does_not_cancel_a_request(self):
+        for text in ["Fix Fixed to return 2 instead of 0 and add the tests TestA and TestB.",
+                     "Never edit generated files, and add the tests TestA and TestB.",
+                     "Don't change the API. Add tests `TestA` and `TestB`.",
+                     "Don't forget the tests TestA and TestB."]:
+            with self.subTest(text=text):
+                self.assertEqual(["TestA", "TestB"], native.named([text]))
+
+    def test_placeholders_examples_negations_and_other_mentions_ask_for_nothing(self):
+        # Review of #498: each of these was required as a test the plan must declare.
+        for text in ["Fix Fixed, with a regression test in the usual Go style (func TestXxx(t *testing.T)).",
+                     "Go test functions must be named TestXxx; add one for Fixed.",
+                     "Do not name the test TestFixed; use the project's default test names.",
+                     "Don't add the tests TestA and TestB.",
+                     "Add a regression test, e.g. TestFixedReturnsTwo or whatever fits.",
+                     "Add a regression test TestFixedReturnsTwo or similar.",
+                     "Fix Fixed in product.go to return 2, and make sure the tests pass on TestNet.",
+                     "Write the test like TestReadAll in Go's io package.",
+                     "Like the test TestReadAll in Go's io package, add a test for our reader.",
+                     "Test the build on TestFlight too.",
+                     "Add tests. TestCase struct fields must stay exported.",
+                     "The test table type TestCase needs a new field.",
+                     "go test ./... currently fails in TestIntegration because of a timeout",
+                     "Add a test for TestHelper misuse.",
+                     "Fix Fixed. For example, the test TestA fails today.",
+                     "Add tests TestA, TestB, or TestC."]:
+            with self.subTest(text=text):
+                self.assertEqual([], native.named([text]))
+
+    def test_a_later_user_message_can_withdraw_a_name(self):
+        retract = "Changed my mind: use the default test_<id> naming instead of TestFixedReturnsTwo."
+        self.assertEqual(NAMES[1:], native.named([BRIEF, retract]))
+        self.assertEqual(NAMES, native.named([BRIEF, retract, "Please keep the test TestFixedReturnsTwo after all."]))
+        self.assertEqual(NAMES, native.named([BRIEF, "Do not rename the test TestFixedReturnsTwo."]))
+
 
 class ProblemsTests(unittest.TestCase):
     """Pure: a body against the requested names, with no workspace or Go toolchain."""
@@ -88,11 +143,23 @@ class ProblemsTests(unittest.TestCase):
         self.assertEqual({"AC1": [ran[0]], "AC2": [ran[1]], "AC3": [ran[2]]},
                          test_cases.match_cases(cases, ran, framework="go"))
 
-    def test_annotations_subtests_and_the_proofs_own_go_spelling_still_bind(self):
+    def test_annotations_and_subtests_bind(self):
         methods = ["test: TestFixedReturnsTwo — go test -run TestFixedReturnsTwo ./...",
                    "guard: TestFixedPreservesExisting/still_seven (keeps TestFixedReturnsTwo company)",
-                   "guard: test_fixed_preserves_crash"]
+                   "guard: TestFixedPreservesCrash"]
         self.assertEqual([], native.problems(plan(methods), NAMES))
+
+    def test_a_respelling_of_a_requested_name_is_refused(self):
+        # Review of #498: the Go matcher binds test_fixed_returns_two to Test_fixed_returns_two and other
+        # variants, so the proof passed although none of the requested identifiers existed.
+        snake = ["test: test_fixed_returns_two", "guard: test_fixed_preserves_existing",
+                 "guard: test_fixed_preserves_crash"]
+        errors = native.problems(plan(snake), NAMES)
+        self.assertEqual(3, len(errors), errors)
+        self.assertIn('AC1 declares test_fixed_returns_two, a respelling of TestFixedReturnsTwo; keep the '
+                      'requested spelling (write "test: TestFixedReturnsTwo")', errors)
+        self.assertEqual(["no criterion declares TestFixedPreservesCrash"],
+                         native.problems(plan(CORRECTED[:2] + ["guard: TestFixed_Preserves_Crash"]), NAMES))
 
     def test_criteria_without_a_requested_name_keep_the_default_convention(self):
         body = plan(CORRECTED)
@@ -100,6 +167,30 @@ class ProblemsTests(unittest.TestCase):
                                             "verification_method": "test: test_ac4_doubles", "human_review": False})
         self.assertEqual([], native.problems(body, NAMES))
         self.assertEqual([], native.problems(plan(CONVENTION), []))
+
+    def test_mentioning_a_name_another_criterion_declares_is_not_an_alias(self):
+        # Review of #498: AC4 was refused, and the suggested fix made one test prove two criteria.
+        body = plan(CORRECTED)
+        body["acceptance_criteria"].append({
+            "id": "AC4", "criterion": "Given Fixed, when doubled, then 4", "human_review": False,
+            "verification_method": "test: test_ac4_doubles — written next to TestFixedReturnsTwo in product_test.go"})
+        self.assertEqual([], native.problems(body, NAMES))
+        body["acceptance_criteria"][3]["verification_method"] = "test: TestFixedReturnsTwo"
+        self.assertEqual(["AC1 and AC4 both declare TestFixedReturnsTwo; each criterion needs its own test"],
+                         native.problems(body, NAMES))
+
+    def test_a_requested_test_the_validator_checks_is_accounted_for(self):
+        # Review of #498: a test that skips without a database can never pass the runner's proof.
+        names = ["TestPostgresRoundTrip"]
+        validator = plan(["The Validator reads TestPostgresRoundTrip and runs go vet ./..."] + CONVENTION[1:])
+        self.assertEqual([], native.problems(validator, names))
+        # The Validator route is not a way to map another identifier onto the requested one.
+        mapped = plan(["The Validator checks that test_ac1_round_trip resolves to TestPostgresRoundTrip"]
+                      + CONVENTION[1:])
+        self.assertEqual(["no criterion declares TestPostgresRoundTrip"], native.problems(mapped, names))
+        aliased = plan(["test: test_ac1_round_trip — resolves to TestPostgresRoundTrip"] + CONVENTION[1:])
+        self.assertEqual(['AC1 declares test_ac1_round_trip but refers to TestPostgresRoundTrip '
+                          '(write "test: TestPostgresRoundTrip")'], native.problems(aliased, names))
 
 
 class DraftValidationTests(unittest.TestCase):
@@ -150,6 +241,68 @@ class DraftValidationTests(unittest.TestCase):
         self.assertEqual([], native.requested(self.state(task=task)))
         lifecycle.validate_body(self.state(task=task), plan(CONVENTION), ready=True)
 
+    def test_a_described_list_cannot_alias_its_later_names(self):
+        task = ("Fix Fixed in product.go to return 2 instead of 0.\n\nAdd these native Go tests in product_test.go:\n"
+                "- TestFixedReturnsTwo: Fixed() returns 2 for the default product configuration and never 0.\n"
+                "- TestFixedPreservesExisting: Existing() still returns 7 after the change to Fixed.\n"
+                "- TestFixedPreservesCrash: calling Fixed() twice in a row does not panic.\n")
+        partly = plan(["test: TestFixedReturnsTwo"] + ALIASED[1:])
+        with self.assertRaisesRegex(ValueError, "AC2 declares test_ac2_preserves_existing but refers to "
+                                                "TestFixedPreservesExisting"):
+            lifecycle.validate_body(self.state(task=task), partly, ready=True)
+        lifecycle.validate_body(self.state(task=task), plan(CORRECTED), ready=True)
+
+    def test_briefs_that_name_no_new_test_keep_master_behavior(self):
+        for task in ["Fix Fixed in product.go to return 2 instead of 0, with a regression test in the usual Go "
+                     "style (func TestXxx(t *testing.T)).",
+                     "Fix Fixed in product.go to return 2. Do not name the test TestFixed; use the project's "
+                     "default test names.",
+                     "Fix Fixed in product.go to return 2. Add a regression test, e.g. TestFixedReturnsTwo or "
+                     "whatever fits.",
+                     "Fix Fixed in product.go to return 2, and make sure the tests pass on TestNet.",
+                     "Fix Fixed in product.go to return 2. Write the test like TestReadAll in Go's io package."]:
+            with self.subTest(task=task):
+                lifecycle.validate_body(self.state(task=task), plan(CONVENTION), ready=True)
+
+    def test_the_users_own_edit_settles_which_requested_names_stay(self):
+        # Review of #498: the user could not withdraw a name; their own --edit-goal was refused.
+        feedback = {"id": "F1", "kind": "brief_feedback",
+                    "text": "Changed my mind: use the default test_<id> naming for all three."}
+        state = self.state(task_id="task-1", version=3, status="RUNNING", user_events=[feedback],
+                           brief_feedback=[feedback])
+        lifecycle.validate_body(state, plan(CONVENTION), ready=True, origin="user_cli_edit")
+        lifecycle.install_draft(state, plan(CONVENTION), origin="user_cli_edit")
+        self.assertEqual("user_cli_edit", state["goal_contract"]["origin"])
+        # The planners' later drafts keep what the user's edit kept; names it dropped are no longer requested.
+        self.assertEqual([], native.requested(state))
+        lifecycle.validate_body(state, plan(CONVENTION), ready=True, origin="astra_finalize")
+        kept = self.state(goal_contract={"origin": "user_cli_edit", "body": plan(CORRECTED[:1] + CONVENTION[1:])})
+        self.assertEqual(["TestFixedReturnsTwo"], native.requested(kept))
+
+    def presented(self, body, origin):
+        state = self.state(task_id="task-1", version=3, status="RUNNING")
+        lifecycle.migrate(state)
+        lifecycle.install_draft(state, body, origin=origin)
+        lifecycle.human.evaluate(state)
+        lifecycle.present(state)
+        return state
+
+    def test_approval_takes_the_users_own_edit_and_refuses_a_saved_alias(self):
+        edited = self.presented(plan(CONVENTION), "user_cli_edit")
+        lifecycle.approve(edited, edited["displayed_goal"])
+        self.assertEqual("approved", edited["goal_contract"]["approval_status"])
+        with mock.patch.object(native, "requested", return_value=[]):  # a draft saved before this check
+            saved = self.presented(plan(ALIASED), "astra_finalize")
+        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
+            lifecycle.approve(saved, saved["displayed_goal"])
+
+    def test_a_skipped_integration_test_can_be_left_to_the_validator(self):
+        task = ("Add Store.Save to product.go. Add an integration test TestPostgresRoundTrip that is skipped "
+                "unless DATABASE_URL is set; CI has no database.")
+        self.assertEqual(["TestPostgresRoundTrip"], native.requested(self.state(task=task)))
+        body = plan(["The Validator reads TestPostgresRoundTrip and runs go vet ./..."] + CONVENTION[1:])
+        lifecycle.validate_body(self.state(task=task), body, ready=True)
+
     def test_the_users_answers_count_and_a_delegated_default_does_not(self):
         task = "Fix Fixed in product.go to return 2 instead of 0."
         answer = {"text": "Name the test TestFixedReturnsTwo.", "kind": "user"}
@@ -198,6 +351,16 @@ class PlannerPromptTests(unittest.TestCase):
 
     def test_the_builder_is_told_to_use_a_declared_native_name(self):
         self.assertIn("test: TestFixedReturnsTwo -> func TestFixedReturnsTwo", test_cases.BUILDER_NOTE)
+
+    def test_the_builders_test_style_section_does_not_contradict_a_declared_name(self):
+        # Review of #498: the same Builder prompt also said "still name each test after its case id".
+        state = {"workspace": str(self.go.root), "goal_contract": {"body": plan(CORRECTED)}, "settings": {}}
+        self.assertIn("test: TestFixedReturnsTwo -> func TestFixedReturnsTwo", test_cases.builder_note(state))
+        style = test_examples.section(self.go.root, {"affected_paths": ["product.go", "product_test.go"]})
+        self.assertIn("EXISTING TEST STYLE", style)
+        self.assertIn("still name each test after its case id (test_<id>_...), unless the plan declared its test "
+                      "name right after test: or guard: (test: TestFixedReturnsTwo): then use that name exactly",
+                      " ".join(style.split()))
 
 
 @unittest.skipUnless(shutil.which("go"), "requires real Go compiler")
