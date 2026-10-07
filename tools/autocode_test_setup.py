@@ -16,14 +16,21 @@ PYTHON_FRAME = re.compile(r'^\s*File "([^"\n]+)", line \d+, in ([^\n]+)$', re.M)
 PYTEST_FRAME = re.compile(r"^([^\n]+\.py):\d+:(?: in ([^\n]+))?[^\n]*$", re.M)
 MISSING_MOCK = re.compile(r"^(?:E\s+)?AttributeError: .* does not have the attribute ('[^'\n]+')\s*$", re.M)
 IMPORT_ERROR = re.compile(r"^(?:E\s+)?(?:ImportError|ModuleNotFoundError): ([^\n]+)$", re.M)
+# unittest's closing footer, written once after the last failure's traceback.
+UNITTEST_FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in ", re.M)
 
 
 def failure_details(output):
-    """Yield unittest failure owners and their separate traceback sections."""
+    """Yield unittest failure owners and their separate traceback sections.
+
+    A section ends at the next failure or at unittest's closing "Ran N tests" footer. A runner that
+    prints several modules' reports (tools/run_suite.py) puts other modules' output after that footer,
+    and none of it belongs to the last traceback (#545)."""
     headers = list(UNITTEST_FAILURE.finditer(output))
     for index, header in enumerate(headers):
         end = headers[index + 1].start() if index + 1 < len(headers) else len(output)
-        yield (*header.groups(), output[header.end():end])
+        footer = UNITTEST_FOOTER.search(output, header.end(), end)
+        yield (*header.groups(), output[header.end():footer.start() if footer else end])
 
 
 def setup_error(traceback, tree, is_test_path):
