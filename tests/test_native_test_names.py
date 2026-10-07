@@ -306,9 +306,14 @@ class ProblemsTests(unittest.TestCase):
         for declared in ("test: TestCacheExpiry/expired", "test: TestCacheExpiry"):
             with self.subTest(declared=declared):
                 self.assertEqual([], native.problems(plan([declared] + CONVENTION[1:]), names))
+        # Two paths of one function: one criterion is told one path, and a duplicate declaration is reported once.
+        paths = ["TestCacheExpiry/expired", "TestCacheExpiry/fresh"]
+        self.assertEqual(['AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry/expired '
+                          '(write "test: TestCacheExpiry/expired")', "no criterion declares TestCacheExpiry/fresh"],
+                         native.problems(aliased, paths))
         twice = plan(["test: TestCacheExpiry", "test: TestCacheExpiry", CONVENTION[2]])
         self.assertEqual(["AC1 and AC2 both declare TestCacheExpiry; each criterion needs its own test"],
-                         native.problems(twice, ["TestCacheExpiry/expired", "TestCacheExpiry/fresh"]))
+                         native.problems(twice, paths))
 
     def test_criteria_without_a_requested_name_keep_the_default_convention(self):
         body = plan(CORRECTED)

@@ -529,8 +529,9 @@ def problems(body, names: list[str]) -> list[str]:
         # The prose alias may sit in the verification method or in the criterion's own text.
         declares = declared or ("no test name the runner reads (a name stands alone after the mark, or is followed "
                                 "by \" — \" or a parenthesis)")
+        told = set()  # one requested path per test function on a criterion, which can declare only one
         for name in names:
-            if name in declared_names or name in reported:
+            if name in declared_names or name in reported or _function(name) in told:
                 continue
             if _respells(declared, name):
                 errors.append(f"{criterion} declares {declared}, a respelling of {name}; keep the requested "
@@ -543,6 +544,7 @@ def problems(body, names: list[str]) -> list[str]:
             else:
                 continue
             reported.add(name)
+            told.add(_function(name))
     unbound = [name for name in names if name not in accounted and name not in reported]
     if unbound:
         errors.append(f"no criterion declares {', '.join(unbound)}")
