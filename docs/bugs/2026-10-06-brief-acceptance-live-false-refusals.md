@@ -43,9 +43,17 @@ The fix applies the declared format to every line of a `one per line` listing:
   a final LF. The bound item alone therefore still passes whatever its ID looks
   like (an ID argument with a space is not one opaque word). Headers, blank
   lines, extra terminators, trailing spaces, unbracketed or misspelled
-  statuses, changed IDs and items nobody added all still fail.
+  statuses, a changed ID on the bound item and items nobody added all still
+  fail. Only the bound item's ID is checked: every other line's ID is opaque,
+  so a renumbered (`02`), repeated or literal `ID` there passes, and so does
+  the bound item listed a second time with the other status.
 - The runner's command now carries the line pattern, so receipts recorded
   under the old rule no longer match `ready()`. A fresh replay is required.
+  The CRLF rule above came after #617 and changes the runner's command again,
+  so a receipt recorded under #617's runner also needs a fresh replay. Until
+  the run replays, completion refuses with "Original-brief output
+  observations need fresh, intact runner proof for every declared format."
+  That is expected and recoverable; manifests and their hashes are unchanged.
 - A failed replay now reports the runner's own reason and the step it
   concerns instead of "failed or timed out": what the listing printed, the
   exit code and stderr tail of a step that exited nonzero, or the step that
@@ -55,7 +63,17 @@ This check still does not prove that every item appears, or appears once. A
 listing that leaves out or repeats other to-dos passes if the bound item is
 present. Refusing a repeated line would also refuse a correct listing whose
 format has no unique field, such as two items added with the same text under
-a format without ID. A TEXT line must carry a value that a step passed for TEXT itself, so
+a format without ID. Nor does it prove that an item is gone. It checks format
+only, so a listing that still shows a removed or filtered-out to-do passes.
+Master before #617 caught that case by accident: it required the whole
+output to be the bound item. With `add "buy milk"`, `add "walk dog"`,
+`remove 1`, `list` and TEXT bound to "walk dog", a product whose `remove`
+does nothing prints `1 buy milk [open]\n2 walk dog [open]\n`. Master
+`0591e76` refuses it; this rule passes it, as it must pass any correct
+listing of two items. A Plan Reviewer cannot yet ask for an exact listing or
+for an item to be absent; that needs a new observation kind (a manifest
+`VERSION` change) and is not yet tracked in an issue.
+A TEXT line must carry a value that a step passed for TEXT itself, so
 a value passed under another placeholder name (say a `rename ID NEW_TEXT`
 command) is refused, as it already was for the bound item.
 
@@ -112,18 +130,22 @@ replays run B's shape end to end.
 
 ## Still open: a later command's format can be attributed to an earlier one
 
-Found while reviewing this fix; #522's declaration grammar behaves the same on
-master `0591e76`. A command's clause runs to the next `;` or line break, so a
+Found while reviewing this fix; #522's declaration grammar is the same on
+master `0591e76`, before #617. A command's clause runs to the next `;` or line break, so a
 `prints ... as FORMAT ... one per line` that follows a later command in the
 same clause is also attributed to the earlier command. The brief
 `` `todo.py add TEXT` adds a to-do and exits 0. `todo.py list` prints every
 to-do as `ID TEXT [open|done]`, one per line, and exits 0. `` therefore
 declares that `add TEXT` prints the listing too, and a correct product whose
-`add` prints nothing is refused. When only the per-line words come later
-(`` `todo.py add TEXT` prints the new to-do as `ID TEXT [open|done]` and exits
-0, and `todo.py list` prints every to-do, one per line, and exits 0. ``), `add`
-is checked as a listing, which the per-line rule now lets print several lines.
+`add` prints nothing is refused, before #617 and after it. A brief that ends
+each command with a full stop, a natural style, is enough. When only the
+per-line words come later (`` `todo.py add TEXT` prints the new to-do as
+`ID TEXT [open|done]` and exits 0, and `todo.py list` prints every to-do, one
+per line, and exits 0. ``), `add` is checked as a listing. Master `0591e76`
+refused an `add` that printed the whole list, `1 buy milk [open]\n2 walk dog
+[open]\n`, because it allowed one line only; the per-line rule passes it.
 Ending a clause at the next command changes which declarations such a brief
-has, and so the sealed manifests of its runs already under way, and needs its
-own change. The catalog brief separates its commands with semicolons and is not
+has, and so the sealed manifests of its runs already under way, so it needs
+its own change with a plan for those manifests. It is not yet tracked in an
+issue. The catalog brief separates its commands with semicolons and is not
 affected.
