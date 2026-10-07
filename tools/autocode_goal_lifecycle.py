@@ -377,7 +377,8 @@ def render(state, run_dir=None):
         lines += ["", "Declared contract changes:"]
         ordered = sorted(declared, key=lambda row: row.get("change") != "permission_changed")
         for row in ordered:
-            lines.append(f"  - {row.get('change')}: {row.get('item')} (basis: {row.get('basis')})")
+            replaced = f" -> {row['replacement']}" if row.get("change") == "permission_changed" and row.get("replacement") else ""
+            lines.append(f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')})")
     history = state.get("contract_history", [])
     if history:
         lines += ["", "Contract delta:"] + list(difflib.unified_diff(

@@ -45,9 +45,15 @@ def check(project, scenario, run=None):
     differs = [f"{name}({', '.join(want)}) vs {[list(p) for p in params.get(name, ())]}"
                for name, want in signatures.items() if want is not None and name in params
                and tuple(want) not in params[name]]
-    checks.append(Check("build_follows_design", bool(modules and signatures) and not missing and not differs,
+    # With a run record, the build turn must also have changed app/: a design that keeps the seed's
+    # interface names only what is already there (a live build turn that wrote nothing passed this).
+    built = [path for path in ((run or {}).get("turns") or [{}, {}, {}])[-1].get("changed_files") or []
+             if path.startswith("app/")] if run and len(run.get("turns") or []) == 3 else None
+    checks.append(Check("build_follows_design", bool(modules and signatures) and not missing and not differs
+                        and built != [],
                         f"design names modules {modules} and callables {sorted(signatures)}; "
-                        f"missing from app/: {missing}; other parameters: {differs}"))
+                        f"missing from app/: {missing}; other parameters: {differs}"
+                        + ("; the build turn changed nothing under app/" if built == [] else "")))
     with scratch_copy(project) as copy:
         suite = python_tests(copy)
         checks.append(Check("project_tests_pass", suite.returncode == 0, tail(suite)))

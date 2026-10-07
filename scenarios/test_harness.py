@@ -1298,6 +1298,20 @@ class TurnTests(unittest.TestCase):
         written = {"changed_files": ["docs/design/README.md", "docs/design/metadata-cache.md"]}
         self.assertEqual("docs/design/metadata-cache.md", design_document(None, {"turns": [{}, written, {}]}))
 
+    def test_a_build_turn_that_changed_no_code_does_not_follow_the_design(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            turns = lambda built: [{"changed_files": ["docs/decisions/metadata-cache.json"]},
+                                   {"changed_files": ["docs/design/metadata-cache.md"]}, {"changed_files": built}]
+            follows = lambda built: next(check for check in scenario.oracle()(project, scenario, {"turns": turns(built)})
+                                         if check.name == "build_follows_design")
+            self.assertFalse(follows([]).ok, "a build turn that wrote nothing cannot follow the design")
+            self.assertIn("changed nothing under app/", follows([]).detail)
+            self.assertTrue(follows(["app/shared_cache.py", "tests/test_shared_cache.py"]).ok,
+                            follows(["app/shared_cache.py"]).detail)
+
     def test_each_turn_records_what_it_changed_in_the_workspace(self):
         with tempfile.TemporaryDirectory() as root:
             project = Path(root)
@@ -1548,12 +1562,23 @@ class FakeRunTests(unittest.TestCase):
                 return self.run_fake(solution, scenario)
 
     def test_discuss_then_design_then_build_builds_the_design_its_second_turn_wrote(self):
-        result = self.run_fake("reference", "discuss-then-design-then-build")
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("discuss-then-design-then-build"), args)
+            state = json.loads((Path(result["evidence"]) / "state.json").read_text())
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["discuss", "design", "build"], [turn["workflow"] for turn in result["turns"]])
         # "Build it." named the design turn 2 wrote: it was checked as approved, and no Requirements ran.
         self.assertEqual(["recognize_workflow", "check_design"], result["turns"][2]["model_stage_names"][:2])
         self.assertNotIn("requirements_gather", result["turns"][2]["model_stage_names"])
+        # The Planner replaced the design turn's docs-only boundary in one row backed by "Build it."'s receipt,
+        # and the guard accepted it the first time (live runs were refused, then asked the user).
+        self.assertNotIn("astra_discovery_report_repair", result["turns"][2]["model_stage_names"])
+        rows = [row for revision in state.get("contract_history") or []
+                for row in revision.get("declared_changes") or [] if row.get("change") == "permission_changed"]
+        self.assertEqual([(state["turns"][-1]["event_id"], "Edit only app/, tests/ in this scenario workspace")],
+                         [(row["answer_id"], row["replacement"]) for row in rows])
 
     def test_a_design_turn_that_also_writes_code_is_judged_false_complete(self):
         # Nothing in the product limits a new design's Builder to documents; the per-turn check does.
@@ -1561,7 +1586,8 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_copy("discuss-then-design-then-build", widened)
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
         failing = [check["name"] for check in result["checks"] if not check["ok"]]
-        self.assertEqual(["design_turn_changed_only_its_report"], failing)
+        # The code came in the design turn, so the build turn changed nothing under app/ either.
+        self.assertEqual(["build_follows_design", "design_turn_changed_only_its_report"], failing)
 
     def test_a_design_review_is_revised_in_the_same_run_as_the_user_answers_it(self):
         result = self.run_fake("reference", "design-review-with-answers")

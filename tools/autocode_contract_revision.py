@@ -171,10 +171,34 @@ def revision_guard(state, body, changes, origin):
             continue
         consume(cid, "removed" if cid not in new_criteria else "reworded")
     previous_permissions = previous.get("permission_boundaries", [])
-    if previous_permissions and set(previous_permissions) != set(body.get("permission_boundaries", [])):
-        changed = set(previous.get("permission_boundaries", [])) ^ set(body.get("permission_boundaries", []))
-        for item in changed:
+    current_permissions = body.get("permission_boundaries", [])
+    if previous_permissions and set(previous_permissions) != set(current_permissions):
+        # One row per changed boundary, as the Planner is asked: the previous text as its item and the
+        # new text as its replacement. A boundary added with no such replacement needs a row of its own.
+        replaced = set()
+        for item in sorted(set(previous_permissions) - set(current_permissions)):
+            replacement = next((str(row.get("replacement") or "").strip() for row in declared.get(item, [])
+                                if row["change"] == "permission_changed"), "")
             consume(item, "permission_changed")
-    if any(rows for rows in declared.values()):
-        raise ValueError("contract_changes contains an item that was not changed in the protected contract")
+            if replacement and replacement not in {text.strip() for text in current_permissions}:
+                raise ValueError(f"Permission replacement {replacement!r} must appear in permission_boundaries")
+            replaced.add(replacement)
+        for item in sorted(set(current_permissions) - set(previous_permissions)):
+            if any(row["change"] == "permission_changed" for row in declared.get(item, [])):
+                consume(item, "permission_changed")
+            elif item.strip() not in replaced:
+                raise ValueError(f"Planner revision adds permission boundary {item!r} without a user-backed "
+                                 "permission_changed entry; declare it as the replacement of the boundary it changes")
+    # A user-backed row for an assumption or a delegated decision the revision really dropped is a true
+    # record of the change, though neither list is protected.
+    kept = {row.get("text") for key in ("accepted_assumptions", "delegated_decisions")
+            for row in body.get(key, []) if isinstance(row, dict)}
+    for key in ("accepted_assumptions", "delegated_decisions"):
+        for row in previous.get(key, []):
+            if isinstance(row, dict) and row.get("text") not in kept:
+                declared.pop(row.get("text"), None)
+    left = sorted(item for item, rows in declared.items() if rows)
+    if left:
+        raise ValueError(f"contract_changes names {left[0]!r}, which was not changed in the protected contract; "
+                         "drop that row")
     return changes
