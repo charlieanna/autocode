@@ -20,6 +20,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import autocode_launch_inputs as launch_inputs  # noqa: E402
 import autocode_regression as regression  # noqa: E402
 import autocode_verification_schedule as schedule  # noqa: E402
 import autocode_verify as verify  # noqa: E402
@@ -361,6 +362,103 @@ class PreservationEvidenceCase(unittest.TestCase):
         (project.root / "legacy.py").write_text(LEGACY_PROGRAM)
         self.check_first_suite(project, run="no_dependencies", verdict=verify.UNVERIFIED)
 
+    # A build of an approved design: the design workflow's docs/design/ document and an empty
+    # package, the base of implement-locked-design (five live runs stopped UNVERIFIED on it,
+    # 2026-10-07). docs/bugs/2026-10-07-regression-proof-design-document-base.md
+    DESIGNED = {"README.md": "A new project.\n", "tests/__init__.py": "",
+                "docs/design/feature.md": "# Feature\n\ncalc.VALUE becomes 'new'.\n"}
+
+    def test_a_design_document_and_an_empty_package_can_prove_a_first_feature(self):
+        self.check_first_suite(Project(self.DESIGNED), test_path="tests/test_feature.py")
+
+    def test_an_executable_design_document_is_not_a_first_suite_base(self):
+        project = Project(self.DESIGNED)
+        (project.root / "docs" / "design" / "feature.md").chmod(0o755)
+        self.recommit(project)
+        self.check_first_suite(project, test_path="tests/test_feature.py", verdict=verify.UNVERIFIED)
+
+    def test_a_document_that_is_not_markdown_is_not_a_first_suite_base(self):
+        project = Project({**self.DESIGNED, "docs/design/feature.rst": "Feature\n=======\n"})
+        self.check_first_suite(project, test_path="tests/test_feature.py", verdict=verify.UNVERIFIED)
+
+    def test_in_place_without_a_launch_record_a_design_document_is_not_a_first_suite_base(self):
+        # Nothing recorded the ignored code the checkout held before the candidate edited it.
+        project = Project({"README.md": "A new project.\n", "docs/design/feature.md": "# Feature\n"})
+        self.check_first_suite(project, run="in_place", verdict=verify.UNVERIFIED)
+
+    def test_a_launch_record_taken_before_its_base_was_pinned_does_not_bind_it(self):
+        # The checkout was busy at launch: the record was taken first and the base pinned later, so
+        # ignored code left in between is in neither (review of this fix, 2026-10-07).
+        project = Project(self.DESIGNED)
+        self.addCleanup(project.close)
+        run_dir = Path(project.temp.name) / "run"
+        run_dir.mkdir()
+        state = {"base_commit": None, "goal_contract": {"body": {"task_kind": "build"}},
+                 "settings": {"regression": {"python": sys.executable, "test_timeout": 60}}}
+        launch_inputs.record(state, project.root, run_dir)
+        state["base_commit"] = project.base
+        self.assertFalse(launch_inputs.supply(state, project.root, run_dir).recorded)
+        references.write({"calc.py": "VALUE = 'new'\n",
+                          "tests/test_feature.py": "import unittest\nfrom calc import VALUE\n\n"
+                          "class Feature(unittest.TestCase):\n"
+                          "    def test_new_value(self):\n"
+                          "        self.assertEqual('new', VALUE)\n"}, project.root)
+        self.assertEqual(verify.UNVERIFIED, regression.prove(state, project.root, run_dir)["verdict"])
+
+    def prove_in_place(self, project, change=None, *, record=True):
+        """autocode_regression.prove for an --in-place run whose ignored inputs were recorded at launch
+        (autocode_launch_inputs.record, before any provider), as autocode_run_setup records them.
+        ``record=False``: a run saved before launch records existed."""
+        self.addCleanup(project.close)
+        run_dir = Path(project.temp.name) / "run"
+        run_dir.mkdir()
+        state = {"base_commit": project.base, "goal_contract": {"body": {"task_kind": "build"}},
+                 "settings": {"regression": {"python": sys.executable, "test_timeout": 60}}}
+        if record:
+            launch_inputs.record(state, project.root, run_dir)
+        if change:
+            change(project.root)  # the candidate, after launch
+        references.write({"calc.py": "VALUE = 'new'\n",
+                          "tests/test_feature.py": "import unittest\nfrom calc import VALUE\n\n"
+                          "class Feature(unittest.TestCase):\n"
+                          "    def test_new_value(self):\n"
+                          "        self.assertEqual('new', VALUE)\n"}, project.root)
+        return regression.prove(state, project.root, run_dir)
+
+    def test_in_place_with_a_launch_record_a_design_document_and_an_empty_package_can_prove_a_first_feature(self):
+        proof = self.prove_in_place(Project(self.DESIGNED))
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests.test_feature.Feature.test_new_value"], proof["fail_to_pass"], proof)
+
+    def test_in_place_without_a_launch_record_prove_does_not_admit_a_design_document(self):
+        proof = self.prove_in_place(Project(self.DESIGNED), record=False)
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+
+    def test_in_place_ignored_code_the_launch_record_holds_is_existing_behavior(self):
+        # The user's program, ignored beside the design: kept, un-ignored as it was, deleted, or
+        # un-ignored and broken by the candidate. The launch record still lists it, or supply refuses.
+        def keep(root):
+            pass
+
+        def stop_ignoring(root):
+            (root / ".gitignore").write_text("__pycache__/\n")
+
+        def delete(root):
+            (root / "docs" / "design" / "legacy.py").unlink()
+
+        def stop_ignoring_and_break(root):
+            stop_ignoring(root)
+            (root / "docs" / "design" / "legacy.py").write_text("def answer():\n    raise SystemExit('broken')\n")
+
+        for change in (keep, stop_ignoring, delete, stop_ignoring_and_break):
+            with self.subTest(change.__name__):
+                project = Project({**self.DESIGNED, ".gitignore": "legacy.py\n"})
+                (project.root / "docs" / "design" / "legacy.py").write_text(LEGACY_PROGRAM)
+                self.assertIn("docs/design/legacy.py", verify.generated_sources(project.root))
+                proof = self.prove_in_place(project, change)
+                self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+                self.assertEqual([], proof["failures"], proof)
+
     def check_existing_program(self, path, *, executable=False):
         legacy = ("#!/usr/bin/env python3\nimport unittest\nVALUE = 'old'\n"
                   "class Existing(unittest.TestCase):\n"
@@ -698,9 +796,11 @@ class VerifyCase(unittest.TestCase):
         result = project.verify(new_behavior=True)
         self.assertEqual('npm test --silent', result['commands']['suite'], result)
         self.assertEqual(['test/feature.test.js::mul'], result['fail_to_pass'], result)
-        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
-        self.assertTrue(any('redefined' in reason for reason in result['unverified']), result)
-        self.assertEqual([], result['failures'], result)
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertEqual(['The base suite definition fails against the candidate code: the candidate '
+                          'changed which tests the suite runs, so tests the base ran no longer pass'],
+                         result['failures'], result)
+        self.assertEqual(1, result['checks']['suite_base_definition_on_candidate']['exit_code'], result)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
     def test_the_same_break_without_narrowing_the_script_still_fails(self):
@@ -766,6 +866,609 @@ class VerifyCase(unittest.TestCase):
         self.assertIsNone(verify._suite_package_script('node --test a.test.js'))
         self.assertIsNone(verify._suite_package_script('npm test && echo done'))
         self.assertIsNone(verify._suite_package_script('npm run'))
+
+    # --- the base suite definition executed over candidate code (#587) -----------
+    ADD_TEST = ("const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>{assert.equal(add(2,3),5);assert.equal(add(42,58),100);"
+                "assert.equal(add(-4,9),5);});\n")
+    MUL_TEST = ("const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n")
+    ADDITION_TEST = ADD_TEST.replace("test('add'", "test('addition'")
+    MULTIPLICATION_TEST = MUL_TEST.replace("test('mul'", "test('multiplication'")
+    ADD_ONLY = "module.exports = {add: (a, b) => a + b};\n"
+    ADD_BROKEN = "module.exports = {add: (a, b) => a - b, mul: (a, b) => a * b};\n"
+    ADD_AND_MUL = "module.exports = {add: (a, b) => a + b, mul: (a, b) => a * b};\n"
+
+    @staticmethod
+    def _runner_suite_fixture():
+        """A script-driven suite whose runner file names the old test file (#587 T1)."""
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"}}),
+            'calc.js': VerifyCase.ADD_ONLY,
+            'run-tests.js': 'require("node:child_process").execSync("node --test test/calc.test.js",'
+                            ' {stdio: "inherit"});\n',
+            'test/calc.test.js': VerifyCase.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': VerifyCase.ADD_BROKEN,
+            'run-tests.js': 'require("node:child_process").execSync("node --test test/feature.test.js",'
+                            ' {stdio: "inherit"});\n',
+            'test/feature.test.js': VerifyCase.MUL_TEST,
+        }
+        return seed, candidate
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_quoted_shell_runner_cannot_hide_a_break(self):
+        old_tests = ("const {test}=require('node:test');\n"
+                     "const assert=require('node:assert/strict');\n"
+                     "const {add}=require('../calc.js');\n"
+                     + "".join(f"test('addition {index}',()=>assert.equal(add(2,3),5));\n"
+                               for index in range(32)))
+        old_runner = ('require("node:child_process").execSync("node --test test/calc.test.js",'
+                      ' {stdio: "inherit"});\n')
+        alternate_runner = ('require("node:child_process").execSync("node --test test/alternate.test.js",'
+                            ' {stdio: "inherit"});\n')
+        for command, runner_path, package_script in (
+                ('npm test --silent', 'run-tests.js', "sh -c 'node run-tests.js'"),
+                ("sh -c 'node run-tests.js'", 'run-tests.js', "sh -c 'node run-tests.js'"),
+                ('npm test --silent', 'run tests.js', 'node "run tests.js"')):
+            with self.subTest(suite_command=command, runner_path=runner_path):
+                seed = {
+                    'package.json': json.dumps({'scripts': {'test': package_script}}),
+                    'calc.js': self.ADD_ONLY,
+                    runner_path: old_runner,
+                    'test/calc.test.js': old_tests,
+                    'test/alternate.test.js': ("const {test}=require('node:test');\n"
+                                           "const assert=require('node:assert/strict');\n"
+                                           "test('harmless',()=>assert.equal(1+1,2));\n"),
+                }
+                candidate = {'calc.js': self.ADD_BROKEN, runner_path: alternate_runner,
+                             'test/feature.test.js': self.MUL_TEST}
+                project = self.project(seed)
+                project.write(candidate)
+                framework = verify.detect_framework(project.root)
+                base_suite = verify.baseline(project.root, project.base, project.evidence,
+                                             framework=framework, suite_command=command, timeout=120)
+                # Execute the original runner directly over the candidate product code, not
+                # over a test-only reconstruction that could accidentally restore calc.js.
+                project.write({runner_path: old_runner})
+                try:
+                    old_on_candidate = subprocess.run(['node', runner_path], cwd=project.root,
+                                                      capture_output=True, text=True)
+                finally:
+                    project.write({runner_path: alternate_runner})
+                result = verify.verify(project.root, project.base, project.evidence,
+                                       framework=framework, suite_command=command, base_suite=base_suite,
+                                       timeout=120, new_behavior=True)
+                self.assertEqual(0, base_suite['receipt']['exit_code'], base_suite)
+                self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+                self.assertEqual(1, old_on_candidate.returncode, old_on_candidate.stdout + old_on_candidate.stderr)
+                self.assertEqual(1, result['checks']['suite_base_definition_on_candidate']['exit_code'], result)
+                self.assertEqual(verify.FAIL, result['verdict'], result)
+                self.assertTrue(any('base suite definition' in reason for reason in result['failures']), result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_cd_prefixed_shell_runner_cannot_hide_a_break(self):
+        """A literal `cd lib &&` must pin lib/run-tests.js, not a same-named root file."""
+        old_runner = ('require("node:child_process").execSync("node --test test/calc.test.js",'
+                      ' {stdio: "inherit"});\n')
+        narrowed_runner = ('require("node:child_process").execSync("node --test test/feature.test.js",'
+                           ' {stdio: "inherit"});\n')
+        calc_test = self.ADD_TEST.replace("require('../calc.js')", "require('../../calc.js')")
+        feature_test = self.MUL_TEST.replace("require('../calc.js')", "require('../../calc.js')")
+        alternate = ("const {test}=require('node:test');\n"
+                     "const assert=require('node:assert/strict');\n"
+                     "test('harmless',()=>assert.equal(1+1,2));\n")
+        script = "sh -c 'cd lib && node run-tests.js'"
+        for command in ('npm test --silent', script):
+            with self.subTest(suite_command=command):
+                seed = {
+                    'package.json': json.dumps({'scripts': {'test': script}}),
+                    'calc.js': self.ADD_ONLY,
+                    'lib/run-tests.js': old_runner,
+                    'lib/test/calc.test.js': calc_test,
+                    'lib/test/alternate.test.js': alternate,
+                }
+                candidate = {'calc.js': self.ADD_BROKEN, 'lib/run-tests.js': narrowed_runner,
+                             'lib/test/feature.test.js': feature_test}
+                project, base_suite, result = self.node_verify(seed, candidate, suite_command=command)
+                self.assert_base_definition_fails(base_suite, result)
+
+    def node_verify(self, seed, candidate, *, suite_command='npm test --silent'):
+        """Baseline then verify over a Node fixture; returns (project, base_suite, result)."""
+        project = self.project(seed)
+        project.write(candidate)
+        framework = verify.detect_framework(project.root)
+        base_suite = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                     suite_command=suite_command, timeout=120)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               suite_command=suite_command, base_suite=base_suite, timeout=120,
+                               new_behavior=True)
+        return project, base_suite, result
+
+    def assert_base_definition_fails(self, base_suite, result):
+        """A passing base and candidate suite whose base definition fails on candidate code.
+
+        The verdict is asserted before the base-definition receipt: without the fix the
+        verdict itself is wrong (the bug), which fails the test before any key the fix
+        records is consulted."""
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertTrue(any('base suite definition' in reason for reason in result['failures']), result)
+        self.assertEqual(0, base_suite['receipt']['exit_code'], base_suite)
+        self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+        self.assertEqual(1, result['checks']['suite_base_definition_on_candidate']['exit_code'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_inv_base_definition_run_governs_pass_and_redefinition_verdicts(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        project = self.project(seed)
+        project.write({'calc.js': self.ADD_AND_MUL,
+                       'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+                       'test/feature.test.js': self.MUL_TEST})
+        framework = verify.detect_framework(project.root)
+        base_suite = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                     suite_command='npm test --silent', timeout=120)
+        self.assertEqual(0, base_suite['receipt']['exit_code'])
+        broadened = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                                  suite_command='npm test --silent', base_suite=base_suite,
+                                  timeout=120, new_behavior=True)
+        self.assertEqual(verify.PASS, broadened['verdict'], broadened)
+        self.assertFalse(any('redefined' in reason for reason in broadened['unverified']), broadened)
+        self.assertEqual(0, broadened['checks']['suite_on_candidate']['exit_code'], broadened)
+        self.assertEqual(0, broadened['checks']['suite_base_definition_on_candidate']['exit_code'], broadened)
+        project.write({'calc.js': self.ADD_BROKEN,
+                       'package.json': json.dumps({"scripts": {"test": "node --test test/feature.test.js"}})})
+        narrowed = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                                 suite_command='npm test --silent', base_suite=base_suite,
+                                 timeout=120, new_behavior=True)
+        self.assertEqual(verify.FAIL, narrowed['verdict'], narrowed)
+        self.assertTrue(any('base suite definition' in reason for reason in narrowed['failures']), narrowed)
+        self.assertEqual(0, narrowed['checks']['suite_on_candidate']['exit_code'], narrowed)
+        self.assertEqual(1, narrowed['checks']['suite_base_definition_on_candidate']['exit_code'], narrowed)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t1_edited_runner_file_cannot_hide_a_break_from_the_suite(self):
+        seed, candidate = self._runner_suite_fixture()
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t2_narrowed_transitive_script_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "npm run test:unit",
+                                                    "test:unit": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'package.json': json.dumps({"scripts": {"test": "npm run test:unit",
+                                                    "test:unit": "node --test test/feature.test.js"}}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t3_workspace_script_narrowing_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"private": True, "workspaces": ["web"]}),
+            'web/package.json': json.dumps({"name": "web", "scripts": {"test": "node --test ../test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'web/package.json': json.dumps({"name": "web",
+                                            "scripts": {"test": "node --test ../test/feature.test.js"}}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate, suite_command='npm test --workspaces --silent')
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t4_package_field_narrowing_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"},
+                                        "suiteFile": "test/calc.test.js"}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': 'require("node:child_process").execSync("node --test "'
+                            '+ require("./package.json").suiteFile, {stdio: "inherit"});\n',
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"},
+                                        "suiteFile": "test/feature.test.js"}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t5_npmrc_script_shell_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            '.npmrc': 'script-shell=/usr/bin/true\n',
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t6_unrecognized_command_shape_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'package.json': json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate, suite_command='CI=1 npm test')
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t7_broadened_suite_definition_still_verifies(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_AND_MUL,
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+        self.assertEqual(0, base_suite['receipt']['exit_code'])
+        self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+        self.assertEqual(0, result['checks']['suite_base_definition_on_candidate']['exit_code'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t8_break_without_definition_change_still_fails(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assertEqual(0, base_suite['receipt']['exit_code'])
+        self.assertEqual(1, result['checks']['suite_on_candidate']['exit_code'], result)
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertTrue(any('passes on base but fails on the candidate' in reason
+                            for reason in result['failures']), result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t9_indirect_runner_edit_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': 'require("node:child_process").execSync("node --test "'
+                            '+ require("./scripts/select-tests.js").join(" "), {stdio: "inherit"});\n',
+            'scripts/select-tests.js': "module.exports = ['test/calc.test.js'];\n",
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'scripts/select-tests.js': "module.exports = ['test/feature.test.js'];\n",
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t10_unrecognized_command_shapes_all_run_the_base_definition(self):
+        commands = ["sh -c 'npm test'", 'node --run test', 'npm --prefix . test', 'cd web && npm test']
+        if shutil.which('timeout'):
+            commands = ['timeout 120 npm test'] + commands
+        for suite_command in commands:
+            with self.subTest(suite_command=suite_command):
+                prefix = 'web/' if suite_command == 'cd web && npm test' else ''
+                seed = {
+                    prefix + 'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+                    prefix + 'calc.js': self.ADD_ONLY,
+                    prefix + 'test/calc.test.js': self.ADD_TEST,
+                }
+                candidate = {
+                    prefix + 'calc.js': self.ADD_BROKEN,
+                    prefix + 'package.json': json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+                    prefix + 'test/feature.test.js': self.MUL_TEST,
+                }
+                project, base_suite, result = self.node_verify(seed, candidate, suite_command=suite_command)
+                self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t11_transitive_script_variants_cannot_hide_a_break(self):
+        base_unit = json.dumps({"scripts": {"test": "node --run test:unit",
+                                            "test:unit": "node --test test/calc.test.js"}})
+        narrowed_unit = json.dumps({"scripts": {"test": "node --run test:unit",
+                                                "test:unit": "node --test test/feature.test.js"}})
+        base_runner = json.dumps({"scripts": {"test": "node run-tests.js",
+                                              "test:unit": "node --test test/calc.test.js"}})
+        narrowed_runner = json.dumps({"scripts": {"test": "node run-tests.js",
+                                                  "test:unit": "node --test test/feature.test.js"}})
+        fixtures = {
+            'A': ({'package.json': base_unit, 'calc.js': self.ADD_ONLY, 'test/calc.test.js': self.ADD_TEST},
+                  {'package.json': narrowed_unit}),
+            'B': ({'package.json': base_runner, 'calc.js': self.ADD_ONLY,
+                   'run-tests.js': 'require("node:child_process").execSync("npm run test:unit",'
+                                   ' {stdio: "inherit"});\n',
+                   'test/calc.test.js': self.ADD_TEST},
+                  {'package.json': narrowed_runner}),
+        }
+        for name, (seed, package_change) in fixtures.items():
+            with self.subTest(fixture=name):
+                project, base_suite, result = self.node_verify(
+                    seed, {'calc.js': self.ADD_BROKEN, 'test/feature.test.js': self.MUL_TEST, **package_change})
+                self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm') and shutil.which('pnpm'),
+                         'Node, npm and pnpm are required')
+    def test_t12_pnpm_workspace_script_narrowing_cannot_hide_a_break(self):
+        seed = {
+            'pnpm-workspace.yaml': "packages: ['web']\n",
+            'web/package.json': json.dumps({"name": "web", "scripts": {"test": "node --test test/calc.test.js"}}),
+            'web/calc.js': self.ADD_ONLY,
+            'web/test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'web/calc.js': self.ADD_BROKEN,
+            'web/package.json': json.dumps({"name": "web",
+                                            "scripts": {"test": "node --test test/feature.test.js"}}),
+            'web/test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate, suite_command='pnpm -r test')
+        self.assert_base_definition_fails(base_suite, result)
+
+    def base_definition_fault(self, receipt):
+        """verify() over the T1 fixture with run_suite patched to return ``receipt`` for the
+        base-definition run alone (the seam every suite run already goes through)."""
+        seed, candidate = self._runner_suite_fixture()
+        project = self.project(seed)
+        project.write(candidate)
+        real_run_suite = verify.run_suite
+
+        def wrapped(framework, command, tree, evidence_dir, label, *, timeout):
+            if Path(tree).name == 'base-definition' and Path(tree).is_dir():
+                return receipt
+            return real_run_suite(framework, command, tree, evidence_dir, label, timeout=timeout)
+
+        framework = verify.detect_framework(project.root)
+        base_suite = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                     suite_command='npm test --silent', timeout=120)
+        with mock.patch.object(verify, 'run_suite', wrapped):
+            result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                                   suite_command='npm test --silent', base_suite=base_suite,
+                                   timeout=120, new_behavior=True)
+        return project, base_suite, result
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t13_incomplete_base_definition_run_stays_unverified_and_cleans_up(self):
+        receipt = {'exit_code': None, 'timed_out': False, 'output': None,
+                   'tail': 'injected incomplete base-definition run\n',
+                   'results': None, 'results_expected': False, 'supervision': {}}
+        project, base_suite, result = self.base_definition_fault(receipt)
+        self.assertEqual(0, base_suite['receipt']['exit_code'])
+        self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+        self.assertEqual([], result['failures'], result)
+        self.assertTrue(any('base suite definition' in reason for reason in result['unverified']), result)
+        self.assertFalse((project.evidence / 'scratch' / 'base-definition').exists())
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t14_unstartable_base_definition_command_stays_unverified_and_cleans_up(self):
+        receipt = {'exit_code': 127, 'timed_out': False, 'output': None,
+                   'tail': 'sh: node: command not found\n',
+                   'results': None, 'results_expected': False}
+        project, base_suite, result = self.base_definition_fault(receipt)
+        self.assertEqual(0, base_suite['receipt']['exit_code'])
+        self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+        self.assertEqual([], result['failures'], result)
+        self.assertTrue(any('base suite definition' in reason for reason in result['unverified']), result)
+        self.assertFalse((project.evidence / 'scratch' / 'base-definition').exists())
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t15_computed_selector_boundary_fails_closed_unverified(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': ('const fs = require("node:fs");\n'
+                             'const name = fs.readdirSync("scripts").filter(f => f.endsWith(".js"))[0];\n'
+                             'const list = require("./scripts/" + name);\n'
+                             'require("node:child_process").execSync("node --test " + list.join(" "),'
+                             ' {stdio: "inherit"});\n'),
+            'scripts/pick-list.js': "module.exports = ['test/calc.test.js'];\n",
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'scripts/pick-list.js': "module.exports = ['test/feature.test.js'];\n",
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assertEqual(0, base_suite['receipt']['exit_code'])
+        self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+        self.assertEqual([], result['failures'], result)
+        self.assertTrue(any('base suite definition' in reason for reason in result['unverified']), result)
+        self.assertNotIn('suite_base_definition_on_candidate', result['checks'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t16_runner_imported_product_cannot_hide_a_break(self):
+        seed, candidate = self._runner_suite_fixture()
+        seed = {**seed, 'run-tests.js': ('require("./calc.js");\n'
+                                         'require("node:child_process").execSync("node --test test/calc.test.js",'
+                                         ' {stdio: "inherit"});\n')}
+        candidate = {**candidate, 'run-tests.js': ('require("./calc.js");\n'
+                                                   'require("node:child_process").execSync('
+                                                   '"node --test test/feature.test.js", {stdio: "inherit"});\n')}
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is required')
+    def test_t17_shell_runner_command_runs_the_base_definition(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "sh test/run.sh"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/run.sh': 'node --test test/calc.test.js\n',
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'test/run.sh': 'node --test test/feature.test.js\n',
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate, suite_command='sh test/run.sh')
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t18_pretest_deleting_the_old_test_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'package.json': json.dumps({"scripts": {"test": "node --test",
+                                                    "pretest": "rm test/calc.test.js"}}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t19_npm_package_config_narrowing_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test $npm_package_config_testfile"},
+                                        "config": {"testfile": "test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'package.json': json.dumps({"scripts": {"test": "node --test $npm_package_config_testfile"},
+                                        "config": {"testfile": "test/feature.test.js"}}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t20_files_field_narrowing_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"},
+                                        "files": ["test/calc.test.js"]}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': 'require("node:child_process").execSync("node --test "'
+                            '+ require("./package.json").files.join(" "), {stdio: "inherit"});\n',
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"},
+                                        "files": ["test/feature.test.js"]}),
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t21_npmrc_node_options_name_pattern_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADDITION_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            '.npmrc': 'node-options=--test-name-pattern=multiplication\n',
+            'test/feature.test.js': self.MULTIPLICATION_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t22_harmless_suite_broadenings_still_verify(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        forms = {
+            'A': {'calc.js': self.ADD_AND_MUL,
+                  'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"
+                                                          " test/feature.test.js"}}),
+                  'test/feature.test.js': self.MUL_TEST},
+            'B': {'calc.js': self.ADD_AND_MUL,
+                  'package.json': json.dumps({"scripts": {"test": "node --test --test-reporter=spec"
+                                                          " test/calc.test.js"}}),
+                  'test/feature.test.js': self.MUL_TEST},
+            'C': {'calc.js': self.ADD_AND_MUL,
+                  'app.js': 'process.exitCode = 0;\n',
+                  'package.json': json.dumps({"scripts": {"test": "node --test test/calc.test.js"
+                                                          " && node app.js"}}),
+                  'test/feature.test.js': self.MUL_TEST},
+        }
+        for form, candidate in forms.items():
+            with self.subTest(form=form):
+                project, base_suite, result = self.node_verify(seed, candidate)
+                self.assertEqual(verify.PASS, result['verdict'], result)
+                self.assertEqual(0, base_suite['receipt']['exit_code'])
+                self.assertEqual(0, result['checks']['suite_on_candidate']['exit_code'], result)
+                self.assertEqual(0, result['checks']['suite_base_definition_on_candidate']['exit_code'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_t23_patched_base_selector_edit_cannot_hide_a_break(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': 'require("node:child_process").execSync("node --test test/calc.test.js",'
+                            ' {stdio: "inherit"});\n',
+            'scripts/select-tests.js': "module.exports = ['test/calc.test.js'];\n",
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        patched_runner = ('require("node:child_process").execSync("node --test "'
+                          '+ require("./scripts/select-tests.js").join(" "), {stdio: "inherit"});\n')
+        project = self.project(seed)
+        references.write({'run-tests.js': patched_runner}, project.root)
+        patch = Path(project.temp.name) / 'base.patch'
+        patch.write_text(subprocess.run(['git', 'diff', '--', 'run-tests.js'], cwd=project.root, check=True,
+                                        capture_output=True, text=True).stdout)
+        self.assertTrue(patch.stat().st_size, 'the base patch must rewrite run-tests.js')
+        project.write({'calc.js': self.ADD_BROKEN,
+                       'run-tests.js': patched_runner,
+                       'scripts/select-tests.js': "module.exports = ['test/feature.test.js'];\n",
+                       'test/feature.test.js': self.MUL_TEST})
+        framework = verify.detect_framework(project.root)
+        base_suite = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                     suite_command='npm test --silent', timeout=120, base_patch=patch)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               suite_command='npm test --silent', base_suite=base_suite, timeout=120,
+                               new_behavior=True, base_patch=patch)
+        self.assert_base_definition_fails(base_suite, result)
 
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})
@@ -997,10 +1700,39 @@ class VerifyCase(unittest.TestCase):
             self.assertEqual([str(tree / "src"), str(tree), "/elsewhere"], env["PYTHONPATH"].split(os.pathsep))
             self.assertEqual("1", env["CI"])
 
+    def test_a_parent_tests_package_cannot_shadow_the_fixture_tests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tree = root / "tree"
+            parent = root / "checkout"
+            (tree / "tests").mkdir(parents=True)
+            (parent / "tests").mkdir(parents=True)
+            (parent / "tests" / "__init__.py").write_text("")
+            other = root / "libs"
+            other.mkdir()
+            inherited = os.pathsep.join([str(parent), str(other)])
+            env = verify.test_environment(tree, {"PYTHONPATH": inherited})
+            self.assertEqual([str(tree), str(other)], env["PYTHONPATH"].split(os.pathsep))
+            bare = root / "bare"
+            bare.mkdir()
+            env = verify.test_environment(bare, {"PYTHONPATH": inherited})
+            self.assertEqual([str(bare), str(parent), str(other)], env["PYTHONPATH"].split(os.pathsep))
+            (tree / "tests" / "test_local.py").write_text(
+                "import unittest\n\nclass T(unittest.TestCase):\n"
+                "    def test_here(self):\n        self.assertIn('tree', __file__)\n")
+            (parent / "tests" / "test_local.py").write_text("raise SystemExit('parent package')\n")
+            log = root / "suite.log"
+            receipt = verify.run_command(f"{sys.executable} -m unittest tests.test_local -q", tree, log,
+                                          env={"PYTHONPATH": inherited})
+            self.assertEqual(0, receipt["exit_code"], log.read_text()[-500:])
+
+    @mock.patch.dict(os.environ, {"PYTHONPATH": ""})
     def test_generated_version_file_reaches_the_scratch_trees(self):
         """A setuptools-scm/hatch-vcs package imports a git-ignored _version.py that
         exists only where the project was installed. The fix is made in a separate task
-        worktree, as in a real run; the proof must still import the package."""
+        worktree, as in a real run; the proof must still import the package.
+        Isolate the fixture's namespace tests from the controller checkout's tests
+        package on inherited PYTHONPATH; patch.dict restores the outer environment."""
         project = self.project({
             ".gitignore": "src/pkg/_version.py\nbuild/\n",
             "src/pkg/__init__.py": "from ._version import VERSION\n",
@@ -1142,7 +1874,10 @@ class VerifyCase(unittest.TestCase):
                 self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
                 self.assertTrue(any('base' in reason for reason in result['unverified']), result)
 
+    @mock.patch.dict(os.environ, {"PYTHONPATH": ""})
     def test_untracked_new_test_file_counts_as_the_regression_test(self):
+        # The nested fixture has a namespace tests directory; inherited controller
+        # PYTHONPATH otherwise resolves tests.test_blank to the outer tests package.
         project = self.project()
         new_test = ("import subprocess, sys, unittest\n\nclass Blank(unittest.TestCase):\n"
                     "    def test_blank(self):\n"

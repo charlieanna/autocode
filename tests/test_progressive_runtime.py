@@ -415,6 +415,18 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual(spent, self.state["progressive"]["budget"]["run_seconds"])
         self.assertEqual(50000, self.state["progressive"]["budget"]["run_limit"])
 
+    def test_a_validate_task_naming_no_paths_checks_the_active_slice(self):
+        # #615: a validate task that names no paths takes what it may check; in a progressive run that is
+        # the active slice's paths, not the whole-product milestone's, which the slice guard would refuse.
+        self.body["milestones"][0]["affected_paths"] = ["greet.py", "test_greeting.py", "README.md"]
+        self.approve()
+        decision = {"status": "CONTINUE", "next_objective": "Check the greeting", "affected_paths": [],
+                    "evidence": [], "next_task": {"kind": "validate", "milestone_id": "M1",
+                    "requirements": ["Print greeting"], "acceptance_criteria": ["C1"],
+                    "validation_plan": ["python3 -m unittest test_greeting.py"]}}
+        self.assertEqual("validate", lifecycle.assign_task(self.state, decision, util.snapshot(self.workspace)))
+        self.assertEqual(["greet.py", "test_greeting.py"], self.state["current_task"]["affected_paths"])
+
     def test_batch_bypass_and_missing_due_validator_check_fail_closed(self):
         self.approve()
         with self.assertRaises(runner.support.Paused):
