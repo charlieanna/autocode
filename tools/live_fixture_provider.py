@@ -130,7 +130,7 @@ TRACE_ROWS = (
 )
 
 
-def _planning_contract() -> dict:
+def _planning_contract(repair_error: str = "") -> dict:
     body = _contract()
     body["initial_task"] = {
         "kind": "implement", "milestone_id": "M1",
@@ -140,6 +140,15 @@ def _planning_contract() -> dict:
         "acceptance_criteria": ["C1"],
         "validation_plan": ["Execute greeting and invalid-input regression checks"],
     }
+    first = os.environ.get("LIVE_FIXTURE_FIRST_TASK")
+    if first in ("validate", "implement"):
+        # A first task that names no affected paths in a milestone that owns none, as a live
+        # program's final check planned it (#615): "validate" only checks, "implement" writes.
+        # A repair the runner asked for because of affected_paths lists the files it writes.
+        body["milestones"][0]["affected_paths"] = []
+        body["initial_task"]["kind"] = first
+        if "affected_paths" not in repair_error:
+            body["initial_task"]["affected_paths"] = []
     return body
 
 
@@ -222,6 +231,13 @@ def main() -> int:
                 common[key] = identity[key]
 
     adaptive = "ADAPTIVE PLANNING" in prompt  # an adaptive Planner's draft carries its initial_task
+    repair_error = str(data.get("error") or "") if repairing else ""
+    # A repair prompt carries no planning instructions; the report it repairs shows whether it had a first task.
+    if repairing and not adaptive:
+        try:
+            adaptive = '"initial_task"' in Path((data.get("rejected_report") or {}).get("path") or "").read_text()
+        except OSError:
+            pass
     if stage == "recognize_workflow":
         report = {"workflow": "build", "reason": "Handwritten fixture: every request is a build", "signals": [],
                   "design_document": ""}
@@ -266,7 +282,7 @@ def main() -> int:
     elif stage == "astra_discovery":
         report = {
             "summary": "Handwritten greeting plan",
-            "contract": _planning_contract() if adaptive else _contract(),
+            "contract": _planning_contract(repair_error) if adaptive else _contract(),
             "code_refs": [ref for ref in _source_refs() if ref != 'task'], "alternatives": [], "uncertainties": [],
             "contract_changes": [], "conflict_resolutions": [],
             "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
@@ -277,7 +293,7 @@ def main() -> int:
     elif stage == "astra_finalize":
         report = {
             "summary": "Handwritten final plan",
-            "contract": _planning_contract(),
+            "contract": _planning_contract(repair_error),
             "obligation_decisions": [], "decisions": [], "contract_changes": [],
             "conflict_resolutions": [],
             "requirement_trace": _trace(*TRACE_ROWS),
@@ -285,7 +301,7 @@ def main() -> int:
     elif stage == "glm_revise":
         report = {
             "summary": "Handwritten revision; nothing to revise",
-            "contract": _planning_contract() if adaptive else _contract(),
+            "contract": _planning_contract(repair_error) if adaptive else _contract(),
             "code_refs": [ref for ref in _source_refs() if ref != 'task'], "responses": [], "contract_changes": [],
             "conflict_resolutions": [],
             "machine_resolutions": [], "remediation_records": [], "access_blockers": [],

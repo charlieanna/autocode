@@ -64,13 +64,6 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
         first = body["initial_task"]
         verification_plan.require_scaffolding(state.get("workspace"), first["affected_paths"], first["validation_plan"])
-        # This is a structural draft probe, not execution admission. The real
-        # assignment below approval authenticates the progressive disclosure.
-        probe_body = copy.deepcopy(body)
-        probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
-                                     if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
-        probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"}}
-        assign_task(probe, initial_decision(body), {"revision": "draft"})
     questions = body["open_blocking_questions"]
     check_delegable(questions)
     criteria = body["acceptance_criteria"]
@@ -112,6 +105,18 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
         if first.get("kind") in ("implement", "validate") and graph.get(first["milestone_id"]):
             raise ValueError(f"initial_task milestone {first['milestone_id']} has unmet prerequisites; "
                              "start with a milestone whose depends_on is []")
+    if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
+        # This is a structural draft probe, not execution admission. The real
+        # assignment below approval authenticates the progressive disclosure.
+        # It carries a copy of the run's settings, so a first task that approval
+        # could not assign (milestone checkpoints) is refused, and repaired, while
+        # the plan is a draft: never shown for approval (#615).
+        probe_body = copy.deepcopy(body)
+        probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
+                                     if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
+        probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"},
+                 "settings": copy.deepcopy(state.get("settings") or {})}
+        assign_task(probe, initial_decision(body), {"revision": "draft"})
     for key, value in body.items():
         if isinstance(value, list) and any(isinstance(x, str) and not x.strip() for x in value):
             raise ValueError(f"{key} contains an empty entry")
@@ -627,6 +632,12 @@ def assign_task(state, decision, current):
     # A review's affected paths may describe the completed milestone, not the next
     # task. Approved ownership permits its new outputs, never the previous owner's.
     task_paths = list(decision.get("affected_paths", []))
+    if not task_paths and spec["kind"] == "validate":
+        # A validate task writes nothing; it checks what its milestone owns, or in a progressive
+        # run what the active slice owns (#615).
+        task_paths = list(progressive_state.require_active(state)["definition"]["paths"]
+                          if progressive_state.enabled(state) else
+                          milestones.get(spec["milestone_id"], {}).get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
         # A serial repair of the current milestone may discover another source
