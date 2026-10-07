@@ -1,12 +1,16 @@
 """Real Node events and hostile evidence controls for named case proof."""
+import contextlib
 import json
+import os
 import shlex
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_node_tests as node_tests
+import autocode_regression as regression
 import autocode_verify as verify
 from tests.test_verify import Project
 
@@ -23,6 +27,101 @@ class CommandTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(node_tests.command_words(command))
                 self.assertEqual(command, node_tests.instrument(command, '/tmp/proof.jsonl'))
+
+    def test_configured_node_collector_keeps_runtime_and_options_for_changed_tests(self):
+        command = '/configured/node --no-warnings --test --require ./setup.cjs --test-concurrency=1 old.test.cjs'
+        framework = verify.command_framework(command)
+        self.assertEqual('node', framework.name)
+        self.assertEqual(['/configured/node', '--no-warnings', '--test', '--require', './setup.cjs',
+                          '--test-concurrency=1', 'tests/new test.cjs'],
+                         shlex.split(framework.targeted(['tests/new test.cjs', 'tests/test_other.py'])))
+
+    def test_preload_options_before_test_are_not_mistaken_for_a_script(self):
+        for options in (['--require', './setup.cjs'], ['-r', './setup.cjs'],
+                        ['--import', './setup.mjs'], ['--require=./setup.cjs']):
+            with self.subTest(options=options):
+                words = ['/configured/node', *options, '--test', 'old.test.cjs']
+                framework = verify.command_framework(shlex.join(words))
+                self.assertEqual('node', framework.name)
+                self.assertEqual([*words[:-1], 'new.test.cjs'],
+                                 shlex.split(framework.targeted(['new.test.cjs'])))
+        for command in ('node --require ./setup.cjs script.cjs --test',
+                        'node -r ./setup.cjs -- --test', 'node --require --test old.test.cjs',
+                        'node --future-option --test old.test.cjs'):
+            with self.subTest(command=command):
+                self.assertIsNone(verify.command_framework(command))
+                self.assertEqual(command, node_tests.instrument(command, '/tmp/proof.jsonl'))
+
+    def test_unknown_option_arity_keeps_original_suite_and_wrappers_are_not_collectors(self):
+        for command in ('node --test --future-option value old.test.cjs',
+                        'node --test --future-option value "old suite"/*.test.cjs',
+                        'node --test old.test.cjs --test-name-pattern=kept',
+                        'node --test --require'):
+            with self.subTest(command=command):
+                framework = verify.command_framework(command)
+                self.assertEqual(command, framework.targeted(['new.test.cjs']))
+        for command in ('env NODE_OPTIONS=--no-warnings node --test old.test.cjs',
+                        'node script.cjs --test', 'node --test old.test.cjs && true'):
+            with self.subTest(command=command):
+                self.assertIsNone(verify.command_framework(command))
+
+    def test_targeted_paths_keep_the_option_boundary_and_cannot_become_flags(self):
+        for command, expected in [('node --test -- old.test.cjs', ['node', '--test', '--', './--new.test.cjs']),
+                                  ('node --test old.test.cjs', ['node', '--test', './--new.test.cjs'])]:
+            with self.subTest(command=command):
+                self.assertEqual(expected, shlex.split(verify.command_framework(command).targeted(['--new.test.cjs'])))
+
+    def test_execution_identity_binds_configured_node_bytes_and_keeps_incomplete_baseline_fresh(self):
+        project = Project({'product.cjs': 'module.exports=1;\n'})
+        self.addCleanup(project.close)
+        runtime = Path(project.temp.name) / 'runtime'
+        runtime.mkdir()
+        node = runtime / 'node'
+        node.write_text('fake Node version one\n')
+        node.chmod(0o755)
+        preload = runtime / 'setup.cjs'
+        preload.write_text('globalThis.proofSetup=17;\n')
+        command = shlex.join([str(node), '--test', '--require', str(preload), 'tests/one.test.cjs'])
+        before = verify.execution_identity(project.root, command=command)
+        self.assertEqual(str(node.resolve()), before['interpreter']['path'])
+        self.assertFalse(before['reuse_supported'])
+        node.write_text('fake Node version two\n')
+        after = verify.execution_identity(project.root, command=command)
+        self.assertNotEqual(before['interpreter']['sha256'], after['interpreter']['sha256'])
+        baseline = verify.baseline_identity(project.root, command=command)
+        self.assertEqual(after['interpreter'], baseline['interpreter'])
+        self.assertFalse(baseline['cache_binding_complete'])
+        self.assertFalse(baseline['reuse_supported'])
+        self.assertEqual('fresh_execution_only', baseline['cache_policy'])
+
+    def test_node_identity_resolves_relative_runtimes_and_path_from_the_workspace(self):
+        project = Project({'product.cjs': 'module.exports=1;\n'})
+        self.addCleanup(project.close)
+        controller = tempfile.TemporaryDirectory(prefix='node-controller-')
+        self.addCleanup(controller.cleanup)
+        controller_root = Path(controller.name).resolve()
+        for root, version in ((project.root, 'workspace'), (controller_root, 'controller')):
+            for relative in ('node', 'runtime/node'):
+                binary = root / relative
+                binary.parent.mkdir(parents=True, exist_ok=True)
+                binary.write_text(version + '\n')
+                binary.chmod(0o755)
+        original_path = os.environ.get('PATH', '')
+        cases = [('./node', None, 'node'), ('runtime/node', None, 'runtime/node'),
+                 ('node', 'runtime', 'runtime/node'), ('node', '', 'node'),
+                 ('node', str(project.root / 'runtime'), 'runtime/node')]
+        with contextlib.chdir(controller_root):
+            for runtime, entry, relative in cases:
+                with self.subTest(runtime=runtime, path_entry=entry):
+                    search_path = original_path if entry is None else entry + os.pathsep + original_path
+                    with mock.patch.dict(os.environ, {'PATH': search_path}):
+                        binary = project.root / relative
+                        before = verify.execution_identity(project.root, command=runtime + ' --test one.cjs')
+                        self.assertEqual(str(binary.resolve()), before['interpreter']['path'])
+                        binary.write_text(binary.read_text() + 'changed bytes\n')
+                        after = verify.execution_identity(project.root, command=runtime + ' --test one.cjs')
+                        self.assertNotEqual(before['interpreter']['sha256'], after['interpreter']['sha256'])
+                        self.assertFalse(after['reuse_supported'])
 
 
 @unittest.skipUnless(shutil.which('node'), 'Node is required for the actual test-runner protocol')
@@ -202,3 +301,59 @@ class NodeTests(unittest.TestCase):
                                    self.evidence, 'probe', timeout=20)
         self.assertTrue(receipt['results_expected'])
         self.assertIsNone(receipt['results'])
+
+    def test_explicit_node_suite_overrides_mocha_and_proves_named_restore_and_preservation(self):
+        preamble = "const {test}=require('node:test');const assert=require('node:assert/strict');"
+        preamble += "const p=require('../product.cjs');\n"
+        preserved = "test('test_preserve',()=>{assert.equal(globalThis.proofSetup,17);assert.equal(p.existing(),1);});\n"
+        project = Project({'product.cjs': "exports.existing=()=>1;exports.increment=x=>x+2;\n",
+                           'package.json': json.dumps({'devDependencies': {'mocha': '1.0.0'},
+                                                       'scripts': {'test': 'mocha tests/*.cjs'}}),
+                           'setup.cjs': 'globalThis.proofSetup=17;\n',
+                           'tests/seed.test.cjs': preamble + preserved})
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root)
+        self.assertEqual('mocha', framework.name)
+        node = str(Path(shutil.which('node')).resolve())
+        words = [node, '--no-warnings', '--require', './setup.cjs', '--test',
+                 '--test-concurrency=1', 'tests/seed.test.cjs']
+        command = shlex.join(words)
+        baseline = verify.baseline(project.root, project.base, project.evidence / 'baseline-run',
+                                   framework=framework, suite_command=command, timeout=20)
+        self.assertEqual('passing', baseline['health'], baseline)
+        project.write({'product.cjs': "exports.existing=()=>1;exports.increment=x=>x+1;\n",
+                       'tests/arena.test.cjs': preamble + preserved
+                       + "test('test_restore',()=>assert.equal(p.increment(4),5));\n"})
+        proof = verify.verify(project.root, project.base, project.evidence / 'proof', framework=framework,
+                              suite_command=command, base_suite=baseline, timeout=20)
+        self.assertEqual(verify.PASS, proof['verdict'], proof)
+        self.assertEqual('node', proof['framework']['name'], proof)
+        self.assertEqual('derived:node', proof['commands']['regression_source'], proof)
+        self.assertEqual([*words[:-1], 'tests/arena.test.cjs'],
+                         shlex.split(proof['commands']['regression']), proof)
+        self.assertEqual(['tests/arena.test.cjs::test_restore'], proof['fail_to_pass'], proof)
+        self.assertEqual(['tests/arena.test.cjs::test_preserve'], proof['pass_to_pass'], proof)
+        for receipt in proof['checks'].values():
+            self.assertTrue(receipt['results_expected'], receipt)
+            self.assertTrue(receipt['results']['complete'], receipt)
+            self.assertTrue(verify.command_receipt.completed(receipt), receipt)
+        self.assertEqual(['tests/arena.test.cjs::test_restore'],
+                         proof['checks']['regression_on_base']['results']['failed'])
+        self.assertEqual(['tests/arena.test.cjs::test_preserve'],
+                         proof['checks']['regression_on_base']['results']['passed'])
+        for label, public_words in (('long', words), ('short', [node, '-r', './setup.cjs', '--test',
+                                                              '--test-concurrency=1', 'tests/seed.test.cjs'])):
+            with self.subTest(preload=label):
+                state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                         'settings': {'regression': {'test_command': shlex.join(public_words), 'test_timeout': 20}}}
+                public = regression.prove(state, project.root, project.evidence / ('public-proof-' + label))
+                self.assertEqual(verify.PASS, public['verdict'], public)
+                self.assertEqual('node', public['framework']['name'], public)
+                self.assertEqual('derived:node', public['commands']['regression_source'], public)
+                self.assertEqual([*public_words[:-1], 'tests/arena.test.cjs'],
+                                 shlex.split(public['commands']['regression']), public)
+                self.assertEqual(['tests/arena.test.cjs::test_restore'], public['fail_to_pass'], public)
+                self.assertEqual(['tests/arena.test.cjs::test_preserve'], public['pass_to_pass'], public)
+                receipt = json.loads(Path(public['path']).read_text())
+                for check in ('regression_on_base', 'regression_on_candidate', 'suite_on_candidate'):
+                    self.assertTrue(receipt['checks'][check]['results']['complete'], check)

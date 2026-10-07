@@ -73,7 +73,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--workflow", choices=workflows.WORKFLOWS, help="Name the kind of job instead of having the recognizer read it from the request (a new run, or a saved run whose recognizer has not run yet)")
     parser.add_argument("--max-parallel-builders", type=int,
                         help="Orchestrator concurrency for independent milestones (new joint runs: 2; 1 dispatches serially)")
-    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh); pinned routes never escalate')
+    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh, or [builder_retry] in the provider config); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-manifest", type=Path,
@@ -212,6 +212,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="With --resume-paused, retry an exact exhausted format-failed report as fresh independent validation")
     parser.add_argument("--accept-transport-change", action="store_true",
                         help="With --resume-paused, accept the current validated OpenCode configuration at a clean transport-change pause")
+    parser.add_argument("--accept-source-edit", action="store_true",
+                        help="With --resume-paused, hand a paused repair the source edited while it was stopped; "
+                             "the contract, task, budget, proof and evidence pins stay")
     parser.add_argument("--abandon-stage", metavar="ATTEMPT_ID",
                         help="Set aside exactly this stopped uncertain attempt, preserving edits and logs; no agent is launched")
     parser.add_argument('--recover-job-report', metavar='TOKEN',
@@ -328,6 +331,11 @@ def parse(unit, argv, default_models):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change:
         _requires_resume(parser, args, "--accept-transport-change")
+    if args.accept_source_edit:
+        _requires_resume(parser, args, "--accept-source-edit")
+        if any((args.retry_failed_stage, args.diagnose_failed_stage, args.grant_recovery is not None,
+                args.retry_builder, args.retry_report, args.abandon_stage)):
+            parser.error("--accept-source-edit is the response to a source-only stale repair; resume with it alone")
     if args.allow_uncontained_tools and (args.status or args.dry_run):
         parser.error("--allow-uncontained-tools is saved with the run; it cannot be combined with --status or --dry-run")
     if args.retry_report:
@@ -453,7 +461,7 @@ def _acknowledges_pause(args):
     status = str(state.get("status", "")) if isinstance(state, dict) else ""
     if status == "WAITING_FOR_USER" and any((
             args.retry_builder, args.retry_failed_stage, args.retry_report, args.diagnose_failed_stage,
-            args.grant_recovery is not None, args.accept_transport_change,
+            args.grant_recovery is not None, args.accept_transport_change, args.accept_source_edit,
             args.expected_recovery_token is not None, args._explicit_budget_flags)):
         # Publication changes the status, not the underlying pause. Verify its receipt rather
         # than treating a request's scope label as authority; locked recovery still checks it.

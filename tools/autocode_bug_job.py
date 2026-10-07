@@ -292,10 +292,15 @@ def diagnosis_artifact(state: dict, workspace) -> dict | None:
         probe = report.get("probe", "").strip()
         if probe and not found.get("probe_result"):
             return None
-        expected = (json.dumps({**note(report), "proven_by": probe}, indent=2) + "\n").encode()
-        if target.stat().st_mode & 0o111 or target.read_bytes() != expected:
+        # The note was written from the normalized in-memory report, whose object key order
+        # (and the sorted order a reloaded state.json carries) is not the raw file's order,
+        # so only the note's parsed content has to equal the reconstruction, never its bytes.
+        if target.stat().st_mode & 0o111:
             return None
-        return {"path": report["note_path"], "sha256": hashlib.sha256(expected).hexdigest(),
+        note_bytes = target.read_bytes()
+        if json.loads(note_bytes) != {**note(report), "proven_by": probe}:
+            return None
+        return {"path": report["note_path"], "sha256": hashlib.sha256(note_bytes).hexdigest(),
                 "kind": "runner_written_diagnosis", "output": str(output), "output_hash": found["output_hash"]}
     except (OSError, ValueError, TypeError, KeyError):
         return None

@@ -8,6 +8,7 @@ from copy import deepcopy
 try:
     from .. import autocode_design_job as design_job, autocode_goals as goals, autocode_review_job as review_job
     from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_design_intake as design_intake, autocode_recovery_novelty as novelty
+    from .. import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_verify as verify
     import autocode_launch_inputs as launch_inputs
@@ -17,6 +18,7 @@ except ImportError:
     import autocode_goals as goals
     import autocode_review_job as review_job
     import autocode_recovery_novelty as novelty
+    import autocode_verification_plan as verification_plan
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 
@@ -78,7 +80,8 @@ def prepare(state, stage, state_path, schema_dir):
         schema = deepcopy(request.schema)
         schema["properties"]["recovery_change"] = deepcopy(novelty.CHANGE_SCHEMA)
         request = replace(request, schema=schema)
-        note = novelty.INSTRUCTION
+        # The Completion Reviewer writes the next task's plan, as the Planner and the Resolver do (#185).
+        note = novelty.INSTRUCTION + "\n" + verification_plan.GIT_STATUS_RULE + "\n"
         if progressive_state.enabled(state):
             schema = deepcopy(request.schema)
             schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}
@@ -90,6 +93,12 @@ def prepare(state, stage, state_path, schema_dir):
                     "Otherwise set false and use the ordinary defect/rework/validation decision. COMPLETE "
                     "still requires the whole original product criteria and full user flow proven now.\n")
         prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", note + "\nCURRENT HANDOFF DATA\n", 1)
+        request = replace(request, prompt=prompt,
+                          metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4})
+    if stage == "astra_checkpoint":
+        # Under reviewer routing this decision is applied as the Completion Reviewer's, next_task included.
+        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n",
+                                        "\n" + verification_plan.GIT_STATUS_RULE + "\n\nCURRENT HANDOFF DATA\n", 1)
         request = replace(request, prompt=prompt,
                           metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4})
     if stage == "sol" and state.get("current_task", {}).get("milestone_ids"):

@@ -26,6 +26,8 @@ try:
     from . import autocode_liveness as liveness_policy
     from . import autocode_operational_information as operational_information
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_route_ladder as route_ladder
+    from . import autocode_accepted_source as accepted_source
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -38,6 +40,8 @@ except ImportError:
     import autocode_liveness as liveness_policy
     import autocode_operational_information as operational_information
     import autocode_containment_policy as containment_policy
+    import autocode_route_ladder as route_ladder
+    import autocode_accepted_source as accepted_source
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -86,6 +90,10 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         "evidence": evidence(state),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
+        # How the run's route escalations resolved (autocode_route_ladder): a
+        # validation PASS passed the retried work, a retry-limit pause ended it,
+        # and an open one is still unresolved.
+        "escalation_outcomes": route_ladder.outcome_summary(state),
         "request_context": request_usage.view(state),
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
@@ -345,7 +353,8 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
                                                      `action`, when set, is the one command that
-                                                     continues (a PAUSED_NO_PROGRESS its unchanged-
+                                                     continues (a source-only PAUSED_STALE_HANDOFF:
+                                                     --resume-paused --accept-source-edit; a PAUSED_NO_PROGRESS its unchanged-
                                                      batch limit caused: --resume-paused --no-progress-
                                                      limit N, N above `no_progress_batches`, the
                                                      retained count, or 0; after AutoResolver held
@@ -454,6 +463,12 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need
+        if "action" not in need:
+            # A source-only stale repair names the command that accepts the edit.
+            # Other stale pauses do not.
+            action = accepted_source.resume_action(state)
+            if action:
+                need["action"] = action
         if (status == "PAUSED_NO_PROGRESS" and "action" not in need
                 and recovery_limits.no_progress_bound_holds(state)):
             # A plain resume holds here, also after a consumed response; only a bound

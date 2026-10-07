@@ -88,6 +88,30 @@ class ArenaTests(unittest.TestCase):
         with self.assertRaisesRegex(ArenaError, "oracle changed"):
             self.store.case("greeting")
 
+    def test_checkout_allows_slow_bulk_operations_with_bounded_deadlines(self):
+        run = subprocess.run
+        operations = []
+
+        def bounded_run(command, **kwargs):
+            words = command[3:]
+            bulk = words[0] in ('archive', 'add') or 'commit' in words
+            operations.append((words, kwargs['timeout']))
+            # Simulate bulk work that exceeds metadata's limit without waiting.
+            # The actual small Git transaction still proves the frozen checkout.
+            if bulk and kwargs['timeout'] <= 60:
+                raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+            self.assertEqual(600 if bulk else 60, kwargs['timeout'])
+            return run(command, **kwargs)
+
+        workspace = self.root / 'slow-bulk-checkout'
+        with patch.object(arena.subprocess, 'run', side_effect=bounded_run):
+            arena.checkout(self.repo, self.base, workspace)
+        self.assertEqual(1, int(arena.git(workspace, 'rev-list', '--count', 'HEAD')))
+        self.assertEqual(['archive', 'add', 'commit'],
+                         [next(word for word in words if word in ('archive', 'add', 'commit'))
+                          for words, timeout in operations if timeout == 600])
+        self.assertTrue(any(timeout == 60 for _words, timeout in operations))
+
     def test_vacuous_oracle_rejected(self):
         self.oracle.write_text('print(\'{"checks":[{"name":"greeting","ok":true}]}\')\n')
         result = self.ingest()
@@ -152,7 +176,7 @@ class ArenaTests(unittest.TestCase):
         stop = json.loads(stopped.stdout)
         self.assertEqual("STOPPED", stop["verdict"])
         self.assertEqual("approve_plan", stop["needs"]["kind"])
-        with patch.object(arena, "TaskRun", ScriptedRun):
+        with patch.object(arena, "TaskRun", ScriptedRun), patch.object(arena, 'git', wraps=arena.git) as git_receipts:
             finished = self.call("run", "greeting", "--cohort", "approved-fixture", "--fixture",
                                  "--approve-benchmark-plans")
         self.assertEqual(0, finished.returncode, finished.stdout + finished.stderr)
@@ -162,6 +186,10 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual(2, len(self.store.rows()))
         self.assertTrue((Path(row["workspace"]).parent / "approved-plan.txt").is_file())
         self.assertIn("greet.py", Path(row["patch_path"]).read_text())
+        retained_patch_calls = [call for call in git_receipts.call_args_list
+                                if call.args[1:3] == ('add', '-N') or call.args[1:2] == ('diff',)]
+        self.assertEqual(2, len(retained_patch_calls))
+        self.assertTrue(all(call.kwargs.get('timeout') == 600 for call in retained_patch_calls))
         self.assertEqual("Hello, World\n", subprocess.check_output(
             [sys.executable, str(Path(row["workspace"]) / "greet.py"), "World"], text=True))
 

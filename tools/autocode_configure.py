@@ -25,6 +25,7 @@ try:
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     from . import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
     from . import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
+    from . import autocode_route_ladder as route_ladder
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_figma as figma
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
     import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
+    import autocode_route_ladder as route_ladder
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -299,6 +301,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
             'budget_origins': budget_origins(args),
             "builder_retry": autopilot.builder_policy.configured(getattr(args, 'builder_strong_model', None), provider_mod),
+            # The effort rungs each role may climb, serveability-filtered for a
+            # provider that publishes its models (autocode_route_ladder).
+            "route_ladders": route_ladder.configure_ladders(getattr(provider_mod, 'LISTED_MODELS', None)),
             "orchestration": {"enabled": joint or getattr(args, "max_parallel_builders", None) is not None,
                               "max_parallel": getattr(args, "max_parallel_builders", None) or 2},
             "report_repair": {"max_attempts": 2},
