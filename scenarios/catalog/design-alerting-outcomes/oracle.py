@@ -27,7 +27,9 @@ The checks, those on the document and those on the process alike, read the model
 (regular expressions), so they judge wording, not meaning. Each live run so far surfaced wording they misread
 (the second: "goes from 0 to >0" for the person's "empty to non-empty", "Exactly-once delivery is not
 guaranteed", a blocker asking to verify that Lambda functions can be deployed), and a future one may still: a live
-verdict is read by a person before it is cited.
+verdict is read by a person before it is cited. Each loosening for a live run is held to the failures it must still
+catch (scenarios/test_harness.py, OutcomeQuestionsOracleTests); docs/bugs/2026-10-07-outcome-questions.md lists
+the wordings the patterns are known to misread.
 """
 import json
 import re
@@ -82,8 +84,9 @@ CLAUSES = re.compile(r"[.;:]|,\s*(?:and|but|so|while)\b|\b(?:and|but|while|where
 DEPLOY = re.compile(r"\b(deploy\w*|provision\w*)", re.I)
 NEGATION = re.compile(r"\b(no|not|never|nothing|none|neither|nor|without|cannot)\b|n't\b", re.I)
 NEGATED_AFTER = re.compile(r"\s+(nothing|none)\b|\s+(is|are|was|were|will be)\s+(not|never)\b", re.I)
-GRANT = re.compile(r"\b(may|can|could|will|shall|should|must|allowed to|authori[sz]\w*|permit\w*|lets?|"
-                   r"allow\w*|enables?|grants?|includes?|covers?)\b", re.I)
+GRANT_WORDS = (r"may|can|could|will|shall|should|must|allowed to|authori[sz]\w*|permit\w*|lets?|allow\w*|enables?|"
+               r"grants?|includes?|covers?")
+GRANT = re.compile(rf"\b({GRANT_WORDS})\b", re.I)
 EXCEPTION = re.compile(r"\b(outside|except|other than|apart from)\b", re.I)
 # "The design may recommend deploying an alarm" describes a deployment; it does not permit one.
 DESCRIBED = re.compile(r"\b(recommend\w*|propos\w*|suggest\w*|describ\w*|explain\w*|how to)\b", re.I)
@@ -105,25 +108,51 @@ STATEMENT = re.compile(r"[.;:](?=\s|$)")
 DENIED = re.compile(r"(?:\b(?:no|not|never|nor|neither|without)|n't)\s+(?:[^\s,]+\s+){0,2}$", re.I)
 CONTRAST = re.compile(r"\b(?:rather than|instead of|in place of|in preference to|"
                       r"(?:chosen|preferred|picked|selected|favou?red|recommended) over)\b", re.I)
-# Numbers the person spells out: "above zero", "empty to non-empty", "when it empties" and "none" give 0, "two" gives
-# 2. The brief's own "one option" makes 1 always theirs.
-SPELLED = {"zero": "0", "none": "0", "empty": "0", "empties": "0", "emptied": "0", "one": "1", "two": "2",
-           "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10"}
-SPELLED_NUMBER = re.compile(rf"\b({'|'.join(SPELLED)})\b", re.I)
-# Exactly-once delivery denied rather than promised, read in the clause that mentions it: a negation just before it
-# ("no exactly-once guarantee", "cannot promise exactly-once", "not exactly-once") or one that says it is not
-# promised ("Exactly-once delivery is not guaranteed", "exactly-once cannot be promised").
+# Numbers written as words, up to ninety-nine ("seven", "fifteen", "twenty-five"), in the person's words and in a
+# rule alike. The person's "empty to non-empty" and "when it empties" give 0 as well; a passing "none" ("Other
+# constraints: none") gives nothing. The brief's own "one option" makes 1 always theirs.
+UNITS = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+         "seventeen eighteen nineteen").split()
+TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+NUMBER_WORD = re.compile(rf"\b(?:({'|'.join(TENS)})(?:[- ]({'|'.join(UNITS[1:10])}))?|({'|'.join(UNITS)}))\b", re.I)
+EMPTY = re.compile(r"\bempt(?:y|ies|ied)\b", re.I)
+# Exactly-once delivery denied rather than promised, read in the clause that mentions it: a negation before it with
+# only words that deny a promise of it between ("no exactly-once guarantee", "no guarantee of exactly-once", "cannot
+# be guaranteed to be exactly-once", "not exactly-once"), or one after it that says it is not promised
+# ("Exactly-once delivery is not guaranteed", "exactly-once cannot be promised"). A negation of anything else ("never
+# break exactly-once", "without duplicates thanks to exactly-once") leaves the promise standing.
 EXACTLY_ONCE = re.compile(r"\bexactly[- ]once\b", re.I)
-DENIED_BEFORE = re.compile(r"(?:\b(?:no|not|never|cannot|without)|n't)\s+(?:[^\s,]+\s+){0,3}$", re.I)
+DENIED_BEFORE = re.compile(r"(?:\b(?:no|not|never|cannot|without)|n't)\s+"
+                           r"(?:(?:a|an|the|any|be|been|is|of|to|able|truly|strict(?:ly)?|guarantee\w*|promise\w*|"
+                           r"offer\w*|provid\w*|claim\w*|assum\w*|ensur\w*|achiev\w*|support\w*|enforc\w*|"
+                           r"deliver\w*)\s+){0,4}$", re.I)
 UNPROMISED = re.compile(r"^(?:\s+[\w-]+){0,2}?\s+(?:(?:is|are|will|would|can|could|does|do)(?:\s+not|n't)|cannot|never)"
                         r"\s+(?:be\s+)?(?:guarantee\w*|promise\w*|assured|offered|provided|possible|achieved)\b", re.I)
 # A clause that asks to check whether something can be deployed ("Verification that Lambda functions can be
 # deployed with ...", "Confirm whether the team may deploy") states a fact to check, not a permission. The check
-# governs the permitting word when it comes before it with no comma between ("Verification that IAM is in place,
-# after which you may deploy" still grants); "verified", "confirms" and "checked" report a check, they do not ask
-# for one.
-CHECK = re.compile(r"(?:\b(?:verif(?:y|ication)|check|confirm(?:ation)?|determin(?:e|ation)|validat(?:e|ion)|"
-                   r"ascertain|establish|test|find out)\s+(?:that|whether|if)|\bwhether)\b[^,]*$", re.I)
+# opens its clause (or follows a comma), led at most by who must do it ("The team must", "We need to") or by what
+# still waits on it ("Deployment requires", "Decision on", "It is unclear"; never approval or a permitting word, so
+# "Approval removes what needs confirmation that the Builder may deploy" grants), and governs the permitting word
+# directly: at most six words between, none of them a word that starts another clause, and no comma or such word
+# between the permitting word and "deploy". So "Once you confirm that ... you may deploy", "Approving this design is
+# confirmation that the team may deploy", "We confirm that the team may deploy", "Verify that IAM is in place then
+# the Builder may deploy" and "Verify that you can deploy, then deploy" still grant, and so does a check the clause
+# reports as done ("Confirmation that the team may deploy has been received"); "verified", "confirms" and "checked"
+# report a check, they do not ask for one.
+CONNECTOR = (r"then|so|after|afterwards?|thereafter|once|which|when|whenever|before|until|because|since|thus|"
+             r"therefore|hence")
+CHECK = re.compile(r"(?:^|,)\W*(?:(?:(?:the\s+)?(?:team|builder|we|you)\s+)?(?:(?:still|first|also)\s+)?"
+                   r"(?:must|should|needs?\s+to|ha(?:s|ve)\s+to|to)\s+|"
+                   rf"(?:(?!(?:{CONNECTOR}|approv\w*|{GRANT_WORDS}|or)\b)[\w-]+\s+){{0,4}}?(?:requires?|required|"
+                   r"needs|needed|awaits?|awaiting|pending|depends\s+on|blocked\s+on|outstanding|decision\s+on|"
+                   r"(?:open\s+)?question\s+of|unclear|unknown|uncertain|undecided)\s+)?"
+                   r"(?:(?:verif(?:y|ication)|check|confirm(?:ation)?|determin(?:e|ation)|validat(?:e|ion)|ascertain|"
+                   r"establish|test|find\s+out)\s+(?:that|whether|if)|whether)\s+"
+                   rf"(?:(?!(?:{CONNECTOR}|or)\b)[^\s,]+\s+){{0,6}}$", re.I)
+AFTER_GRANT = re.compile(rf",|\b(?:{CONNECTOR})\b", re.I)
+DONE = re.compile(r"^\s*(?:(?!(?:that|which|who|where|whose|when)\b)[^\s,]+\s+){0,8}?(?:has|have|had|was|were|is|are)"
+                  r"\s+(?:(?:been|now|already)\s+)*(?:given|granted|received|obtained|provided|recorded|attached|"
+                  r"confirmed|verified|established|complete|completed|done|in\s+hand|on\s+file)\b", re.I)
 
 
 def named_mechanisms(text) -> set:
@@ -137,29 +166,39 @@ def identities(text) -> set:
 
 
 def deployment_mentions(text):
-    """Each mention of deploying or provisioning in ``text``: (its clause's text before it, whether it is negated,
-    whether that negation stops at an exception)."""
+    """Each mention of deploying or provisioning in ``text``: (its clause's text before it, the clause's text after
+    it, whether it is negated, whether that negation stops at an exception)."""
     for clause in CLAUSES.split(str(text)):
         for match in DEPLOY.finditer(clause):
             before, after = clause[:match.start()], clause[match.end():]
             negated = bool(NEGATION.search(before) or NEGATED_AFTER.match(after))
-            yield before, negated, negated and bool(EXCEPTION.search(after))
+            yield before, after, negated, negated and bool(EXCEPTION.search(after))
 
 
 def grants_deployment(text) -> bool:
     """Says that something may be deployed or provisioned ("approving this plan lets the Builder deploy …"), not
-    that whether it can be is to be checked."""
-    for before, negated, _ in deployment_mentions(text):
+    that whether it can be is still to be checked."""
+    for before, rest, negated, _ in deployment_mentions(text):
         grants = list(GRANT.finditer(before))
-        if (not negated and grants and not DESCRIBED.search(before[grants[-1].end():])
-                and not CHECK.search(before[:grants[-1].start()])):
-            return True
+        if not negated and grants:
+            asked, after = before[:grants[-1].start()], before[grants[-1].end():]
+            checked = CHECK.search(asked) and not AFTER_GRANT.search(after) and not DONE.match(rest)
+            if not DESCRIBED.search(after) and not checked:
+                return True
     return False
 
 
+def numbers_in(text) -> set:
+    """The numbers ``text`` states: its digits and the numbers it writes as words ("seven", "twenty-five")."""
+    spelled = {TENS[tens.lower()] + (UNITS.index(unit.lower()) if unit else 0) if tens else UNITS.index(word.lower())
+               for tens, unit, word in NUMBER_WORD.findall(text)}
+    return set(re.findall(r"\d+", text)) | {str(number) for number in spelled}
+
+
 def numbers_given(words) -> set:
-    """The numbers in ``words``: its digits and the small numbers it spells out."""
-    return set(re.findall(r"\d+", words)) | {SPELLED[word.lower()] for word in SPELLED_NUMBER.findall(words)}
+    """The numbers the person gave in ``words``: those it states, and 0 for an empty queue ("empty to non-empty",
+    "when it empties")."""
+    return numbers_in(words) | ({"0"} if EMPTY.search(words) else set())
 
 
 def promises_exactly_once(text) -> bool:
@@ -175,7 +214,7 @@ def approval_denies_deployment(text) -> bool:
     """A line about approval that says nothing is deployed or provisioned ("Approving this plan deploys
     nothing"), as opposed to the person's own "do not deploy anything" repeated back."""
     return bool(APPROVAL.search(str(text))) and any(negated and not excepted
-                                                    for _, negated, excepted in deployment_mentions(text))
+                                                    for _, _, negated, excepted in deployment_mentions(text))
 
 
 def offers_mechanism(row) -> bool:
@@ -275,7 +314,7 @@ def document_checks(design, words):
     checks = []
     rules = [row for row in design.get("outcome_rules") or [] if isinstance(row, dict)]
     theirs = [row for row in rules if row.get("source") == "user"]
-    invented = sorted({number for row in theirs for number in re.findall(r"\d+", str(row.get("rule", "")))}
+    invented = sorted({number for row in theirs for number in numbers_in(str(row.get("rule", "")))}
                       - numbers_given(words))
     checks.append(Check("outcome_rules_are_the_persons", bool(theirs) and not invented,
                         f"numbers the person never gave: {invented}" if invented else

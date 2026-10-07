@@ -1156,7 +1156,10 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
                  "account.", "Do not provision anything outside us-east-1."],
                 ["Alerts never include message bodies, and approving this plan lets the Builder deploy the alarm and "
                  "AWS Chatbot."],
-                [self.provider["NO_DEPLOYMENT"], "Approving this plan lets the Builder deploy the alarm."]):
+                [self.provider["NO_DEPLOYMENT"], "Approving this plan lets the Builder deploy the alarm."],
+                # A declaration that a deployment is allowed, worded as a confirmation, still grants it.
+                [self.provider["NO_DEPLOYMENT"],
+                 "Approving this plan is confirmation that the Builder may deploy the CloudWatch alarm."]):
             with self.subTest(constraints=constraints):
                 record = self.passing()
                 record["view"]["approved_contract"]["body"]["constraints"] = constraints
@@ -1408,28 +1411,51 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
             return mutate
 
         def answered_without_zero(record, design):
+            # A passing "none" is no number: it does not make the design's 0 the person's.
             record["answers"][0]["answer"] = ("Alert when a message arrives in the DLQ, re-alert at a configurable "
                                               "interval while messages remain, and send a recovery notice when they "
-                                              "are gone.")
+                                              "are gone. Other constraints: none.")
         for mutate, invented in ((rule(1, "Re-alert every 15 minutes while the DLQ depth stays above zero"), "15"),
                                  (rule(0, "Alert when the DLQ holds 2 or more messages"), "2"),
-                                 (answered_without_zero, "0")):
+                                 (answered_without_zero, "0"),
+                                 # A rule's numbers count in words too, past ten as well.
+                                 (rule(1, "Re-alert every seven minutes while the DLQ depth stays above zero"), "7"),
+                                 (rule(1, "Re-alert every fifteen minutes while the DLQ depth stays above zero"), "15"),
+                                 (rule(1, "Re-alert every twenty-five minutes while the DLQ depth stays above zero"),
+                                  "25")):
             with self.subTest(invented=invented):
                 self.assertEqual({"outcome_rules_are_the_persons": f"numbers the person never gave: ['{invented}']"},
                                  self.failing_live_b(mutate))
+        # A rule may spell out a number the person gave as digits ("about 5 minutes").
+        self.assertEqual({}, self.failing_live_b(rule(1, "Re-alert every five minutes while the DLQ depth stays "
+                                                         "above zero")))
 
     def test_a_statement_that_exactly_once_is_not_guaranteed_promises_nothing(self):
         # Each mention of exactly-once is read in its own clause: one that denies it promises nothing, and a denial
         # elsewhere excuses no promise.
+        # A negation denies exactly-once only through words that deny a promise of it ("no guarantee of", "cannot
+        # be guaranteed to be"); one that governs something else ("never break", "without duplicates thanks to")
+        # leaves the promise standing.
         promises = {"reliability_promises_follow_the_persons_decisions": "promises exactly-once delivery"}
         for text, failing in (
                 ("Exactly-once delivery is not guaranteed.", {}),
                 ("There is no exactly-once guarantee, and exactly-once cannot be promised.", {}),
                 ("Delivery is at-least-once, not exactly-once.", {}),
+                ("There is no guarantee of exactly-once delivery.", {}),
+                ("Delivery cannot be guaranteed to be exactly-once.", {}),
+                ("Slack does not support exactly-once delivery.", {}),
+                ("We are not able to guarantee exactly-once delivery.", {}),
                 ("Each alert reaches Slack exactly once.", promises),
                 ("Exactly-once delivery is guaranteed by the dedupe key.", promises),
                 ("Exactly-once delivery is not guaranteed by Slack, but the dedupe key makes every alert arrive "
-                 "exactly once.", promises)):
+                 "exactly once.", promises),
+                ("Retries never break exactly-once delivery, because the dedupe key drops repeats in Slack.", promises),
+                ("Alerts reach Slack without duplicates thanks to exactly-once delivery.", promises),
+                ("We do not compromise on exactly-once delivery.", promises),
+                ("Duplicates are not possible with exactly-once delivery.", promises),
+                ("Alerts are never duplicated under exactly-once semantics.", promises),
+                ("Delivery (never lossy) is exactly-once.", promises),
+                ("Not at-least-once – exactly-once.", promises)):
             with self.subTest(text=text):
                 def mutate(record, design):
                     design["reliability"]["delivery"] = ("The notifier Lambda retries with exponential backoff, "
@@ -1437,20 +1463,34 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
                 self.assertEqual(failing, self.failing_live_b(mutate))
 
     def test_a_blocker_that_asks_to_verify_a_deployment_grants_none(self):
-        # Whether something can be deployed is a fact to check, not a permission. A grant still fails in the note and
-        # in a blocker, after a check or beside one.
+        # Whether something can be deployed is a fact to check, not a permission: the check opens its clause (who
+        # must do it, or what still waits on it, may lead into it: "The team must verify", "Deployment requires
+        # verification", "It is unclear whether") and governs the permitting word directly. A grant still fails in
+        # the note and in a blocker, after a check, beside one, or past a word that starts another clause ("then",
+        # "so", "after which", "or").
         def blocker(text):
             def mutate(record, design):
                 design["open_blockers"].append(text)
+            mutate.text = text
             return mutate
 
         def note(text):
             def mutate(record, design):
                 design["deployment"]["note"] += " " + text
+            mutate.text = text
             return mutate
         for mutate in (blocker("Confirm whether the team may deploy Lambda functions in the pipeline account."),
-                       blocker("Check that the pipeline account can provision SNS topics.")):
-            self.assertEqual({}, self.failing_live_b(mutate))
+                       blocker("Check that the pipeline account can provision SNS topics."),
+                       blocker("Requires confirmation that the notifier Lambda can be deployed in the pipeline "
+                               "account."),
+                       blocker("Decision on whether the pipeline account can provision SNS topics."),
+                       blocker("The team must verify that the notifier Lambda can be deployed with its IAM role."),
+                       blocker("Deployment requires verification that IAM permissions allow the Builder to provision "
+                               "the SNS topic."),
+                       blocker("It is unclear whether the pipeline account can provision SNS topics."),
+                       blocker("Before deploying, verify that the team can deploy Lambda functions in the account.")):
+            with self.subTest(text=mutate.text):
+                self.assertEqual({}, self.failing_live_b(mutate))
         for mutate in (note("Approving this design lets the team deploy the alarm and the notifier Lambda."),
                        blocker("Once the IAM permissions are verified, you may deploy the Lambda functions."),
                        blocker("This design authorizes provisioning the CloudWatch alarm and the SNS topic."),
@@ -1458,9 +1498,26 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
                        blocker("Verification that IAM permissions are in place, after which the team may deploy the "
                                "Lambda functions."),
                        blocker("Verification that Lambda functions can be deployed with sufficient IAM permissions; "
-                               "approval lets the Builder deploy them.")):
+                               "approval lets the Builder deploy them."),
+                       # Review of the check above: a check that does not open the clause, or that a connector
+                       # separates from the permitting word, governs nothing.
+                       note("Once you confirm that the webhook secret exists you may deploy the alarm and the "
+                            "notifier."),
+                       note("Approving this design is confirmation that the team may deploy the CloudWatch alarm."),
+                       note("Whether the review passes or fails the team may deploy the alarm."),
+                       note("Approval will establish that the Builder can provision the SNS topic."),
+                       blocker("Verify that IAM permissions are in place then the Builder may deploy the Lambda "
+                               "functions."),
+                       blocker("Verify that you can deploy, then deploy the Lambda functions."),
+                       blocker("Verification that IAM permissions are in place after which the team may deploy the "
+                               "Lambda functions."),
+                       blocker("Check that the account is ready so approval lets the Builder deploy the stack."),
+                       # Nor does a check that someone states rather than must still do, or that is reported done.
+                       note("We confirm that the team may deploy the CloudWatch alarm."),
+                       note("Approval removes what needs confirmation that the Builder may deploy the alarm."),
+                       blocker("Confirmation that the team may deploy the CloudWatch alarm has been received.")):
             failing = self.failing_live_b(mutate)
-            with self.subTest(failing=failing):
+            with self.subTest(text=mutate.text, failing=failing):
                 self.assertEqual(["design_authorizes_no_deployment"], list(failing))
                 self.assertIn("grants deployment", failing["design_authorizes_no_deployment"])
 
