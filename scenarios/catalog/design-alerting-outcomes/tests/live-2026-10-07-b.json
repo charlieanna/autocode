@@ -1,0 +1,374 @@
+{
+  "about": "A second live run of this scenario on 2026-10-07 (AutoCode 2ac5b57; every stage on a live model, the driver answering each question with the model's own proposed default). Its planning followed the outcome-question rules as well, yet the oracle of that commit scored it FALSE_COMPLETE 16/19 through three false negatives (docs/bugs/2026-10-07-outcome-questions.md). Kept: the run record's fields the oracle reads (the approved plan's fields only) and the delivered design/alerting.json, verbatim.",
+  "record": {
+    "status": "TASK_COMPLETE",
+    "view": {
+      "workflow": "design",
+      "approved_contract": {
+        "body": {
+          "technical_approach": [
+            "Write design/alerting.json by hand as a design record. Add no code, scripts or tests, and make no AWS or Slack calls.",
+            "Metrics: use SQS CloudWatch metrics ApproximateNumberOfMessagesVisible (depth) and ApproximateAgeOfOldestMessage (age). Options: CloudWatch metrics (recommended, no custom code), polling the queue attributes API (extra IAM and polling), or an EventBridge-based approach (not natively available for SQS depth).",
+            "Alarm: a CloudWatch alarm on depth > 0 (recommended; transitions give the empty to non-empty and recovery events). Alternative: a custom polling Lambda with its own state.",
+            "Slack path: alarm to SNS to a notifier Lambda to a Slack incoming webhook (recommended; controls content so no payloads leak, and controls retries). Alternative: AWS Chatbot, which has less control over duplicates and content. Q3 mandates no integration, so binding_constraint is false.",
+            "Re-alert: an EventBridge Scheduler rule at the configured interval invokes the notifier, which checks depth and posts only while depth is above zero. Alternative: repeat alarm actions, which do not give a custom interval.",
+            "Delivery: Lambda and SNS retries with a failed-notification queue, giving at-least-once delivery. Duplicates are accepted per Q2. Exactly-once is not promised.",
+            "Latency: stated as a healthy-path target of about 5 minutes, not a guarantee, because of CloudWatch metric granularity and Slack or AWS outages.",
+            "Parameters carry channel, webhook secret reference, queue name, account, region, intervals and thresholds."
+          ],
+          "accepted_assumptions": [
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "The deliverable is a design file only, so deployment.authorized is recorded as false; no deployment is performed or authorized by this task."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "Mechanism choices (queue metrics, alarm/notification path, Slack integration method) are agent_proposed and non-binding since the user named none."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "Slack channel, queue names, AWS account/region and thresholds are modelled as parameters."
+            },
+            {
+              "answer_id": "Q1",
+              "basis": "user_answer",
+              "text": "Alert when the DLQ goes from empty to non-empty, re-alert at a configurable interval while depth stays above zero, and send a recovery notice when it empties."
+            },
+            {
+              "answer_id": "Q2",
+              "basis": "user_answer",
+              "text": "Prefer a possible duplicate over a missed alert (at-least-once); latency is a healthy-path target of about 5 minutes, not a guarantee."
+            },
+            {
+              "answer_id": "Q3",
+              "basis": "user_answer",
+              "text": "No mandated integration; alerts include only queue name, depth, age and message count, with no order payloads."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "Recommended mechanisms: SQS CloudWatch metrics (ApproximateNumberOfMessagesVisible, ApproximateAgeOfOldestMessage), a CloudWatch alarm, SNS, and a notifier Lambda posting to a Slack incoming webhook. The webhook URL is held in a secret referenced by a parameter. A scheduled re-alert drives the repeat interval."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "The DLQ is an Amazon SQS queue; this is also listed as an open blocker until confirmed."
+            }
+          ],
+          "delegated_decisions": [],
+          "constraints": [
+            "Only design/alerting.json is delivered; no other deliverable files.",
+            "Design only: no deployment or AWS/Slack side effects.",
+            "Platform is AWS (order pipeline DLQ) and alert destination is Slack, as stated by the user.",
+            "Mechanism choices are not the user's unless the user names them; none named so far.",
+            "Approving this plan deploys nothing, provisions nothing and calls no external service (AWS or Slack)."
+          ],
+          "permission_boundaries": [
+            "Write only design/alerting.json; no network, no AWS or Slack calls, no writes outside the workspace."
+          ]
+        }
+      }
+    },
+    "stages": [
+      "recognize_workflow",
+      "review_design",
+      "requirements_gather",
+      "requirements_gather_report_repair",
+      "requirements_gather_report_repair",
+      "astra_discovery",
+      "astra_discovery",
+      "astra_challenge",
+      "orchestrator",
+      "terra",
+      "resolver",
+      "terra_report_repair",
+      "sol",
+      "astra_review",
+      "astra_resolve",
+      "orchestrator",
+      "terra",
+      "sol",
+      "astra_review"
+    ],
+    "answers": [
+      {
+        "id": "Q1",
+        "question": "What should count as 'something goes wrong' on the DLQ: any message arriving, backlog depth above a threshold, oldest-message age above a limit, or a rate spike? Should alerts also fire on recovery, and should they repeat while the queue stays non-empty?",
+        "why": "Determines the outcome rules, which are the core of the design.",
+        "options": [
+          "Any message arrives in the DLQ",
+          "Depth above a threshold",
+          "Oldest message age above a limit",
+          "Combination"
+        ],
+        "answer": "Alert when the DLQ goes from empty to non-empty, re-alert at a configurable interval while depth stays above zero, and send a recovery notice when it empties."
+      },
+      {
+        "id": "Q2",
+        "question": "After an uncertain Slack delivery result, which is worse: a duplicate alert or a missed one? And is the expected time-to-alert a healthy-path target or an unconditional guarantee?",
+        "why": "Retrying may duplicate, not retrying may miss; an unconditional latency guarantee cannot be supported across Slack/AWS outages.",
+        "options": [
+          "Prefer duplicates (retry)",
+          "Prefer no duplicates (may miss)",
+          "Healthy-path latency target",
+          "Unconditional guarantee"
+        ],
+        "answer": "Prefer a possible duplicate over a missed alert (at-least-once); latency is a healthy-path target of about 5 minutes, not a guarantee."
+      },
+      {
+        "id": "Q3",
+        "question": "Are there organizational or data-handling constraints: an existing Slack integration or approved services that must be used, restrictions on AWS account/region, and may order message contents or identifiers be included in Slack alerts?",
+        "why": "Binding constraints and privacy limits change which mechanisms are allowed and what the alert may contain.",
+        "options": [
+          "No constraints; agent recommends",
+          "Must use a specific existing integration or service",
+          "Alerts must exclude order contents/PII"
+        ],
+        "answer": "No mandated integration; alerts include only queue name, depth, age and message count, with no order payloads."
+      }
+    ],
+    "cli_calls": [
+      "start",
+      "answer",
+      "resume",
+      "approve-plan",
+      "resume"
+    ],
+    "steps": [
+      {
+        "kind": "start",
+        "exit": 2
+      },
+      {
+        "kind": "answer",
+        "exit": 0
+      },
+      {
+        "kind": "resume",
+        "exit": 2
+      },
+      {
+        "kind": "approve-plan",
+        "exit": 0
+      },
+      {
+        "kind": "resume",
+        "exit": 0
+      }
+    ]
+  },
+  "design": {
+    "outcome_rules": [
+      {
+        "rule": "Alert when the DLQ transitions from empty to non-empty (ApproximateNumberOfMessagesVisible goes from 0 to >0)",
+        "source": "user"
+      },
+      {
+        "rule": "Re-alert at a configurable interval while the DLQ depth stays above zero",
+        "source": "user"
+      },
+      {
+        "rule": "Send a recovery notice when the DLQ empties (depth returns to 0)",
+        "source": "user"
+      },
+      {
+        "rule": "Prefer a possible duplicate alert over a missed alert when delivery is uncertain",
+        "source": "user"
+      },
+      {
+        "rule": "Alerts include only queue name, depth, oldest-message age, and message count; no order message payloads or identifiers",
+        "source": "user"
+      },
+      {
+        "rule": "Alert messages are sent to a configured Slack channel via webhook",
+        "source": "agent_proposed"
+      }
+    ],
+    "mechanisms": [
+      {
+        "choice": "Queue metrics source for detecting DLQ depth and message age",
+        "options": [
+          {
+            "name": "CloudWatch Metrics",
+            "tradeoffs": "Native AWS service; automatic collection; minimal operational burden; no custom code needed. Metrics are sampled at 1-minute intervals, contributing to latency."
+          },
+          {
+            "name": "Direct SQS API polling",
+            "tradeoffs": "Finer control over polling frequency and exact message retrieval; requires Lambda/EC2 to poll; adds operational complexity and IAM scope."
+          },
+          {
+            "name": "EventBridge Pipe with SQS as source",
+            "tradeoffs": "Event-driven approach; does not natively expose queue depth metrics; would require custom transformation logic."
+          }
+        ],
+        "recommended": "CloudWatch Metrics",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Detection and alarm mechanism for DLQ state transitions",
+        "options": [
+          {
+            "name": "CloudWatch Alarm on depth metric",
+            "tradeoffs": "Native AWS; responds to metric state changes (empty-to-non-empty, recovery); clear separation from notification logic. Re-alert requires separate scheduling."
+          },
+          {
+            "name": "Custom polling Lambda with state machine",
+            "tradeoffs": "Full control over detection logic and state; adds complexity; requires separate storage for state; higher operational overhead."
+          },
+          {
+            "name": "EventBridge rule on SQS message arrival",
+            "tradeoffs": "Responds to individual message events, not depth transitions; does not natively distinguish empty-to-non-empty from ongoing depth; less aligned with user intent."
+          }
+        ],
+        "recommended": "CloudWatch Alarm on depth metric",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Notification path from alarm to Slack",
+        "options": [
+          {
+            "name": "SNS + Lambda + Slack incoming webhook",
+            "tradeoffs": "Decoupled architecture; Lambda controls message content so no payloads leak; Lambda can retry with exponential backoff; webhook URL stored in Secrets Manager. Requires Lambda IAM and webhook management."
+          },
+          {
+            "name": "AWS Chatbot direct integration",
+            "tradeoffs": "No Lambda code needed; AWS manages the integration. Less control over message format, retry logic, and duplicate handling; higher risk of payload leakage if alarm includes order data."
+          },
+          {
+            "name": "SNS to SQS to custom notifier service",
+            "tradeoffs": "More durable; custom service has full control. Adds operational burden of running and monitoring a separate service."
+          }
+        ],
+        "recommended": "SNS + Lambda + Slack incoming webhook",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Re-alert scheduling while DLQ depth remains above zero",
+        "options": [
+          {
+            "name": "EventBridge Scheduler rule at configurable interval",
+            "tradeoffs": "Managed service; precise interval control; no polling overhead. Notifier Lambda checks current depth before posting; if depth is 0, no alert is sent."
+          },
+          {
+            "name": "CloudWatch alarm repeat actions with alarm history",
+            "tradeoffs": "Less flexible interval control; alarm repetition is tied to state. Difficult to customize re-alert cadence independently."
+          },
+          {
+            "name": "Lambda scheduled via EventBridge rule + custom state tracking",
+            "tradeoffs": "Full control; requires DynamoDB or similar for state tracking; higher complexity."
+          }
+        ],
+        "recommended": "EventBridge Scheduler rule at configurable interval",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Retry and delivery assurance for uncertain Slack delivery",
+        "options": [
+          {
+            "name": "Lambda retry with exponential backoff; accept possible duplicates (at-least-once)",
+            "tradeoffs": "Simple to implement; guarantees at-least-once delivery; duplicates are accepted per Q2; no idempotency tracking. Matches user's stated preference."
+          },
+          {
+            "name": "SNS + SQS DLQ + idempotency tracking with DynamoDB",
+            "tradeoffs": "Exactly-once guarantee; significantly more complex; higher operational burden; not aligned with user Q2 preference for simplicity."
+          },
+          {
+            "name": "Fire-and-forget (no retry)",
+            "tradeoffs": "Simplest; no duplicates; may miss alerts if Slack or Lambda network hiccup. Violates Q2 preference for duplicates over misses."
+          }
+        ],
+        "recommended": "Lambda retry with exponential backoff; accept possible duplicates (at-least-once)",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      }
+    ],
+    "parameters": [
+      {
+        "name": "slack_channel",
+        "description": "The target Slack channel name or ID where DLQ alerts are posted (e.g., #order-pipeline-alerts)"
+      },
+      {
+        "name": "slack_webhook_secret_reference",
+        "description": "AWS Secrets Manager secret name or ARN containing the Slack incoming webhook URL for posting alerts"
+      },
+      {
+        "name": "dlq_queue_name",
+        "description": "Name of the Amazon SQS dead-letter queue to monitor (e.g., order-pipeline-dlq)"
+      },
+      {
+        "name": "aws_account_id",
+        "description": "AWS account ID where the DLQ and CloudWatch alarm are deployed"
+      },
+      {
+        "name": "aws_region",
+        "description": "AWS region where the DLQ and supporting resources are located (e.g., us-east-1)"
+      },
+      {
+        "name": "re_alert_interval_minutes",
+        "description": "How often to re-alert (in minutes) while the DLQ depth remains above zero (e.g., 15 for every 15 minutes)"
+      },
+      {
+        "name": "latency_target_seconds",
+        "description": "Desired time-to-alert in seconds for the healthy-path case (e.g., 300 for ~5 minutes)"
+      }
+    ],
+    "open_blockers": [
+      "Confirmation that the order pipeline DLQ is implemented as an Amazon SQS queue and accessible via CloudWatch metrics",
+      "Confirmation of Slack workspace and team's ability to create and manage incoming webhooks",
+      "Decision on whether the DLQ already exists or needs to be created as part of the order pipeline setup",
+      "Verification that Lambda functions can be deployed with sufficient IAM permissions for CloudWatch, SNS, and Secrets Manager access"
+    ],
+    "reliability": {
+      "delivery": "On an uncertain delivery result (e.g., Slack API returns 5xx or timeout), the notifier Lambda retries with exponential backoff, accepting a possible duplicate alert rather than risking a missed alert (at-least-once delivery). Exactly-once delivery is not guaranteed due to the inherent limitations of distributed systems and the user's stated preference for duplicates over misses.",
+      "latency": {
+        "target": "In the healthy path, alerts reach Slack within approximately 5 minutes of the DLQ transitioning to non-empty. This is driven by CloudWatch metric granularity (1-minute samples) and AWS API response times. This is a healthy-path target, not a guarantee; it can be exceeded during CloudWatch, SNS, Lambda or Slack degradation or outage.",
+        "kind": "healthy_path_target"
+      }
+    },
+    "assumptions": [
+      {
+        "text": "Alert when the DLQ goes from empty to non-empty, re-alert at a configurable interval while depth stays above zero, and send a recovery notice when it empties.",
+        "basis": "user_answer"
+      },
+      {
+        "text": "Prefer a possible duplicate over a missed alert (at-least-once); latency is a healthy-path target of about 5 minutes, not a guarantee.",
+        "basis": "user_answer"
+      },
+      {
+        "text": "No mandated integration; alerts include only queue name, depth, age and message count, with no order payloads.",
+        "basis": "user_answer"
+      },
+      {
+        "text": "The order pipeline DLQ is an Amazon SQS queue accessible via CloudWatch metrics.",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "The recommended architecture uses CloudWatch metrics, a CloudWatch alarm, SNS, a notifier Lambda, and Slack incoming webhooks.",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "EventBridge Scheduler manages re-alert timing at the configured interval while the notifier checks depth before posting.",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "Slack webhook URL is stored in AWS Secrets Manager and referenced by parameter rather than hard-coded.",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "This design document does not authorize, deploy, provision, or configure any AWS resources, Lambda functions, SNS topics, CloudWatch alarms, or Slack integrations. No AWS API calls or Slack webhook interactions occur during design authoring.",
+        "basis": "agent_proposed"
+      }
+    ],
+    "deployment": {
+      "authorized": false,
+      "note": "This is a design document only. No AWS resources, Lambda functions, CloudWatch alarms, SNS topics, Slack webhooks, or any other infrastructure are deployed, provisioned, or configured by this task. No AWS API calls are made; no Slack notifications are sent. The design must be reviewed and approved before any deployment occurs."
+    }
+  }
+}

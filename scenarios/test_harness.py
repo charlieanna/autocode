@@ -1364,6 +1364,88 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         self.assertEqual({"assumptions_are_explicit": "recommendations not stated as proposed assumptions: "
                                                       "['Slack incoming webhook']"}, self.failing_document(design))
 
+    # A second live run (2026-10-07, on the commit that passed the first) that followed the rules as well. The
+    # oracle of that commit failed it on three checks that misread its words: the design's "goes from 0 to >0" for
+    # the person's "empty to non-empty", "Exactly-once delivery is not guaranteed", and a blocker asking to verify
+    # that Lambda functions can be deployed. Each test below also keeps the failure that check exists to catch.
+    def failing_live_b(self, mutate=None):
+        """The failing checks of the second live run, with their details, after ``mutate`` changes its copy."""
+        live = json.loads((self.scenario.dir / "tests" / "live-2026-10-07-b.json").read_text())
+        if mutate:
+            mutate(live["record"], live["design"])
+        oracle_module = self.scenario._oracle_module()
+        words = oracle_module.person_words(self.scenario, live["record"])
+        checks = oracle_module.document_checks(live["design"], words) + oracle_module.process_checks(live["record"])
+        return {check.name: check.detail for check in checks if not check.ok}
+
+    def test_the_second_live_run_that_followed_the_rules_passes(self):
+        self.assertEqual({}, self.failing_live_b())
+
+    def test_a_number_the_person_gave_in_words_is_theirs(self):
+        # "Empty to non-empty", "above zero" and "when it empties" give the design's 0. A threshold the person never
+        # gave still fails, a small one too, and so does 0 once their answer says none of those words.
+        def rule(index, text):
+            def mutate(record, design):
+                design["outcome_rules"][index]["rule"] = text
+            return mutate
+
+        def answered_without_zero(record, design):
+            record["answers"][0]["answer"] = ("Alert when a message arrives in the DLQ, re-alert at a configurable "
+                                              "interval while messages remain, and send a recovery notice when they "
+                                              "are gone.")
+        for mutate, invented in ((rule(1, "Re-alert every 15 minutes while the DLQ depth stays above zero"), "15"),
+                                 (rule(0, "Alert when the DLQ holds 2 or more messages"), "2"),
+                                 (answered_without_zero, "0")):
+            with self.subTest(invented=invented):
+                self.assertEqual({"outcome_rules_are_the_persons": f"numbers the person never gave: ['{invented}']"},
+                                 self.failing_live_b(mutate))
+
+    def test_a_statement_that_exactly_once_is_not_guaranteed_promises_nothing(self):
+        # Each mention of exactly-once is read in its own clause: one that denies it promises nothing, and a denial
+        # elsewhere excuses no promise.
+        promises = {"reliability_promises_follow_the_persons_decisions": "promises exactly-once delivery"}
+        for text, failing in (
+                ("Exactly-once delivery is not guaranteed.", {}),
+                ("There is no exactly-once guarantee, and exactly-once cannot be promised.", {}),
+                ("Delivery is at-least-once, not exactly-once.", {}),
+                ("Each alert reaches Slack exactly once.", promises),
+                ("Exactly-once delivery is guaranteed by the dedupe key.", promises),
+                ("Exactly-once delivery is not guaranteed by Slack, but the dedupe key makes every alert arrive "
+                 "exactly once.", promises)):
+            with self.subTest(text=text):
+                def mutate(record, design):
+                    design["reliability"]["delivery"] = ("The notifier Lambda retries with exponential backoff, "
+                                                         f"accepting a possible duplicate alert. {text}")
+                self.assertEqual(failing, self.failing_live_b(mutate))
+
+    def test_a_blocker_that_asks_to_verify_a_deployment_grants_none(self):
+        # Whether something can be deployed is a fact to check, not a permission. A grant still fails in the note and
+        # in a blocker, after a check or beside one.
+        def blocker(text):
+            def mutate(record, design):
+                design["open_blockers"].append(text)
+            return mutate
+
+        def note(text):
+            def mutate(record, design):
+                design["deployment"]["note"] += " " + text
+            return mutate
+        for mutate in (blocker("Confirm whether the team may deploy Lambda functions in the pipeline account."),
+                       blocker("Check that the pipeline account can provision SNS topics.")):
+            self.assertEqual({}, self.failing_live_b(mutate))
+        for mutate in (note("Approving this design lets the team deploy the alarm and the notifier Lambda."),
+                       blocker("Once the IAM permissions are verified, you may deploy the Lambda functions."),
+                       blocker("This design authorizes provisioning the CloudWatch alarm and the SNS topic."),
+                       blocker("This design confirms that the team may deploy the Lambda functions."),
+                       blocker("Verification that IAM permissions are in place, after which the team may deploy the "
+                               "Lambda functions."),
+                       blocker("Verification that Lambda functions can be deployed with sufficient IAM permissions; "
+                               "approval lets the Builder deploy them.")):
+            failing = self.failing_live_b(mutate)
+            with self.subTest(failing=failing):
+                self.assertEqual(["design_authorizes_no_deployment"], list(failing))
+                self.assertIn("grants deployment", failing["design_authorizes_no_deployment"])
+
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
     def setUp(self):

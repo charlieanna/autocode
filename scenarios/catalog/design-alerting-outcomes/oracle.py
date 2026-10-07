@@ -21,10 +21,13 @@ grants no deployment.
 The person's answers exist only under ``--fake`` (``[fake] answers``): a live run answers each question with
 the model's own proposed default, which need not say "no preference" (an answer to a question about mechanisms
 that no constraint binds them counts as one); without one, no question may put a mechanism to the person at all.
-tests/ keeps a live run that followed the rules (scenarios/test_harness.py reads it).
+tests/ keeps two live runs that followed the rules (scenarios/test_harness.py reads them); both pass every check.
 
-The checks read words (regular expressions), so they judge wording, not meaning: a live verdict is read by a
-person before it is cited.
+The checks, those on the document and those on the process alike, read the model's wording with patterns
+(regular expressions), so they judge wording, not meaning. Each live run so far surfaced wording they misread
+(the second: "goes from 0 to >0" for the person's "empty to non-empty", "Exactly-once delivery is not
+guaranteed", a blocker asking to verify that Lambda functions can be deployed), and a future one may still: a live
+verdict is read by a person before it is cited.
 """
 import json
 import re
@@ -102,6 +105,25 @@ STATEMENT = re.compile(r"[.;:](?=\s|$)")
 DENIED = re.compile(r"(?:\b(?:no|not|never|nor|neither|without)|n't)\s+(?:[^\s,]+\s+){0,2}$", re.I)
 CONTRAST = re.compile(r"\b(?:rather than|instead of|in place of|in preference to|"
                       r"(?:chosen|preferred|picked|selected|favou?red|recommended) over)\b", re.I)
+# Numbers the person spells out: "above zero", "empty to non-empty", "when it empties" and "none" give 0, "two" gives
+# 2. The brief's own "one option" makes 1 always theirs.
+SPELLED = {"zero": "0", "none": "0", "empty": "0", "empties": "0", "emptied": "0", "one": "1", "two": "2",
+           "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10"}
+SPELLED_NUMBER = re.compile(rf"\b({'|'.join(SPELLED)})\b", re.I)
+# Exactly-once delivery denied rather than promised, read in the clause that mentions it: a negation just before it
+# ("no exactly-once guarantee", "cannot promise exactly-once", "not exactly-once") or one that says it is not
+# promised ("Exactly-once delivery is not guaranteed", "exactly-once cannot be promised").
+EXACTLY_ONCE = re.compile(r"\bexactly[- ]once\b", re.I)
+DENIED_BEFORE = re.compile(r"(?:\b(?:no|not|never|cannot|without)|n't)\s+(?:[^\s,]+\s+){0,3}$", re.I)
+UNPROMISED = re.compile(r"^(?:\s+[\w-]+){0,2}?\s+(?:(?:is|are|will|would|can|could|does|do)(?:\s+not|n't)|cannot|never)"
+                        r"\s+(?:be\s+)?(?:guarantee\w*|promise\w*|assured|offered|provided|possible|achieved)\b", re.I)
+# A clause that asks to check whether something can be deployed ("Verification that Lambda functions can be
+# deployed with ...", "Confirm whether the team may deploy") states a fact to check, not a permission. The check
+# governs the permitting word when it comes before it with no comma between ("Verification that IAM is in place,
+# after which you may deploy" still grants); "verified", "confirms" and "checked" report a check, they do not ask
+# for one.
+CHECK = re.compile(r"(?:\b(?:verif(?:y|ication)|check|confirm(?:ation)?|determin(?:e|ation)|validat(?:e|ion)|"
+                   r"ascertain|establish|test|find out)\s+(?:that|whether|if)|\bwhether)\b[^,]*$", re.I)
 
 
 def named_mechanisms(text) -> set:
@@ -125,11 +147,27 @@ def deployment_mentions(text):
 
 
 def grants_deployment(text) -> bool:
-    """Says that something may be deployed or provisioned ("approving this plan lets the Builder deploy …")."""
+    """Says that something may be deployed or provisioned ("approving this plan lets the Builder deploy …"), not
+    that whether it can be is to be checked."""
     for before, negated, _ in deployment_mentions(text):
         grants = list(GRANT.finditer(before))
-        if not negated and grants and not DESCRIBED.search(before[grants[-1].end():]):
+        if (not negated and grants and not DESCRIBED.search(before[grants[-1].end():])
+                and not CHECK.search(before[:grants[-1].start()])):
             return True
+    return False
+
+
+def numbers_given(words) -> set:
+    """The numbers in ``words``: its digits and the small numbers it spells out."""
+    return set(re.findall(r"\d+", words)) | {SPELLED[word.lower()] for word in SPELLED_NUMBER.findall(words)}
+
+
+def promises_exactly_once(text) -> bool:
+    """Some clause of ``text`` says delivery is exactly once, rather than that exactly-once is not promised."""
+    for clause in CLAUSES.split(str(text)):
+        for match in EXACTLY_ONCE.finditer(clause):
+            if not (DENIED_BEFORE.search(clause[:match.start()]) or UNPROMISED.match(clause[match.end():])):
+                return True
     return False
 
 
@@ -238,7 +276,7 @@ def document_checks(design, words):
     rules = [row for row in design.get("outcome_rules") or [] if isinstance(row, dict)]
     theirs = [row for row in rules if row.get("source") == "user"]
     invented = sorted({number for row in theirs for number in re.findall(r"\d+", str(row.get("rule", "")))}
-                      - set(re.findall(r"\d+", words)))
+                      - numbers_given(words))
     checks.append(Check("outcome_rules_are_the_persons", bool(theirs) and not invented,
                         f"numbers the person never gave: {invented}" if invented else
                         ("" if theirs else "no outcome rule is recorded as the person's")))
@@ -291,7 +329,7 @@ def document_checks(design, words):
     reliability = design.get("reliability") if isinstance(design.get("reliability"), dict) else {}
     delivery = str(reliability.get("delivery", ""))
     latency = reliability.get("latency") if isinstance(reliability.get("latency"), dict) else {}
-    exact = bool(re.search(r"exactly[- ]once", delivery, re.I))
+    exact = promises_exactly_once(delivery)
     answered = [str(row.get("text", "")) for row in assumptions if row.get("basis") == "user_answer"]
     # The side of the uncertain-delivery choice the person took: the design must state it and nothing may say
     # the opposite as theirs. Without a decision it must at least say which way an uncertain delivery goes.
