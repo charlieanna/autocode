@@ -565,7 +565,10 @@ def _with_results(framework, command, xml_path, tree=None):
         # Go reports per-test results only as `go test -json` events (a live Go port could not be
         # proven without them, 2026-09-29). The flag goes before the packages, where go test reads it.
         return "go test -json " + command[len("go test "):]
-    return command
+    # Unittest names each test only at -v. A quiet or default command still runs
+    # the same tests; the proof needs those names to tell a passing baseline
+    # from a count with no identities.
+    return python_tests.verbose_unittest(command)
 
 
 def expects_results(framework, command, tree=None):
