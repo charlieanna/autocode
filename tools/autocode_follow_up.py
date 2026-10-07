@@ -35,6 +35,11 @@ State keys written here:
         brief_feedback receipt. previous.wrote is what the finished job left in the workspace: its
         report or note, then every file that differs from the turn's start snapshot; the
         rewritten task names it.
+        A turn that builds the earlier turn's design gains "fresh_plan": {"archived": [state key],
+        "contract": the archived contract's token or None, "findings": [ledger row]}, written once
+        by plan_afresh when the design check passes: the keys it moved to their histories, the
+        contract the build no longer revises, and the open non-blocking findings it took out of
+        findings_ledger. Read by people reading the run state.
     task: rewritten to the follow-up, followed by the earlier request (and what it wrote) as
         context, so every later stage reads what the user now wants. The original request stays
         in turns.
@@ -253,6 +258,43 @@ def design_review_to_revise(state: dict) -> dict | None:
     if design.get("mode") != "review" or workflows.kind(state) != "design":
         return None
     return {**design, "said": turn["say"], "event_id": turn.get("event_id")}
+
+
+# What a build of an earlier turn's design does not inherit: (state key, the existing list it moves to).
+PLANNED_FOR_THE_EARLIER_JOB = (("goal_contract", "contract_history"), ("requirements_handoff", "requirements_history"),
+                               ("planning", "planning_history"), ("current_task", "task_archive"))
+
+
+def plan_afresh(state: dict) -> None:
+    """Plan a follow-up that builds the design an earlier turn produced or approved from that design.
+
+    Called by autocode_design_check_job when its check passes in a follow-up turn (in a follow-up,
+    autocode_workflows.approved_design accepts no other design). The earlier turn's contract,
+    requirements handoff, planning record and task were made for that job: a design turn's contract
+    delivers a document and writes no code. The build does not revise them. They move to their
+    existing histories (PLANNED_FOR_THE_EARLIER_JOB), and the Planner drafts a new contract from the
+    approved design and the user's message, which the user approves as usual, as for a first request
+    to build an approved design.
+
+    The earlier turn's open non-blocking findings were raised against the archived contract's
+    criteria, whose IDs the new contract reuses for other things. They move out of findings_ledger
+    into the turn's ``fresh_plan``, unresolved. A finished turn has no open blocking finding; one
+    that is somehow left stays in the ledger and still blocks. Runs once per turn; a first request
+    has no earlier turn, and nothing moves."""
+    turn = current(state)
+    if not turn or "fresh_plan" in turn:
+        return
+    contract = identity.token(state["goal_contract"]) if state.get("goal_contract") else None
+    archived = []
+    for key, history in PLANNED_FOR_THE_EARLIER_JOB:
+        if state.get(key):
+            state.setdefault(history, []).append(state.pop(key))
+            archived.append(key)
+    ledger = state.get("findings_ledger") or []
+    findings = [row for row in ledger if row.get("status") == "open" and row.get("blocking") is False]
+    if findings:
+        state["findings_ledger"] = [row for row in ledger if not any(row is moved for moved in findings)]
+    turn["fresh_plan"] = {"archived": archived, "contract": contract, "findings": findings}
 
 
 def review_findings(state: dict) -> dict | None:

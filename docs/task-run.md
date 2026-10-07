@@ -118,7 +118,9 @@ approval. The rewritten task names what the previous turn wrote (its report or
 note, then the files its stages changed; at most eight paths). After a design
 turn, a follow-up that asks to build the design names that document, so the
 build starts by checking it against the repository (`check_design`) instead of
-gathering requirements; its plan still needs approval. After a design review, a
+gathering requirements. The build is planned afresh from the design: the design
+turn's contract and requirements move to the run's history rather than being
+revised, and the new plan still needs approval. After a design review, a
 reply to it (an answer, a correction) is recognized as design and the Architect
 revises the same review: concern ids are kept, settled concerns stay as resolved,
 and `review/design-review.json` records every revision
