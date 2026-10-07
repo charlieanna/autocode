@@ -72,7 +72,7 @@ does nothing prints `1 buy milk [open]\n2 walk dog [open]\n`. Master
 `0591e76` refuses it; this rule passes it, as it must pass any correct
 listing of two items. A Plan Reviewer cannot yet ask for an exact listing or
 for an item to be absent; that needs a new observation kind (a manifest
-`VERSION` change) and is not yet tracked in an issue.
+`VERSION` change), tracked in #644.
 A TEXT line must carry a value that a step passed for TEXT itself, so
 a value passed under another placeholder name (say a `rename ID NEW_TEXT`
 command) is refused, as it already was for the bound item.
@@ -146,6 +146,5 @@ refused an `add` that printed the whole list, `1 buy milk [open]\n2 walk dog
 [open]\n`, because it allowed one line only; the per-line rule passes it.
 Ending a clause at the next command changes which declarations such a brief
 has, and so the sealed manifests of its runs already under way, so it needs
-its own change with a plan for those manifests. It is not yet tracked in an
-issue. The catalog brief separates its commands with semicolons and is not
+its own change with a plan for those manifests, tracked in #645. The catalog brief separates its commands with semicolons and is not
 affected.
