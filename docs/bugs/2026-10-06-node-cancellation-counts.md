@@ -24,9 +24,36 @@ audits passed. This verifies the narrow defect, not general model reliability.
 
 Native local controls and regression tests cover restored accounting, healthy
 guards, genuine ordinary bugfix restoration and rejection of cancellation-only
-restoration. Fresh live AFTER completion is still pending. The implementation
-starts from newer master `eb004089`. Its separate integration changes include
-nested provider ownership, invocation interrupt handling, OpenCode 2.x support,
-recovery/replan prompts, unittest counts and ignored-input proof plumbing. The
-AFTER protocol records these differences; this four-file Node fixture uses the
-pinned 1.x provider and has no ignored inputs.
+restoration. The affected gate passed 15 tests and architecture passed four.
+The full fake catalog retained 59 PASS, two ERROR, one existing NOT_EXERCISED
+and one live-Investigator SKIPPED. Separate targeted reruns of both error cases
+passed with unchanged source and caps; these are not a clean full-catalog run.
+
+A fresh native AFTER run on `3fb84405` completed in iteration one with no stop
+reason: nine actual calls and 600.650 active seconds, using the same brief,
+fixture source, model routes and caps. Its current derived Node proof passed,
+crediting only the ordinary restoration assertion as fail-to-pass and the
+healthy existing test as pass-to-pass. The cancelled base case remained a
+nonpassing collection error. The candidate passed three native tests; replay
+of the protected original tests passed two. An independent oracle checked five
+inputs, actual native Promises and immediate fulfillment. Explicit public
+evidence inspection confirmed all five criteria and current full completion.
+All 33 terminal audit checks passed, including raw-stream and process ownership
+checks: all 465 recorded valid native identities were gone, with no unknown
+identities or survivors.
+
+The initial AFTER launch failed before any task or model call because an
+external `inspect.py` observer shadowed the standard library. That failed case
+is preserved; a fresh case renamed the helper and passed import/help checks
+before the qualified run. It did not require an application change.
+
+The implementation starts from newer master `eb004089`, rather than the BEFORE
+runtime. Separate integration changes include nested provider ownership,
+invocation interrupt handling, OpenCode 2.x support, recovery/replan prompts,
+unittest counts and ignored-input proof plumbing. Unchanged newer-master native
+controls reproduced the defect before the parser fix. The fixture trees and
+blobs match, while fresh seed commits differ only in timestamps. The AFTER
+environment was fully pinned; historical BEFORE dependency bytes were not, so
+complete dependency equality is unproven. This four-file fixture uses pinned
+OpenCode 1.18.33 and no ignored inputs. The result qualifies this cancellation
+accounting defect, not every Node failure or general model reliability.
