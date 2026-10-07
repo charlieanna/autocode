@@ -105,7 +105,7 @@
       "repository": "https://github.com/pytest-dev/pytest.git",
       "source": "https://github.com/pytest-dev/pytest/issues/11706",
       "base_commit": "f017df443a589494b0a47488b1616db7c12dc8cd",
-      "reference_commit": "12b9bd580198edf88a795b692cbd6a1a05fe408a",
+      "reference_commit": "4c5298c3954efa71436364efaf531d3851a6aeb4",
       "split": "holdout",
       "checks": [
         "maxfail_module",
@@ -114,13 +114,21 @@
         "stepwise_session",
         "setup_error_cleanup",
         "all_finalizers_reported",
+        "same_fixture_maxfail",
+        "same_fixture_stepwise",
+        "same_fixture_setup",
         "shouldfail_sticky",
         "shouldstop_sticky",
         "normal_fixture_reuse"
       ],
       "issue_ref": "pytest-dev/pytest#11706",
       "tier": "hard",
-      "production_modules_changed": 2
+      "production_modules_changed": 3,
+      "reference_sources": [
+        "https://github.com/pytest-dev/pytest/pull/11721",
+        "https://github.com/pytest-dev/pytest/pull/12048",
+        "https://github.com/pytest-dev/pytest/pull/12279"
+      ]
     }
   ]
 }

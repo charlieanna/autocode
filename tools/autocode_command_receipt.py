@@ -18,7 +18,10 @@ except ImportError:
     import autocode_liveness as liveness
     import autocode_util as util
 
-MAX_RECEIPT_BYTES = 1024 * 1024
+# Indented identity rows for liveness.PROCESS_INVENTORY_LIMIT processes are about 3.6 MiB.
+# The keeper and both readers share this ceiling so a receipt that is written can be loaded.
+# AutoCode's own suite records roughly 8,000 processes and exceeds the old 1 MiB ceiling.
+MAX_RECEIPT_BYTES = 4 * 1024 * 1024
 OWNERSHIP_FIELDS = ('supervision', 'supervision_sha256', 'supervision_errors')
 NORMAL_CAUSES = frozenset({'provider_stopped', 'controller_finished'})
 
@@ -89,6 +92,18 @@ def completed(receipt, *, root=None):
     value = load(receipt['supervision'], root=root, pin=pin)
     return bool(value and value['phase'] == 'stopped' and not value['cleanup_error']
                 and value['cause'] in NORMAL_CAUSES)
+
+
+def encoded_receipt(value):
+    """The bytes ``atomic_json`` writes. The keeper refuses to publish anything larger."""
+    return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+
+
+def within_reader_limit(value):
+    processes = value.get("processes") if isinstance(value, dict) else None
+    if isinstance(processes, list) and len(processes) > liveness.PROCESS_INVENTORY_LIMIT:
+        return False
+    return len(encoded_receipt(value)) <= MAX_RECEIPT_BYTES
 
 
 def cleanup_complete(metadata):
