@@ -184,11 +184,28 @@ class RunnerDiagnosisArtifactTests(unittest.TestCase):
         self.assertNotEqual(str(other.relative_to(self.workspace)), artifact['path'])
 
     def test_modified_or_deleted_note_is_not_classified_as_runner_evidence(self):
-        original = self.note.read_bytes()
-        self.note.write_bytes(original + b' ')
+        rewritten = json.loads(self.note.read_text())
+        rewritten['conclusion'] = 'quietly replaced conclusion'
+        self.note.write_text(json.dumps(rewritten, indent=2) + '\n')
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+        self.note.write_text(self.note.read_text()[:-2] + 'garbage')
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
         self.note.unlink()
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+
+    def test_a_note_with_reordered_keys_is_still_the_runner_note(self):
+        # Live bugfix-trivial run: the raw report's object order differs from the
+        # normalized note (and a reloaded state.json sorts its keys), so the note is
+        # matched by content, never by byte order.
+        from autocode_util import file_hash
+        original = json.loads(self.note.read_text())
+        reordered = {key: original[key] for key in sorted(original, reverse=True)}
+        reordered['test_cases'] = [{k: case[k] for k in sorted(case, reverse=True)}
+                                   for case in original['test_cases']]
+        self.note.write_text(json.dumps(reordered, indent=2) + '\n')
+        artifact = bug_job.diagnosis_artifact(self.state, self.workspace)
+        self.assertEqual(self.report['note_path'], artifact['path'])
+        self.assertEqual(file_hash(self.note), artifact['sha256'])
 
     def test_report_tampering_or_missing_provenance_cannot_exempt_a_note(self):
         self.output.write_text(json.dumps({**self.report, 'root_cause': 'replacement diagnosis'}))
