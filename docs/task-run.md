@@ -257,15 +257,16 @@ copy: `verdict`, `source_revision` and one row per command (`command`,
 validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
 It also carries the runner's own observations of promises a person declared:
 `brief_acceptance` (exact CLI output formats) and `risk_acceptance` (process
-recovery of a declared lease queue or transactional outbox: `verdict`,
-`source_revision`, `summary` and one row per observation with its pinned
-supervisor transcript), each `null` when the request declares none. A failed
+recovery of a declared lease queue or transactional outbox, and a race between
+three interpreters when the request also promises atomicity under contention:
+`verdict`, `source_revision`, `summary` and one row per observation with its
+pinned supervisor transcript), each `null` when the request declares none. A failed
 `risk_acceptance` makes the replay's `verdict` `FAIL` even though the Tester's
 own checks passed (see [Execution](execution.md#process-recovery-proof-for-declared-lifecycle-apis)).
 Each `findings` row also has `source`: `sol` (Tester), `astra` (Completion
 Reviewer) or `runner` (a failed runner lifecycle observation, which only the
 runner closes). `unverified_risk_claims` lists the person's own sentences that
-promise durability or concurrency but that no runner protocol proves (`kind`
+promise durability or concurrency but that no runner protocol exercises (`kind`
 `durability` or `concurrency`, `source_id`, `quote`, `reason`); `[]` when there
 are none. It is a disclosure, not a check: a PASS never verifies them.
 `finding_scope_moves` appears once an approved revision moved a criterion that

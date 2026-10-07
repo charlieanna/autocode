@@ -26,13 +26,21 @@ FIXTURES = {
 }
 
 
-def observation(protocol):
+# Mutants of the contention promise (#451): they widen their race window so the control is deterministic.
+RACERS = {'lease_queue_lifecycle_v1': ('broken/non-atomic-claim', 'Concurrent claims leased one job twice'),
+          'transactional_outbox_lifecycle_v1': ('broken/racy-create-order',
+                                                'Concurrent create_order for one key raised or returned a non-boolean')}
+
+
+def observation(protocol, contention=False):
     scenario, module, class_name, methods, _ = FIXTURES[protocol]
     text = (CATALOG / scenario / 'brief.md').read_text()
     value = {'protocol': protocol, 'target': {'module': module, 'class_name': class_name,
              'methods': {name: name for name in methods}}, 'criterion_ids': ['AC-lifecycle'],
              'source_bindings': [{'source_id': 'task', 'source_sha256': hashlib.sha256(text.encode()).hexdigest(),
                                   'span': [0, len(text)], 'quote': text}]}
+    if contention:  # the canonical declaration (autocode_risk_acceptance) carries the stated promise
+        value['declaration'] = {'promises': ['durable_restart', protocols.CONTENTION]}
     value['hash'] = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
                                             ensure_ascii=False).encode()).hexdigest()
     return value
@@ -42,9 +50,10 @@ def encoded(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
 
 
-def execute(protocol, variant='reference', extra_files=None, timeout=30, *, layout='root', original_inventory=False):
+def execute(protocol, variant='reference', extra_files=None, timeout=30, *, layout='root', original_inventory=False,
+            contention=False):
     scenario, module, _, _, _ = FIXTURES[protocol]
-    case = observation(protocol)
+    case = observation(protocol, contention)
     with tempfile.TemporaryDirectory(prefix='risk-protocol-test-') as directory:
         root = Path(directory)
         base = root if layout == 'root' else root / 'src'
@@ -63,7 +72,7 @@ def execute(protocol, variant='reference', extra_files=None, timeout=30, *, layo
             acceptance.verify(sources, manifest, public_targets=artifact['targets'])
             if len(manifest['observations']) != 1:
                 raise AssertionError('Original brief did not bind exactly one lifecycle observation')
-            case = manifest['observations'][0]
+            case = manifest['observations'][0]  # both catalog briefs also state contention
             shutil.rmtree(base / module)
         shutil.copytree(CATALOG / scenario / variant / module, base / module)
         for name, contents in (extra_files or {}).items():
@@ -143,13 +152,47 @@ class ActualRiskProtocolTests(unittest.TestCase):
     def test_src_reference_protocols_pass_with_original_public_target_inventory(self):
         for protocol in FIXTURES:
             with self.subTest(protocol=protocol):
-                code, raw, stderr, case = execute(protocol, layout='src', original_inventory=True)
+                code, raw, stderr, case = execute(protocol, layout='src', original_inventory=True, contention=True)
                 self.assertEqual(b'', stderr)
                 self.assertEqual(0, code, json.loads(raw)['error'])
                 actual = protocols.validate_transcript(raw, case)
                 crash = 0 if protocol.startswith('lease_') else 1
                 self.assertEqual(-signal.SIGKILL, actual['phases'][crash]['worker']['exit_code'])
+                self.assertEqual(6, len(actual['owned_workers']))
                 self.assertTrue(all(worker['reaped'] for worker in actual['owned_workers']))
+
+    def test_promised_contention_races_three_owned_interpreters_and_rejects_non_atomic_writes(self):
+        # #451: the references stay atomic when released together; a check-then-act mutant does not.
+        for protocol, (racer, reason) in RACERS.items():
+            for variant, passing in [('reference', True), (racer, False)]:
+                with self.subTest(protocol=protocol, variant=variant):
+                    code, raw, stderr, case = execute(protocol, variant, contention=True)
+                    self.assertEqual(b'', stderr)
+                    actual = json.loads(raw)
+                    self.assertEqual(passing, code == 0, actual.get('error'))
+                    self.assertEqual(6, len(actual['owned_workers']))
+                    self.assertTrue(all(worker['reaped'] for worker in actual['owned_workers']))
+                    block = actual['contention']
+                    self.assertEqual([0, 0, 0], [worker['exit_code'] for worker in block['workers']])
+                    self.assertLess(max(block['ready']), block['releases'][0])
+                    if passing:
+                        checked = protocols.validate_transcript(raw, case)
+                        if protocol.startswith('lease_'):
+                            leases = [item for row in checked['contention']['calls'] for item in row['claims']]
+                            self.assertEqual(12, len({item['id'] for item in leases}))
+                        else:
+                            created = [row['created'] for row in checked['contention']['calls']]
+                            self.assertEqual([1] * 6, [sum(values) for values in zip(*created)])
+                    else:
+                        self.assertIn(reason, actual['error'])
+                        forged = {**actual, 'verdict': 'PASS', 'error': ''}
+                        with self.assertRaisesRegex(ValueError, reason[:30]):
+                            protocols.validate_transcript(encoded(forged), case)
+
+    def test_lifecycle_defects_keep_their_reason_when_contention_is_also_promised(self):
+        code, raw, stderr, _ = execute('lease_queue_lifecycle_v1', 'broken/process-local-tokens', contention=True)
+        self.assertEqual(1, code)
+        self.assertIn('Restart reused a lease token', json.loads(raw)['error'])
 
     def test_root_src_and_module_package_ambiguities_reject_before_import(self):
         scenario, module, _, _, _ = FIXTURES['lease_queue_lifecycle_v1']
@@ -233,6 +276,44 @@ class TranscriptControls(unittest.TestCase):
             if code or stderr:
                 raise AssertionError((code, stderr, raw))
             cls.actual[protocol] = (json.loads(raw), case)
+        cls.raced = {}
+        for protocol in FIXTURES:
+            code, raw, stderr, case = execute(protocol, contention=True)
+            if code or stderr:
+                raise AssertionError((code, stderr, raw))
+            cls.raced[protocol] = (json.loads(raw), case)
+
+    def test_promised_contention_needs_its_barriers_owned_contenders_and_once_only_writes(self):
+        for protocol in FIXTURES:
+            original, case = self.raced[protocol]
+            self.assertEqual(original, protocols.validate_transcript(encoded(original), case))
+            changes = [lambda d: d.update(contention=None),
+                       lambda d: d['contention']['workers'].pop(),
+                       lambda d: d['contention']['releases'].reverse(),
+                       lambda d: d['contention'].update(ready=[d['contention']['releases'][0] + 1] * 3),
+                       lambda d: d['contention']['workers'][1].update(exit_code=-9),
+                       lambda d: d['contention']['workers'][2].update(pid=d['phases'][0]['worker']['pid']),
+                       lambda d: d['owned_workers'].pop()]
+            if protocol.startswith('lease_'):
+                changes += [lambda d: d['contention']['calls'][1]['claims'][0].update(
+                                id=d['contention']['calls'][0]['claims'][0]['id']),
+                            lambda d: [row['enqueued'].__setitem__(0, True) for row in d['contention']['calls']],
+                            lambda d: d['contention']['calls'][0].update(pending=13)]
+            else:
+                changes += [lambda d: d['contention']['calls'][1]['created'].__setitem__(
+                                0, not d['contention']['calls'][1]['created'][0]),
+                            lambda d: d['contention']['calls'][2]['pending'].pop()]
+            for index, change in enumerate(changes):
+                with self.subTest(protocol=protocol, change=index):
+                    changed = copy.deepcopy(original)
+                    change(changed)
+                    with self.assertRaises(ValueError):
+                        protocols.validate_transcript(encoded(changed), case)
+            # A transcript without the promise cannot stand in for one with it, nor the reverse.
+            plain, plain_case = self.actual[protocol]
+            self.assertIsNone(plain['contention'])
+            with self.assertRaises(ValueError):
+                protocols.validate_transcript(encoded({**original, 'observation_hash': plain_case['hash']}), plain_case)
 
     def reject(self, protocol, mutate):
         original, case = self.actual[protocol]

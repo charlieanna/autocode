@@ -18,11 +18,23 @@ def claims(text, kind="task"):
 
 
 class RiskDisclosureTests(unittest.TestCase):
-    def test_a_declared_lifecycle_api_leaves_only_its_unproven_contention_promise(self):
-        rows = claims((CATALOG / "ladder-18-durable-lease-queue" / "brief.md").read_text())
+    def test_a_declared_lifecycle_api_with_its_stated_contention_promise_leaves_nothing_unverified(self):
+        # The runner hard-kills a worker for the durability promise and races three interpreters for
+        # the contention one (autocode_risk_protocols).
+        for scenario in ("ladder-18-durable-lease-queue", "ladder-19-transactional-outbox"):
+            with self.subTest(scenario=scenario):
+                self.assertEqual([], claims((CATALOG / scenario / "brief.md").read_text()))
+
+    def test_a_concurrency_promise_the_protocol_does_not_race_stays_disclosed(self):
+        brief = (CATALOG / "ladder-18-durable-lease-queue" / "brief.md").read_text()
+        extra = brief + " pending() is consistent while other processes call nack concurrently."
+        rows = claims(extra)
         self.assertEqual(["concurrency"], [row["kind"] for row in rows])
-        self.assertIn("atomic under contention", rows[0]["quote"])
-        self.assertIn("one worker at a time", rows[0]["reason"])
+        self.assertIn("nack concurrently", rows[0]["quote"])
+        self.assertIn("No runner protocol races concurrent callers", rows[0]["reason"])
+        # Without a supported declaration, the stated contention promise is not raced either.
+        unsupported = QUEUE.replace("token is fresh and opaque on every claim", "tokens identify claims")
+        self.assertIn("concurrency", {row["kind"] for row in claims(unsupported)})
 
     def test_durability_without_a_supported_family_is_disclosed_not_required(self):
         rows = claims((CATALOG / "ladder-21-event-replay-snapshots" / "brief.md").read_text())

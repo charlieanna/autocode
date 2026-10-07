@@ -45,7 +45,7 @@ def rejection(state) -> str:
         if not risk_evidence.ready(state, validation.get("source_revision")):
             reason = risk_evidence.failure_reason(state)
             if reason:
-                return (f"{REFUSED}. The runner's process-recovery observation failed on this source: {reason}. "
+                return (f"{REFUSED}. The runner's lifecycle observation failed on this source: {reason}. "
                         "The product needs correcting (REWORK), not another report.")
             return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     if not gaps:

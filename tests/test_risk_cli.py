@@ -74,10 +74,12 @@ class RiskCliTests(unittest.TestCase):
         self.assertEqual(1, len(receipt["checks"]))
         actual = receipt["checks"][0]["observation"]
         self.assertEqual(protocol, actual["protocol"])
-        self.assertEqual(3, len({worker["pid"] for worker in actual["owned_workers"]}))
+        # Three lifecycle phases, then three contenders: both briefs state atomicity under contention.
+        self.assertEqual(6, len({worker["pid"] for worker in actual["owned_workers"]}))
         self.assertTrue(all(worker["reaped"] for worker in actual["owned_workers"]))
         exits = [row["worker"]["exit_code"] for row in actual["phases"]]
         self.assertEqual([-9, 0, 0] if protocol.startswith("lease_") else [0, -9, 0], exits)
+        self.assertEqual([0, 0, 0], [worker["exit_code"] for worker in actual["contention"]["workers"]])
         self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
         return receipt
 
@@ -167,6 +169,17 @@ class RiskCliTests(unittest.TestCase):
         self.assertEqual("PASS", receipt["verdict"])
         self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
 
+    def test_non_atomic_claims_cannot_complete_when_the_brief_promises_contention(self):
+        # #451: the claim mutant passes its own tests and every sequential lifecycle phase; only
+        # racing interpreters lease one job twice. The finding stays open while the Builder repeats it.
+        scenario, run, view = self.start("ladder-18-durable-lease-queue", solution="broken/non-atomic-claim",
+                                         planning=("--no-adaptive-planning",))
+        self.assert_mutant(scenario, run, view, "Concurrent claims leased one job twice", 2)
+        runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
+        self.assertEqual(["open"], [row["status"] for row in runner], view["evidence"]["findings"])
+        self.assertIn("Concurrent claims leased one job twice", runner[0]["finding"])
+        self.assertIn("Released together", runner[0]["finding"])
+
     def test_reworded_constructor_still_proves_lifecycle_and_an_uncorrected_mutant_stops_on_it(self):
         # #451: with LeaseQueue(db_path) the token mutant used to reach TASK_COMPLETE with no lifecycle
         # record. The scripted Builder reapplies the same mutant for the rework, so the finding stays open.
@@ -192,8 +205,7 @@ class RiskCliTests(unittest.TestCase):
                                                  ("token is fresh and opaque on every claim",
                                                   "every claim issues a new unguessable token")])
         self.assert_reference(scenario, run, view, "lease_queue_lifecycle_v1")
-        claims = view["evidence"]["unverified_risk_claims"]
-        self.assertEqual(["concurrency"], [row["kind"] for row in claims], claims)
+        self.assertEqual([], view["evidence"]["unverified_risk_claims"])
 
     def test_unsupported_lifecycle_wording_stops_before_builder_naming_the_missing_fact(self):
         scenario, run, view = self.start("ladder-18-durable-lease-queue", planning=("--no-adaptive-planning",),

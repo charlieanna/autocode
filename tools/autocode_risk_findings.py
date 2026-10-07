@@ -46,11 +46,11 @@ def _text(observation, check, revision):
     target = observation.get("target") or {}
     name = f"{target.get('module', '?')}.{target.get('class_name', '?')}"
     quote = " ".join(str(declaration.get("source_quote") or "").split())
-    return (f"The runner's process-recovery observation of {name} failed on source {str(revision)[:12]}: "
+    return (f"The runner's lifecycle observation of {name} failed on source {str(revision)[:12]}: "
             f"{str(check.get('error') or 'the observation did not pass')[:600]}. "
             f"It checks the brief's lifecycle promises for criteria {', '.join(observation.get('criterion_ids') or [])}"
             + (f" (\"{quote[:400]}{'...' if len(quote) > 400 else ''}\")" if quote else "")
-            + ". " + protocols.DESCRIPTIONS.get(observation.get("protocol"), ""))
+            + ". " + protocols.describe(observation))
 
 
 def reconcile(state, replay, record, *, saved=True):

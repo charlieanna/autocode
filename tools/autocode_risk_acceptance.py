@@ -13,6 +13,11 @@ import json
 from pathlib import PurePosixPath
 import re
 
+try:
+    from . import autocode_risk_protocols as protocols
+except ImportError:
+    import autocode_risk_protocols as protocols
+
 HUMAN_KINDS = frozenset({'task', 'conversation_user', 'user_answer', 'user_feedback',
                          'user_intervention', 'user_cli_edit'})
 PROTOCOLS = frozenset({'lease_queue_lifecycle_v1', 'transactional_outbox_lifecycle_v1'})
@@ -127,6 +132,23 @@ def _has(text, pattern):
 def _clause(text, *patterns):
     """Every pattern in one clause, in any order: word-order paraphrases keep one stated fact (#451)."""
     return any(all(_has(clause, pattern) for pattern in patterns) for clause in re.split(r'[.;\n]', text))
+
+
+# A stated promise that the API stays atomic when instances race (#451). Optional: without it the
+# declaration is unchanged, and the runner never infers contention from durability wording.
+_RACE = r'\b(?:contention|concurren(?:t|tly|cy)|simultaneous(?:ly)?|in\s+parallel)\b'
+_CONTENTION = {
+    'lease_queue_lifecycle_v1': (r'\batomic(?:ally)?\b', _RACE, r'\bclaims?\b'),
+    'transactional_outbox_lifecycle_v1': (_RACE, r'\bcreate_order\b',
+                                          r'\b(?:commit|succeed|create)s?\s+(?:only\s+)?once\b'),
+}
+_EXCLUSION = r"\b(?:not|never|out\s+of\s+scope|need\s+not)\b"
+
+
+def states_contention(text, protocol):
+    """Whether text states the protocol's contention promise in one clause, not excluded."""
+    return any(all(_has(clause, pattern) for pattern in _CONTENTION[protocol]) and not _has(clause, _EXCLUSION)
+               for clause in re.split(r'[.;\n]', text))
 
 
 def _facts(text, protocol):
@@ -257,8 +279,11 @@ def inventory(sources, public_targets):
     """Recognize the two explicit source-declared API families, including gaps.
 
     No generic durability/security/performance wording creates a risk battery.
-    Assistant/delegated records cannot originate a lifecycle promise. Empty
-    target inventory is useful before capture; it never permits execution.
+    A declaration promises atomicity under contention (protocols.CONTENTION)
+    only when its own text states it for that API; the runner then also races
+    owned interpreters against it. Assistant/delegated records cannot originate
+    a lifecycle promise. Empty target inventory is useful before capture; it
+    never permits execution.
     """
     targets = normalize_public_targets(public_targets)
     modules = [row['module'] for row in targets]
@@ -287,7 +312,9 @@ def inventory(sources, public_targets):
             declarations.append({'id': 'risk-' + digest(identity), 'source_id': source['id'],
                 'source_sha256': source_hash, 'source_span': [start, end], 'source_quote': quote,
                 'protocol': protocol, 'constructor': constructor['name'], 'class_name': class_name,
-                'methods': copy.deepcopy(_METHODS[protocol]), 'promises': list(_PROMISES[protocol]),
+                'methods': copy.deepcopy(_METHODS[protocol]),
+                'promises': list(_PROMISES[protocol])
+                    + ([protocols.CONTENTION] if states_contention(quote, protocol) else []),
                 'supported': not missing, 'missing': missing, 'allowed_modules': list(allowed)})
     return sorted(declarations, key=lambda row: row['id'])
 
@@ -353,7 +380,8 @@ def normalize_observation(row):
     if (not isinstance(declaration, dict) or set(declaration) != _DECLARATION_KEYS
             or declaration.get('protocol') not in PROTOCOLS
             or declaration.get('methods') != _METHODS[declaration['protocol']]
-            or declaration.get('promises') != _PROMISES[declaration['protocol']]
+            or declaration.get('promises') not in (_PROMISES[declaration['protocol']],
+                                                   _PROMISES[declaration['protocol']] + [protocols.CONTENTION])
             or declaration.get('supported') is not True or declaration.get('missing') != []
             or not isinstance(declaration.get('class_name'), str) or not _IDENTIFIER.fullmatch(declaration['class_name'])
             or not isinstance(declaration.get('constructor'), str) or not _IDENTIFIER.fullmatch(declaration['constructor'])

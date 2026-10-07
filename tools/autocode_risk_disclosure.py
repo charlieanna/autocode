@@ -1,10 +1,11 @@
 """Which durability and concurrency promises in a person's request no runner protocol proves (#451).
 
 Disclosure only: it adds no obligation, check or completion gate, so an ordinary task never
-acquires a crash-recovery battery. The runner proves process death only for the source-declared
-APIs autocode_risk_acceptance recognizes, and it proves contention for none: its lifecycle
-protocols run one worker at a time. Every other such promise rests on the Tester's own checks, and
-the status view says so (``evidence.unverified_risk_claims``) instead of letting a PASS imply it.
+acquires a crash-recovery battery. The runner exercises process death only for the source-declared
+APIs autocode_risk_acceptance recognizes, and contention only for the sentence of such a declaration
+that states its claims or create_order stay atomic under contention (autocode_risk_protocols races
+three interpreters against it). Every other such promise rests on the Tester's own checks, and the
+status view says so (``evidence.unverified_risk_claims``) instead of letting a PASS imply it.
 Reads only the human source records autocode_brief_obligations derives from run state.
 """
 from __future__ import annotations
@@ -13,9 +14,11 @@ import re
 
 try:
     from . import autocode_brief_obligations as human, autocode_risk_acceptance as acceptance
+    from . import autocode_risk_protocols as protocols
 except ImportError:
     import autocode_brief_obligations as human
     import autocode_risk_acceptance as acceptance
+    import autocode_risk_protocols as protocols
 
 KINDS = {
     "durability": re.compile(r"\b(?:durabl[ey]|durability|survives?\s+(?:a\s+)?(?:restarts?|crash(?:es)?|reboots?)"
@@ -27,8 +30,8 @@ KINDS = {
 EXCLUDED = re.compile(r"\b(?:out\s+of\s+scope|not\s+(?:required|in\s+scope|needed|supported)|need\s+not|no\s+need)\b", re.I)
 REASONS = {
     "durability": "No runner protocol exercises process death for this promise; only the Tester's own checks support it.",
-    "concurrency": "No runner protocol exercises contention (the lifecycle protocols run one worker at a time); "
-                   "only the Tester's own checks support it.",
+    "concurrency": "No runner protocol races concurrent callers for this promise; only the Tester's own checks "
+                   "support it.",
 }
 LIMIT = 20
 
@@ -36,6 +39,8 @@ LIMIT = 20
 def claims(sources, declarations):
     """One row per sentence with an unproven durability or concurrency promise: kind, source_id, quote, reason."""
     proven = [(row["source_id"], *row["source_span"]) for row in declarations if row.get("supported")]
+    raced = [(row["source_id"], *row["source_span"], row["protocol"]) for row in declarations
+             if row.get("supported") and protocols.CONTENTION in row.get("promises", [])]
     rows = []
     for source in sources:
         text = source["text"]
@@ -50,6 +55,11 @@ def claims(sources, declarations):
                              for source_id, start, end in proven)
                 if kind == "durability" and inside:
                     continue  # the source-declared lifecycle protocol hard-kills a worker for this one
+                if kind == "concurrency" and any(
+                        source_id == source["id"] and start <= match.start() and match.end() <= end
+                        and acceptance.states_contention(sentence, protocol)
+                        for source_id, start, end, protocol in raced):
+                    continue  # the same protocol races three interpreters for this one
                 rows.append({"kind": kind, "source_id": source["id"], "quote": sentence[:300],
                              "reason": REASONS[kind]})
                 if len(rows) >= LIMIT:

@@ -2,6 +2,12 @@
 
 This compiler accepts no programs, schedules or expected values from a model.
 The isolated supervisor imports only stdlib; candidate APIs run in owned children.
+
+When the person also promised atomicity under contention (the declaration's
+promises include CONTENTION, #451), the same supervisor then releases three more
+interpreters together at shared barriers on a second database and checks that
+each racing write took effect exactly once. A race can be missed, so a PASS is
+evidence that no lost or duplicated write showed up, not a proof of atomicity.
 """
 from __future__ import annotations
 
@@ -13,6 +19,8 @@ import shlex
 import signal
 
 PROTOCOLS = frozenset({'lease_queue_lifecycle_v1', 'transactional_outbox_lifecycle_v1'})
+# The promise a declaration carries when its source states atomicity under contention.
+CONTENTION = 'contention_atomicity'
 MAX_TRANSCRIPT_BYTES = 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 _ROLES = {
@@ -44,6 +52,28 @@ DESCRIPTIONS = {
         'acknowledge 1, 1 and 0 events, so the sink sees the interrupted event again (at-least-once) and '
         'then the third; pending(3) ends empty and order replays return False.'),
 }
+CONTENTION_DESCRIPTIONS = {
+    'lease_queue_lifecycle_v1': (
+        'Contention: three more fresh interpreters open the class on a second database file and wait at a '
+        "shared barrier. Released together, each calls enqueue('risk-race-NN', 'risk-race-payload-NN') for "
+        'NN = 00 to 11: every job must return True to exactly one of them and False to the others. Released '
+        'together again, each calls claim(5, 7) four times: the twelve leases must name twelve different jobs '
+        'with twelve different tokens and deadline 12, and pending() is 12 for each.'),
+    'transactional_outbox_lifecycle_v1': (
+        'Contention: three more fresh interpreters open the class on a second database file and wait at a '
+        "shared barrier. Released together, each calls create_order('risk-race-order-N', 41 + N, "
+        "'risk-race-key-N') for N = 0 to 5: every order must return True to exactly one of them and False "
+        '(never an exception) to the others. Released together again, each must see the same six orders '
+        'and the same six pending events in creation order, with distinct event_id values.'),
+}
+
+
+def describe(observation):
+    """What the fixed program does for this observation, in words (autocode_risk_findings)."""
+    protocol = observation.get('protocol')
+    return ' '.join(part for part in (DESCRIPTIONS.get(protocol, ''),
+                                      CONTENTION_DESCRIPTIONS.get(protocol, '') if contended(observation) else '')
+                    if part)
 
 
 def _digest(value):
@@ -123,11 +153,103 @@ def claim(value, ident, payload, deadline):
     need(isinstance(value['token'], str) and bool(value['token']), 'Lease token must be opaque and nonempty')
     return value['token']
 
+def contended(observation):
+    """Whether the observed declaration also promises atomicity under contention."""
+    declaration = observation.get('declaration') if isinstance(observation, dict) else None
+    promises = declaration.get('promises') if isinstance(declaration, dict) else None
+    return isinstance(promises, list) and CONTENTION in promises
+
+def raised(values):
+    odd = next((value for value in values if type(value) is not bool), None)
+    return '' if odd is None else ': ' + str(odd)[:200]
+
+def check_contention(data, observation, pids, previous, output_bytes):
+    """The promised contention phase: owned contenders released together, each racing write once."""
+    block = data['contention']
+    if not contended(observation):
+        need(block is None, 'Lifecycle transcript has an unpromised contention phase')
+        return []
+    need(isinstance(block,dict) and set(block) == {'workers','calls','ready','checkpoints','releases'},
+         'Promised contention phase is missing or incomplete')
+    workers, calls, ready, checkpoints, releases = (block[key] for key in
+        ('workers','calls','ready','checkpoints','releases'))
+    need(isinstance(workers,list) and isinstance(calls,list) and len(workers) == len(calls) == 3,
+         'Contention needs three owned concurrent interpreters')
+    need(all(isinstance(row,list) and all(type(tick) is int for tick in row) for row in (ready,checkpoints,releases))
+         and len(ready) == len(checkpoints) == 3 and len(releases) == 2, 'Contention barrier receipts are incomplete')
+    need(ready == sorted(ready) and checkpoints == sorted(checkpoints)
+         and ready[-1] < releases[0] < checkpoints[0] and checkpoints[-1] < releases[1],
+         'Contenders were not all waiting at each barrier before their shared release')
+    for worker in workers:
+        need(isinstance(worker,dict) and set(worker) == {'pid','parent_pid','exit_code','started','received',
+             'terminated','exited','stdout_base64','stderr_base64'}, 'Incomplete owned-worker receipt')
+        pid = worker['pid']
+        need(type(pid) is int and pid > 0 and pid != data['supervisor_pid'] and pid not in pids,
+             'Contenders must use distinct actual worker PIDs')
+        pids.add(pid)
+        need(type(worker['parent_pid']) is int and worker['parent_pid'] == data['supervisor_pid'], 'Worker is not owned by this supervisor')
+        for key in ['started','received','exited']:
+            need(type(worker[key]) is int, 'Lifecycle ordering needs actual integer sequence numbers')
+        need(previous < worker['started'] < ready[0] and releases[1] < worker['received'] < worker['exited'],
+             'Contender start, release or reap ordering changed')
+        need(type(worker['exit_code']) is int and worker['exit_code'] == 0 and worker['terminated'] is None,
+             'Contender did not exit cleanly on its own')
+        for key in ['stdout_base64','stderr_base64']:
+            output_bytes += len(decoded(worker[key]))
+            need(output_bytes <= 65536, 'Candidate output exceeded its shared bound')
+    need(all(workers[index]['exited'] < workers[index + 1]['received'] for index in range(2)),
+         'Contenders were not reaped in order')
+    if data['protocol'] == 'lease_queue_lifecycle_v1':
+        need(all(isinstance(row,dict) and set(row) == {'enqueued','claims','pending'}
+                 and isinstance(row['enqueued'],list) and len(row['enqueued']) == 12
+                 and isinstance(row['claims'],list) and len(row['claims']) == 4 for row in calls),
+             'Contenders lack actual public enqueue and claim calls')
+        for index in range(12):
+            values = [row['enqueued'][index] for row in calls]
+            need(not raised(values), 'Concurrent enqueue of one job raised or returned a non-boolean' + raised(values))
+            need(sum(values) == 1, 'Concurrent enqueue of one job did not return True exactly once')
+        leases = [item for row in calls for item in row['claims']]
+        odd = next((item for item in leases if not isinstance(item,dict)
+                    or set(item) != {'id','payload','token','deadline'}), None)
+        need(odd is None, 'A concurrent claim returned no lease: ' + str(odd)[:200])
+        jobs = ['risk-race-%02d' % index for index in range(12)]
+        need(sorted(str(item['id']) for item in leases) == jobs and all(isinstance(item['id'],str) for item in leases),
+             'Concurrent claims leased one job twice and left another unclaimed')
+        need(all(item['payload'] == 'risk-race-payload-' + item['id'][-2:] and type(item['deadline']) is int
+                 and item['deadline'] == 12 for item in leases), 'Concurrent claims changed a payload or exact deadline')
+        tokens = [item['token'] for item in leases]
+        need(all(isinstance(token,str) and token for token in tokens) and len(set(tokens)) == 12,
+             'Concurrent claims reused a lease token')
+        need(all(type(row['pending']) is int and row['pending'] == 12 for row in calls),
+             'Concurrent enqueue lost or duplicated an unfinished job: pending() returned '
+             + str([row['pending'] for row in calls])[:200])
+    else:
+        need(all(isinstance(row,dict) and set(row) == {'created','orders','pending'}
+                 and isinstance(row['created'],list) and len(row['created']) == 6 for row in calls),
+             'Contenders lack actual public create_order calls')
+        for index in range(6):
+            values = [row['created'][index] for row in calls]
+            need(not raised(values), 'Concurrent create_order for one key raised or returned a non-boolean' + raised(values))
+            need(sum(values) == 1, 'Concurrent create_order for one key did not commit exactly once')
+        orders = {'risk-race-order-%d' % index: 41 + index for index in range(6)}
+        odd = next((row['orders'] for row in calls if not isinstance(row['orders'],dict) or row['orders'] != orders
+                    or any(type(amount) is not int for amount in row['orders'].values())), None)
+        need(odd is None, 'Concurrent creation lost, duplicated or changed an order: orders() returned ' + str(odd)[:200])
+        pending = calls[0]['pending']
+        need(isinstance(pending,list) and len(pending) == 6 and all(row['pending'] == pending for row in calls),
+             'Concurrent creation did not commit exactly one durable event per order: pending(12) returned '
+             + str([row['pending'] if not isinstance(row['pending'],list) else len(row['pending']) for row in calls])[:200])
+        for item, ident in zip(pending, orders):
+            event(item)
+            need(item['order_id'] == ident and item['amount'] == orders[ident], 'Concurrent events changed order or amount')
+        need(len({item['event_id'] for item in pending}) == 6, 'Concurrent events need distinct stable identities')
+    return workers
+
 def check_transcript(data, observation):
     need(isinstance(data, dict) and set(data) == {'version','protocol','observation_hash','supervisor_pid',
-         'deadline_seconds','elapsed_seconds','phases','owned_workers','sink','verdict','error'},
+         'deadline_seconds','elapsed_seconds','phases','contention','owned_workers','sink','verdict','error'},
          'Lifecycle transcript has incomplete or unexpected fields')
-    need(type(data['version']) is int and data['version'] == 1 and data['protocol'] == observation['protocol']
+    need(type(data['version']) is int and data['version'] == 2 and data['protocol'] == observation['protocol']
          and data['observation_hash'] == observation['hash'], 'Lifecycle transcript belongs to another observation')
     need(data['verdict'] == 'PASS' and data['error'] == '', 'Lifecycle supervisor did not finish successfully')
     need(type(data['supervisor_pid']) is int and data['supervisor_pid'] > 0, 'Missing actual supervisor PID')
@@ -165,14 +287,6 @@ def check_transcript(data, observation):
             output_bytes += len(decoded(worker[key]))
             need(output_bytes <= 65536, 'Candidate output exceeded its shared bound')
         previous = worker['exited']
-    owned = data['owned_workers']
-    need(isinstance(owned,list) and len(owned) == len(phases) <= 4, 'Incomplete owned-worker cleanup inventory')
-    for row,phase in zip(owned,phases):
-        need(isinstance(row,dict) and set(row) == {'pid','parent_pid','exit_code','reaped'}
-             and type(row['pid']) is int and row['pid'] == phase['worker']['pid']
-             and type(row['parent_pid']) is int and row['parent_pid'] == data['supervisor_pid']
-             and type(row['exit_code']) is int and row['exit_code'] == phase['worker']['exit_code']
-             and row['reaped'] is True, 'Owned lifecycle worker was omitted or not actually reaped')
     sink = data['sink']
     need(isinstance(sink,dict) and set(sink) == {'deliveries','journal_base64','journal_sha256'}, 'Missing owned durable sink receipt')
     journal = decoded(sink['journal_base64'])
@@ -236,10 +350,21 @@ def check_transcript(data, observation):
             owner = phases[1 if index < 2 else 2]['worker']
             need(row['worker_pid'] == owner['pid'] and owner['started'] < row['order'] < owner['received'],
                  'Sink delivery is not owned by its actual publisher phase')
+    # After the lifecycle values, so a lifecycle defect keeps its own reason.
+    workers = [row['worker'] for row in phases] + check_contention(data, observation, pids, previous, output_bytes)
+    owned = data['owned_workers']
+    need(isinstance(owned,list) and len(owned) == len(workers) <= 6, 'Incomplete owned-worker cleanup inventory')
+    for row,worker in zip(owned,workers):
+        need(isinstance(row,dict) and set(row) == {'pid','parent_pid','exit_code','reaped'}
+             and type(row['pid']) is int and row['pid'] == worker['pid']
+             and type(row['parent_pid']) is int and row['parent_pid'] == data['supervisor_pid']
+             and type(row['exit_code']) is int and row['exit_code'] == worker['exit_code']
+             and row['reaped'] is True, 'Owned lifecycle worker was omitted or not actually reaped')
     return data
 '''
-_CHECK_NAMESPACE = {'base64': base64, 'hashlib': hashlib, 'json': json, 'signal': signal}
+_CHECK_NAMESPACE = {'base64': base64, 'hashlib': hashlib, 'json': json, 'signal': signal, 'CONTENTION': CONTENTION}
 exec(_CHECK, _CHECK_NAMESPACE)
+contended = _CHECK_NAMESPACE['contended']
 
 
 def validate_transcript(rawbytes, observation):
@@ -336,6 +461,21 @@ try:
         rows=[('risk-order-a',37,'risk-key-a'),('risk-order-b',59,'risk-key-b'),('risk-order-c',83,'risk-key-c')]
         calls={'created':[call('create_order',*row) for row in rows], 'replay':call('create_order',*rows[1]),
                'conflict':conflict('risk-order-b',60,'risk-key-b'),'orders':call('orders'),'pending':call('pending',3)}
+    elif phase=='contend':
+        # Released together with the other contenders: a call that raises is a result, not a crash.
+        def attempt(role,*args):
+            try: return call(role,*args)
+            except Exception as error: return 'raised '+type(error).__name__+': '+str(error)[:200]
+        send('ready'); wait()
+        if cfg['protocol'].startswith('lease_'):
+            first={'enqueued':[attempt('enqueue','risk-race-%02d'%index,'risk-race-payload-%02d'%index) for index in range(12)]}
+            send('checkpoint',calls=first); wait()
+            calls={**first,'claims':[attempt('claim',5,7) for _ in range(4)],'pending':attempt('pending')}
+        else:
+            first={'created':[attempt('create_order','risk-race-order-%d'%index,41+index,'risk-race-key-%d'%index)
+                              for index in range(6)]}
+            send('checkpoint',calls=first); wait()
+            calls={**first,'orders':attempt('orders'),'pending':attempt('pending',12)}
     else:
         def sink(value): send('callback',event=value); wait()
         if phase=='publisher':
@@ -370,7 +510,7 @@ def tick():
     sequence+=1; return sequence
 class Worker:
     def __init__(self,phase,database,**values):
-        if len(workers)>=4: raise ValueError('Fixed worker bound exceeded')
+        if len(workers)>=6: raise ValueError('Fixed worker bound exceeded')
         self.phase=phase; self.parent,self.child=socket.socketpair(); self.selector=selectors.DefaultSelector()
         cfg=dict(root=str(root),database=str(database),fd=self.child.fileno(),phase=phase,
                  protocol=observation['protocol'],target=observation['target'],**values)
@@ -435,8 +575,21 @@ def result(worker):
     value=worker.read()
     if value['kind']!='result': raise ValueError('Worker returned an unexpected protocol phase')
     return value['calls']
-data=dict(version=1,protocol=observation['protocol'],observation_hash=observation['hash'],supervisor_pid=os.getpid(),
-          deadline_seconds=timeout,elapsed_seconds=None,phases=[],owned_workers=[],sink=None,verdict='PASS',error='')
+def contend(database):
+    """Three owned contenders, released together at two barriers on their own database."""
+    contenders=[Worker('contend',database) for _ in range(3)]
+    block=data['contention']=dict(workers=[],calls=[],ready=[],checkpoints=[],releases=[])
+    for barrier,key in (('ready','ready'),('checkpoint','checkpoints')):
+        for worker in contenders:
+            if worker.read()['kind']!=barrier: raise ValueError('Contender omitted its shared barrier')
+            block[key].append(tick())
+        block['releases'].append(tick())
+        for worker in contenders: worker.release()
+    for worker in contenders:
+        block['calls'].append(result(worker)); block['workers'].append(worker.finish())
+data=dict(version=2,protocol=observation['protocol'],observation_hash=observation['hash'],supervisor_pid=os.getpid(),
+          deadline_seconds=timeout,elapsed_seconds=None,phases=[],contention=None,owned_workers=[],sink=None,
+          verdict='PASS',error='')
 try:
     with tempfile.TemporaryDirectory(prefix='.risk-protocol-',dir=root) as directory:
         folder=Path(directory); database=folder/'product.sqlite'; journal=folder/'sink.jsonl'
@@ -473,6 +626,7 @@ try:
                 delivered(recover,value['event']); recover.release()
             phase(recover,dict(before=initial['calls'],after=value['calls']))
             if journal.read_bytes()!=journal_bytes: raise ValueError('Owned sink journal does not match fsynced deliveries')
+        if contended(observation): contend(folder/'contention.sqlite')
 except Exception as error:
     data['verdict']='FAIL'; data['error']=type(error).__name__+': '+str(error)[:500]
 finally:
@@ -514,7 +668,8 @@ def commands(observations, *, python='python3', timeout=30):
         if observation['hash'] in seen:
             raise ValueError('Lifecycle observations must be distinct')
         seen.add(observation['hash'])
-        program = 'WORKER=' + repr(_WORKER) + '\n' + _CHECK + '\n' + _SUPERVISOR
+        program = ('WORKER=' + repr(_WORKER) + '\nCONTENTION=' + repr(CONTENTION) + '\n' + _CHECK + '\n'
+                   + _SUPERVISOR)
         result.append(shlex.join([python, '-I', '-c', program,
                                  json.dumps(observation, sort_keys=True, ensure_ascii=False), str(timeout)]))
     return result

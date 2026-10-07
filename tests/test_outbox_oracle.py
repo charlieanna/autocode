@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCENARIO.parents[1]))
 from harness.oracle import IGNORED, hidden_tests
 
 RECOVERY = "test_repeated_crash_after_sink_acceptance_before_ack"
+CONTENTION = "test_concurrent_creation_once"
 PARTIAL = "test_partial_delivery_preserves_failed_event_identity"
 LARGE_LIMIT = "test_arbitrarily_large_positive_limit_preserves_order_and_publishing"
 LARGE_AMOUNT = "test_large_amount_is_lossless_in_order_event_and_replay"
@@ -54,7 +55,9 @@ class OutboxOracleTests(unittest.TestCase):
         expected = {"ack-before-send": [PARTIAL, RECOVERY],
                     "overflowing-limit": [LARGE_LIMIT],
                     "sqlite-integer-range": [LARGE_LIMIT, LARGE_AMOUNT],
-                    "replay-changes-event-id": [PARTIAL, RECOVERY, LARGE_LIMIT, LARGE_AMOUNT]}
+                    "replay-changes-event-id": [PARTIAL, RECOVERY, LARGE_LIMIT, LARGE_AMOUNT],
+                    # Checks for a replay and commits in separate transactions: racing creators collide.
+                    "racy-create-order": [CONTENTION]}
         self.assertEqual({path.name for path in (SCENARIO / "broken").iterdir()} - {"ack-with-exception-rollback"},
                          set(expected), "every broken outbox variant needs a pinned failure set")
         for name, failures in expected.items():

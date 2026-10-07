@@ -377,9 +377,11 @@ Tester's and the Completion Reviewer's job.
 
 Exception tests are not process-death tests: a queue whose token counter lives in
 one process, or an outbox that restores a pending event only when a callback
-raises, passes its own tests and still loses work when a worker is killed. When a
-person's request declares one of two Python APIs, the runner runs its own fixed
-lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
+raises, passes its own tests and still loses work when a worker is killed. Tests
+in one interpreter are not contention tests either: a claim that chooses a job in
+one transaction and leases it in another passes them and still leases one job to
+two workers. When a person's request declares one of two Python APIs, the runner
+runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
 
 - **What triggers it.** Only a person's words (the task, answers, feedback): a
   constructor with one storage argument (`LeaseQueue(path)`, `Store(db_path)`)
@@ -391,7 +393,11 @@ lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
   stated (signatures, return values, the token and deadline rules, at-least-once
   delivery). If one is missing the plan cannot be approved: the refusal names each
   missing fact and asks for a restatement in feedback that says it changes that
-  API, because the runner never guesses an expected value.
+  API, because the runner never guesses an expected value. A declaration also
+  promises atomicity under contention only when its own text says so in one
+  clause: the queue's claims are atomic under contention or concurrency, or
+  concurrent `create_order` calls for one key commit once. An exclusion ("need
+  not", "out of scope") or durability wording alone adds no race.
 - **Binding.** The independent Plan Reviewer selects only the declaration, its
   criteria and the original public module; the runner records it in
   `goal_contract.body.risk_acceptance` with the public modules captured before the
@@ -402,8 +408,19 @@ lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
   finishes both jobs. The outbox publisher is killed inside a sink callback after
   the sink durably accepted the event; a new interpreter must still see that event
   pending under the same `event_id` and redeliver it (at least once, never claimed
-  exactly once). At most four owned workers, 30 seconds within the replay
-  allowance, bounded output; every worker is reaped.
+  exactly once). When contention is promised, the same supervisor then starts
+  three more interpreters on a second database and releases them together at two
+  barriers. Each enqueues the same twelve jobs (every job must be accepted exactly
+  once) and then claims four times (twelve different jobs, twelve different
+  tokens), or each creates the same six orders (every order must return `True`
+  exactly once and never raise) and then sees the same six orders and events. At
+  most six owned workers, 30 seconds within the replay allowance, bounded output;
+  every worker is reaped.
+- **What a contention PASS means.** A race can be missed: a narrow window between
+  a read and a write is often not hit by three interpreters. A PASS says no lost
+  or duplicated write showed up, not that the code is atomic. The catalog's
+  planted contention mutants widen their window on purpose, so their refusal is
+  deterministic.
 - **When.** With the Tester's PASS, in the same clean replay, limited to the
   current task's criteria; a whole-product claim runs every observation. Completion
   needs a current, pinned PASS (`evidence.check_replay.risk_acceptance`).
@@ -417,10 +434,10 @@ lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
   when its own observation passes on a later source. A repair that changes nothing
   stops at the ordinary no-progress limit with the finding still open.
 
-Contention is not observed: both protocols run one worker at a time. The status
-view lists every durability or concurrency sentence in the request that no runner
-protocol proves under `evidence.unverified_risk_claims`
-(`tools/autocode_risk_disclosure.py`), so a PASS is never read as proof of them.
+Every other durability or concurrency sentence in the request is listed under
+`evidence.unverified_risk_claims` (`tools/autocode_risk_disclosure.py`): no runner
+protocol exercises it, so a PASS is never read as proof of it. The list adds no
+check, so an ordinary task never acquires a crash-recovery or contention battery.
 
 For a human-review criterion, inspect the displayed validation and the actual artifact,
 then record your decision in chat or using the displayed artifact-specific token:

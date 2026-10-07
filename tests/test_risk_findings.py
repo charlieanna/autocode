@@ -53,6 +53,16 @@ class RiskFindingTests(unittest.TestCase):
         self.assertIn(row["id"] + " (runner)", message)
         self.assertIn("request REWORK", message)
 
+    def test_a_failed_contention_observation_says_how_the_runner_raced_it(self):
+        current = state()
+        observation = current["goal_contract"]["body"]["risk_acceptance"]["manifest"]["observations"][0]
+        observation["declaration"] = {**observation["declaration"], "promises": ["durable_restart", "contention_atomicity"]}
+        row = risk_findings.reconcile(current, replay("Concurrent claims leased one job twice and left another unclaimed"),
+                                      {})[0]
+        self.assertIn("Concurrent claims leased one job twice", row["finding"])
+        self.assertIn("Released together", row["finding"])  # what the contention phase does, to reproduce it
+        self.assertIn("killed with SIGKILL", row["finding"])
+
     def test_a_repeated_failure_refreshes_the_same_finding(self):
         current = state()
         first = risk_findings.reconcile(current, replay(REASON), {})[0]

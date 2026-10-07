@@ -164,6 +164,40 @@ class RiskAcceptanceTests(unittest.TestCase):
                 manifest = risk.bind([source(text)], [proposal(reworded[0])], public_targets=TARGETS)
                 self.assertEqual(original[0]['class_name'], manifest['observations'][0]['target']['class_name'])
 
+    def test_contention_is_promised_only_where_the_source_states_it_for_that_api(self):
+        # #451: a stated contention promise adds the runner's race to the same observation; durability
+        # wording alone, an exclusion, or no statement adds nothing.
+        contention = risk.protocols.CONTENTION
+        queue_sentence = 'Enqueue and claims must be atomic under contention and survive restart.'
+        outbox_sentence = 'Concurrent create_order requests for the same key commit once.'
+        cases = [(QUEUE, True), (OUTBOX, True),
+                 (QUEUE.replace(queue_sentence, 'Enqueue and claims survive restart.'), False),
+                 (QUEUE.replace(queue_sentence, 'Enqueue and claims need not be atomic under contention; '
+                                                'they survive restart.'), False),
+                 (QUEUE.replace(queue_sentence, 'Claims made concurrently by many workers stay atomic, '
+                                                'and jobs survive restart.'), True),
+                 (OUTBOX.replace(outbox_sentence, ''), False),
+                 (OUTBOX.replace(outbox_sentence, 'Concurrent create_order requests are out of scope.'), False),
+                 (OUTBOX.replace(outbox_sentence, 'create_order calls made in parallel for one key succeed once.'), True)]
+        for text, promised in cases:
+            with self.subTest(text=text[-160:]):
+                declaration = risk.inventory([source(text)], TARGETS)[0]
+                self.assertTrue(declaration['supported'], declaration['missing'])
+                self.assertEqual(promised, contention in declaration['promises'])
+                manifest = risk.bind([source(text)], [proposal(declaration)], public_targets=TARGETS)
+                self.assertEqual(manifest, risk.verify([source(text)], manifest, public_targets=TARGETS))
+        # The promise comes from the person's words: dropping or inventing it cannot pass verification.
+        declaration = risk.inventory([source(QUEUE)], TARGETS)[0]
+        manifest = risk.bind([source(QUEUE)], [proposal(declaration)], public_targets=TARGETS)
+        for promises in (declaration['promises'][:-1], declaration['promises'] + ['performance_limit']):
+            forged = copy.deepcopy(manifest)
+            row = forged['observations'][0]
+            row['declaration']['promises'] = promises
+            row['hash'] = risk.digest({key: value for key, value in row.items() if key != 'hash'})
+            forged['hash'] = risk.digest({key: value for key, value in forged.items() if key != 'hash'})
+            with self.subTest(promises=promises[-1]), self.assertRaises(ValueError):
+                risk.verify([source(QUEUE)], forged, public_targets=TARGETS)
+
     def test_a_capitalized_call_without_a_lifecycle_family_declares_nothing(self):
         for text in ('Path(root_dir) holds durable files that survive restart. Include tests.',
                      'Build Counter(items) with durable restart semantics and a claim on correctness.'):
