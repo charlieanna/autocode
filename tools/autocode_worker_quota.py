@@ -97,7 +97,8 @@ def refused_retry(state, row, result, *, asked):
     only when it is the one asked. With none open (the request was answered with information or left
     paused, #541) the member's saved stop is collected again instead: the returned Paused carries it, so
     AutoResolver asks its route-terra question again, and nothing launches. That is the answered member's
-    control (autocode_member_stop); another refused member is asked about after it. A quota stop keeps
+    control (autocode_member_stop); another refused member is asked about after the answered member
+    continues, whichever way it stopped. A quota stop keeps
     #458's explicit same-model retry.
     """
     worker = result.get("quota_worker")
@@ -114,7 +115,8 @@ def refused_retry(state, row, result, *, asked):
     if asked is None and first in (None, milestone):
         return stop(state, row, result, Path(row["run_dir"]))
     if asked is None:
-        then = f"AutoCode asks about Builder {first} first: --resume-paused --retry-builder {first}."
+        then = (f"AutoCode continues from Builder {first}'s stop first, with --resume-paused --retry-builder "
+                f"{first}, and asks which model this member continues on after it.")
     elif asked == milestone:
         then = ("It continues on the model a person names in answer to its open route-terra question "
                 "(--answer route-terra=MODEL).")
