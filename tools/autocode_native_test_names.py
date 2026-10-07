@@ -16,11 +16,14 @@ A name is requested (``requested``) when all of these hold:
   function or any subtest of it accounts for it, and which subtests the plan declares is not checked.
 - The user wrote it as a test to add (``named``), in their own words, as for the brief-literal check
   (autocode_requirement_cues.scan_texts): the task, brief feedback and the user's answers, never a
-  delegated default or model-written text. It must come right after "test" or "tests" (a "function",
-  "func", "case", "named" or "called" may come between), as in "add the Go tests TestA, TestB and TestC"
-  or "a test for Fixed named TestA", be declared with a test's parameter ("func TestA(t *testing.T)";
-  "func TestConnection() error" is production code), or start an item of a list whose lead-in names
-  tests ("Add these tests:" then "- TestA: what it checks"). In a list each name may carry a description ("TestA
+  delegated default or model-written text. It must come right after "test", "tests" or "func" (a
+  "function", "case", "named" or "called" may come between), as in "add the Go tests TestA, TestB and
+  TestC" or "a test for Fixed named TestA", or start an item of a list whose lead-in names tests ("Add
+  these tests:" then "- TestA: what it checks"). A name-first request such as "Add TestA, a real
+  regression ... plus TestB and TestC" also names tests. A supplied func signature must take one
+  pointer to T or qualifier.T and return nothing; a callable API such as TestConnection() error
+  names no test. Without a signature, func needs explicit test context ("the test func TestA"; "a func
+  named TestConnection" is production code). In a list each name may carry a description ("TestA
   (empty input), TestB (one item)", or "TestA checks X, TestB checks Y; TestC ..."); the list ends at
   the sentence's end, at a description's first comma or semicolon that no name follows ("the test
   TestA, which must not break TestB"), and at a name inside a description ("TestA for the parser and
@@ -32,10 +35,9 @@ A name is requested (``requested``) when all of these hold:
 - The runner's regression proof will run Go tests: an explicit ``go test`` regression command, else the
   framework autocode_verify detects in the workspace, chosen as autocode_regression.prove chooses it.
   Elsewhere TestParser is a Python or Java class, not a test the proof reports.
-- The code of the project's Go files does not already contain it. A brief that mentions an existing test
-  or helper ("the test TestRetention fails", "keep the test TestX passing") names the suite's own code,
-  which the proof already protects; it is not a new case. A comment or a string ("// TODO: TestA") is
-  not code: it declares no test, so a name in it is still requested.
+- The project's *_test.go files do not already declare it as a top-level Go test function. Comments,
+  strings, references and production helpers do not declare tests. Declaration eligibility is a
+  lexical inventory; Go compilation, build selection and execution supply the actual proof.
 - The user has not settled it otherwise. The user's own edit of the plan (``USER_EDIT``) is never refused
   here, and the names the latest such edit leaves unaccounted for are no longer requested of the
   planners' later drafts. An edit of a design job's plan, which a follow-up building that design archives,
@@ -76,20 +78,18 @@ except ImportError:
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 # A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).
 _TEST_WORD = re.compile(r"(Test[A-Z0-9_][A-Za-z0-9_]*)(?:/.+)?")
-# Go comments and string and rune literals, which name no identifier of the code.
-_GO_NOT_CODE = re.compile(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|`[^`]*`|'(?:\\.|[^'\\\n])*'", re.S)
 NOT_A_TEST = frozenset({"TestMain"})
 PLACEHOLDER = re.compile(r"Test[Xx]+")
 # The origin of a contract the user wrote with --edit-goal (autocode_run_actions); only the user makes one.
 USER_EDIT = "user_cli_edit"
 
 # The words a requested name follows, and the words that may come between them ("test function TestA").
-CUES = frozenset({"test", "tests"})
-NAMING = frozenset({"named", "called"})
-BETWEEN = frozenset({"function", "functions", "func", "funcs", "case", "cases"}) | NAMING
-# "func TestA" alone may be production code ("func TestConnection() error"); with a *testing.T parameter it is a test.
+CUES = frozenset({"test", "tests", "func"})
+# "func" names a test only with a test's signature or beside "test" (_func_test_request), so it does not let
+# "named"/"called" introduce one: "a func named TestConnection" is production code.
 FUNC = "func"
-TESTING_T = "testing.T"
+NAMING = frozenset({"named", "called"})
+BETWEEN = frozenset({"function", "functions", "case", "cases"}) | NAMING
 # A clause with one of these before the cue negates the request or gives an example. "Don't forget" and
 # "not only" still ask; "I'd like" and "we would like" want.
 NEGATORS = frozenset({"not", "never", "without", "instead", "rather"})
@@ -172,8 +172,8 @@ def _qualified(tokens, cue) -> bool:
 def _separator(tokens, k) -> int | None:
     """Where the next list item starts when ``tokens[k]`` separates two ("," ";" "and" "&", ", and"), else None."""
     if tokens[k:k + 1] in ([","], [";"]):
-        return k + 2 if _word(tokens[k + 1] if k + 1 < len(tokens) else "") == "and" else k + 1
-    if k < len(tokens) and (_word(tokens[k]) == "and" or tokens[k] == "&"):
+        return k + 2 if _word(tokens[k + 1] if k + 1 < len(tokens) else "") in {"and", "plus"} else k + 1
+    if k < len(tokens) and (_word(tokens[k]) in {"and", "plus"} or tokens[k] == "&"):
         return k + 1
     return None
 
@@ -197,6 +197,14 @@ def _past_description(tokens, k) -> int | None:
     return None
 
 
+def _apposition(tokens, k) -> bool:
+    """A comma followed by an explicit test description: TestA, a real regression."""
+    if tokens[k:k + 1] != [","]:
+        return False
+    k = _skip(tokens, k + 1, {"a", "an", "the", "real", "native", "go", "focused"})
+    return k < len(tokens) and _word(tokens[k]) in {"test", "regression"}
+
+
 def _names(tokens, k) -> list[tuple[int, str]]:
     """The Go test names listed from ``tokens[k]`` ("TestA (what it checks), TestB and TestC", or "TestA checks
     X, TestB checks Y"), with their positions; none when the list offers an alternative ("TestA or similar")."""
@@ -210,7 +218,19 @@ def _names(tokens, k) -> list[tuple[int, str]]:
         k = _skip(tokens, k + 1, QUOTES)
         if k < len(tokens) and tokens[k] == "(":
             k = _skip(tokens, _parenthesized(tokens, k)[1], QUOTES)
-        after = _separator(tokens, k)
+        if _apposition(tokens, k):
+            after = _past_description(tokens, k + 1)
+            if after is None:
+                # An alternative to the described test is not an exact-name request.
+                tail = tokens[k + 1:]
+                end = next((j for j, token in enumerate(tail) if token in SENTENCE_END), len(tail))
+                if any(j > 0 and tail[j - 1] == "," and _word(tail[j]) == "or" and
+                       (_word(tail[j + 1]) in {"similar", "whatever", "equivalent", "another"} or
+                        _test_name(tail[j + 1])) for j in range(end - 1)):
+                    return []
+                break
+        else:
+            after = _separator(tokens, k)
         if after is None:
             if k < len(tokens) and _word(tokens[k]) == "or":
                 return []  # "TestA or similar"
@@ -225,17 +245,11 @@ def _names(tokens, k) -> list[tuple[int, str]]:
 
 def _cue(tokens, i) -> bool:
     word = _word(tokens[i])
-    return word in CUES or (word in NAMING and any(w in CUES for w in _clause(tokens, i, SENTENCE_END)))
-
-
-def _test_func(tokens, i) -> tuple[int, str] | None:
-    """The test that "func" at ``i`` declares, with its position: a name whose parameters take a *testing.T
-    ("func TestA(t *testing.T)"); "func TestConnection() error" is production code."""
-    k = _skip(tokens, i + 1, QUOTES)
-    name = _test_name(tokens[k]) if k < len(tokens) else None
-    if not name or tokens[k + 1:k + 2] != ["("] or TESTING_T not in _parenthesized(tokens, k + 1)[0]:
-        return None
-    return (k, name) if name not in NOT_A_TEST and not PLACEHOLDER.fullmatch(name) else None
+    if word == "add":
+        k = _skip(tokens, i + 1, QUOTES)
+        return (k < len(tokens) and bool(_test_name(tokens[k]))
+                and _apposition(tokens, _skip(tokens, k + 1, QUOTES)))
+    return word in CUES or (word in NAMING and any(w in CUES - {FUNC} for w in _clause(tokens, i, SENTENCE_END)))
 
 
 def _after_cue(tokens, i) -> int:
@@ -260,6 +274,54 @@ def _withdrawn(tokens, k) -> bool:
     return words[-1:] == ["not"] or words in (["instead", "of"], ["rather", "than"])
 
 
+# Tokenize Go separately from prose: comments and literals cannot declare tests.
+_GO_TOKEN = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\])*\"|\x60[^\x60]*\x60|'(?:\\.|[^'\\])*'|[A-Za-z_][A-Za-z0-9_]*|[^\s]")
+_GO_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _go_tokens(text):
+    return [token for token in _GO_TOKEN.findall(text)
+            if not token.startswith(("//", "/*", '"', chr(96), "'"))]
+
+
+def _test_parameter(tokens) -> bool:
+    """Go's test loader accepts one pointer to T or qualifier.T, optionally named."""
+    if tokens[-1:] == [","]:
+        tokens = tokens[:-1]
+    if len(tokens) > 1 and _GO_WORD.fullmatch(tokens[0]) and tokens[1] == "*":
+        tokens = tokens[1:]
+    return (tokens == ["*", "T"] or
+            (len(tokens) == 4 and tokens[0] == "*" and
+             bool(_GO_WORD.fullmatch(tokens[1])) and tokens[2:] == [".", "T"]))
+
+
+def _signature_end(tokens, k) -> int | None:
+    if tokens[k + 1:k + 2] != ["("]:
+        return None
+    try:
+        end = tokens.index(")", k + 2)
+    except ValueError:
+        return None
+    return end + 1 if _test_parameter(tokens[k + 2:end]) else None
+
+
+def _func_test_request(tokens, k) -> bool:
+    if tokens[k + 1:k + 2] != ["("]:
+        return any(word in {"test", "tests"} for word in _clause(tokens, k, CLAUSE_END))
+    try:
+        end = tokens.index(")", k + 2)
+    except ValueError:
+        return False
+    if not _test_parameter(_go_tokens("".join(tokens[k + 2:end]))):
+        return False
+    if tokens[end + 1:end + 3] == ["(", ")"]:
+        end += 2  # Go permits an explicit empty result list.
+    after = _skip(tokens, end + 1, QUOTES)
+    # A supplied result type makes this an API, not a runnable Go test.
+    return (after == len(tokens) or tokens[after] in {"{", ".", ";", "!", "?", ":"} or
+            _word(tokens[after]) in {"and", "but", "then", "for", "to", "that", "which", "as", "in", "with"})
+
+
 def _line_events(tokens) -> list[tuple[int, str, bool]]:
     """(position, name, requested) for each name the line asks for or withdraws."""
     # Leaving out a subtest ("not TestA/two") does not withdraw its function.
@@ -267,9 +329,8 @@ def _line_events(tokens) -> list[tuple[int, str, bool]]:
               if IDENTIFIER.fullmatch(token) and _withdrawn(tokens, k)]
     for i in range(len(tokens)):
         if _cue(tokens, i) and not _qualified(tokens, i):
-            events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))]
-        elif _word(tokens[i]) == FUNC and _test_func(tokens, i) and not _qualified(tokens, i):
-            events.append((*_test_func(tokens, i), True))
+            events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))
+                       if _word(tokens[i]) != FUNC or _func_test_request(tokens, k)]
     return sorted(set(events))
 
 
@@ -335,19 +396,28 @@ def named(texts) -> list[str]:
 
 
 def go_identifiers(workspace) -> set[str]:
-    """Every Test-prefixed identifier already written in the code of the workspace's Go files. A comment or a
-    string ("// TODO: TestA", "TestA" in a constant) declares no test, so its names do not count."""
+    """Eligible top-level test declarations in *_test.go, not mentions or production APIs.
+
+    This inventories declarations; compilation, build selection and runtime proof stay with Go.
+    """
     found = set()
     for directory, subdirectories, files in os.walk(workspace):
         subdirectories[:] = [name for name in subdirectories
                              if not name.startswith(".") and name not in _SKIPPED_DIRECTORIES]
         for name in files:
-            if name.endswith(".go"):
-                try:
-                    code = _GO_NOT_CODE.sub(" ", Path(directory, name).read_text(errors="replace"))
-                    found.update(IDENTIFIER.findall(code))
-                except OSError:
-                    continue
+            if not name.endswith("_test.go"):
+                continue
+            try:
+                tokens = _go_tokens(Path(directory, name).read_text(errors="replace"))
+            except OSError:
+                continue
+            depth = 0
+            for k, token in enumerate(tokens):
+                if depth == 0 and token == "func" and k + 1 < len(tokens) and IDENTIFIER.fullmatch(tokens[k + 1]):
+                    end = _signature_end(tokens, k + 1)
+                    if end is not None and (tokens[end:end + 1] == ["{"] or tokens[end:end + 3] == ["(", ")", "{"]):
+                        found.add(tokens[k + 1])
+                depth += {"{": 1, "}": -1}.get(token, 0)
     return found
 
 

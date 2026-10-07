@@ -154,6 +154,36 @@ class VerificationProofCache(unittest.TestCase):
         # or the transient Git repositories other test modules create inside it.
         self.python = str(root / 'bin' / 'python')
 
+    def test_completion_review_reproves_a_deleted_path_and_reuses_the_original_baseline(self):
+        import autocode_regression as regression
+        from .test_verify import Project, REFERENCE
+
+        project = Project()
+        self.addCleanup(project.close)
+        project.write({**REFERENCE, 'docs/bugs/removed.json': '{"diagnosis": "runner note"}\n'})
+        state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                 'settings': {'regression': {'python': self.python, 'test_timeout': 15}}}
+        regression.before_review(state, 'sol', project.root, project.evidence)
+        first = copy.deepcopy(state['regression_proof'])
+        self.assertEqual('PASS', first['verdict'], first)
+        old_receipt = Path(first['path']).read_bytes()
+        self.assertIn('docs/bugs/removed.json', json.loads(old_receipt)['changes'])
+        baseline = copy.deepcopy(state['regression_baseline'])
+
+        (project.root / 'docs/bugs/removed.json').unlink()
+        regression.before_review(state, 'astra_review', project.root, project.evidence)
+        current = state['regression_proof']
+        self.assertEqual('PASS', current['verdict'], current)
+        self.assertNotEqual(first['source_revision'], current['source_revision'])
+        self.assertNotEqual(first['path'], current['path'])
+        self.assertNotIn('docs/bugs/removed.json', json.loads(Path(current['path']).read_text())['changes'])
+        self.assertEqual(baseline, state['regression_baseline'])
+        self.assertEqual(old_receipt, Path(first['path']).read_bytes())
+        self.assertEqual(current['path'], regression.handoff(state)['path'])
+        regression.before_review(state, 'astra_review', project.root, project.evidence)
+        self.assertEqual(current['path'], state['regression_proof']['path'])
+        self.assertEqual(2, len(state['regression_proofs']))
+
     def test_operator_patch_mutation_invalidates_a_cached_complete_proof(self):
         import difflib
         import autocode_base_patch as base_patch

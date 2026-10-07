@@ -41,12 +41,10 @@ a refusal the planner could not satisfy:
   placeholder; neither is a test to write. A subtest path
   (`TestCacheExpiry/expired`) asks for its test function, `TestCacheExpiry`.
 - The user wrote it (task, brief feedback, own answers; not a delegated default
-  or model text) as a test to add. It must come right after "test" or "tests"
-  ("function", "func", "case", "named" or "called" may come between), as in
-  "add the Go tests TestA, TestB and TestC" or "a test for Fixed named TestA",
-  be declared with a test's parameter (`func TestA(t *testing.T)`; "implement
-  func TestConnection() error in product.go" is a production API), or start an
-  item of a list whose lead-in names tests ("Add these tests in
+  or model text) as a test to add. It must come right after "test", "tests" or
+  "func" ("function", "case", "named" or "called" may come between), as in "add
+  the Go tests TestA, TestB and TestC" or "a test for Fixed named TestA", or
+  start an item of a list whose lead-in names tests ("Add these tests in
   x_test.go:" then "- TestA: what it checks", one name per item however long
   its description). An inline list may describe each name too ("TestA (empty
   input), TestB (one item)" or "TestA checks X, TestB checks Y; TestC ..."); it
@@ -64,12 +62,11 @@ a refusal the planner could not satisfy:
 - The regression proof will run Go tests (an explicit `go test` command, else
   the framework `autocode_verify` detects, as `autocode_regression.prove`
   chooses). In Python or Java, `TestParser` is a class.
-- The code of the project's Go files does not already contain it. A bug
-  report's failing test, "keep the test TestX passing" or a `TestServer` helper
-  names existing code that the suite comparison already protects. Comments and
-  string and rune literals are not code: a `// TODO: TestFixedReturnsTwo` or a
-  constant holding the names declares no test, and counting it let the issue's
-  alias through.
+- The project's `*_test.go` files do not already declare it as a top-level
+  function taking one pointer to `T` or `qualifier.T`, with no return values.
+  Comments, string literals, references, methods and production helpers do not
+  establish an existing test. Compilation, build selection and execution stay
+  with Go; this is a declaration inventory.
 - The job is not design-only, and no reproduced diagnosis drives the proof.
 - The user has not settled it. The user's own `--edit-goal` is never refused by
   this check, and a name their latest edit leaves unaccounted for is no longer
@@ -107,14 +104,40 @@ same list written inline with a description after each name still lost every
 name after the first, that the alias passed when it sat in the criterion text
 next to a Validator criterion, and that one Validator criterion naming all the
 requested tests accounted for each of them, against the rule given to the
-planner; those have tests too. A third reader of the branch (issue comment,
-2026-10-07) found that a `.go` comment or string naming the requested tests
-made them count as existing, so nothing was requested and the alias passed, and
-that `func TestConnection() error`, a production API, was read as a requested
-test because "func" alone was a cue; "func" now needs a `*testing.T` parameter.
-It also asked for the scope of a subtest path, which had asked for nothing and
-dropped the rest of its list; it now asks for its test function. Tests cover
-all three.
+planner; those have tests too.
+
+## Original-brief and declaration corrections
+
+Fresh native run `20261007-094618-fix-fixed-in-product-go-to-return-2-instead-of-0-6ac76357`
+on combined source `ba8b9ffc` reached current `TASK_COMPLETE` with GLM 5.3 and
+GPT-6 Sol through OpenCode. Independent Go replay confirmed the requested
+fail-to-pass and both preservation proofs, six passing suite cases and unchanged
+protected files. All captured native streams and owned cleanup passed inspection.
+This verified the delivered task and guidance; its guard activation preflight failed.
+
+The exact original brief starts "Add TestFixedReturnsTwo, a real regression ...
+plus TestFixedPreservesExisting and TestFixedPreservesCrash". The guard extracted
+no names, while the existing unit fixture rewrote it with "Add native Go tests".
+Two other controlled defects remained: comment/string mentions suppressed required
+names, and `func TestConnection() error` was treated as a test request.
+
+The correction recognizes that explicit name-first regression request and its
+`plus` list, requires test-shaped signatures for `func` requests, and inventories
+real top-level declarations in test files instead of arbitrary Go mentions. It
+preserves negations, examples, alternatives, user edits and default criterion-ID
+proof. Eight added regression methods fail against the unchanged guard; all 47
+focused tests, including real Go proof, pass with the correction. Fresh live
+verification of this corrected guard remains required.
+
+The branch that first held this fix had answered the same issue comment in its
+own way; merging the two kept the master correction above and added what it
+left out. A subtest path (`Add the Go test TestCacheExpiry/expired.`), which
+had asked for nothing and ended its list, now asks for its test function, and
+the planning rule asks for the path as the user wrote it; "not TestA/two" in
+"TestA/empty and TestA/one, but not TestA/two" does not withdraw `TestA`. "A
+func named TestConnection that returns an error" no longer reads as a test:
+"func" lets "named" or "called" introduce a name only beside "test" or
+"tests". An edit of an archived design plan settles nothing (above).
 
 ## Limits
 
@@ -139,16 +162,15 @@ all three.
   order relative to the edit here); the previous behavior applies to it.
 - A greenfield Go project with no `go.mod` yet is not detected as Go at
   planning time.
-- A requested subtest path is checked only through its test function: a plan
-  declaring `TestCacheExpiry` or `TestCacheExpiry/other` accounts for
-  `TestCacheExpiry/expired`. A subtest asked for under a test that already
-  exists asks for nothing, since subtest names live in strings.
-- `func TestA` with no parameter list asks for nothing, even when it is meant
-  as a test.
 - After the Builder writes the tests they exist in the workspace, so a later
   revision is no longer checked against them.
 - A bug fix proven by its Investigator's cases names tests after the case IDs
   (`test_t1_...`); a brief asking for native names there is not covered.
 - Python `test_` names asked for in a brief get no equivalent check.
-- No fresh live run is claimed here. The issue asks for one that reaches matched
-  fail-to-pass and preservation proof.
+- A requested subtest path is checked only through its test function: a plan
+  declaring `TestCacheExpiry` or `TestCacheExpiry/other` accounts for
+  `TestCacheExpiry/expired`. A subtest asked for under a test that already
+  exists asks for nothing, since subtest names live in strings.
+- The diagnostic above does not qualify the corrected guard. A fresh live run
+  must activate it on the exact original brief and reach matched fail-to-pass
+  and preservation proof before that qualification is claimed.
