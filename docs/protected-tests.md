@@ -24,6 +24,11 @@ original assertion. New coverage remains allowed and is executed alongside
 the candidate suite. If no suite command was available when the inventory was
 bound, changed tests remain unverified until an explicit user revision supplies
 one. Unchanged original files use the ordinary independent verification gates.
+The replay puts back only test files, so it runs them under the candidate's own
+`package.json` and package-manager configuration. When the candidate changed
+those and its suite is judged by exit code, the regression proof also runs the
+original tests under the original definitions
+(docs/bugs/2026-10-06-package-script-proof.md).
 
 `--status` exposes the binding under `view.evidence.protected_tests` and the
 replay result under `view.evidence.check_replay.protected_tests`. A failed replay
