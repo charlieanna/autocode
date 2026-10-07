@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import errno
 import json
 import os
 import re
@@ -28,7 +27,7 @@ try:
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
@@ -37,7 +36,7 @@ except ImportError:
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result
+    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
@@ -457,7 +456,7 @@ def run_role(
     record["context"] = state.pop("pending_context_metrics", {})
     job_source.capture(workspace, base, record, before)
     started = time.monotonic()
-    timed_out = False
+    timed_out, activity = False, None
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
@@ -506,33 +505,37 @@ def run_role(
             raise
         except processes.ProcessError as error:
             raise support.Paused('PAUSED_PROCESS_CLEANUP', str(error)) from error
-        print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
-                                   idle_origin=idle_origin,
-                                   idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
-        activity_label = None
-        last_activity_print = 0
-        def activity_checkpoint(snapshot):
-            nonlocal activity_label, last_activity_print
-            record["activity"] = {**snapshot, "observed_at": now(),
-                                  "elapsed_seconds": round(time.monotonic() - started, 1),
-                                  "stage_limit_seconds": stage_timeout}
-            write_json(run_dir / "state.json", state)
-            label = (snapshot.get("activity"), snapshot.get("detail"))
-            current = time.monotonic()
-            if label != activity_label or current - last_activity_print >= 60:
-                stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
-                print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
-                      f"elapsed={record['activity']['elapsed_seconds']:g}s; "
-                      f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
-                      f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
-                      f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
-                activity_label, last_activity_print = label, current
-        def checkpoint(owned):
-            record["processes"] = owned
-            write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
-            write_json(run_dir / "state.json", state)
-        try:
+        except KeyboardInterrupt as error:  # the stage's one interrupt; the launch stopped what it started
+            if state.get("active_stage") is not record:
+                raise  # before admission finished, nothing of this stage was saved
+            raise support.Paused("PAUSED_INTERRUPTED", f"Provider launch interrupted by {str(error) or 'a signal'}; "
+                                 "inspect saved artifacts before reconciliation") from error
+        try:  # from here the stage's one interrupt is a pause with its provider collected (#454)
+            print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
+            activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
+                                       idle_origin=idle_origin,
+                                       idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
+            activity_label, last_activity_print = None, 0
+            def activity_checkpoint(snapshot):
+                nonlocal activity_label, last_activity_print
+                record["activity"] = {**snapshot, "observed_at": now(),
+                                      "elapsed_seconds": round(time.monotonic() - started, 1),
+                                      "stage_limit_seconds": stage_timeout}
+                write_json(run_dir / "state.json", state)
+                label = (snapshot.get("activity"), snapshot.get("detail"))
+                current = time.monotonic()
+                if label != activity_label or current - last_activity_print >= 60:
+                    stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
+                    print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
+                          f"elapsed={record['activity']['elapsed_seconds']:g}s; "
+                          f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
+                          f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
+                          f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
+                    activity_label, last_activity_print = label, current
+            def checkpoint(owned):
+                record["processes"] = owned
+                write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
+                write_json(run_dir / "state.json", state)
             exit_code, timed_out = processes.wait_for_stage(
                 child, stage_timeout, checkpoint, activity=activity, activity_checkpoint=activity_checkpoint,
                 startup_grace=min(5, tool_timeout or 5))
@@ -552,6 +555,8 @@ def run_role(
                 provider_guard.close()
             except processes.ProcessError as error:
                 cleanup_error = str(error)
+            except KeyboardInterrupt:  # the stage's one interrupt, after its provider was collected
+                interrupted = True
             independent = supervision.receipt(record['supervision'])
             if independent and independent.get('cause') == 'stage_deadline':
                 timed_out = True
@@ -560,6 +565,7 @@ def run_role(
         if interrupted:
             record['interrupted'] = True
             worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up before propagating the interrupt
+            exit_code = child.poll() if exit_code is None else exit_code  # one the wait never reached: its keeper stopped it
     record.update(finished_at=now(), exit_code=exit_code, duration_seconds=time.monotonic() - started,
                   metrics=support.event_metrics(events), timed_out=timed_out)
     if timed_out:
@@ -1323,7 +1329,8 @@ def main(unit=None) -> int:
     saved_opencode = opencode
     saved_argv = sys.argv
     try:
-        with supervision_cli.guard(saved_argv[1:]) as argv:
+        # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
+        with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
             sys.argv = [saved_argv[0], *argv]
             return _main_body(unit)
     finally:
@@ -1402,49 +1409,13 @@ def _main_body(unit=None) -> int:
         return 0 if state["status"] == "TASK_COMPLETE" else 2
 
 
-class _DiscardedOutput:
-    def write(self, value):
-        return len(value)
-
-    def flush(self):
-        pass
-
-
-class _DetachedOutput:
-    """Keep a detached terminal from interrupting a durable run."""
-
-    def __init__(self, stream):
-        self.original = stream
-        self.stream = stream
-
-    def write(self, value):
-        try:
-            return self.stream.write(value)
-        except OSError as error:
-            if error.errno != errno.EPIPE:
-                raise
-            self.stream = _DiscardedOutput()
-            return self.stream.write(value)
-
-    def flush(self):
-        try:
-            self.stream.flush()
-        except OSError as error:
-            if error.errno != errno.EPIPE:
-                raise
-            self.stream = _DiscardedOutput()
-
-    def __getattr__(self, name):
-        return getattr(self.original, name)
-
-
 def cli(unit=None):
-    # A caller can close its stdout/stderr pipe while a provider is still
-    # working. Progress output must not turn that run into an uncertain stage.
-    sys.stdout = _DetachedOutput(sys.stdout)
-    sys.stderr = _DetachedOutput(sys.stderr)
+    # Neither a closed terminal nor a late signal after a saved pause may change how the run ends (#454).
+    sys.stdout = detached_output.DetachedOutput(sys.stdout)
+    sys.stderr = detached_output.DetachedOutput(sys.stderr)
     try:
-        return main() if unit is None else main(unit=unit)
+        with processes.interrupts_held(until_exit=True):
+            return main() if unit is None else main(unit=unit)
     except (RuntimeError, ValueError, OSError) as error:
         print(f"autocode: {error}", file=sys.stderr)
         return 2
