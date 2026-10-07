@@ -12,8 +12,8 @@ A name is requested (``requested``) when all of these hold:
 
 - It has the form of a Go test function (Test, then an upper-case letter, digit or underscore). TestMain
   is Go's hook for the test binary and TestXxx is Go's own placeholder; neither is a test to write. A
-  subtest path (TestCacheExpiry/expired) asks for its test function, TestCacheExpiry; declaring that
-  function or any subtest of it accounts for it, and which subtests the plan declares is not checked.
+  subtest path (TestCacheExpiry/expired) is requested as the user wrote it; declaring it, its test
+  function or another subtest of that function accounts for it (which subtest is not checked).
 - The user wrote it as a test to add (``named``), in their own words, as for the brief-literal check
   (autocode_requirement_cues.scan_texts): the task, brief feedback and the user's answers, never a
   delegated default or model-written text. It must come right after "test", "tests" or "func" (a
@@ -31,11 +31,14 @@ A name is requested (``requested``) when all of these hold:
   on TestNet" or "a test for TestHelper misuse", asks for nothing. So does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test TestReadAll"), or one offered
   with an alternative ("a test TestA or similar"). A later message of the user's that says "instead of",
-  "rather than" or "not" right before a name withdraws it.
+  "rather than" or "not" right before a name withdraws it: a test function with its subtest paths, a
+  subtest path alone (so "TestA/empty and TestA/one, but not TestA/two" keeps the first two).
 - The runner's regression proof will run Go tests: an explicit ``go test`` regression command, else the
   framework autocode_verify detects in the workspace, chosen as autocode_regression.prove chooses it.
   Elsewhere TestParser is a Python or Java class, not a test the proof reports.
-- The project's *_test.go files do not already declare it as a top-level Go test function. Comments,
+- The project's *_test.go files do not already declare it (or, for a subtest path, its function) as a
+  top-level Go test function; subtest names live in strings, so one under an existing test asks for
+  nothing. Comments,
   strings, references and production helpers do not declare tests. Declaration eligibility is a
   lexical inventory; Go compilation, build selection and execution supply the actual proof.
 - The user has not settled it otherwise. The user's own edit of the plan (``USER_EDIT``) is never refused
@@ -77,7 +80,7 @@ except ImportError:
 
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 # A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).
-_TEST_WORD = re.compile(r"(Test[A-Z0-9_][A-Za-z0-9_]*)(?:/.+)?")
+_TEST_WORD = re.compile(r"Test[A-Z0-9_][A-Za-z0-9_]*(?:/.+)?")
 NOT_A_TEST = frozenset({"TestMain"})
 PLACEHOLDER = re.compile(r"Test[Xx]+")
 # The origin of a contract the user wrote with --edit-goal (autocode_run_actions); only the user makes one.
@@ -115,9 +118,13 @@ def _word(token: str) -> str:
 
 
 def _test_name(token: str) -> str | None:
-    """The Go test function ``token`` names (TestA for TestA or for its subtest path TestA/empty), else None."""
-    match = _TEST_WORD.fullmatch(token)
-    return match[1] if match else None
+    """``token`` when it names a Go test: a test function (TestA) or a subtest path (TestA/empty); else None."""
+    return token if _TEST_WORD.fullmatch(token) else None
+
+
+def _function(name: str) -> str:
+    """The test function of a requested name: TestA for TestA and for its subtest path TestA/empty."""
+    return name.split("/", 1)[0]
 
 
 def _parenthesized(tokens, k) -> tuple[list[str], int]:
@@ -240,7 +247,8 @@ def _names(tokens, k) -> list[tuple[int, str]]:
         k = after
     if k < len(tokens) and _word(tokens[k]) == "or":
         return []  # "TestA, TestB, or TestC"
-    return [(at, name) for at, name in found if name not in NOT_A_TEST and not PLACEHOLDER.fullmatch(name)]
+    return [(at, name) for at, name in found
+            if _function(name) not in NOT_A_TEST and not PLACEHOLDER.fullmatch(_function(name))]
 
 
 def _cue(tokens, i) -> bool:
@@ -324,9 +332,7 @@ def _func_test_request(tokens, k) -> bool:
 
 def _line_events(tokens) -> list[tuple[int, str, bool]]:
     """(position, name, requested) for each name the line asks for or withdraws."""
-    # Leaving out a subtest ("not TestA/two") does not withdraw its function.
-    events = [(k, token, False) for k, token in enumerate(tokens)
-              if IDENTIFIER.fullmatch(token) and _withdrawn(tokens, k)]
+    events = [(k, token, False) for k, token in enumerate(tokens) if _test_name(token) and _withdrawn(tokens, k)]
     for i in range(len(tokens)):
         if _cue(tokens, i) and not _qualified(tokens, i):
             events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))
@@ -385,13 +391,18 @@ def _events(text: str) -> list[tuple[str, bool]]:
 
 
 def named(texts) -> list[str]:
-    """Go test names ``texts`` ask for as tests, in order, without repeats; a later withdrawal removes one."""
+    """Go test names ``texts`` ask for as tests (a subtest path as written), in order, without repeats. A later
+    withdrawal removes one: a test function's withdrawal removes its subtest paths too, and a subtest path's
+    withdrawal removes that path only ("not TestA/two" leaves TestA/empty)."""
     order, wanted = [], {}
     for text in texts:
         for name, request in _events(text):
-            if request and name not in order:
-                order.append(name)
-            wanted[name] = request
+            if request:
+                if name not in order:
+                    order.append(name)
+                wanted[name] = True
+            else:
+                wanted.update((listed, False) for listed in order if name in (listed, _function(listed)))
     return [name for name in order if wanted[name]]
 
 
@@ -456,7 +467,7 @@ def requested(state) -> list[str]:
         return []
     workspace = state.get("workspace")
     existing = go_identifiers(workspace) if workspace and Path(workspace).is_dir() else set()
-    names = [name for name in names if name not in existing]
+    names = [name for name in names if _function(name) not in existing]
     edit = _user_edit(state)
     return names if edit is None else _accounted(edit, names)
 
@@ -475,19 +486,20 @@ def _criteria(body):
 
 
 def _declares(declared: str | None, name: str) -> bool:
-    """Whether a criterion declaring ``declared`` is proven by the test ``name`` itself (or its subtest)."""
-    return bool(declared) and declared.split("/", 1)[0] == name
+    """Whether a criterion declaring ``declared`` is proven by the test function of ``name`` (or a subtest)."""
+    return bool(declared) and _function(declared) == _function(name)
 
 
 def _respells(declared: str | None, name: str) -> bool:
     """Whether the Go matcher would bind ``declared`` to ``name`` only as one of its variant spellings."""
-    function = (declared or "").split("/", 1)[0]
+    function, name = _function(declared or ""), _function(name)
     return bool(function) and function != name and bool(
         test_cases.match_cases([{"id": "case", "test_name": function}], [name], framework="go")["case"])
 
 
 def _mentions(text: str, name: str) -> bool:
-    return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text))
+    """Whether ``text`` mentions the test function of ``name`` (alone or in a subtest path)."""
+    return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(_function(name))}(?![A-Za-z0-9_])", text))
 
 
 def _accounted(body, names: list[str]) -> list[str]:
@@ -496,7 +508,8 @@ def _accounted(body, names: list[str]) -> list[str]:
     rows = list(_criteria(body))
     return [name for name in names
             if any(found and _declares(declared, name) for _, found, _, declared, _ in rows)
-            or any(not found and set(_TEST_IDENTIFIER.findall(rest)) == {name} for _, found, rest, _, _ in rows)]
+            or any(not found and set(_TEST_IDENTIFIER.findall(rest)) == {_function(name)}
+                   for _, found, rest, _, _ in rows)]
 
 
 def problems(body, names: list[str]) -> list[str]:
@@ -539,7 +552,7 @@ def problems(body, names: list[str]) -> list[str]:
     unbound = [name for name in names if name not in accounted and name not in reported]
     if unbound:
         errors.append(f"no criterion declares {', '.join(unbound)}")
-    return errors
+    return list(dict.fromkeys(errors))  # two subtest paths of one function find the same duplicate declaration
 
 
 def check(state, body, *, origin=None) -> None:

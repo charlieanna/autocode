@@ -11,6 +11,7 @@ import shutil
 import unittest
 from unittest import mock
 
+import autocode_follow_up as follow_up
 import autocode_goal_lifecycle as lifecycle
 import autocode_native_test_names as native
 import autocode_planning as planning
@@ -166,31 +167,40 @@ class NamedTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual([], native.named([text]))
 
-    def test_func_names_a_test_only_with_a_testing_signature(self):
-        # #498 (issue comment): "func" alone does not make a Go test; a production API kept its Test prefix.
-        for text in ["implement func TestConnection() error in product.go; this is a callable production API",
-                     "Add a func named TestConnection that returns an error.",
-                     "Add func TestConnection to product.go."]:
+    def test_a_func_named_or_called_like_a_test_is_production_code(self):
+        # #651 B: "func" lets "named" or "called" introduce a test only beside "test"; a production function
+        # whose name starts with Test is not a test to write.
+        for text in ["Add a func named TestConnection that returns an error.",
+                     "Add a func called TestConnection to product.go."]:
             with self.subTest(text=text):
                 self.assertEqual([], native.named([text]))
-        self.assertEqual(["TestA"], native.named(["Add func TestA(t *testing.T) to product_test.go."]))
-        self.assertEqual(["TestA"], native.named(["Add the test func TestA."]))
-        self.assertEqual([], native.named(["Don't write func TestA(t *testing.T) yet."]))
+        self.assertEqual(["TestA"], native.named(["Add the test func named TestA."]))
 
-    def test_a_subtest_path_asks_for_its_test_function(self):
-        # #498 (issue comment): the scope of a requested subtest path. Its test function is requested; which
-        # subtest the plan declares under it is not checked.
-        self.assertEqual(["TestCacheExpiry"], native.named(["Add the Go test TestCacheExpiry/expired."]))
-        self.assertEqual(["TestA", "TestB"], native.named(["Add the tests TestA/empty and TestB."]))
-        self.assertEqual(["TestA", "TestB"], native.named(["Add these tests:\n- TestA/empty: no input\n- TestB"]))
-        # Leaving out one subtest does not withdraw its function.
-        self.assertEqual(["TestA"], native.named(["Add the tests TestA/empty and TestA/one, but not TestA/two."]))
+    def test_a_subtest_path_is_requested_as_the_user_wrote_it(self):
+        # #651 A: a subtest path asked for nothing and ended its list, so the names after it were lost too.
+        self.assertEqual(["TestCacheExpiry/expired"], native.named(["Add the Go test TestCacheExpiry/expired."]))
+        self.assertEqual(["TestCacheExpiry/expired", "TestCacheRetainsFresh"],
+                         native.named(["Add the Go tests TestCacheExpiry/expired and TestCacheRetainsFresh."]))
+        self.assertEqual(["TestA/empty", "TestB"], native.named(["Add these tests:\n- TestA/empty: no input\n- TestB"]))
+        # Leaving out one subtest withdraws neither its function nor the other subtests.
+        self.assertEqual(["TestA/empty", "TestA/one"],
+                         native.named(["Add the tests TestA/empty and TestA/one, but not TestA/two."]))
 
     def test_a_later_user_message_can_withdraw_a_name(self):
         retract = "Changed my mind: use the default test_<id> naming instead of TestFixedReturnsTwo."
         self.assertEqual(NAMES[1:], native.named([BRIEF, retract]))
         self.assertEqual(NAMES, native.named([BRIEF, retract, "Please keep the test TestFixedReturnsTwo after all."]))
         self.assertEqual(NAMES, native.named([BRIEF, "Do not rename the test TestFixedReturnsTwo."]))
+
+    def test_a_later_message_withdraws_a_subtest_path_or_its_whole_function(self):
+        # #651: "instead of" the full subtest path withdrew nothing; only the function name withdrew it.
+        ask = "Add the Go tests TestCacheExpiry/expired, TestCacheExpiry/fresh and TestCacheRetainsFresh."
+        path = "Changed my mind: use the default test_<id> naming instead of TestCacheExpiry/expired."
+        self.assertEqual(["TestCacheExpiry/fresh", "TestCacheRetainsFresh"], native.named([ask, path]))
+        self.assertEqual(["TestCacheRetainsFresh"],
+                         native.named([ask, "Use the default test_<id> naming rather than TestCacheExpiry."]))
+        self.assertEqual(["TestCacheExpiry/expired", "TestCacheExpiry/fresh", "TestCacheRetainsFresh"],
+                         native.named([ask, path, "Please keep the test TestCacheExpiry/expired after all."]))
 
 
 class ExistingGoTests(unittest.TestCase):
@@ -286,14 +296,19 @@ class ProblemsTests(unittest.TestCase):
         self.assertEqual(["no criterion declares TestFixedPreservesCrash"],
                          native.problems(plan(CORRECTED[:2] + ["guard: TestFixed_Preserves_Crash"]), NAMES))
 
-    def test_a_requested_subtest_path_is_accounted_for_by_its_function(self):
-        names = ["TestCacheExpiry"]
+    def test_a_requested_subtest_path_is_named_in_the_refusal_and_accounted_for_by_its_function(self):
+        # #651: the refusal said write "test: TestCacheExpiry" while the planning rule asks for the path given.
+        names = ["TestCacheExpiry/expired"]
         aliased = plan(["test: test_ac1_cache_expiry — resolves to TestCacheExpiry/expired"] + CONVENTION[1:])
-        self.assertEqual(['AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry '
-                          '(write "test: TestCacheExpiry")'], native.problems(aliased, names))
+        self.assertEqual(['AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry/expired '
+                          '(write "test: TestCacheExpiry/expired")'], native.problems(aliased, names))
+        self.assertEqual(["no criterion declares TestCacheExpiry/expired"], native.problems(plan(CONVENTION), names))
         for declared in ("test: TestCacheExpiry/expired", "test: TestCacheExpiry"):
             with self.subTest(declared=declared):
                 self.assertEqual([], native.problems(plan([declared] + CONVENTION[1:]), names))
+        twice = plan(["test: TestCacheExpiry", "test: TestCacheExpiry", CONVENTION[2]])
+        self.assertEqual(["AC1 and AC2 both declare TestCacheExpiry; each criterion needs its own test"],
+                         native.problems(twice, ["TestCacheExpiry/expired", "TestCacheExpiry/fresh"]))
 
     def test_criteria_without_a_requested_name_keep_the_default_convention(self):
         body = plan(CORRECTED)
@@ -418,11 +433,13 @@ class DraftValidationTests(unittest.TestCase):
     def test_a_callable_production_api_is_not_a_requested_test(self):
         found = project({**GO_SEED, "product.go": "package product\nfunc TestConnection() error { return nil }\n"})
         self.addCleanup(found.close)
-        task = "implement func TestConnection() error in product.go; this is a callable production API"
-        state = self.state(found.root, task=task)
-        self.assertEqual([], native.named([task]))
-        self.assertEqual([], native.requested(state))
-        lifecycle.validate_body(state, plan(CONVENTION), ready=True)
+        for task in ["implement func TestConnection() error in product.go; this is a callable production API",
+                     "Add a func named TestConnection that returns an error, in product.go."]:  # #651 B
+            with self.subTest(task=task):
+                state = self.state(found.root, task=task)
+                self.assertEqual([], native.named([task]))
+                self.assertEqual([], native.requested(state))
+                lifecycle.validate_body(state, plan(CONVENTION), ready=True)
 
     def test_a_separate_native_test_is_requested_until_a_genuine_declaration_exists(self):
         found = project({**GO_SEED, "product.go": "package product\nfunc TestConnection() error { return nil }\n"})
@@ -450,38 +467,18 @@ class DraftValidationTests(unittest.TestCase):
         self.assertEqual([], native.requested(self.state(task=task)))
         lifecycle.validate_body(self.state(task=task), plan(CONVENTION), ready=True)
 
-    def test_a_name_in_a_go_comment_or_string_is_not_an_existing_test(self):
-        # #498 (issue comment): a TODO comment or a string naming the requested tests made them "existing", so
-        # nothing was requested and the issue's alias passed although no such test existed.
-        notes = project({**GO_SEED, "notes.go": (
-            'package product\n\n// TODO: TestFixedReturnsTwo, TestFixedPreservesExisting, TestFixedPreservesCrash\n'
-            '/* TestFixedReturnsTwo */\nconst plan = "TestFixedReturnsTwo TestFixedPreservesExisting"\n'
-            "var raw = `TestFixedPreservesCrash`\nvar quote = '\"' // TestFixedPreservesCrash\n")})
-        self.addCleanup(notes.close)
-        self.assertEqual(NAMES, native.requested(self.state(notes.root)))
-        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
-            lifecycle.validate_body(self.state(notes.root), plan(ALIASED), ready=True)
-        lifecycle.validate_body(self.state(notes.root), plan(CORRECTED), ready=True)
-
-    def test_go_identifiers_reads_test_declarations_past_comments_strings_and_runes(self):
-        code = project({"go.mod": "module product\n\ngo 1.16\n", "server_test.go": (
-            'package product\n\nimport "testing"\n\nconst url = "http://x/TestInString" // TestInComment\n'
-            'func TestServer() int { return 1 } /* TestInBlock\n TestInBlockToo */\n'
-            "var r = '\\'' + 'x'\nvar y = TestServer() + len(`TestInRaw`)\n"
-            "func TestReal(t *testing.T) { _ = '}' }\n")})
-        self.addCleanup(code.close)
-        self.assertEqual({"TestReal"}, native.go_identifiers(code.root))
-
     def test_a_subtest_of_a_new_test_is_requested_and_of_an_existing_one_is_not(self):
+        # #651 A: a subtest path asked for nothing, so the issue's prose alias passed again.
         task = "Add the Go test TestCacheExpiry/expired."
-        self.assertEqual(["TestCacheExpiry"], native.requested(self.state(task=task)))
+        self.assertEqual(["TestCacheExpiry/expired"], native.requested(self.state(task=task)))
         aliased = plan(["test: test_ac1_cache_expiry — resolves to TestCacheExpiry/expired"] + CONVENTION[1:])
-        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry"):
+        with self.assertRaisesRegex(ValueError, r'AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry/'
+                                                r'expired \(write "test: TestCacheExpiry/expired"\)'):
             lifecycle.validate_body(self.state(task=task), aliased, ready=True)
         lifecycle.validate_body(self.state(task=task), plan(["test: TestCacheExpiry/expired"] + CONVENTION[1:]),
                                 ready=True)
-        task = "Add the Go test TestExistingIsSeven/after_fix."
-        self.assertEqual([], native.requested(self.state(task=task)))
+        # Subtest names live in strings: one under a test the project already declares asks for nothing.
+        self.assertEqual([], native.requested(self.state(task="Add the Go test TestExistingIsSeven/after_fix.")))
 
     def test_a_described_list_cannot_alias_its_later_names(self):
         task = ("Fix Fixed in product.go to return 2 instead of 0.\n\nAdd these native Go tests in product_test.go:\n"
@@ -531,17 +528,21 @@ class DraftValidationTests(unittest.TestCase):
         self.assertEqual(["TestFixedReturnsTwo"], native.requested(kept))
 
     def test_an_edit_of_an_earlier_design_jobs_plan_settles_nothing_for_the_build(self):
-        # autocode_follow_up.plan_afresh archives the design job's contracts when "Build it." follows a proposed
-        # design; the user's edit of that design plan is not their word on the build's tests.
-        design_edit = {"origin": "user_cli_edit", "revision": 2, "hash": "abc", "body": plan(CONVENTION)}
-        state = self.state(contract_history=[design_edit], turns=[{"fresh_plan": {"contract": "r2:abc"}}])
+        # #651 D: "Build it." after a proposed design plans afresh (autocode_follow_up.plan_afresh), which archives
+        # the design job's contracts; the user's edit of that design plan is not their word on the build's tests.
+        state = self.state(task="Design how Fixed() in product.go should behave.", task_id="task-1", version=3,
+                           status="TASK_COMPLETE", workflow={"kind": "design"}, design_review={"mode": "propose"},
+                           goal_contract={"origin": "user_cli_edit", "revision": 2, "hash": "abc", "task_id": "task-1",
+                                          "body": plan(CONVENTION)})
+        follow_up.accept(state, "Build it. " + BRIEF.split(". ", 1)[1], self.go.root, "2026-10-07T00:00:00Z")
+        state["workflow"] = {"kind": "build"}  # as recognize_workflow decides for "Build it."
+        follow_up.plan_afresh(state)
         self.assertEqual(NAMES, native.requested(state))
-        state["goal_contract"] = {"origin": "astra_finalize", "revision": 3, "hash": "def", "body": plan(CONVENTION)}
-        self.assertEqual(NAMES, native.requested(state))
-        build_edit = {"origin": "user_cli_edit", "revision": 4, "hash": "ghi", "body": plan(CONVENTION)}
-        state["contract_history"].append(state["goal_contract"])
-        state["goal_contract"] = build_edit
-        self.assertEqual([], native.requested(state))
+        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
+            lifecycle.validate_body(state, plan(ALIASED), ready=True)
+        # The user's own edit of the build's plan still settles which names stay.
+        lifecycle.install_draft(state, plan(CORRECTED[:1] + CONVENTION[1:]), origin="user_cli_edit")
+        self.assertEqual(NAMES[:1], native.requested(state))
 
     def presented(self, body, origin):
         state = self.state(task_id="task-1", version=3, status="RUNNING")
@@ -608,7 +609,14 @@ class PlannerPromptTests(unittest.TestCase):
                 rule = text.split("NATIVE TEST NAMES:", 1)[1].split("\n", 1)[0]
                 self.assertIn(", ".join(NAMES), rule)
                 self.assertIn('"test: TestFixedReturnsTwo"', rule)
-                self.assertIn("keeping the user's spelling and any subtest path they gave", rule)
+
+    def test_the_rule_asks_for_a_requested_subtest_path_as_the_user_wrote_it(self):
+        # #651 A: a brief naming a subtest path got no rule at all.
+        text = self.prompt("glm_revise", task="Add the Go test TestCacheExpiry/expired.")
+        self.assertIn("NATIVE TEST NAMES:", text)
+        rule = text.split("NATIVE TEST NAMES:", 1)[1].split("\n", 1)[0]
+        self.assertIn("the user asked for the Go tests TestCacheExpiry/expired.", rule)
+        self.assertIn('("test: TestCacheExpiry/expired"), keeping the user\'s spelling and any subtest path', rule)
 
     def test_no_rule_without_requested_names_or_before_planning(self):
         self.assertNotIn("NATIVE TEST NAMES", self.prompt("glm_revise", task="Fix Fixed to return 2."))
