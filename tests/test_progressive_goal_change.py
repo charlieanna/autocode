@@ -216,6 +216,31 @@ class GoalChangeTests(unittest.TestCase):
         self.assertEqual(selected, self.state["progressive"]["completion_proof"]["contract_token"])
         self.assertGreater(self.state["progressive"]["budget"]["run_seconds"], spent["run_seconds"])
 
+    def test_a_slice_revision_that_names_git_status_is_refused_where_the_planner_writes_it(self):
+        # The saved plan is not checked again, so the same revision without git status proceeds (#185).
+        self.plan()
+        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        self.validate()
+        self.checkpoint()
+        detailed = copy.deepcopy(self.proposal)
+        detailed.update(done_slices=["S1"], slices=[copy.deepcopy(detailed["slices"][1])])
+        detailed["slices"][0]["tentative"] = False
+        step = "sh -c 'test -z \"$(git status --porcelain greet.py)\"'"
+        named = copy.deepcopy(detailed)
+        named["slices"][0]["checks"][0]["method"] = step
+        before = copy.deepcopy(self.state)
+        for proposal, task, where in ((named, self.first, "check B method"),
+                                      (detailed, {**self.first, "validation_plan": [COMMAND, step]},
+                                       "initial_task.validation_plan")):
+            with self.subTest(where=where):
+                with self.assertRaisesRegex(ValueError, f"^{where} `sh -c .*` names git status"):
+                    self.stage("glm_revise", {"summary": "S2 on retained source", "progressive_proposal": proposal,
+                                              "initial_task": copy.deepcopy(task)})
+                self.state = copy.deepcopy(before)
+        self.stage("glm_revise", {"summary": "S2 on retained source", "progressive_proposal": detailed,
+                                  "initial_task": copy.deepcopy(self.first)})
+        self.assertEqual("review", self.state["progressive"]["transition"]["phase"])
+
     def test_absent_marker_retains_removed_behavior_check(self):
         self.after_s1()
         self.revise(marker=False)
