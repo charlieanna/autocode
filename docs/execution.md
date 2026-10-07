@@ -406,8 +406,11 @@ runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`
   API, because the runner never guesses an expected value. A declaration also
   promises atomicity under contention only when its own text says so in one
   clause: the queue's claims are atomic under contention or concurrency, or
-  concurrent `create_order` calls for one key commit once. An exclusion ("need
-  not", "out of scope") or durability wording alone adds no race.
+  concurrent `create_order` calls for one key commit once. Durability wording
+  alone adds no race, and neither does a clause with any negation in it ("need
+  not", "out of scope", even "so a job is never leased twice"): the grammar
+  cannot tell which part a negation excludes, so that sentence is listed as
+  unverified instead of raced.
 - **Binding.** The independent Plan Reviewer selects only the declaration, its
   criteria and the original public module; the runner records it in
   `goal_contract.body.risk_acceptance` with the public modules captured before the

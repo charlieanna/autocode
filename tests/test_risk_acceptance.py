@@ -176,6 +176,9 @@ class RiskAcceptanceTests(unittest.TestCase):
                                                 'they survive restart.'), False),
                  (QUEUE.replace(queue_sentence, 'Claims made concurrently by many workers stay atomic, '
                                                 'and jobs survive restart.'), True),
+                 # Any negation in the clause keeps it unraced (the grammar cannot place it); it is disclosed.
+                 (QUEUE.replace(queue_sentence, 'Enqueue and claims must be atomic under contention, so a job '
+                                                'is never leased twice, and survive restart.'), False),
                  (OUTBOX.replace(outbox_sentence, ''), False),
                  (OUTBOX.replace(outbox_sentence, 'Concurrent create_order requests are out of scope.'), False),
                  (OUTBOX.replace(outbox_sentence, 'create_order calls made in parallel for one key succeed once.'), True)]

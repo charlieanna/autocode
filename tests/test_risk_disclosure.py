@@ -35,6 +35,10 @@ class RiskDisclosureTests(unittest.TestCase):
         # Without a supported declaration, the stated contention promise is not raced either.
         unsupported = QUEUE.replace("token is fresh and opaque on every claim", "tokens identify claims")
         self.assertIn("concurrency", {row["kind"] for row in claims(unsupported)})
+        # Nor is one whose clause carries a negation the grammar cannot place; it is disclosed instead.
+        negated = brief.replace("atomic under contention and", "atomic under contention, so a job is never leased "
+                                                                "twice, and")
+        self.assertEqual(["concurrency"], [row["kind"] for row in claims(negated)])
 
     def test_durability_without_a_supported_family_is_disclosed_not_required(self):
         rows = claims((CATALOG / "ladder-21-event-replay-snapshots" / "brief.md").read_text())
