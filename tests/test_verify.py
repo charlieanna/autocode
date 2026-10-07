@@ -1129,15 +1129,16 @@ class VerifyCase(unittest.TestCase):
                 self.assertTrue(schedule.complete_results(result), result)
                 self.assertEqual(health, verify.suite_health(result))
         # Fixtures never stand in for tests: zero tests, or a missing test line, stays incomplete.
-        zero = {"module skip": ("def setUpModule():\n    raise unittest.SkipTest('no')\n" + classes, 0,
+        zero = {"module skip": ("def setUpModule():\n    raise unittest.SkipTest('no')\n" + classes, (0,),
                                 "Test command reported zero tests or incomplete per-test results"),
-                "only a setUpClass error": (cases["setUpClass error"][0], 1, "")}
-        for name, (source, exit_code, error) in zero.items():
+                # Newer Python releases use NO_TESTS (5) even when a class fixture failed.
+                "only a setUpClass error": (cases["setUpClass error"][0], (1, 5), "")}
+        for name, (source, exit_codes, error) in zero.items():
             with self.subTest(name):
                 project.write({"test_x.py": "import unittest\n" + source})
                 result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"), command=command)
-                self.assertEqual((exit_code, error, 0), (result["exit_code"], result["error"],
-                                                         result["results"]["total"]), result)
+                self.assertIn(result["exit_code"], exit_codes, result)
+                self.assertEqual((error, 0), (result["error"], result["results"]["total"]), result)
                 self.assertFalse(schedule.complete_results(result))
                 self.assertEqual("broken", verify.suite_health(result))
         log = project.evidence / "truncated.log"
