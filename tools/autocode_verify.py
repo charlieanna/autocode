@@ -28,6 +28,7 @@ try:
 except ImportError:
     import autocode_source_snapshot as source_snapshot
 
+import contextlib
 import json
 import os
 import re
@@ -108,8 +109,9 @@ def is_code_path(path: str) -> bool:
     return PurePosixPath(path).suffix in CODE_SUFFIXES
 
 
-def _git(cwd, *args, check=True):
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace")
+def _git(cwd, *args, check=True, env=None, input=None):
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="replace",
+                            env=env, input=input)
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
@@ -212,26 +214,96 @@ def _ignored(path: str) -> bool:
             or path.endswith(".pyc") or path in DEPENDENCY_DIRS)
 
 
+def _reachable(workspace, path) -> bool:
+    """``path`` exists and is reached through real directories only, so Git can stage what is there."""
+    return os.path.lexists(Path(workspace, path)) and not any(
+        Path(workspace, parent).is_symlink() for parent in list(PurePosixPath(path).parents)[:-1])
+
+
+@contextlib.contextmanager
+def _staged(workspace, base=None, *, keep=False):
+    """(Git's environment with a scratch index holding the working tree as `git add -A` stages it,
+    the untracked Git repositories it cannot stage, as ``dir/``).
+
+    The index starts as a copy of the real one, so tracked files keep their stat cache; the real
+    index, HEAD and the files are untouched. Untracked files count, ignored ones do not, except a
+    file ``base`` holds that is still there: ignoring it changes nothing in its content. Run state
+    and bytecode (_ignored) keep the real index's entries. Objects go to a scratch store that is
+    dropped afterwards unless ``keep`` (a commit that must last).
+
+    Plumbing only, never `git add`: it refuses a pathspec that names an ignored path (a gitignored
+    .autocode, AutoCode's own info/exclude rule) and `add -u -- .` an index with no files."""
+    with tempfile.TemporaryDirectory(prefix="autocode-index-") as scratch:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        if not keep:
+            objects = Path(workspace, _git(workspace, "rev-parse", "--git-path", "objects").strip()).resolve()
+            alternates = filter(None, (str(objects), os.environ.get("GIT_ALTERNATE_OBJECT_DIRECTORIES")))
+            env.update(GIT_OBJECT_DIRECTORY=str(Path(scratch, "objects")),
+                       GIT_ALTERNATE_OBJECT_DIRECTORIES=os.pathsep.join(alternates))
+            Path(env["GIT_OBJECT_DIRECTORY"]).mkdir()
+        real = Path(workspace, _git(workspace, "rev-parse", "--git-path", "index").strip())
+        if real.is_file():
+            shutil.copy2(real, env["GIT_INDEX_FILE"])  # with its timestamp: a racily clean entry stays racy
+        dirty = [path for path in _git(workspace, "-c", "core.fsmonitor=false", "diff-files", "--name-only", "-z",
+                                       env=env).split("\0") if path and not _ignored(path)]
+        others = [path for path in _git(workspace, "ls-files", "-z", "--others", "--exclude-standard",
+                                        env=env).split("\0") if path and not _ignored(path)]
+        repositories = [path for path in others if path.endswith("/")]  # Git never stages inside one
+        there = {path: _reachable(workspace, path) for path in dirty}
+        gone = [path for path in dirty if not there[path]]
+        add = [path for path in dirty if there[path]] + [path for path in others if not path.endswith("/")]
+        if base:
+            ignored = set(_git(workspace, "diff-index", "--cached", "--diff-filter=D", "--name-only", "-z",
+                               "--no-renames", base, "--", env=env).split("\0")).difference(add, gone, [""])
+            add += [path for path in sorted(ignored) if not _ignored(path) and _reachable(workspace, path)
+                    and (Path(workspace, path).is_symlink() or Path(workspace, path).is_file())
+                    and not path.startswith(tuple(repositories))]
+        for options, paths in ((("--force-remove",), gone), (("--add", "--remove", "--replace"), add)):
+            if paths:
+                _git(workspace, "update-index", *options, "-z", "--stdin", env=env, input="\0".join(paths) + "\0")
+        yield env, repositories
+
+
 def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
-    """Every path whose content differs from ``base``: committed, staged, dirty or untracked."""
-    changes: dict[str, str] = {}
-    tokens = _git(workspace, "diff", "--name-status", "-z", "--no-renames", base, "--").split("\0")
-    for status, path in zip(tokens[0::2], tokens[1::2]):
-        if path:
-            changes[path] = {"A": "added", "D": "deleted"}.get(status[:1], "modified")
-    for path in _git(workspace, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
-        if path:
-            changes[path] = "added"
-    if source_paths:
-        tracked = set(filter(None, _git(workspace, 'ls-files', '-z', '--cached').split('\0')))
-        selected = source_snapshot.snapshot(workspace, paths=source_paths)
-        for path, identity in selected['files'].items():
-            if identity.startswith(('submodule:', 'uninitialized-submodule')):
-                changes.pop(path, None)
-        for path, identity in source_snapshot.inventory(workspace, paths=source_paths).items():
-            if path not in tracked and identity != 'deleted':
-                changes[path] = 'added'
+    """Every path whose content differs from ``base``: committed, staged, dirty or untracked.
+
+    Compared through a staged copy of the working tree, so a base that already holds untracked
+    files (an in-place run's launch state, commit_worktree) counts only what changed since. An
+    untracked Git repository is listed as ``dir/``, added."""
+    with _staged(workspace, base) as (env, repositories):
+        tokens = _git(workspace, "diff-index", "--cached", "--name-status", "-z", "--no-renames", base, "--",
+                      env=env).split("\0")
+        changes = {path: {"A": "added", "D": "deleted"}.get(status[:1], "modified")
+                   for status, path in zip(tokens[0::2], tokens[1::2]) if path}
+        changes.update(dict.fromkeys(repositories, "added"))
+        for path in _git(workspace, "diff-files", "--name-only", "-z", "--diff-filter=M", env=env).split("\0"):
+            if path and Path(workspace, path).is_dir():  # a submodule with uncommitted work, as `git diff` shows it
+                changes.setdefault(path, "modified")
+        if source_paths:
+            tracked = set(filter(None, _git(workspace, "ls-files", "-z", "--cached", env=env).split("\0")))
+            selected = source_snapshot.snapshot(workspace, paths=source_paths)
+            for path, identity in selected["files"].items():
+                if identity.startswith(("submodule:", "uninitialized-submodule")):
+                    changes.pop(path, None)
+            for path, identity in source_snapshot.inventory(workspace, paths=source_paths).items():
+                if path not in tracked and identity != "deleted":
+                    changes[path] = "added"
     return {path: status for path, status in sorted(changes.items()) if not _ignored(path)}
+
+
+def commit_worktree(workspace):
+    """HEAD when the checkout matches it, else a new child commit of HEAD holding the working tree as
+    changed_files sees it, uncommitted and untracked files included (an untracked Git repository
+    cannot be). No ref, index or file changes; None without a HEAD."""
+    head = _git(workspace, "rev-parse", "--verify", "-q", "HEAD", check=False).strip()
+    if not head:
+        return None
+    with _staged(workspace, keep=True) as (env, _):
+        tree = _git(workspace, "write-tree", env=env).strip()
+    if tree == _git(workspace, "rev-parse", "HEAD^{tree}").strip():
+        return head
+    return _git(workspace, "-c", "user.name=AutoCode", "-c", "user.email=autocode@localhost", "commit-tree",
+                "--no-gpg-sign", tree, "-p", head, "-m", "AutoCode: the checkout as a run started").strip()
 
 
 BINARY_LINES = 1000  # a binary change is never "tiny"
@@ -239,7 +311,9 @@ BINARY_LINES = 1000  # a binary change is never "tiny"
 
 def diff_stats(workspace, base, changes) -> dict:
     lines, binary = {}, []
-    for record in _git(workspace, "diff", "--numstat", "-z", "--no-renames", base, "--").split("\0"):
+    with _staged(workspace, base) as (env, _):
+        numstat = _git(workspace, "diff-index", "--cached", "--numstat", "-z", "--no-renames", base, "--", env=env)
+    for record in numstat.split("\0"):
         parts = record.split("\t", 2)
         if len(parts) != 3 or parts[2] not in changes:
             continue

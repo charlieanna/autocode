@@ -22,6 +22,7 @@ try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
     from . import autocode_containment_policy as containment_policy
     from . import autocode_task_preflight as task_preflight
+    from . import autocode_checkout_lock as checkout_lock
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_interventions as interventions
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
     import autocode_containment_policy as containment_policy
     import autocode_task_preflight as task_preflight
+    import autocode_checkout_lock as checkout_lock
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
@@ -132,6 +134,7 @@ def resolve(runner, args, parser):
                          "To continue a saved run, run autocode without new-run options from its project "
                          "or task worktree, or name it with --run-dir")
         task = args.task
+        created = fresh = False
         if not (workspace / ".git").exists():
             if args.dry_run or args.status:
                 parser.error(f"workspace is not a Git repository: {workspace}")
@@ -141,11 +144,11 @@ def resolve(runner, args, parser):
                 parser.error(str(error))
             # A new task project is already private to this task. Avoid a
             # second hidden worktree so users can find the generated files.
-            args.in_place = True
+            args.in_place = created = True
             print(f"Created task project: {workspace}", flush=True)
         if not args.in_place and not args.dry_run and not args.status:
             isolated = task_workspaces.create(workspace, task)
-            workspace = Path(isolated["workspace"])
+            workspace, fresh = Path(isolated["workspace"]), True
             print(f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.", flush=True)
         run_dir = workspace / ".autocode" / "runs" / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{runner.slug(task)}-{uuid.uuid4().hex[:8]}"
         state_path = run_dir / "state.json"
@@ -156,8 +159,13 @@ def resolve(runner, args, parser):
         isolated = task_workspaces.metadata(workspace)
         if isolated:
             state.update(project_workspace=isolated["project_workspace"], task_branch=isolated["branch"])
-        # The revision a bug fix is proven against (autocode_regression).
-        state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
+        # The revision a bug fix is proven against (autocode_regression). A project or task worktree
+        # created just now is its HEAD; in any other checkout, including an earlier task's worktree,
+        # the files it holds uncommitted or untracked at launch are part of it.
+        if created or fresh or args.dry_run or args.status:
+            state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
+        else:
+            state["base_commit"] = launch_base(workspace, run_dir, parser)
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None and args.max_iterations is not None:
@@ -177,6 +185,20 @@ def resolve(runner, args, parser):
         status_command.render(runner, state, args, workspace, run_dir)
         return 0
     return workspace, run_dir, state_path, state
+
+
+def launch_base(workspace, run_dir, parser):
+    """A new in-place run's base_commit (regression.launch_base), taken while this run holds the
+    checkout. None while another run's agents hold it: its unfinished edits are not this run's
+    start, so the build loop records the base once this run holds the checkout."""
+    task_workspaces.keep_out_of_git(workspace)
+    try:
+        with checkout_lock.exclusive(workspace, run_dir):
+            return regression.launch_base(workspace, run_dir)
+    except checkout_lock.CheckoutBusy:
+        return None
+    except RuntimeError as error:
+        parser.error(f"cannot record the checkout's uncommitted and untracked files as the run's start: {error}")
 
 
 def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
