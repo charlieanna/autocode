@@ -496,19 +496,43 @@ def detect_framework(root, *, python=None) -> Framework | None:
 
 # --- execution --------------------------------------------------------------
 
+def _proof_pythonpath(tree, inherited):
+    """Path entries inherited from the runner, minus a parent ``tests`` package.
+
+    The tree is already first. A later regular ``tests`` package still captures
+    a fixture ``tests/`` directory that has no ``__init__.py``, so the checkout
+    that launched the proof must not stay on the path.
+    """
+    tree_root = Path(tree).resolve()
+    tree_has_tests = (tree_root / "tests").is_dir()
+    kept = []
+    for entry in inherited.split(os.pathsep):
+        if not entry:
+            continue
+        root = Path(entry)
+        try:
+            same_tree = root.resolve() == tree_root
+        except OSError:
+            same_tree = False
+        if tree_has_tests and not same_tree and (root / "tests" / "__init__.py").is_file():
+            continue
+        kept.append(entry)
+    return kept
+
+
 def test_environment(tree, env=None):
     """Environment for a command run in ``tree``.
 
     The tree (and its ``src/``) goes first on PYTHONPATH so an editable install
     of the user's checkout (a ``.pth`` file in a linked venv) cannot shadow the
-    code being tested. Credential-like variables are withheld: the tests are
-    model-written code (autocode_agent_env).
+    code being tested. A parent checkout whose regular ``tests`` package would
+    capture this tree's ``tests/`` directory is left off the path. Credential-like
+    variables are withheld: the tests are model-written code (autocode_agent_env).
     """
     environment = dict(agent_env.scrubbed(os.environ if env is None else env), PYTHONDONTWRITEBYTECODE="1", CI="1")
     roots = [str(Path(tree) / "src")] if (Path(tree) / "src").is_dir() else []
     roots.append(str(tree))
-    if environment.get("PYTHONPATH"):
-        roots.append(environment["PYTHONPATH"])
+    roots.extend(_proof_pythonpath(tree, environment.get("PYTHONPATH", "")))
     environment["PYTHONPATH"] = os.pathsep.join(roots)
     python = test_env.virtualenv_python(tree)
     if python:
