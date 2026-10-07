@@ -19,12 +19,12 @@ from tests.test_brief_acceptance import PRODUCT, TASK
 from tests.test_command_receipt import guarded_command_receipt
 
 
-def build_state(root, task=TASK):
+def build_state(root, task=TASK, setup=('brief-probe',)):
     state = {'task': task}
     declarations = obligations.inventory(state)
     proposals = [{'declaration_id': row['id'], 'criterion_ids': [f'AC{i}'],
-                  'steps': [{'argv': ['add', 'brief-probe']}, {'argv': ['list']}],
-                  'observe_step': 1, 'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}]}
+                  'steps': [*({'argv': ['add', text]} for text in setup), {'argv': ['list']}],
+                  'observe_step': len(setup), 'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}]}
                  for i, row in enumerate(declarations, 1)]
     body = {'acceptance_criteria': [{'id': f'AC{i}'} for i in range(1, len(proposals) + 1)]}
     events, output = root / 'review.events', root / 'review.json'
@@ -47,13 +47,14 @@ class BriefEvidenceTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.state = build_state(self.root)
         self.calls = []
+        self.listing = 'ticket-z brief-probe [open]\n'
 
     def runner(self, workspace, out, *, command, timeout):
         self.calls.append({'workspace': workspace, 'out': out, 'command': command, 'timeout': timeout})
         case = json.loads(shlex.split(command)[-1])
         observed = {'verdict': 'PASS', 'observation_hash': case['hash'], 'reason': '',
                     'steps': [{'argv': step['argv'], 'exit_code': 0,
-                               'stdout_base64': encoded('ticket-z brief-probe [open]\n' if i == case['observe_step'] else ''),
+                               'stdout_base64': encoded(self.listing if i == case['observe_step'] else ''),
                                'stderr_base64': ''} for i, step in enumerate(case['steps'])]}
         out = Path(out)
         out.mkdir(parents=True)
@@ -179,6 +180,58 @@ class BriefEvidenceTests(unittest.TestCase):
                 self.rewrite_summary(result)
                 self.assertFalse(evidence.ready(self.state, 'current'))
 
+    def test_multi_item_listing_is_ready_and_every_line_is_rechecked_after_rehash(self):
+        self.state = build_state(self.root, setup=('brief-probe', 'brief-probe-2'))
+        self.listing = 'ticket-z brief-probe [open]\nticket-y brief-probe-2 [done]\n'
+        result = self.replay()
+        self.assertTrue(evidence.ready(self.state, 'current'))
+        for listing in ['ticket-z brief-probe [open]\nticket-y brief-probe-2 done\n',
+                        'ticket-y brief-probe-2 [done]\n',
+                        'ticket-z brief-probe [open]\nticket-y brief-probe-2 [done]\nticket-x invented [open]\n',
+                        'ticket-z brief-probe [open]\n\nticket-y brief-probe-2 [done]\n']:
+            with self.subTest(listing=listing):
+                row = result['checks'][0]
+                observed = copy.deepcopy(row['observation'])
+                observed['steps'][2]['stdout_base64'] = encoded(listing)
+                Path(row['output']).write_text(json.dumps(observed))
+                row['output_sha256'] = util.file_hash(row['output'])
+                row['observation'] = observed
+                self.rewrite_summary(result)
+                self.assertFalse(evidence.ready(self.state, 'current'))
+
+    def test_a_failed_replay_names_the_step_that_failed(self):
+        # The rejection the Tester and Builder read (#452 review): the runner's own reason and
+        # the step it concerns, never another step's output.
+        self.state = build_state(self.root, setup=('brief-probe', 'brief-probe-2'))
+        def failing(reason, steps):
+            def runner(workspace, out, *, command, timeout):
+                case = json.loads(shlex.split(command)[-1])
+                rows = [{'argv': argv, 'exit_code': code, 'stdout_base64': encoded(stdout), 'stderr_base64': encoded(stderr)}
+                        for argv, code, stdout, stderr in steps]
+                out = Path(out)
+                out.mkdir(parents=True)
+                output = out / 'scratch-command.log'
+                output.write_text(json.dumps({'verdict': 'FAIL', 'observation_hash': case['hash'],
+                                              'steps': rows, 'reason': reason}) + '\n')
+                return {'exit_code': 1, 'timed_out': False, 'error': '', 'output': str(output),
+                        'output_sha256': util.file_hash(output)}
+            return runner
+        add, add2, listing = ['add', 'brief-probe'], ['add', 'brief-probe-2'], ['list']
+        for reason, steps, expected in [
+                ('CLI output differs from the original brief format',
+                 [(add, 0, '1\n', ''), (add2, 0, '2\n', ''), (listing, 0, 'x\n', '')],
+                 "original brief format; `list` printed b'x\\n'"),
+                ('CLI invocation timed out', [(add, 0, '1\n', ''), (add2, 0, '2\n', '')],
+                 'CLI invocation timed out; `list` did not finish'),
+                ('source-declared successful CLI invocation exited nonzero',
+                 [(add, 0, '1\n', ''), (add2, 2, '', 'Traceback: boom\n')],
+                 "exited nonzero; `add brief-probe-2` exited 2 and wrote b'Traceback: boom\\n' to stderr")]:
+            with self.subTest(reason=reason):
+                with self.assertRaises(ValueError) as caught:
+                    evidence.replay(self.state, '/candidate', self.root / 'failed', failing(reason, steps),
+                                    timeout=30, source_revision='current')
+                self.assertIn(expected + '. Receipt: ', str(caught.exception))
+
     def test_full_output_cannot_be_replaced_by_a_passing_tail_or_partial_json(self):
         original = self.runner
         def misleading(workspace, out, **kwargs):
@@ -294,7 +347,8 @@ sys.exit(0)
                         self.assertTrue(evidence.ready(state, revision))
                         self.assertEqual([0, 0], [row['exit_code'] for row in result['checks'][0]['observation']['steps']])
                     else:
-                        with self.assertRaisesRegex(ValueError, 'mandatory original-brief'):
+                        # The runner's own reason, not "failed or timed out" (live run ewqn70hi).
+                        with self.assertRaisesRegex(ValueError, 'mandatory original-brief.*original brief format'):
                             evidence.replay(state, workspace, root / 'replay', verify.scratch_run,
                                             timeout=30, source_revision=revision)
                         self.assertFalse(evidence.ready(state, revision))

@@ -631,10 +631,14 @@ def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ign
 
 
 def before_review(state, stage, workspace, run_dir):
-    """Called by both dispatch paths just before the Validator (or combined checkpoint) runs."""
+    """Refresh proof before independent validation or completion review in either dispatch path."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
-    if stage in ("sol", "astra_checkpoint") and required(state):
+    if not required(state):
+        return
+    if (stage in ("sol", "astra_checkpoint")
+            or stage == "astra_review" and (state.get("regression_proof") or {}).get("source_revision")
+            != source_scope.snapshot(workspace, state)["revision"]):
         prove(state, workspace, run_dir)
 
 

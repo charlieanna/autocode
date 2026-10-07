@@ -7,6 +7,7 @@ import unittest
 
 from . import test_dispatch, test_subprocess, test_planning, test_goals
 import autopilot as orchestrator
+import autocode_resolver_human as human
 import autocode_support as support
 import autocode as runner
 
@@ -224,6 +225,22 @@ class ResolverSafety(unittest.TestCase):
         # Change the actual criterion definition key, not a report-only field.
         value['acceptance_criteria'][0]['id'] = 'UNAPPROVED'
         self.rejected(value, record)
+
+    def test_a_blocked_question_survives_a_restated_criterion(self):
+        value, record = self.ready()
+        approved = copy.deepcopy(self.state['acceptance_criteria'])
+        value['status'] = 'BLOCKED'
+        value['user_request'] = {
+            'kind': 'permission', 'discovered': 'The proof inherited PYTHONPATH',
+            'impact': 'The baseline stays broken until the proof environment is isolated',
+            'decision_needed': 'Clear inherited PYTHONPATH for this run proof?',
+            'options': ['Clear it', 'Keep paused'], 'proposed_delta': ''}
+        value['acceptance_criteria'][0]['criterion'] = approved[0]['criterion'] + ' '
+        runner.apply_result(self.state, 'astra_resolve', value, record, self.root, self.run)
+        self.assertEqual(approved, self.state['acceptance_criteria'])
+        self.assertEqual('RESOLVER_PENDING', self.state['status'])
+        questions = human.internal_questions(self.state)
+        self.assertEqual('Clear inherited PYTHONPATH for this run proof?', questions[0]['question'])
 
     def test_requires_diagnosis(self):
         value, record = self.ready()

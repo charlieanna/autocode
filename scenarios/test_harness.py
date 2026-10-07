@@ -1896,6 +1896,37 @@ class TurnTests(unittest.TestCase):
             self.assertFalse(missing.ok, "a public callable the design names must still exist")
             self.assertIn("missing from app/: ['evict']", missing.detail)
 
+    def test_a_formula_in_the_design_does_not_bind_the_build(self):
+        """A live design bounded fetches with `ceil(3600 / TTL_seconds) × N <= 60`; its build computed it
+        without importing math, and build_follows_design failed on `ceil`."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            design.write_text(design.read_text().replace(
+                "## Rejected", "Attempts per hour stay at most `ceil(3600 / ttl_seconds)` per key.\n\n## Rejected"))
+            follows = next(check for check in scenario.oracle()(project, scenario) if check.name == "build_follows_design")
+            self.assertTrue(follows.ok, follows.detail)
+
+    def test_a_design_that_removes_the_seed_s_cache_in_its_own_words_follows_the_decision(self):
+        """Live designs said "a shared, host-local file-backed cache" without the token shared-file, and
+        named the seed's cache they remove (`functools.lru_cache(maxsize=256)`, "`cache_clear()`: Removed");
+        their builds removed it, and the oracle judged them FALSE_COMPLETE."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            reworded = design.read_text().replace("docs/decisions/metadata-cache.json (recommendation: shared-file)",
+                                                  "the decision record: a shared, host-local file-backed cache")
+            self.assertNotIn("shared-file", reworded.split("## Rejected")[0])
+            design.write_text(reworded.replace("## Rejected", "The seed's `functools.lru_cache(maxsize=256)` goes, "
+                                               "and with it `cache_clear()` and `cache_info()`.\n\n## Rejected"))
+            checks = {check.name: check for check in scenario.oracle()(project, scenario)}
+            self.assertTrue(checks["design_follows_decision"].ok, checks["design_follows_decision"].detail)
+            self.assertTrue(checks["build_follows_design"].ok, checks["build_follows_design"].detail)
+
     def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
         """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
         memo when it is missing, and the hidden tests failed it for not creating the directory."""
@@ -2137,6 +2168,17 @@ class FakeRunTests(unittest.TestCase):
                 self.assertLessEqual(result["metrics"]["model_stages"], ceiling,
                                      result["metrics"]["model_stage_names"])
                 self.assertGreater(result["wall_seconds"], 0)
+
+    def test_bugfix_completes_with_runner_diagnosis_outside_builder_scope(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out),
+                                      autocode=None, max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("bugfix-trivial"), args,
+                extra_env={"SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE": "1"})
+            self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+            self.assertIn("investigate_bug", result["metrics"]["model_stage_names"])
+            self.assertIn("astra_review", result["metrics"]["model_stage_names"])
+            self.assertEqual(0, result["metrics"]["report_repairs"])
 
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
         result = self.run_fake("reference", "review-then-fix")
