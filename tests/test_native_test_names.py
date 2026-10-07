@@ -192,6 +192,20 @@ class ProblemsTests(unittest.TestCase):
         self.assertEqual(['AC1 declares test_ac1_round_trip but refers to TestPostgresRoundTrip '
                           '(write "test: TestPostgresRoundTrip")'], native.problems(aliased, names))
 
+    def test_a_validator_criterion_does_not_license_the_issue_alias(self):
+        # The issue's draft plus one criterion leaving the requested names to the Validator: the marked
+        # criteria still claim in prose to resolve to tests the runner's proof never binds to them.
+        body = plan(ALIASED)
+        body["acceptance_criteria"].append({
+            "id": "AC4", "criterion": "Given the suite, when it runs, then the requested tests exist",
+            "human_review": False, "verification_method": "The Validator checks that TestFixedReturnsTwo, "
+                                                          "TestFixedPreservesExisting and TestFixedPreservesCrash exist"})
+        errors = native.problems(body, NAMES)
+        self.assertEqual(3, len(errors), errors)
+        self.assertIn('AC1 declares test_ac1_fixed_returns_two but refers to TestFixedReturnsTwo, which only an '
+                      'ordinary criterion leaves to the Validator (write "test: TestFixedReturnsTwo", or drop the '
+                      'reference)', errors)
+
 
 class DraftValidationTests(unittest.TestCase):
     """Through the runner's own draft and approval check (autocode_goal_lifecycle.validate_body); no Go needed."""

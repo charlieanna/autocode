@@ -38,8 +38,9 @@ cases are named after their own ids, autocode_test_cases.diagnosis_cases).
 The check (``problems``): each requested name is accounted for, either declared exactly, in the user's
 spelling, right after the test: or guard: mark of one criterion (a subtest, TestA/case, counts), or
 named by an ordinary criterion that names no other test, for the Validator to check (a test the runner
-cannot run to a pass, such as one that skips without a database). A marked criterion that mentions an
-unaccounted name but declares another identifier is the prose alias of #498, and one that declares a
+cannot run to a pass, such as one that skips without a database). A marked criterion that mentions a
+requested name no marked criterion declares, while declaring another identifier, is the prose alias of #498
+(also when an ordinary criterion leaves that name to the Validator), and one that declares a
 respelling (test_fixed_returns_two, which the Go matcher would bind to Test_fixed_returns_two) does not
 keep the requested name. Two criteria never declare the same requested test. Criteria without a
 requested name keep the default test_<criterion id>_... convention. The goal lifecycle calls ``check``
@@ -351,6 +352,9 @@ def problems(body, names: list[str]) -> list[str]:
         return []
     rows = [row for row in _criteria(body) if row[1]]
     accounted = set(_accounted(body, names))
+    # Only a marked criterion's declaration binds a name to the runner's proof; a mention elsewhere of a name the
+    # Validator alone checks is still the prose alias of #498.
+    declared_names = {name for name in names if any(_declares(declared, name) for *_, declared in rows)}
     errors, reported = [], set()
     for name in names:
         by_declaration = {}
@@ -362,11 +366,15 @@ def problems(body, names: list[str]) -> list[str]:
                    for declared, ids in by_declaration.items() if len(ids) > 1]
     for criterion, found, rest, declared in rows:
         for name in names:
-            if name in accounted or name in reported:
+            if name in declared_names or name in reported:
                 continue
             if _respells(declared, name):
                 errors.append(f"{criterion} declares {declared}, a respelling of {name}; keep the requested "
                               f"spelling (write \"{found} {name}\")")
+            elif _mentions(rest, name) and name in accounted:
+                errors.append(f"{criterion} declares {declared or 'no test name'} but refers to {name}, which only "
+                              f"an ordinary criterion leaves to the Validator (write \"{found} {name}\", or drop "
+                              "the reference)")
             elif _mentions(rest, name):
                 errors.append(f"{criterion} declares {declared or 'no test name'} but refers to {name} "
                               f"(write \"{found} {name}\")")
@@ -405,7 +413,7 @@ def rule(names: list[str]) -> str:
             "must keep working), keeping the user's spelling (never test_... or another respelling); an explanation "
             "may follow after \" — \". A requested test the runner cannot run to a pass here (one that skips "
             "without a database, say) goes instead on an ordinary criterion whose verification_method names it "
-            "and no other test, for the Validator. This replaces the test_<criterion id>_... name for those "
+            "and no other test, for the Validator, and no test: or guard: criterion mentions it. This replaces the test_<criterion id>_... name for those "
             "criteria only; other criteria keep it. Never declare another identifier (such as test_ac1_...) and "
             "say in prose that it maps to, resolves to or stands for a requested name: the runner does not read "
             "that text and refuses such a draft, whatever a review says.\n")

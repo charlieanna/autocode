@@ -70,9 +70,11 @@ for the Validator: a test the runner cannot run to a pass, such as one that
 skips without a database, could otherwise never be proven. A respelling such as
 `test_fixed_returns_two` is refused: the Go matcher would bind it to
 `Test_fixed_returns_two` and the proof would pass without the requested
-identifier. A marked criterion that mentions an unaccounted requested name while
-declaring another identifier is the issue's prose alias; mentioning a name
-another criterion already declares is not. Two criteria never declare the same
+identifier. A marked criterion that mentions a requested name no marked
+criterion declares, while declaring another identifier, is the issue's prose
+alias, even when an ordinary criterion leaves that name to the Validator (the
+issue's draft plus one Validator criterion would otherwise pass); mentioning a
+name another marked criterion declares is not. Two criteria never declare the same
 requested test. Criteria without a requested name keep the criterion-ID
 convention.
 
