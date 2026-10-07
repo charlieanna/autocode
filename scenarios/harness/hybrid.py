@@ -14,7 +14,8 @@ failure is reached by construction while the stage under test is a real model. A
 config-registered tool named ``hybrid`` (hybrid_stage.py), written for this run under its evidence directory
 and found through XDG_CONFIG_HOME: the user's provider configs are read, never written. The live tool must be
 one registered with a TOML file and ``output = "report_file"`` (examples/claude-provider): the hybrid tool
-copies its roles, model list, version command and login checks, and runs its command unchanged.
+copies its roles, model list, version command, login checks and Builder retry policy (``[builder_retry]``), and
+runs its command unchanged.
 
 ``run --fake --hybrid`` rehearses a route with no spend: a stand-in tool that runs the fake provider takes the
 live side, so it proves the routing and the labels, nothing about a model.
@@ -122,11 +123,19 @@ def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) 
     command = [sys.executable, str(out / "bin" / "hybrid_stage.py"), str(root / "route.json"),
                *(f"{{{value}}}" for value in ("workspace", "sandbox", "model", "effort", "schema", "report", "role",
                                                "run_dir", "prompt_file"))]
-    tool = {"name": NAME, "command": command, "prompt": record["prompt"],
-            **{key: live[key] for key in ("models", "models_command", "version_command", "auth") if key in live},
-            "roles": live["roles"]}
-    (tools / f"{NAME}.toml").write_text(toml(tool))
+    (tools / f"{NAME}.toml").write_text(toml(tool_config(live, command, record["prompt"])))
     return flags, {"XDG_CONFIG_HOME": str(root / "config")}, record
+
+
+# The live tool's keys the hybrid tool keeps: what it serves, how its login is checked, and its Builder's stronger
+# attempt ([builder_retry]), so a hybrid run retries and escalates its Builder as a natural run on that tool does.
+COPIED_KEYS = ("models", "models_command", "version_command", "auth", "builder_retry")
+
+
+def tool_config(live: dict, command: list[str], prompt: str) -> dict:
+    """The hybrid tool's config: this run's stage command in front of the live tool's models, roles and policy."""
+    return {"name": NAME, "command": command, "prompt": prompt,
+            **{key: live[key] for key in COPIED_KEYS if key in live}, "roles": live["roles"]}
 
 
 def calls(out: Path) -> list[dict]:
