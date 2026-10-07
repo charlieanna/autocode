@@ -16,9 +16,10 @@ consumes it once (``reevaluate``), with zero provider calls:
   match. The record is retired and AutoResolver asks again for the current frontier
   (``retired``); nothing launches.
 - hold: the stop needs authority information cannot supply (an exhausted bound or automatic
-  recovery allowance, a repeated failure, an unreconciled attempt). The run stays paused, its
-  stop_reason names the exact command, and later invocations repeat that decision without
-  evaluating again or republishing the request.
+  recovery allowance, a repeated failure, an unreconciled attempt, a parallel Builder member's
+  model stop, whose one control is --retry-builder M: autocode_member_stop, #541). The run stays
+  paused, its stop_reason names the exact command, and later invocations repeat that decision
+  without evaluating again or republishing the request.
 - continue: the stop's cause is on the allow-list of causes outside the run and none of the bounds
   checked here (an unreconciled attempt, the automatic-recovery allowance, spent report-only
   repairs, stalled validation-only rounds, planning reviews) holds it, so the request's own
@@ -29,8 +30,8 @@ consumes it once (``reevaluate``), with zero provider calls:
 
 State: ``resolver.information_reviews`` maps a request ID to its record; this module is its only
 writer. autocode_run_actions acts on ``reevaluate`` and ``retired``; the status view reads
-``projection``. Imports autocode_util, autocode_quota_route and, for the Validator gate it runs
-itself, autocode_findings, autocode_source_scope and autocode_validation_rounds. The runner is passed
+``projection``. Imports autocode_util, autocode_quota_route, autocode_member_stop and, for the
+Validator gate it runs itself, autocode_findings, autocode_source_scope and autocode_validation_rounds. The runner is passed
 in, as autocode_run_actions does, so these runtime dependencies are not import edges:
 runner.write_json, runner.repair_limit, runner.support (Paused, snapshot), runner.interventions.admission,
 runner.timeout_recovery_guard, runner.planning.review_call_limit, runner.resolver_runtime.operational_boundary and
@@ -47,10 +48,11 @@ from pathlib import Path
 try:
     from . import autocode_util as util, autocode_quota_route as quota_route
     from . import autocode_findings as findings_ledger, autocode_source_scope as source_scope
-    from . import autocode_validation_rounds as validation_rounds
+    from . import autocode_validation_rounds as validation_rounds, autocode_member_stop as member_stop
 except ImportError:
     import autocode_util as util
     import autocode_quota_route as quota_route
+    import autocode_member_stop as member_stop
     import autocode_findings as findings_ledger
     import autocode_source_scope as source_scope
     import autocode_validation_rounds as validation_rounds
@@ -234,6 +236,9 @@ def decide(runner, state, run_dir, workspace, cause):
                 'information cannot settle what it did', f'--abandon-stage {attempt}' if attempt else None, None)
     if state.get('uncertain_artifacts'):
         return 'hold', 'a partial stage remains unreconciled: ' + str(state['uncertain_artifacts']), None, None
+    member = member_stop.answered(state)
+    if member:  # A batch member's model stop continues only by its own control (#541).
+        return 'hold', member_stop.reason(member), member_stop.action(state), None
     if cause in OPERATOR_ONLY:
         return 'hold', OPERATOR_ONLY[cause], operator_flags(state, cause), None
     if cause not in INFORMATION_CAUSES:
@@ -354,9 +359,10 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
     if not resume:
         if not human.response_holds_current_frontier(state):
             return None
+        step = member_stop.next_step(state)
         return Outcome('pending', 'AutoResolver has the information sent for request '
-                       f"{str(record.get('request_id'))[:12]} and re-evaluates it once at the next "
-                       'autocode resume (--resume-paused). Nothing launched.')
+                       f"{str(record.get('request_id'))[:12]}" + (f'. {step} Nothing launched.' if step else
+                       ' and re-evaluates it once at the next autocode resume (--resume-paused). Nothing launched.'))
     state_path = Path(run_dir) / 'state.json'
     problem = _problem(human, state, record)
     if problem:
@@ -460,5 +466,5 @@ def projection(state):
             'decision': decision.get('action'), 'reason': reason,
             'action': (decision.get('view_action') if record.get('status') == 'held'
                        and state.get('status') == record.get('evaluated_status')
-                       else '--resume-paused' if status == 'pending' else None),
+                       else (member_stop.action(state) or '--resume-paused') if status == 'pending' else None),
             'receipt': record.get('receipt_output')}

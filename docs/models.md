@@ -328,11 +328,22 @@ answer already moved the route, and it must not share that model's GLM or MiMo f
 models a refusal's question lists pass the same checks. When two members stop, AutoCode asks
 about them one at a time.
 
-The status view offers no per-member retry for a member stopped either way: the question is
-the next step. AutoCode never reruns a member its provider's content filter refused on the
-model that refused it: `--retry-builder M1` is refused while its route is still that model, so
-it runs again only on the model your answer names. A member stopped on quota can still be
-named with `--retry-builder M1`, which runs the same model again (for example once its quota
-has reset).
+While the question is open the status view offers no per-member retry for a member stopped
+either way: the question is the next step. AutoCode never reruns a member its provider's
+content filter refused on the model that refused it: `--retry-builder M1` is refused while its
+route is still that model, so it runs again only on the model your answer names. A member
+stopped on quota can still be named with `--retry-builder M1`, which runs the same model again
+(for example once its quota has reset).
+
+If you answer the request with corrective information (`--resolver-response
+provide_information`) or leave it paused instead, no model is named and no question stays
+open. One command continues from there, and the stop reason, the status view's
+`needs.action` and the recovery card all name it: `autocode --resume-paused --retry-builder M1`.
+For a member its provider's content filter refused, it reads that member's saved stop again
+and asks its `route-terra` question again; nothing launches. For a member stopped on quota, it
+reruns the member unchanged. A plain `--resume-paused` stays paused there and names that
+command; the request itself never advises "then `autocode resume`" at a member's stop.
+Changing the Builder's route with `--resume-paused --terra-model MODEL` after the information
+moves the run's route, not the member's, so AutoResolver asks that member's question again.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
