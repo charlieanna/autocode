@@ -141,6 +141,13 @@ PASS there.
 reading, including the launch state. The controls in `tests/test_verify.py` keep their verdicts: an unchanged
 script with broken behavior is FAIL, a dependency-only change is PASS without a
 second run, a first project on a README-only base is PASS without one.
+Rerun after merging master 0591e76, every review case gave the verdict above.
+Each rule is pinned by a test: reading the original from HEAD, building the tree
+inside the workspace, keeping an added `package.json` or added tests, skipping
+definitions under test paths, linked definitions, Yarn releases, test links, the
+removed-package rule, the script-and-file pairing, the per-test comparison, or
+the guards against a decided failure, per-test results on both runs and a
+document-only base each fail at least one test in these modules.
 
 ## Limits
 
