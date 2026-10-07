@@ -20,17 +20,22 @@ field a runner reads, a new `.npmrc` (`script-shell=/usr/bin/true`,
 ## The proof now runs the original suite
 
 When the project suite passes on the candidate and no per-test comparison with
-the base run decided it (either run has no per-test results), and the candidate
-changed a package definition anywhere in the tree, `verify` runs the suite once
-more on the candidate's code with the original definitions put back
+the base run decided it (either run has no per-test results), nothing else has
+already failed the proof, and the candidate changed a package definition
+anywhere in the tree, `verify` runs the suite once more on the candidate's code
+with the original definitions and the original tests put back
 (`tools/autocode_original_scripts.py`). The suite command is never parsed.
 
 - **Definitions** are `package.json` and package-manager or monorepo-runner
   configuration: `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `.pnpmfile.cjs`/`.mjs`,
-  `pnpm-workspace.yaml`, `bunfig.toml`, `turbo.json`, `nx.json`, `lerna.json`.
-  The last three decide which package scripts run, and when a cached result is
-  replayed (the cache lives in the linked `node_modules`). None of these is code
-  the product loads. Files under test paths are test data, not definitions.
+  `pnpm-workspace.yaml`, `bunfig.toml`, `turbo.json`, `nx.json`, `lerna.json`,
+  and Yarn's `.yarn/releases/` and `.yarn/plugins/`, which `.yarnrc.yml` names
+  (`yarn set version` swaps both). turbo, nx and lerna decide which package
+  scripts run, and when a cached result is replayed (the cache lives in the
+  linked `node_modules`). None of these is code the product loads. A file that a
+  definition-named link points at (`.npmrc -> config/npmrc`) counts as that
+  definition. Definitions under test paths count too (a workspace member in
+  `tests/`); they return whole, like any test file.
 - **A changed `package.json`** keeps the candidate's fields that say what the code
   is, how it loads and what it installs (`type`, `main`, `exports`, `imports`,
   `bin`, `types`, dependencies, `overrides`, `engines`, `babel`, `browserslist`,
@@ -39,26 +44,55 @@ more on the candidate's code with the original definitions put back
   such as `jest` or `mocha`, and any custom field a runner might read. One that
   is not a JSON object is put back whole.
 - **Configuration** is put back whole: an added file is removed and a deleted
-  one comes back. **A deleted `package.json`** comes back. **An added
-  `package.json`** stays: it is a new package, and a workspace member without its
-  `test` script would make `npm test --workspaces` fail.
-- **Existing test files** the candidate changed or deleted are put back too, as
-  the protected-test gate does (docs/protected-tests.md). That gate reruns the
-  original tests under the candidate's own definitions, so an edited old
-  assertion together with a narrowed suite would otherwise pass both checks.
-  Added tests stay and run alongside.
+  one comes back.
+- **An added `package.json`** is removed unless it holds only kept fields (a
+  nested `{"type": "module"}`). It defines a package the original suite never
+  ran: its scripts would run in `npm test --workspaces` (a new member's `test`
+  could delete another package's old test), and in `cd web && npm test` it
+  would stand in for the parent's scripts. Without it the folder drops out of
+  npm and pnpm workspaces and npm finds the parent's `package.json`, as on base.
+  On a base with no `package.json` at all the original suite does not run
+  either, so that run fails as the base did and the proof is UNVERIFIED.
+- **A deleted `package.json`** comes back while the candidate keeps files in its
+  folder. When the whole folder is gone the package was removed, not narrowed,
+  and the manifest stays deleted.
+- **Tests** are as the original has them, so the run is the original suite:
+  existing test files the candidate changed or deleted come back (files and
+  links), as the protected-test gate puts them back (docs/protected-tests.md),
+  and added tests are left out. They already ran in the candidate's own suite,
+  and a new test that needs a changed template, helper or fixture would fail
+  here for that reason alone. That gate reruns the original tests under the
+  candidate's own definitions, so an edited old assertion together with a
+  narrowed suite would otherwise pass both checks.
+- **A test script changed together with a file it runs** proves nothing either
+  way: the run would pair the original script with the new file, which existed
+  on neither side. When a script whose name says `test` (pre and post hooks
+  included) changed and so did a non-test file its original text names
+  (`node run-tests.js`, `node build.js`), or test-runner configuration beside
+  that `package.json` (`jest.config.*`, `vitest.config.*`, `.mocharc*`,
+  `ava.config.*`, `.c8rc*`, `.nycrc*`, `.taprc`, `karma.conf.*`), the proof is
+  UNVERIFIED without the extra run, naming the file and the script.
 - The original is base with any reviewed patch applied, read through a private
   index, so a follow-up that puts back the definitions the reviewed change
   replaced is caught. The tree is built like the candidate's, with the same
-  dependencies, ignored inputs and timeout, and removed afterwards; the restored
-  files stay in the run directory under `original-definitions/`.
+  dependencies, ignored inputs and timeout, but in a temporary folder outside the
+  workspace, and removed afterwards. `regression.prove` keeps its run folder
+  inside the workspace, and there Yarn 1 (which reads `.npmrc` and `.yarnrc` from
+  every parent folder) and pnpm (which takes settings from the nearest parent
+  `pnpm-workspace.yaml`) would still apply the candidate's configuration. The
+  restored files stay in the run directory under `original-definitions/`.
 
 The run is the check `suite_with_original_definitions`:
 
-- It passes: preservation is proven, with a note. A widened script is PASS.
+- When both it and the base run report per-test results, they are compared as
+  the suite is: a base test that is missing or fails is FAIL, even with exit 0.
+- Otherwise its exit code decides. It passes: preservation is proven, with a
+  note. A widened script is PASS.
 - It fails and the base suite passed: FAIL, "The project suite as originally
   defined passes on base but fails on the candidate", naming what was restored,
-  as for an unchanged script.
+  as for an unchanged script, and telling the builder to keep the files the
+  original scripts run and the code working without the changed scripts, config
+  or test-runner settings.
 - It fails and base failed too, it times out, or it cannot be prepared:
   UNVERIFIED with the reason.
 
@@ -74,37 +108,55 @@ whenever a definition changed; that costs one more suite run only then.
 
 ## Evidence
 
-On master eb00408, with git, Node 22.22.0, npm 10.9.4 and pnpm 10.28.0 through
-`verify.baseline` + `verify.verify(new_behavior=True)`: every case above was
-PASS (a widened script UNVERIFIED), and so was a deleted workspace member's
-`package.json`. With the reviewed patch's widened script put back by a
-follow-up, and with an edited old assertion plus a narrowed script, it was PASS
-or UNVERIFIED. `tests/test_package_suite_proof.py` (real git and npm, pnpm when
-present) now gives FAIL for each, and PASS for a widened script and for
-unrelated scripts on a correct change, also through `regression.prove`.
+On master eb00408, with git, Node 22.22.0, npm 10.9.4, Yarn 1.22.22 and pnpm
+10.28.0 through `verify.baseline` + `verify.verify(new_behavior=True)`: every
+case above was PASS (a widened script UNVERIFIED), and so was a deleted
+workspace member's `package.json`. With the reviewed patch's widened script put
+back by a follow-up, and with an edited old assertion plus a narrowed script, it
+was PASS or UNVERIFIED. Two adversarial reviews of the first version of this
+change found more, each reproduced and now covered: a new `.yarnrc`, `.npmrc` or
+`pnpm-workspace.yaml` still applied through `regression.prove`'s run folder; a
+narrowed root runner with a changed test script; a per-test run that lost an old
+test behind a new script; a workspace member under `tests/`; a new workspace
+member whose `test` deletes another package's old test; an edited target of a
+linked `.npmrc`; and false refusals for a new test that needs a changed template,
+helper or fixture link, `yarn set version`, a removed workspace package and a
+moved build step (now UNVERIFIED, naming it).
+`tests/test_package_suite_proof.py` (real git and npm, Yarn 1 and pnpm when
+present) covers each, also through `regression.prove`, and PASS for a widened
+script, unrelated scripts on a correct change and those legitimate changes.
 `tests/test_original_scripts.py` covers the restoration rules and the Git
 reading. The controls in `tests/test_verify.py` keep their verdicts: an unchanged
 script with broken behavior is FAIL, a dependency-only change is PASS without a
-second run, a first project on a README-only base is PASS.
+second run, a first project on a README-only base is PASS without one.
 
 ## Limits
 
 - A file a script runs is code the candidate may change: `"test": "node
-  run-tests.js"` with `run-tests.js` narrowed still passes. When the runner is
-  under a test path (`test/index.js`, `test/run.sh`), the protected-test gate
-  reruns the original.
+  run-tests.js"` with `run-tests.js` narrowed and the script unchanged still
+  passes, and so does a narrowed file the original script reaches only through
+  another file or another script whose name does not say `test`. When the
+  runner is under a test path (`test/index.js`, `test/run.sh`), the original
+  comes back.
 - Test-runner configuration in its own file (`.mocharc.*`, `jest.config.*`,
-  `ava.config.*`, `.c8rc`, `.nycrc`, `.taprc`) is not restored; nor are Nx
-  `project.json` targets, Yarn releases and plugins under `.yarn/`, or user and
-  global npm configuration outside the tree.
-- A `package.json` added in a directory the suite command enters that had none
-  on base (`cd web && npm test`, where npm used to find the parent's) stays, so
-  it can stand in for the parent's scripts.
-- A deliberate change to how the suite runs (another runner, or a flag or runner
-  key the new tests need) is FAIL until the original suite also passes on the new
-  code.
+  `ava.config.*`, `.c8rc`, `.nycrc`, `.taprc`) is not restored; only a change to
+  it together with a test script is caught. Nx `project.json` targets and user
+  and global npm configuration outside the tree are not restored either.
+- Restoring is inherent to the proof, so the candidate's code must work under the
+  original definitions: product code that starts depending on a changed runner
+  key (`jest.moduleNameMapper` for a new import alias), on a new `config` or
+  custom field, or a deliberate change of runner or flags, is FAIL until the
+  original suite also passes on the new code. Keeping those keys would let them
+  redirect the old tests.
+- An added `package.json` that only marks a folder (kept fields) stays; one that
+  also names a package is removed, so old code that loads files from that folder
+  by relative path loads them without its `type` or `exports`.
 - Existing tests are always put back as base has them: a user's
   `--revise-protected-tests` revision does not reach this run, so a revised test
   plus a definition change is FAIL when the original test fails.
+- In `regression.prove` the base and candidate trees are still built inside the
+  workspace, so Yarn 1 and pnpm apply the candidate's parent configuration to
+  the base run too. The run here, outside the workspace, still decides: when it
+  fails, a passing base makes the proof FAIL and a failing one UNVERIFIED.
 - The `make test` suite has the same flaw for its `Makefile`; that needs its own
   issue.

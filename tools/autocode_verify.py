@@ -1235,7 +1235,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             _judge_suite(on_candidate, comparable, fail, unverified, notes, allow_empty_base=allow_empty_base)
             # npm, Yarn and pnpm run each tree's own package definitions: when an exit code
             # decided, the old definitions must also pass on the new code (#528).
-            if not allow_empty_base and original_scripts.decided_by_exit_code(on_candidate, comparable):
+            if not fail and not allow_empty_base and original_scripts.decided_by_exit_code(on_candidate, comparable):
                 original = _suite_with_original_definitions(
                     workspace, base, run_dir, changes, framework, commands["suite"], timeout=timeout,
                     base_patch=base_patch, dependencies_from=dependencies_from, generated_record=generated_record,
@@ -1243,7 +1243,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                 if original:
                     if "exit_code" in original:
                         checks[original_scripts.LABEL] = original
-                    original_scripts.judge(original, comparable, fail, unverified, notes)
+                    original_scripts.judge(original, comparable, fail, unverified, notes,
+                                           compare=lambda receipt, *found: _judge_suite(receipt, comparable, *found))
         elif sources or preserve:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1439,31 +1440,29 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
 
 def _suite_with_original_definitions(workspace, base, run_dir, changes, framework, command, *, timeout,
                                      base_patch=None, **tree_options):
-    """The suite on the candidate's code with the original package definitions put back (#528).
+    """The suite on the candidate's code with the original package definitions and tests put back (#528).
 
-    Existing test files the candidate changed are put back too (original_scripts.originals).
-    None when the candidate changed no definition that restoring would undo; ``error`` when
-    the run could not be prepared. The tree is built exactly like the candidate's."""
+    None when restoring would undo no definition; no run when the candidate changed a test
+    script together with a file it runs (original_scripts.prepare); ``error`` when the run
+    could not be prepared. The tree is built like the candidate's, outside the workspace."""
     try:
-        definitions, tests = original_scripts.originals(workspace, base, base_patch, changes, is_test_path)
-        restored = original_scripts.plan(definitions)
+        prepared = original_scripts.prepare(workspace, base, base_patch, changes, is_test_path)
     except (OSError, ValueError) as error:
         return {"error": str(error)}
-    if not restored:
-        return None
+    if not prepared or prepared["co_changed"]:
+        return prepared and original_scripts.summary(prepared)
     try:
-        tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "original-definitions", workspace, changes,
-                         **tree_options)
+        with original_scripts.outside(workspace) as holder:
+            tree = make_tree(workspace, base, holder / "tree", workspace, changes, **tree_options)
+            try:
+                original_scripts.install(tree, prepared, Path(run_dir) / "original-definitions")
+                receipt = run_suite(framework, command, tree, run_dir, "suite-with-original-definitions",
+                                    timeout=timeout)
+            finally:
+                remove_tree(workspace, tree)
     except (OSError, ValueError, RuntimeError) as error:
-        return {"error": str(error)}
-    try:
-        original_scripts.install(tree, restored, tests, Path(run_dir) / "original-definitions")
-        receipt = run_suite(framework, command, tree, run_dir, "suite-with-original-definitions", timeout=timeout)
-    except (OSError, ValueError) as error:
-        return {"error": str(error)}
-    finally:
-        remove_tree(workspace, tree)
-    return {**receipt, "restored": sorted(restored), "restored_tests": sorted(tests)}
+        return {**original_scripts.summary(prepared), "error": str(error)}
+    return {**receipt, **original_scripts.summary(prepared)}
 
 
 def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):

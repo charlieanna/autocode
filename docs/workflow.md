@@ -476,8 +476,8 @@ import on base is not a reproduction. Without per-test results exit codes decide
 An `npm test` suite runs each tree's own `package.json`, so when the fix changes
 a package definition (`package.json` scripts or fields, `.npmrc`, pnpm, Yarn,
 turbo, nx or lerna configuration), the suite also has to pass on the fix with the
-original definitions and the original versions of the tests it edited put back
-(docs/bugs/2026-10-06-package-script-proof.md).
+original definitions and the original tests put back, the fix's own new tests left
+out (docs/bugs/2026-10-06-package-script-proof.md).
 When nothing can be proven (for example no test command is found), the proof is
 `UNVERIFIED` and the bug fix cannot complete until a command is supplied.
 

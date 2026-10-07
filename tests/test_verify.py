@@ -568,6 +568,8 @@ class VerifyCase(unittest.TestCase):
         result = project.verify(new_behavior=True)
         self.assertEqual('npm test --silent', result['commands']['suite'], result)
         self.assertEqual(verify.PASS, result['verdict'], result)
+        # A documentation-only base has no suite to run as originally defined: npm finds no package.json.
+        self.assertNotIn('suite_with_original_definitions', result['checks'], result)
 
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})

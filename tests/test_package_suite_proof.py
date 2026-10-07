@@ -8,9 +8,10 @@ candidate's code with the original definitions restored. Real git, node and npm
 completion gate's regression.prove. In every narrowing case the candidate breaks
 add(), whose old test still fails when the original suite runs; before the
 original-definitions run each of these was PASS (or UNVERIFIED for a widened
-script).
+script). Yarn 1 and pnpm cases run when those are installed.
 """
 import json
+import os
 import shutil
 import subprocess
 import unittest
@@ -58,13 +59,14 @@ class OriginalDefinitionsProofTests(unittest.TestCase):
         project.write(candidate)
         return project
 
-    def verified(self, project, suite=None, base_patch=None):
+    def verified(self, project, suite=None, base_patch=None, new_behavior=True, dependencies=None):
         framework = verify.detect_framework(project.root)
         suite = suite or framework.suite
         base = verify.baseline(project.root, project.base, project.evidence, framework=framework,
-                               suite_command=suite, timeout=120, base_patch=base_patch)
+                               suite_command=suite, timeout=120, base_patch=base_patch, dependencies_from=dependencies)
         return verify.verify(project.root, project.base, project.evidence, framework=framework, suite_command=suite,
-                             base_suite=base, new_behavior=True, timeout=120, base_patch=base_patch)
+                             base_suite=base, new_behavior=new_behavior, timeout=120, base_patch=base_patch,
+                             dependencies_from=dependencies)
 
     def proved(self, project, suite=None):
         state = {"base_commit": project.base, "iteration": 1, "stages": [], "history": [],
@@ -214,6 +216,201 @@ class OriginalDefinitionsProofTests(unittest.TestCase):
                        "test('div', () => assert.equal(div(6, 3), 2));\n"})
         self.assertNotIn("package.json", verify.changed_files(project.root, project.base))
         self.assertOriginalFails(self.verified(project, base_patch=patch), "package.json")
+
+    def test_configuration_above_the_tree_cannot_reach_the_original_suite(self):
+        # regression.prove keeps its run folder inside the workspace. Yarn 1 reads .npmrc and .yarnrc
+        # from every parent folder and pnpm takes the nearest parent pnpm-workspace.yaml, so a tree
+        # built there would still get the candidate's configuration.
+        cases = [(manager, files) for manager, files in (
+            ("yarn", {".yarnrc": 'script-shell "/usr/bin/true"\n'}),
+            ("yarn", {".npmrc": "script-shell=/usr/bin/true\n"}),
+            ("pnpm", {"pnpm-workspace.yaml": "packages: []\nscriptShell: /usr/bin/true\n"}))
+            if shutil.which(manager)]
+        if not cases:
+            self.skipTest("Yarn 1 or pnpm is required")
+        for manager, files in cases:
+            with self.subTest(manager=manager, files=files):
+                proof = self.proved(self.project(seed(), change(**files)), f"{manager} test")
+                self.assertEqual(verify.FAIL, proof["verdict"], proof)
+                self.assertTrue(any("as originally defined passes on base" in reason
+                                    for reason in proof["failures"]), proof)
+                self.assertNotEqual(0, proof["checks"][LABEL]["exit_code"], proof)
+
+    def test_a_test_script_changed_with_a_file_it_runs_is_unproven(self):
+        runner = ("const {execFileSync} = require('child_process');\n"
+                  "execFileSync(process.execPath, ['--test', %s], {stdio: 'inherit'});\n")
+        files = {**seed({"test": "node run-tests.js"}), "run-tests.js": runner % ""}
+        narrowed = self.project(files, change(**{"package.json": manifest({"test": "node run-tests.js && echo done"}),
+                                                 "run-tests.js": runner % "'test/feature.test.js'"}))
+        # A moved build step: the original pretest runs a file that is gone.
+        build = "require('fs').copyFileSync('src/calc.js', 'generated.js');\n"
+        moved = self.project({"package.json": manifest({"pretest": "node build.js", "test": "node --test"}),
+                              "build.js": build, "src/calc.js": CALC, ".gitignore": "generated.js\n",
+                              "test/calc.test.js": CALC_TEST.replace("../calc.js", "../generated.js")},
+                             {"src/calc.js": FIXED, "scripts/build.js": build,
+                              "test/feature.test.js": FEATURE_TEST.replace("../calc.js", "../src/calc.js"),
+                              "package.json": manifest({"pretest": "node scripts/build.js", "test": "node --test"})})
+        (moved.root / "build.js").unlink()
+        for project, path, script in ((narrowed, "run-tests.js", "test"), (moved, "build.js", "pretest")):
+            with self.subTest(path=path):
+                result = self.verified(project)
+                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+                self.assertNotIn(LABEL, result["checks"])
+                self.assertTrue(any(f'{path} with the "{script}" script in package.json' in reason
+                                    for reason in result["unverified"]), result["unverified"])
+        # Changing the script alone leaves the run under the original script and runner to decide.
+        widened = self.project(files, change(FIXED, **{"package.json": manifest(
+            {"test": "node run-tests.js && echo done"})}))
+        self.assertOriginalPasses(self.verified(widened))
+
+    def test_per_test_results_of_the_original_suite_are_compared_with_base(self):
+        # The new script hides the per-test results; the runner skips what exclude.json lists.
+        vitest = """#!/usr/bin/env node
+const fs = require('fs'), {spawnSync} = require('child_process');
+const out = (process.argv.find(arg => arg.startsWith('--outputFile=')) || '').slice('--outputFile='.length);
+let exclude = [];
+try { exclude = JSON.parse(fs.readFileSync('exclude.json', 'utf8')); } catch {}
+let failed = false, total = 0;
+const files = fs.readdirSync('test').filter(name => name.endsWith('.test.js')).map(name => 'test/' + name)
+  .filter(file => !exclude.includes(file)).sort().map(file => {
+    const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', file], {encoding: 'utf8'});
+    const tests = [...run.stdout.matchAll(/^(not )?ok \\d+ - (.+?)( #.*)?$/gm)].map(
+      match => ({name: match[2], state: match[1] ? 'failed' : 'passed', collection_error: false}));
+    failed = failed || tests.some(test => test.state === 'failed');
+    total += tests.length;
+    return {file, collection_error: false, tests};
+  });
+if (out) fs.writeFileSync(out, JSON.stringify({protocol: 'autocode-vitest-tests', version: 1, vitest_version: '4.1.6',
+  complete: true, reason: failed ? 'failed' : 'passed', files, total, unhandled_errors: 0}));
+process.exit(failed ? 1 : 0);
+"""
+        sub = NODE_TEST + "test('sub', () => assert.equal(2 - 1, 1));\n"
+        project = self.project({**seed({"test": "vitest run"}), "test/sub.test.js": sub, ".gitignore": "node_modules/\n"},
+                               change(**{"package.json": manifest({"test": "vitest run --reporter=dot"}),
+                                         "exclude.json": '["test/calc.test.js"]\n'}))
+        project.write({"node_modules/.bin/vitest": vitest})
+        os.chmod(project.root / "node_modules/.bin/vitest", 0o755)
+        result = self.verified(project, dependencies=project.root)
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertIsNone(result["checks"]["suite_on_candidate"]["results"])
+        self.assertEqual(["test/sub.test.js::sub"], result["checks"][LABEL]["results"]["passed"])
+        self.assertTrue(any("as originally defined" in reason and "test/calc.test.js::add" in reason
+                            for reason in result["failures"]), result["failures"])
+
+    def test_a_workspace_member_under_a_test_folder_is_judged_as_originally_defined(self):
+        root = json.dumps({"name": "root", "private": True, "workspaces": ["packages/*", "tests"],
+                           "scripts": {"test": "npm test --workspaces --silent"}}) + "\n"
+        tests = json.dumps({"name": "tests", "private": True, "scripts": {"test": "node --test"}}) + "\n"
+        project = self.project(
+            {"package.json": root, "packages/calc/package.json": manifest({"test": "node -e 0"}),
+             "packages/calc/calc.js": CALC, "tests/package.json": tests,
+             "tests/calc.test.js": CALC_TEST.replace("../calc.js", "../packages/calc/calc.js")},
+            {"packages/calc/calc.js": BROKEN, "tests/package.json": tests.replace("node --test", "node --test x.test.js"),
+             "tests/x.test.js": FEATURE_TEST.replace("../calc.js", "../packages/calc/calc.js")})
+        self.assertOriginalFails(self.verified(project), "tests/package.json")
+
+    def test_a_new_package_does_not_run_in_the_original_suite(self):
+        # Its scripts would run first in `npm test --workspaces`; without its package.json the folder drops out.
+        remover = {"test": "node -e \"require('fs').rmSync('../calc/test/calc.test.js')\""}
+        project = self.project(workspace({"test": "npm test --workspaces --silent"}), change(
+            prefix="packages/calc/", **{"packages/aaa/package.json": manifest(remover, name="aaa")}))
+        self.assertOriginalFails(self.verified(project), "packages/aaa/package.json")
+        # Without a package.json on base the suite never ran there, and still does not.
+        project = self.project({"calc.js": CALC, "test/calc.test.js": CALC_TEST},
+                               change(**{"package.json": manifest({"test": "node --test test/feature.test.js"})}))
+        result = self.verified(project, "npm test --silent")
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("did not pass on base either" in reason for reason in result["unverified"]), result)
+
+    def test_a_removed_package_stays_removed(self):
+        demo = {"packages/demo/package.json": manifest({"test": "node index.js"}, name="demo"),
+                "packages/demo/index.js": "require('../calc/calc.js');\n"}
+        project = self.project(workspace({"test": "npm test --workspaces --silent"}, **demo),
+                               change(FIXED, prefix="packages/calc/"))
+        for path in demo:
+            (project.root / path).unlink()
+        result = self.verified(project)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertNotIn(LABEL, result["checks"])
+
+    def commit(self, project):
+        for args in (("add", "-A"), ("-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "more")):
+            subprocess.run(["git", *args], cwd=project.root, check=True, capture_output=True)
+        project.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project.root, check=True, capture_output=True,
+                                      text=True).stdout.strip()
+
+    def test_a_file_a_linked_npmrc_points_at_is_restored(self):
+        project = self.project({**seed(), "config/npmrc": "fund=false\n"}, {})
+        (project.root / ".npmrc").symlink_to("config/npmrc")
+        self.commit(project)
+        project.write(change(**{"config/npmrc": "fund=false\nscript-shell=/usr/bin/true\n"}))
+        self.assertOriginalFails(self.verified(project), "config/npmrc")
+
+    def test_added_tests_and_changed_test_helpers_do_not_run_under_the_original_suite(self):
+        # A new test may need what the candidate changed (a template's scripts, a test helper, a fixture
+        # link); the original suite is the original tests on the new code.
+        generator = ("exports.scaffold = () => JSON.parse(require('fs').readFileSync("
+                     "require('path').join(__dirname, 'templates/app/package.json')));\n")
+        start = NODE_TEST + ("const {scaffold} = require('../gen.js');\n"
+                             "test('start', () => assert.equal(scaffold().scripts.start, 'node index.js'));\n")
+        lint = start.replace("'start'", "'lint'").replace("scripts.start, 'node index.js'", "scripts.lint, 'eslint .'")
+        helper = "exports.pair = () => [2, 3];\n"
+        cases = {
+            "template": ({**seed(), "gen.js": generator, "test/gen.test.js": start,
+                          "templates/app/package.json": manifest({"start": "node index.js"}, name="app")},
+                         {"templates/app/package.json": manifest({"start": "node index.js", "lint": "eslint ."},
+                                                                 name="app"), "test/lint.test.js": lint}),
+            "helper": ({**seed(), "test/helpers.js": helper,
+                        "test/calc.test.js": CALC_TEST.replace("add(2, 3)", "add(...require('./helpers.js').pair())")},
+                       change(FIXED, **{"test/helpers.js": helper + "exports.triple = () => [2, 3, 4];\n",
+                                        "test/feature.test.js": FEATURE_TEST.replace(
+                                            "mul(2, 3)", "mul(...require('./helpers.js').triple().slice(0, 2))"),
+                                        "package.json": manifest({"test": "node --test", "start": "node calc.js"})})),
+            "fixture link": ({**seed(), "test/fixtures/v1.json": '{"a": 2, "b": 3}\n',
+                              "test/calc.test.js": NODE_TEST + "const {add} = require('../calc.js');\n"
+                              "const c = require('./fixtures/current.json');\n"
+                              "test('add', () => assert.equal(add(c.a, c.b), c.a + c.b));\n"},
+                             change(FIXED, **{"test/fixtures/v2.json": '{"a": 4, "b": 5}\n', "package.json": manifest(
+                                 {"test": "node --test", "start": "node calc.js"})})),
+        }
+        for name, (files, candidate) in cases.items():
+            with self.subTest(name):
+                project = self.project(files, {})
+                if name == "fixture link":
+                    (project.root / "test/fixtures/current.json").symlink_to("v1.json")
+                    self.commit(project)
+                    (project.root / "test/fixtures/current.json").unlink()
+                    (project.root / "test/fixtures/current.json").symlink_to("v2.json")
+                project.write(candidate)
+                self.assertOriginalPasses(self.verified(project))
+
+    @unittest.skipUnless(shutil.which("yarn"), "Yarn is required")
+    def test_a_yarn_release_comes_back_with_the_configuration_that_names_it(self):
+        # `yarn set version` swaps the release .yarnrc.yml names; Yarn 1 runs that release.
+        release = ("const {execSync} = require('child_process');\n"
+                   "execSync(require(process.cwd() + '/package.json').scripts[process.argv[2]], {stdio: 'inherit'});\n")
+        project = self.project({**seed(), ".yarnrc.yml": "yarnPath: .yarn/releases/yarn-1.cjs\n",
+                                ".yarn/releases/yarn-1.cjs": release},
+                               change(FIXED, **{".yarnrc.yml": "yarnPath: .yarn/releases/yarn-2.cjs\n",
+                                                ".yarn/releases/yarn-2.cjs": "// 2\n" + release}))
+        (project.root / ".yarn/releases/yarn-1.cjs").unlink()
+        result = self.verified(project, "yarn test")
+        self.assertOriginalPasses(result)
+        self.assertIn(".yarn/releases/yarn-1.cjs", result["checks"][LABEL]["restored"])
+
+    def test_no_second_run_when_per_test_results_or_a_failure_decided(self):
+        scripts = {"package.json": manifest({"test": "node --test", "start": "node calc.js"})}
+        result = self.verified(self.project(seed(), change(FIXED, **scripts)), "node --test")
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertIsNotNone(result["checks"]["suite_on_candidate"]["results"])
+        self.assertNotIn(LABEL, result["checks"])
+        # A bug fix whose new test already passes on base is FAIL before any second run.
+        zero = CALC_TEST.replace("add(2, 3), 5", "add(0, 0), 0")
+        result = self.verified(self.project(seed(), {**scripts, "calc.js": FIXED, "test/zero.test.js": zero}),
+                               new_behavior=False)
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertNotIn(LABEL, result["checks"])
+
 
 if __name__ == "__main__":
     unittest.main()
