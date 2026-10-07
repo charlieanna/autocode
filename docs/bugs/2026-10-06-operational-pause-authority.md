@@ -84,7 +84,7 @@ tests cover each budget pause unanswered, answered and after a pause interventio
 
 Each of these released the pause, on master and after the first fix, and is now held
 (same test module, every pause status unless noted). Each also reproduces on master
-`5071412`, after #581. That change re-evaluates corrective information once, at the next
+`5071412`, after #581, and still on `0175e89` (after #586 and #640). That change re-evaluates corrective information once, at the next
 explicit resume after a `provide_information` answer, and a stop caused outside the run
 (`operational_information.INFORMATION_CAUSES`) then continues. Since that re-evaluation
 is the pause's own rule, the reproductions use an unanswered request or a pause it holds,
@@ -181,6 +181,14 @@ information once (`resolver.information_reviews`, the `information_review` view 
   `test_reference_revision_never_replaces_an_operational_pause`, a public `TaskRun`
   with a verified v2 inventory; the existing revision tests (after completion) still
   pass.
+- **#581's own decision is unchanged.** The comparisons above are only as good as their
+  baseline, so a test pins it: after the answered request alone, `--resume-paused`
+  continues every stop in `operational_information.INFORMATION_CAUSES` (10 pauses: the
+  Tester launches) and holds the other 11 with nothing launched
+  (`test_the_information_review_still_decides_every_answered_pause_as_581_does`). A
+  probe running that sequence, then a second `--resume-paused` where nothing launched,
+  on this branch and on master `0175e89` recorded identical stages and
+  `information_review` decisions for all 21 pauses.
 
 ## Not changed
 
