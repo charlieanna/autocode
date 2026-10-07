@@ -243,6 +243,24 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                 run.require_mode(args)
 
 
+class DriverFlagTests(unittest.TestCase):
+    def test_new_run_only_flags_go_to_the_first_call_and_never_to_a_saved_run(self):
+        flags = ["--provider", "claude", "--workflow", "build", "--builder-strong-model", "claude-sonnet-5-5",
+                 "--builder-strong-model=claude-opus-5-5", "--workflow=build", "--terra-model", "claude-haiku"]
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with tempfile.TemporaryDirectory() as root, patch("harness.driver.run_cli", return_value=done) as launch:
+            driver = Driver(Path(root), Path(root), flags, {}, autocode=["cli"], max_steps=5, timeout_seconds=60)
+            driver.call("start", task="Build")
+            driver.run_dir = Path(root) / "saved-run"
+            driver.call("resume", "--resume-paused")
+        first, then = (call.args[0] for call in launch.call_args_list)
+        self.assertEqual(flags, first[first.index("--no-chat") + 1:])
+        # The CLI refuses --builder-strong-model and --workflow on a saved run, so a resume never repeats them.
+        self.assertEqual(["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
+                         then[then.index("--no-chat") + 1:])
+        self.assertEqual(flags, driver.flags)
+
+
 class DriverTimeoutTests(unittest.TestCase):
     def setUp(self):
         self.events = []
@@ -2388,12 +2406,20 @@ class HybridRouteTests(unittest.TestCase):
 
     def test_the_hybrid_tool_config_reads_back_as_written(self):
         import tomllib
-        config = {"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
-                  "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
-                  "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
-                  "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
-                           "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]}}
+        live = {"name": "claude", "command": ["claude-stage", "{report}"], "prompt": "stdin", "output": "report_file",
+                "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
+                "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
+                "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
+                         "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]},
+                "builder_retry": {"strong_model": "claude-sonnet-5-5", "checker_model": "claude-opus-5-5",
+                                  "strong_effort": "high"}}
+        config = hybrid.tool_config(live, ["python3", "stage.py", "{report}"], "stdin")
+        self.assertEqual({"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
+                          **{key: live[key] for key in ("models", "version_command", "auth", "roles")}}
+                         | {"builder_retry": live["builder_retry"]}, config)
+        # The live tool's Builder retry policy survives the round trip, so a hybrid Builder escalates as it does.
         self.assertEqual(config, tomllib.loads(hybrid.toml(config)))
+        self.assertEqual(live["builder_retry"], tomllib.loads(hybrid.toml(config))["builder_retry"])
 
     def test_a_live_tool_that_cannot_be_split_by_stage_is_refused(self):
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
@@ -2498,8 +2524,10 @@ class HybridRunTests(unittest.TestCase):
             tools.mkdir(parents=True)
             (Path(home) / "live_standin.py").write_text(LIVE_STANDIN)
             models = {role: f"live-{role}" for role in profiles.ROLES}
+            retry = {"strong_model": "live-strong", "checker_model": "live-completion"}
             (tools / "livestandin.toml").write_text(hybrid.toml({
-                "name": "livestandin", "prompt": "stdin", "models": sorted(models.values()),
+                "name": "livestandin", "prompt": "stdin", "models": sorted([*models.values(), "live-strong"]),
+                "builder_retry": retry,
                 "command": [sys.executable, str(Path(home) / "live_standin.py"), "{workspace}", "exec", "--model",
                             "{model}", "--output-schema", "{schema}", "-o", "{report}"],
                 "version_command": [sys.executable, "--version"],
@@ -2520,6 +2548,11 @@ class HybridRunTests(unittest.TestCase):
             self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "builder",
                                                        "validator", "completion")], [row["model"] for row in served])
             self.assertEqual({home}, {row["xdg"] for row in served})
+            # The hybrid tool AutoCode ran on kept the live tool's Builder retry policy.
+            import tomllib
+            written = Path(result["evidence"]) / "hybrid" / "config" / "autocode" / "providers" / "hybrid.toml"
+            self.assertEqual(retry, tomllib.loads(written.read_text())["builder_retry"])
+            self.assertEqual("live-strong", state["settings"]["builder_retry"]["strong_model"])
 
 
 class StockRefusalsProductTests(unittest.TestCase):
