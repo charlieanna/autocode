@@ -390,8 +390,12 @@ runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`
   (`create_order`, `orders`, `pending`, `publish`) with outbox or reopening
   wording. An argument named anything but `path` counts only when the API names
   the family's core methods (`enqueue`, `claim` and `ack`; `create_order` and
-  `publish`), so `TodoList(filename)` with `claim(item)` stays an ordinary task.
-  Generic durability, concurrency, security or performance wording adds
+  `publish`) and the constructor's own sentence says what it is (queue, lease or
+  job; outbox, order or event; the class name counts), so `TodoList(filename)`
+  with `claim(item)` stays an ordinary task, and `Logger(log_file)` mentioned
+  between `LeaseQueue(path)` and its methods neither takes them nor splits the
+  declaration. A `Name(path)` call still starts a new declaration wherever it
+  appears. Generic durability, concurrency, security or performance wording adds
   no observation. The runner also needs every fact the protocol checks to be
   stated (signatures, return values, the token and deadline rules, at-least-once
   delivery). If one is missing the plan cannot be approved: the refusal names each

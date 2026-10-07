@@ -2,7 +2,7 @@
 
 The assessment ran on origin/master `ddc940f`. The branch
 `claude/issue-451-risk-proof` was rebased onto `d0919ad`, then merged with master
-`87d8db3`. No live model ran; every run used the scripted provider. These are
+`87d8db3` and `0591e76`. No live model ran; every run used the scripted provider. These are
 planted controls (#455), not failure rates of real builds.
 
 ## Before: what master did
@@ -56,6 +56,11 @@ planted controls (#455), not failure rates of real builds.
     `TodoList(filename)` with `claim(item)` and "must survive restart" became an
     unsupported declaration whose plan could never be approved. Now its sentence
     is only disclosed.
+  - A renamed argument must also say what it is in the constructor's own
+    sentence (queue, lease or job; outbox, order or event; the class name
+    counts). A renamed-argument call that declares nothing is no declaration
+    boundary, so `Logger(log_file)` between `LeaseQueue(path)` and its methods
+    no longer takes them. `Name(path)` splits a source as before.
   - The token-freshness fact accepts word-order and synonym paraphrases.
   - An unsupported declaration's refusal lists each missing fact in words and
     says how to supply it.
@@ -94,8 +99,10 @@ longer matches its saved lifecycle manifest; its plan must be approved again.
 
 ## Review of the branch (2026-10-07)
 
-The first implementation stopped before its review. Each earlier finding was
-reproduced again on the merged branch:
+The first implementation stopped before its review; the reviews scheduled after
+it were cut off before reporting. Each finding below, from the assessment and
+from the first review pass, was reproduced again on the branch merged with
+`0591e76` (`6d7f84e` and later):
 
 | Finding | Status | Evidence |
 | --- | --- | --- |
@@ -112,6 +119,8 @@ reproduced again on the merged branch:
 | New: renamed storage arguments turned ordinary tasks into unapprovable plans | Fixed | `tests.test_risk_acceptance`, `tests.test_risk_disclosure` |
 | New: a PASS on the same racy source closed the runner finding | Fixed | `tests.test_risk_findings` |
 | New: removing the promise left its runner finding blocking forever | Fixed | `tests.test_risk_findings` |
+| New (second pass): `Logger(log_file)` between `LeaseQueue(path)` and its methods took the API, so the honest brief stopped on an unsupported `Logger` queue (master: supported `LeaseQueue`) | Fixed in `6d7f84e` | `tests.test_risk_acceptance` (fails before the fix: 5 failures) |
+| New (second pass): `tools/autopilot.py` grew by 4 lines | Fixed in `6d7f84e`: the whole-product claim is computed once; same line count as master | `wc -l`, `tests.test_architecture` |
 
 ## After: qualification on the branch
 
@@ -206,7 +215,8 @@ This PR should reference #451, not close it.
   states a fact some other way is refused: the run stops with the missing facts
   listed until a person restates them. `Name(path)` with only part of a family's
   API and a durability word is still an unsupported declaration, as before this
-  branch; a renamed argument is not.
+  branch; a renamed argument is not. Any other `Name(path)` call between the
+  constructor and its methods (`Logger(path)`) still takes them, as on master.
 - **Live work.** Live qualification of the proof (#524) is owed. Diagnosis
   quality cannot be measured by fake runs, because the fake Investigator cannot
   diagnose; it stays live-only work in #59.
