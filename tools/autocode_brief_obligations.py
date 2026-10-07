@@ -110,9 +110,15 @@ def _verify_review(review, manifest):
     if (review['stage'] not in REVIEW_STAGES or path.is_symlink() or not path.is_file()
             or util.file_hash(path) != review['events_sha256']
             or output.is_symlink() or not output.is_file() or util.file_hash(output) != review['output_sha256']
-            or proposal_hash != review['proposals_sha256']
-            or acceptance.digest(sorted(util.read_object(output).get('brief_observations') or [],
-                                        key=lambda row: row['declaration_id'])) != proposal_hash):
+            or proposal_hash != review['proposals_sha256']):
+        raise ValueError('Original-brief Plan Reviewer provenance is missing or changed')
+    declarations = {row['declaration']['id']: row['declaration'] for row in manifest['observations']}
+    raw = util.read_object(output).get('brief_observations') or []
+    try:
+        sealed = [acceptance.normalized_proposal(declarations[row['declaration_id']], row)[0] for row in raw]
+    except (ValueError, TypeError, KeyError) as error:
+        raise ValueError('Original-brief Plan Reviewer provenance is missing or changed') from error
+    if acceptance.digest(sorted(sealed, key=lambda row: row['declaration_id'])) != proposal_hash:
         raise ValueError('Original-brief Plan Reviewer provenance is missing or changed')
 
 

@@ -38,6 +38,15 @@ def large(sign):
     equal(module.intcomma(value), format(value, ",d"))
 
 
+def integer_subclasses():
+    class Integer(int):
+        pass
+
+    for sign in (1, -1):
+        value = Integer(sign * (10**400 + 123))
+        equal(module.intcomma(value), format(value, ",d"))
+
+
 def ordinary():
     for value, expected in ((0, "0"), (12345, "12,345"), (-12345, "-12,345"),
                             ("12345", "12,345"), (1234.5, "1,234.5")):
@@ -53,6 +62,7 @@ def nonfinite():
 
 check("large_positive", lambda: large(1))
 check("large_negative", lambda: large(-1))
+check("integer_subclasses", integer_subclasses)
 check("ordinary_inputs", ordinary)
 check("nonfinite", nonfinite)
 

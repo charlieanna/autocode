@@ -50,6 +50,11 @@ def report_for(stage, data, common, config, run_check, requirements):
     elif stage == "sol":
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
+        criterion_evidence = ["check:1"]
+        if fault == "completion_rework_activity_evidence":
+            # Cite the runner's append-only metadata, as a real Validator did
+            # in #638. Only the report packet's path is used; no state is read.
+            criterion_evidence.append(str(Path(data["state_file"]).parent / "activity.jsonl"))
         result = {**common, "verdict": status, "checks_run": [config["check"]],
                   "checks": [{"command": config["check"], "exit_code": code, "evidence_ref": "event:check"}],
                   "findings": [] if code == 0 else [{**finding,
@@ -59,7 +64,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                       "why_it_matters": "The approved invalid-input behavior is missing",
                       "suggested_correction": "Reject empty or whitespace-only names"}],
                   "finding_dispositions": dispositions if code == 0 else [], "unverified_criteria": [],
-                  "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": ["check:1"]}
+                  "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": list(criterion_evidence)}
                                         for row in body["acceptance_criteria"]],
                   "end_to_end_result": {"status": status, "summary": f"Real greeting tests exited {code}",
                                         "evidence_refs": ["check:1"], "technical_result": None, "pending_human_criteria": []}}

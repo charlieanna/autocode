@@ -180,10 +180,24 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
         state.update(status="RUNNING", phase="PLANNING", next_stage="plan")
 
 
+# Drafts no model writes at install, so a refusal of their wording has no author to repair it: the Plan
+# Reviewer's adaptive approval installs the draft the Planner already handed in (checked then, or saved before
+# verification_plan.refuse_git_status existed), and a bug job's small correction is built by the runner from the
+# Investigator's report (autocode_bug_job.ORIGIN).
+UNAUTHORED_DRAFTS = ("adaptive_review_approval", "bugfix_small_correction")
+
+
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
     validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
+    # Here, not in validate_body, which approval runs again on a saved draft. Human-review criteria too:
+    # autocode_dispatch.task_for puts their methods in other milestones' task plans, which reach the Validator.
+    if origin not in UNAUTHORED_DRAFTS:
+        verification_plan.refuse_git_status(
+            [(f"Acceptance criterion {row['id']}'s verification_method", row["verification_method"])
+             for row in body["acceptance_criteria"]]
+            + verification_plan.task_rows(body.get("initial_task"), "initial_task"))
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
     previous = state.get("goal_contract")

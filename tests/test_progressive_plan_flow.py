@@ -102,6 +102,17 @@ class AcceptProposalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "extracts no executable command"):
             progressive_state.accept_proposal(self.state, value, origin="glm_draft")
 
+    def test_rejects_a_new_check_that_names_git_status_but_reads_a_saved_one(self):
+        # The quoted script is one operand, so the operand checks let it through; clean replay refuses every
+        # Validator report that runs it (#589, #185). A saved plan's check still reads as before.
+        method = "sh -c 'test -z \"$(git status --porcelain app)\"'"
+        value = report()
+        value["progressive_proposal"]["slices"][1]["checks"][0]["method"] = method
+        with self.assertRaisesRegex(ValueError, r"^check K2 method `sh -c .*` names git status\. Never name"):
+            progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+        self.assertNotIn("progressive", self.state)
+        self.assertEqual([method], rules.check_commands(check("K2", method)))
+
     def test_s3_and_milestone_errors_are_distinct_unchanged_guards(self):
         value = report()
         value["progressive_proposal"]["slices"].append(slice_row(

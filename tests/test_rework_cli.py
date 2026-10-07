@@ -1,5 +1,6 @@
 """Public CLI coverage for bounded Completion repairs, using isolated fake providers."""
 import dataclasses
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -102,6 +103,33 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
                          [row["stage"] for row in self.trace()])
+
+    def test_validator_activity_citation_survives_completion_rework_and_automatic_repair(self):
+        driver = self.driver("activity_evidence")
+        view = driver.drive(self.scenario.brief)
+        self.assert_delivery(driver, view)
+        self.assertEqual(1, len(view["direct_rework_assignments"]))
+        trace = self.trace()
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
+                         [row["stage"] for row in trace])
+        self.assertEqual(["REWORK", "COMPLETE"],
+                         [row["status"] for row in trace if row["stage"] == "astra_review"])
+        activity = driver.run_dir / "activity.jsonl"
+        validators = sorted(driver.run_dir.glob("iterations/*/validator-01.json"))
+        self.assertEqual(2, len(validators))
+        for path in validators:
+            report = json.loads(path.read_text())
+            self.assertTrue(all(str(activity) in row["evidence_refs"]
+                                for row in report["criterion_results"]), report)
+        # Inspect the explicit evidence artifacts, never the private run state.
+        snapshots = list((driver.run_dir / "evidence").glob("run-activity-*.jsonl"))
+        self.assertEqual(2, len(snapshots))
+        live = activity.read_bytes()
+        for snapshot in snapshots:
+            frozen = snapshot.read_bytes()
+            self.assertTrue(live.startswith(frozen))
+            self.assertGreater(len(live), len(frozen))
+            self.assertEqual(f"run-activity-{hashlib.sha256(frozen).hexdigest()}.jsonl", snapshot.name)
 
     def test_schema_valid_incomplete_and_ambiguous_tasks_use_normal_resolver(self):
         for fault in ("incomplete", "ambiguous"):
