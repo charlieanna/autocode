@@ -84,6 +84,25 @@ class NamedTests(unittest.TestCase):
         self.assertEqual(["TestFixedReturnsTwo"],
                          native.named(["I'd like a regression test for Fixed named TestFixedReturnsTwo."]))
 
+    def test_every_name_of_an_inline_described_list_counts(self):
+        # Review of #498 (described lists): the same list written inline, each name followed by what it
+        # checks, still lost every name after the first.
+        for text in ["Add native Go tests: TestFixedReturnsTwo checks that Fixed returns 2, TestFixedPreservesExisting "
+                     "checks Existing, and TestFixedPreservesCrash checks that a second call does not panic.",
+                     "Add the Go tests TestFixedReturnsTwo for the fix and TestFixedPreservesExisting for Existing; "
+                     "TestFixedPreservesCrash covers a second call.",
+                     "Add tests TestFixedReturnsTwo (returns 2); TestFixedPreservesExisting (still 7); "
+                     "TestFixedPreservesCrash (no panic)."]:
+            with self.subTest(text=text):
+                self.assertEqual(NAMES, native.named([text]))
+        # A description ends the list where its first comma or semicolon is not followed by another name.
+        for text in ["Add the test TestA, which must not break TestB and TestC.",
+                     "Add the test TestA for Fixed, similar to TestExisting.",
+                     "Add the test TestA that checks X or Y.",
+                     "Add the test TestA for Fixed, but not TestB."]:
+            with self.subTest(text=text):
+                self.assertEqual(["TestA"], native.named([text]))
+
     def test_an_earlier_clause_does_not_cancel_a_request(self):
         for text in ["Fix Fixed to return 2 instead of 0 and add the tests TestA and TestB.",
                      "Never edit generated files, and add the tests TestA and TestB.",
@@ -129,6 +148,16 @@ class ProblemsTests(unittest.TestCase):
         self.assertIn('AC1 declares test_ac1_fixed_returns_two but refers to TestFixedReturnsTwo '
                       '(write "test: TestFixedReturnsTwo")', errors)
         self.assertIn('(write "guard: TestFixedPreservesCrash")', errors[2])
+
+    def test_a_declaration_the_runner_cannot_read_is_refused_with_the_form_it_reads(self):
+        # The matcher reads no name from "TestFixedReturnsTwo." or "TestA: what it checks", so the case would
+        # be proven under its criterion id; the refusal says what follows a name.
+        errors = native.problems(plan(["test: TestFixedReturnsTwo.", "guard: TestFixedPreservesExisting: still 7",
+                                       "guard: TestFixedPreservesCrash"]), NAMES)
+        self.assertEqual(2, len(errors), errors)
+        self.assertIn('AC1 declares no test name the runner reads (a name stands alone after the mark, or is '
+                      'followed by " — " or a parenthesis) but refers to TestFixedReturnsTwo (write '
+                      '"test: TestFixedReturnsTwo")', errors)
 
     def test_a_requested_name_no_criterion_declares_is_refused(self):
         self.assertEqual(["no criterion declares " + ", ".join(NAMES)], native.problems(plan(CONVENTION), NAMES))
@@ -202,9 +231,43 @@ class ProblemsTests(unittest.TestCase):
                                                           "TestFixedPreservesExisting and TestFixedPreservesCrash exist"})
         errors = native.problems(body, NAMES)
         self.assertEqual(3, len(errors), errors)
+        self.assertIn('AC1 declares test_ac1_fixed_returns_two but refers to TestFixedReturnsTwo '
+                      '(write "test: TestFixedReturnsTwo")', errors)
+        # One Validator criterion per requested name accounts for it; the marked criteria are still aliases.
+        body = plan(ALIASED)
+        for n, name in enumerate(NAMES, start=4):
+            body["acceptance_criteria"].append({"id": f"AC{n}", "criterion": f"Given the suite, then {name} exists",
+                                                "human_review": False,
+                                                "verification_method": f"The Validator checks that {name} exists"})
+        errors = native.problems(body, NAMES)
+        self.assertEqual(3, len(errors), errors)
         self.assertIn('AC1 declares test_ac1_fixed_returns_two but refers to TestFixedReturnsTwo, which only an '
                       'ordinary criterion leaves to the Validator (write "test: TestFixedReturnsTwo", or drop the '
                       'reference)', errors)
+
+    def test_the_alias_in_a_marked_criterions_own_text_is_refused_too(self):
+        # The issue's prose moved from the verification method into the criterion, next to a Validator
+        # criterion for the name: the marked criterion still proves another identifier.
+        body = plan(CONVENTION[:1] + CORRECTED[1:])
+        body["acceptance_criteria"][0]["criterion"] += " (test_ac1_fixed_returns_two resolves to TestFixedReturnsTwo)"
+        body["acceptance_criteria"].append({"id": "AC4", "criterion": "Given the suite, then the test exists",
+                                            "human_review": False,
+                                            "verification_method": "The Validator checks that TestFixedReturnsTwo exists"})
+        self.assertEqual(['AC1 declares test_ac1_fixed_returns_two but refers to TestFixedReturnsTwo, which only an '
+                          'ordinary criterion leaves to the Validator (write "test: TestFixedReturnsTwo", or drop the '
+                          'reference)'], native.problems(body, NAMES))
+
+    def test_a_validator_criterion_names_one_requested_test(self):
+        # As the planning rule and docs say: an ordinary criterion accounts for a requested test when it names
+        # that test and no other.
+        names = ["TestPostgresRoundTrip", "TestPostgresDelete"]
+        both = plan(["The Validator checks that TestPostgresRoundTrip and TestPostgresDelete skip without a database"]
+                    + CONVENTION[1:])
+        self.assertEqual(["no criterion declares TestPostgresRoundTrip, TestPostgresDelete"],
+                         native.problems(both, names))
+        each = plan(["The Validator checks that TestPostgresRoundTrip skips without a database",
+                     "The Validator checks that TestPostgresDelete skips without a database", CONVENTION[2]])
+        self.assertEqual([], native.problems(each, names))
 
 
 class DraftValidationTests(unittest.TestCase):
@@ -264,6 +327,15 @@ class DraftValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "AC2 declares test_ac2_preserves_existing but refers to "
                                                 "TestFixedPreservesExisting"):
             lifecycle.validate_body(self.state(task=task), partly, ready=True)
+        lifecycle.validate_body(self.state(task=task), plan(CORRECTED), ready=True)
+
+    def test_an_inline_described_list_cannot_alias_its_later_names(self):
+        task = ("Fix Fixed in product.go to return 2 instead of 0. Add native Go tests: TestFixedReturnsTwo checks "
+                "that Fixed returns 2, TestFixedPreservesExisting checks Existing, and TestFixedPreservesCrash checks "
+                "that a second call does not panic.")
+        with self.assertRaisesRegex(ValueError, "AC2 declares test_ac2_preserves_existing but refers to "
+                                                "TestFixedPreservesExisting"):
+            lifecycle.validate_body(self.state(task=task), plan(["test: TestFixedReturnsTwo"] + ALIASED[1:]), ready=True)
         lifecycle.validate_body(self.state(task=task), plan(CORRECTED), ready=True)
 
     def test_briefs_that_name_no_new_test_keep_master_behavior(self):

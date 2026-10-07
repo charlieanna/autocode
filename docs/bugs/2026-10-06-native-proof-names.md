@@ -45,7 +45,11 @@ a refusal the planner could not satisfy:
   the Go tests TestA, TestB and TestC" or "a test for Fixed named TestA", or
   start an item of a list whose lead-in names tests ("Add these tests in
   x_test.go:" then "- TestA: what it checks", one name per item however long
-  its description). A name further away ("the tests pass on TestNet", "a test
+  its description). An inline list may describe each name too ("TestA (empty
+  input), TestB (one item)" or "TestA checks X, TestB checks Y; TestC ..."); it
+  ends at the sentence's end or at a description's first comma or semicolon that
+  no name follows ("the test TestA, which must not break TestB"). A name
+  further away ("the tests pass on TestNet", "a test
   for TestHelper misuse") asks for nothing; so does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test
   TestReadAll", "e.g. TestA") or one offered with an alternative ("a test TestA
@@ -65,30 +69,48 @@ a refusal the planner could not satisfy:
 
 A requested name is accounted for when one `test:` or `guard:` criterion
 declares exactly that identifier, in the user's spelling (a subtest
-`TestA/case` counts), or when an ordinary criterion names it and no other test,
-for the Validator: a test the runner cannot run to a pass, such as one that
-skips without a database, could otherwise never be proven. A respelling such as
-`test_fixed_returns_two` is refused: the Go matcher would bind it to
-`Test_fixed_returns_two` and the proof would pass without the requested
-identifier. A marked criterion that mentions a requested name no marked
-criterion declares, while declaring another identifier, is the issue's prose
-alias, even when an ordinary criterion leaves that name to the Validator (the
-issue's draft plus one Validator criterion would otherwise pass); mentioning a
-name another marked criterion declares is not. Two criteria never declare the same
-requested test. Criteria without a requested name keep the criterion-ID
-convention.
+`TestA/case` counts), or when an ordinary criterion's verification method names
+it and no other test, for the Validator: a test the runner cannot run to a pass,
+such as one that skips without a database, could otherwise never be proven. A
+respelling such as `test_fixed_returns_two` is refused: the Go matcher would
+bind it to `Test_fixed_returns_two` and the proof would pass without the
+requested identifier. A marked criterion that mentions a requested name no
+marked criterion declares, in its verification method or in its own criterion
+text, while declaring another identifier, is the issue's prose alias, even when
+an ordinary criterion leaves that name to the Validator (the issue's draft plus
+one Validator criterion would otherwise pass); mentioning a name another marked
+criterion declares is not. A marked criterion whose name the runner cannot read
+(`test: TestFixedReturnsTwo.`, `guard: TestA: what it checks`) would be proven
+under its criterion ID, so it is refused the same way, and the reason says what
+may follow a name (nothing, ` — ` or a parenthesis). Two criteria never declare
+the same requested test. Criteria without a requested name keep the
+criterion-ID convention.
 
 A first version of this fix (review, 2026-10-06) counted any Test-prefixed word
 within eight words of "test", so it missed the second and later names of a
 described list, required placeholders, examples and negated names, could not be
 withdrawn, refused the Validator route, accepted respellings and treated a
 mention of a declared name as an alias. Each of those has a test in
-`tests/test_native_test_names.py`.
+`tests/test_native_test_names.py`. A second pass (2026-10-07) found that the
+same list written inline with a description after each name still lost every
+name after the first, that the alias passed when it sat in the criterion text
+next to a Validator criterion, and that one Validator criterion naming all the
+requested tests accounted for each of them, against the rule given to the
+planner; those have tests too.
 
 ## Limits
 
 - Phrasings outside that grammar are not detected ("TestA must check X", "add
-  a TestFoo test"); the previous behavior applies to them.
+  a TestFoo test", a Markdown table of tests, a list whose description has a
+  comma before the next name, "call it TestB instead"); the previous behavior
+  applies to them.
+- The Validator route is not checked against its stated reason. A plan may
+  leave every requested test to the Validator, one ordinary criterion each,
+  while differently named tests (`test_ac1_...`) prove the behavior, with no
+  prose claiming they map. The runner's proof then binds those other tests,
+  and the requested ones are checked only by the Validator. The planning rule
+  reserves that route for a test the runner cannot run to a pass, and the plan
+  shows both tests to its reviewers and to the user.
 - Negation and examples are recognized by a few words ("not", "never",
   "without", "instead", "rather", "like", "such", "e.g.", "for example"), not
   by understanding the sentence; the user's own edit is the way out of a wrong

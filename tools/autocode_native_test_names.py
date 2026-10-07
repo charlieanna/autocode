@@ -17,7 +17,10 @@ A name is requested (``requested``) when all of these hold:
   delegated default or model-written text. It must come right after "test", "tests" or "func" (a
   "function", "case", "named" or "called" may come between), as in "add the Go tests TestA, TestB and
   TestC" or "a test for Fixed named TestA", or start an item of a list whose lead-in names tests ("Add
-  these tests:" then "- TestA: what it checks"). A name further from the word, such as "the tests pass
+  these tests:" then "- TestA: what it checks"). In a list each name may carry a description ("TestA
+  (empty input), TestB (one item)", or "TestA checks X, TestB checks Y; TestC ..."); the list ends at
+  the sentence's end, or at a description's first comma or semicolon that no name follows ("the test
+  TestA, which must not break TestB"). A name further from the word, such as "the tests pass
   on TestNet" or "a test for TestHelper misuse", asks for nothing. So does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test TestReadAll"), or one offered
   with an alternative ("a test TestA or similar"). A later message of the user's that says "instead of",
@@ -37,10 +40,11 @@ cases are named after their own ids, autocode_test_cases.diagnosis_cases).
 
 The check (``problems``): each requested name is accounted for, either declared exactly, in the user's
 spelling, right after the test: or guard: mark of one criterion (a subtest, TestA/case, counts), or
-named by an ordinary criterion that names no other test, for the Validator to check (a test the runner
-cannot run to a pass, such as one that skips without a database). A marked criterion that mentions a
-requested name no marked criterion declares, while declaring another identifier, is the prose alias of #498
-(also when an ordinary criterion leaves that name to the Validator), and one that declares a
+named by an ordinary criterion whose verification_method names that test and no other, for the Validator
+to check (a test the runner cannot run to a pass, such as one that skips without a database). A marked
+criterion that mentions, in its verification_method or its own text, a requested name no marked
+criterion declares, while declaring another identifier (or none the runner reads), is the prose alias of
+#498 (also when an ordinary criterion leaves that name to the Validator), and one that declares a
 respelling (test_fixed_returns_two, which the Go matcher would bind to Test_fixed_returns_two) does not
 keep the requested name. Two criteria never declare the same requested test. Criteria without a
 requested name keep the default test_<criterion id>_... convention. The goal lifecycle calls ``check``
@@ -133,9 +137,34 @@ def _qualified(tokens, cue) -> bool:
     return False
 
 
+def _separator(tokens, k) -> int | None:
+    """Where the next list item starts when ``tokens[k]`` separates two ("," ";" "and" "&", ", and"), else None."""
+    if tokens[k:k + 1] in ([","], [";"]):
+        return k + 2 if _word(tokens[k + 1] if k + 1 < len(tokens) else "") == "and" else k + 1
+    if k < len(tokens) and (_word(tokens[k]) == "and" or tokens[k] == "&"):
+        return k + 1
+    return None
+
+
+def _past_description(tokens, k) -> int | None:
+    """Where the next name of a list starts after the description from ``tokens[k]`` ("TestA checks X, TestB
+    checks Y; TestC ..."), or None. The list ends at the sentence's end, and at the description's first comma
+    or semicolon that another name does not follow ("TestA, which must not break TestB")."""
+    while k < len(tokens) and tokens[k] not in SENTENCE_END - {":", ";"}:
+        after = _separator(tokens, k)
+        if after is not None:
+            after = _skip(tokens, after, QUOTES)
+            if after < len(tokens) and IDENTIFIER.fullmatch(tokens[after]):
+                return after
+            if tokens[k] in (",", ";"):
+                return None
+        k += 1
+    return None
+
+
 def _names(tokens, k) -> list[tuple[int, str]]:
-    """The Go test names listed from ``tokens[k]`` ("TestA (what it checks), TestB and TestC"), with their
-    positions; none when the list offers an alternative ("TestA or similar")."""
+    """The Go test names listed from ``tokens[k]`` ("TestA (what it checks), TestB and TestC", or "TestA checks
+    X, TestB checks Y"), with their positions; none when the list offers an alternative ("TestA or similar")."""
     found = []
     while True:
         k = _skip(tokens, k, QUOTES)
@@ -151,14 +180,16 @@ def _names(tokens, k) -> list[tuple[int, str]]:
                 if not depth:
                     break
             k = _skip(tokens, k, QUOTES)
-        if tokens[k:k + 1] == [","]:
-            k += 2 if _word(tokens[k + 1] if k + 1 < len(tokens) else "") == "and" else 1
-        elif k < len(tokens) and (_word(tokens[k]) == "and" or tokens[k] == "&"):
-            k += 1
-        else:
-            break
+        after = _separator(tokens, k)
+        if after is None:
+            if k < len(tokens) and _word(tokens[k]) == "or":
+                return []  # "TestA or similar"
+            after = _past_description(tokens, k)
+            if after is None:
+                break
+        k = after
     if k < len(tokens) and _word(tokens[k]) == "or":
-        return []
+        return []  # "TestA, TestB, or TestC"
     return [(at, name) for at, name in found if name not in NOT_A_TEST and not PLACEHOLDER.fullmatch(name)]
 
 
@@ -309,14 +340,16 @@ def requested(state) -> list[str]:
 
 
 def _criteria(body):
-    """(id, mark or None, the text after the mark or the whole method, declared test name) per criterion."""
+    """(id, mark or None, the text after the mark or the whole method, declared test name, the criterion's
+    own text) per criterion."""
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         if not isinstance(row, dict) or not row.get("id"):
             continue
         method = str(row.get("verification_method") or "").strip()
         found = test_cases.mark(method)
         rest = method[len(found):].strip() if found else method
-        yield row["id"], found, rest, test_cases.declared_test_name(rest) if found else None
+        yield (row["id"], found, rest, test_cases.declared_test_name(rest) if found else None,
+               str(row.get("criterion") or ""))
 
 
 def _declares(declared: str | None, name: str) -> bool:
@@ -336,13 +369,12 @@ def _mentions(text: str, name: str) -> bool:
 
 
 def _accounted(body, names: list[str]) -> list[str]:
-    """The ``names`` that ``body`` declares after a mark, or leaves to the Validator by naming them in an
-    ordinary criterion that names no other test."""
+    """The ``names`` that ``body`` declares after a mark, or leaves to the Validator by naming each in an
+    ordinary criterion whose verification_method names that test and no other."""
     rows = list(_criteria(body))
     return [name for name in names
-            if any(found and _declares(declared, name) for _, found, _, declared in rows)
-            or any(not found and _mentions(rest, name) and set(_TEST_IDENTIFIER.findall(rest)) <= set(names)
-                   for _, found, rest, _ in rows)]
+            if any(found and _declares(declared, name) for _, found, _, declared, _ in rows)
+            or any(not found and set(_TEST_IDENTIFIER.findall(rest)) == {name} for _, found, rest, _, _ in rows)]
 
 
 def problems(body, names: list[str]) -> list[str]:
@@ -354,30 +386,31 @@ def problems(body, names: list[str]) -> list[str]:
     accounted = set(_accounted(body, names))
     # Only a marked criterion's declaration binds a name to the runner's proof; a mention elsewhere of a name the
     # Validator alone checks is still the prose alias of #498.
-    declared_names = {name for name in names if any(_declares(declared, name) for *_, declared in rows)}
+    declared_names = {name for name in names if any(_declares(declared, name) for _, _, _, declared, _ in rows)}
     errors, reported = [], set()
     for name in names:
         by_declaration = {}
-        for criterion, _, _, declared in rows:
+        for criterion, _, _, declared, _ in rows:
             if _declares(declared, name):
                 by_declaration.setdefault(declared, []).append(criterion)
         errors += [(f"{ids[0]} and {ids[1]} both" if len(ids) == 2 else ", ".join(ids) + " all")
                    + f" declare {declared}; each criterion needs its own test"
                    for declared, ids in by_declaration.items() if len(ids) > 1]
-    for criterion, found, rest, declared in rows:
+    for criterion, found, rest, declared, text in rows:
+        # The prose alias may sit in the verification method or in the criterion's own text.
+        declares = declared or ("no test name the runner reads (a name stands alone after the mark, or is followed "
+                                "by \" — \" or a parenthesis)")
         for name in names:
             if name in declared_names or name in reported:
                 continue
             if _respells(declared, name):
                 errors.append(f"{criterion} declares {declared}, a respelling of {name}; keep the requested "
                               f"spelling (write \"{found} {name}\")")
-            elif _mentions(rest, name) and name in accounted:
-                errors.append(f"{criterion} declares {declared or 'no test name'} but refers to {name}, which only "
-                              f"an ordinary criterion leaves to the Validator (write \"{found} {name}\", or drop "
-                              "the reference)")
-            elif _mentions(rest, name):
-                errors.append(f"{criterion} declares {declared or 'no test name'} but refers to {name} "
-                              f"(write \"{found} {name}\")")
+            elif _mentions(rest + "\n" + text, name) and name in accounted:
+                errors.append(f"{criterion} declares {declares} but refers to {name}, which only an ordinary "
+                              f"criterion leaves to the Validator (write \"{found} {name}\", or drop the reference)")
+            elif _mentions(rest + "\n" + text, name):
+                errors.append(f"{criterion} declares {declares} but refers to {name} (write \"{found} {name}\")")
             else:
                 continue
             reported.add(name)
@@ -409,9 +442,9 @@ def rule(names: list[str]) -> str:
     listed = ", ".join(names)
     return ("\nNATIVE TEST NAMES: the user asked for the Go tests " + listed + ". The runner proves a criterion only "
             "by the identifier right after test: or guard:, so on the one criterion each proves write that exact "
-            f"name there (\"test: {names[0]}\" for new or fixed behavior, \"guard: {names[0]}\" for behavior that "
-            "must keep working), keeping the user's spelling (never test_... or another respelling); an explanation "
-            "may follow after \" — \". A requested test the runner cannot run to a pass here (one that skips "
+            "name there, after test: for new or fixed behavior or after guard: for behavior that must keep working "
+            f"(\"test: {names[0]}\"), keeping the user's spelling (never test_... or another respelling); an "
+            "explanation may follow after \" — \". A requested test the runner cannot run to a pass here (one that skips "
             "without a database, say) goes instead on an ordinary criterion whose verification_method names it "
             "and no other test, for the Validator, and no test: or guard: criterion mentions it. This replaces the test_<criterion id>_... name for those "
             "criteria only; other criteria keep it. Never declare another identifier (such as test_ac1_...) and "

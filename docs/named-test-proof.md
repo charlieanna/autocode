@@ -48,11 +48,13 @@ run to a pass (one that skips without a database) may instead be named by an
 ordinary criterion, and no other test with it, for the Validator. Planning
 stages are told the names, and the runner refuses a draft, before it is
 installed or approved, that leaves a requested name unaccounted for, declares a
-respelling of it (`test_fixed_returns_two`), or declares another identifier with
-prose saying it "resolves to" the requested one (#498). A name counts as
-requested when the user wrote it right after "test", "tests" or "func" (or as an
-item of a list introduced as tests), not negated or offered as an example, the
-proof will run Go tests, and the project's Go files do not already contain it.
+respelling of it (`test_fixed_returns_two`), or declares another identifier (or
+none it can read, as in `test: TestFixedReturnsTwo.`) while its method or
+criterion text names the requested one, as in prose saying it "resolves to" it
+(#498). A name counts as requested when the user wrote it right after "test",
+"tests" or "func" (or in a list introduced as tests, each name with or without
+a description), not negated or offered as an example, the proof will run Go
+tests, and the project's Go files do not already contain it.
 The user's own `--edit-goal` is never refused by this check and settles which
 requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
 frameworks, and bug fixes proven by their diagnosis's cases, keep the
