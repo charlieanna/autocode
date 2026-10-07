@@ -61,9 +61,10 @@ never evaluates it:
   every admission check (limits, permissions, transport, source, approval,
   interventions) still runs before a launch. A runner event marks the frontier
   as new, so a stop found next is a new request, never the answered one. A
-  quota-stopped or refused parallel Builder member is such a stop: it still
-  needs a model only a person can name, so its route question is asked again;
-  holding instead would leave no request to answer.
+  quota-stopped or refused parallel Builder member is held instead, naming its
+  one control (`--resume-paused --retry-builder M`, which asks a refused
+  member's question again or reruns a quota-stopped one unchanged): see
+  `2026-10-06-parallel-member-stop-information.md` (#541).
 
 A repeated resume never evaluates a response twice. The decision record is
 written before the state that refers to it, so a resume killed between the two

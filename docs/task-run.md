@@ -370,8 +370,10 @@ the request was for), `scheduled_at`, `evaluated_at`, `decision` (`hold` or
 call. A run that left the pause first (through another control, or to a newer
 request) never evaluates it, and `status` reads `superseded`. Otherwise
 it is `held` (still paused, `action` and `needs.action` name the control it
-requires, such as `--resume-paused --grant-recovery N`, a raised bound or
-`--abandon-stage ATTEMPT`; at `PAUSED_PLANNING_BUDGET` that is the
+requires, such as `--resume-paused --grant-recovery N`, a raised bound,
+`--abandon-stage ATTEMPT` or, at a parallel Builder member's quota or
+content-filter stop, `--resume-paused --retry-builder M`, which `action` also names
+while the review is `pending`; at `PAUSED_PLANNING_BUDGET` that is the
 `planning_budget` need's `action`), `admitted` (the run continued through the normal
 admission checks) or `stale` (the run, request, response or evidence changed after
 the response, so it was not evaluated and Resolver asks a fresh request). Information never raises a limit, resets
@@ -420,7 +422,7 @@ run is waiting for:
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
 | `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota or a content-filter refusal | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`) | Resume a pause, once resolved |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota or content-filter stop whose request was answered without a model | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver

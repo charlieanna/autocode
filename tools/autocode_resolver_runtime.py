@@ -25,6 +25,7 @@ try:
     from . import autocode_resolver_recovery as recovery
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
     from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
+    from . import autocode_member_stop as member_stop
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_quota_route as quota_route
     import autocode_worker_quota as worker_quota
+    import autocode_member_stop as member_stop
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -426,9 +428,12 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     allow_grant = recovery_grants.eligible(
         state, current_request=human.current, count=count, maximum=maximum,
         issued={'scope': 'operational_exhaustion', 'request_id': None}, cause=error.status)
+    parallel = worker_quota.stopped(state, error) if request is None else None
     if allow_grant:
         decision += ' ' + recovery_limits.GRANT_ADVICE
         options.append('Authorize more recoveries with --grant-recovery N')
+    elif parallel:  # A batch member's stop is continued by its own control, never a plain resume (#541).
+        decision += ' ' + member_stop.advice(parallel)
     else:
         active = state.get('active_stage') or {}
         attempt = (f"{active['iteration']:03d}/{Path(active['output']).stem}"
@@ -440,7 +445,6 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
     # A quota or content-filter stop of one routable role asks the person to name a model (#184); never a default.
-    parallel = worker_quota.stopped(state, error) if request is None else None
     stopped = parallel or (quota_route.stopped_attempt(state, failure_status=support.failure_status)
                            if error.status in quota_route.STATUSES and request is None else None)
     dispatch = getattr(runner, 'dispatch', None)

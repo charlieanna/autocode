@@ -25,6 +25,7 @@ try:
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_liveness as liveness_policy
     from . import autocode_operational_information as operational_information
+    from . import autocode_member_stop as member_stop
     from . import autocode_containment_policy as containment_policy
     from . import autocode_route_ladder as route_ladder
     from . import autocode_accepted_source as accepted_source
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_recovery_limits as recovery_limits
     import autocode_liveness as liveness_policy
     import autocode_operational_information as operational_information
+    import autocode_member_stop as member_stop
     import autocode_containment_policy as containment_policy
     import autocode_route_ladder as route_ladder
     import autocode_accepted_source as accepted_source
@@ -359,7 +361,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      limit N, N above `no_progress_batches`, the
                                                      retained count, or 0; after AutoResolver held
                                                      corrective information, the control it requires,
-                                                     view.information_review)
+                                                     view.information_review; at a parallel Builder
+                                                     member's quota or content-filter stop answered
+                                                     without a model, --resume-paused --retry-builder M)
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -476,6 +480,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             # review cannot release this bound either, so this command comes first (#486).
             need["action"] = "--resume-paused --no-progress-limit N"
             need["no_progress_batches"] = state.get("no_progress_batches", 0)
+        # A parallel member's model stop whose request a person answered continues only by its own
+        # control (#541): --resume-paused --retry-builder M.
+        if "action" not in need and member_stop.action(state):
+            need["action"] = member_stop.action(state)
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
         if review.get("action") and (review["status"] == "held" or "action" not in need):

@@ -345,6 +345,91 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
         self.assertFalse(any(e["kind"] == "builder_retry" for e in state.get("user_events", [])))
 
+    def inform(self, run, response="provide_information"):
+        request = self.saved()[1]["resolver_human_request"]
+        return self.launch(["--run-dir", str(run), "--resolver-request", request["request_id"],
+                            "--resolver-token", request["request_token"], "--resolver-response", response,
+                            "--resolver-message", "The provider's policy for this repository was clarified", "--no-chat"], 0)
+
+    def one_way_forward(self, state, milestone):
+        """Once a person answered a member's model stop without a model, one command continues (#541).
+
+        The stop reason, the status view's needs.action and the recovery card all name it, and no
+        question is open."""
+        command = f"--resume-paused --retry-builder {milestone}"
+        self.assertEqual([], state.get("pending_questions"))
+        self.assertEqual(command, run_view.view(state)["needs"]["action"])
+        self.assertEqual([[milestone]], self.retry_actions(state))
+        self.assertIn(command, state["stop_reason"])
+        return command
+
+    def test_after_information_a_refused_member_is_asked_again_by_its_one_named_retry(self):
+        run, state = self.paused(error=REFUSAL)
+        self.assertNotIn("then autocode resume", state["stop_reason"])
+        self.assertIn("--resume-paused --retry-builder M1 asks this question again", state["stop_reason"])
+        self.assertIn("--resume-paused --retry-builder M1", self.inform(run).stdout)
+        command = self.one_way_forward(self.saved()[1], "M1")
+        # A plain resume holds on AutoResolver's evaluation of the information and names the same command.
+        held = self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        self.assertIn(f"Next command: autocode {command}", held.stdout)
+        state = self.saved()[1]
+        self.assertEqual("PAUSED_CONTENT_FILTER", state["status"])
+        self.one_way_forward(state, "M1")
+        # No question is open to answer; the refusal names the same command, not a relaunch that asks nothing.
+        self.assertIn(command, self.answer(run, MIMO, 2).stderr)
+        # That command collects M1's stop again and asks its question; nothing reruns the refused model.
+        asked = self.launch(["--run-dir", str(run), *command.split(), "--no-chat"], 2)
+        self.assertNotIn("Input rejected", asked.stderr)
+        state = self.saved()[1]
+        self.refusal_asked(state, "M1")
+        self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
+        self.assertFalse(any(e["kind"] == "builder_retry" for e in state.get("user_events", [])))
+        self.answer(run, MIMO)
+        state = self.resume(run)
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        rows = self.workers(state)
+        self.assertEqual([[GLM, MIMO], [GLM]], [self.attempts(rows["M1"]), self.attempts(rows["M2"])])
+
+    def test_after_information_a_quota_member_offers_only_its_unchanged_retry(self):
+        run, state = self.paused()
+        self.assertNotIn("then autocode resume", state["stop_reason"])
+        self.assertIn("--resume-paused --retry-builder M1 retries it unchanged", state["stop_reason"])
+        self.inform(run)
+        command = self.one_way_forward(self.saved()[1], "M1")
+        # A plain resume neither retries nor asks again: it names the retry the card offers.
+        held = self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        self.assertIn(f"Next command: autocode {command}", held.stdout)
+        state = self.saved()[1]
+        self.assertEqual("PAUSED_BUDGET", state["status"])
+        self.one_way_forward(state, "M1")
+        self.launch(["--run-dir", str(run), *command.split(), "--no-chat"], 0)
+        state = self.saved()[1]
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual([GLM, GLM], self.attempts(self.workers(state)["M1"]))
+
+    def test_after_leaving_it_paused_a_refused_member_continues_only_by_its_named_retry(self):
+        # leave_paused schedules no re-evaluation: a plain resume holds on the answered request, naming the command.
+        run, _ = self.paused(error=REFUSAL)
+        self.inform(run, "leave_paused")
+        command = self.one_way_forward(self.saved()[1], "M1")
+        held = self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        self.assertIn(command, held.stdout)
+        self.one_way_forward(self.saved()[1], "M1")
+        self.launch(["--run-dir", str(run), *command.split(), "--no-chat"], 2)
+        state = self.saved()[1]
+        self.refusal_asked(state, "M1")
+        self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
+
+    def test_a_model_flag_after_information_asks_the_member_question_again(self):
+        # The flag moves the run's route, not the stopped member's: AutoResolver asks M1's question again, never
+        # a generic request that no answer can rerun M1 from.
+        run, _ = self.paused(error=REFUSAL)
+        self.inform(run)
+        self.launch(["--run-dir", str(run), "--resume-paused", "--terra-model", MIMO, "--no-chat"], 2)
+        state = self.saved()[1]
+        self.refusal_asked(state, "M1")
+        self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
+
     def two_stopped_members(self, error, status):
         """M1 and M2 stop on their model; M1's answer moves the Builder route to MiMo before M2 is asked.
 
@@ -356,6 +441,11 @@ class ParallelQuotaTests(unittest.TestCase):
         self.assertEqual({"M1": status, "M2": status}, {mid: row["status"] for mid, row in self.workers(state).items()})
         if refused:
             self.refusal_asked(state, "M1")
+            # The open question is M1's: M2's refused retry never points at a question not asked yet (#541).
+            result = self.launch(["--run-dir", str(run), "--resume-paused", "--retry-builder", "M2", "--no-chat"], 2)
+            self.assertIn("Builder M2 was refused by its provider's content filter", result.stderr)
+            self.assertIn("once the open request about Builder M1 is answered", result.stderr)
+            self.refusal_asked(self.saved()[1], "M1")
         self.answer(run, MIMO)
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         state = self.saved()[1]

@@ -35,6 +35,7 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_jobs as jobs
     from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_jobs as jobs
     import autocode_goal_lifecycle as lifecycle
+    import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
     import autocode_planning as planning
@@ -375,14 +377,15 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # changed): holding on the consumed request is #486 again. Ask again; launch nothing.
             state.pop('user_request', None)
             state['pending_questions'] = []
-            if resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
-                                                              support.Paused(state['status'], retired)):
+            if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, member_stop.restore(
+                    state, support.Paused(state['status'], retired))):
                 runner.write_json(state_path, state)
                 if resolver_human.current(state):
                     print(lifecycle.render(state))
                     return 2
         print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
-              'the run remains paused without repeating the same request.')
+              'the run remains paused without repeating the same request.'
+              + (' ' + member_stop.next_step(state) if member_stop.next_step(state) else ''))
         return 2
     default_budget_kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
                            'PAUSED_TIME_LIMIT': 'max_seconds',
@@ -401,7 +404,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         # the resolver's current, evidenced escalation for this pause.
         state.pop('user_request', None)
         state['pending_questions'] = []
-        error = support.Paused(state['status'], state.get('stop_reason', 'Operational recovery stopped'))
+        # A parallel member's stop is asked as that member's route question again, never a generic one (#541).
+        error = member_stop.restore(state, support.Paused(
+            state['status'], state.get('stop_reason', 'Operational recovery stopped')), detail=False)
         if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error):
             runner.write_json(state_path, state)
             if resolver_human.current(state):
@@ -433,7 +438,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             review = operational_information.projection(state) or {}
             print(f'AutoResolver already received this response to request {args.resolver_request[:12]}; nothing '
                   'changed and no provider launched.'
-                  + (' It re-evaluates the response once at the next autocode resume.'
+                  + (' ' + member_stop.next_step(state) if member_stop.next_step(state) else
+                     ' It re-evaluates the response once at the next autocode resume.'
                      if review.get('request_id') == args.resolver_request and review.get('status') == 'pending' else '')
                   + (f" A newer AutoResolver request is waiting: answer request {live['request_id']} with its own token."
                      if live and live['request_id'] != args.resolver_request else ''))
@@ -441,8 +447,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         resolver_human.review_operational_response(candidate)
         scheduled = (operational_information.projection(candidate) or {}).get('status') == 'pending'
         runner.commit_user_action(state, candidate, run_dir)
+        step = member_stop.next_step(candidate)  # a member's model stop names its one control (#541)
         print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.'
-              + (' It re-evaluates the response once at the next autocode resume.' if scheduled else ''))
+              + (' ' + step if step else ' It re-evaluates the response once at the next autocode resume.'
+                 if scheduled else ''))
         return 0
     if (not decision_action and not explicit_recovery_requested(args)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'
@@ -608,7 +616,17 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if args.migrate_only:
         print("Migrated to an unapproved draft; saved work retained; no agent launched")
         return 0
-    if args.retry_builder and not dispatch.try_request_retry(state, run_dir, args.retry_builder, issued=issued):
+    try:
+        if args.retry_builder and not dispatch.try_request_retry(state, run_dir, args.retry_builder, issued=issued):
+            return 2
+    except support.Paused as error:
+        if not getattr(error, 'quota_worker', None):
+            raise
+        # A refused member with no question open: its stop, collected again, asks the question again (#541).
+        member_stop.ask_again(state, error, at=runner.now())
+        resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error)
+        runner.write_json(state_path, state)
+        print(lifecycle.render(state) + '\nNo provider launched.')
         return 2
     runner.normalize_human_boundary(state, run_dir)
     user_action = any((args.show_goal, args.answer, args.delegate, args.delegate_all, args.reject_assumption,
