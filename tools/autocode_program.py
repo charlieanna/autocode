@@ -610,6 +610,8 @@ def abandon(record, reason, *, new_worktree=False):
     otherwise it plans in the same worktree. The retired run and its worktree stay on disk. Its
     ``approved_plan`` goes with it into ``retired_runs``: the fresh run merges only under its own.
     """
+    # A resolution merged by hand is on the integration branch, as a merged workstream is: start from there.
+    new_worktree = new_worktree or bool(record.get("manual_merge"))
     entry = {"at": util.now(), "reason": reason, **{key: record[key] for key in
              ("run_dir", "run_status", "merged_commit", "workspace", "branch", "pin", "approved_plan")
              if record.get(key)}}
@@ -850,7 +852,8 @@ def _owned_checks(manifest, state, wid):
     """(owner, command) for every cumulative check: owner None for a program check, else the workstream.
 
     A workstream counts once it is merged, or while a person's resolution of its conflict is on the integration
-    branch and its run's later work has yet to merge on top (``manual_merge``, written by adopt_manual_merge).
+    branch and its run's later work has yet to merge on top (``manual_merge``, written by adopt_manual_merge). That
+    resolution is held to the checks it passed: the run's own may change before its later work merges.
     """
     integration = state["integration"]["workspace"]
     found = [(None, command) for command in manifest.get("checks", [])]
@@ -858,7 +861,10 @@ def _owned_checks(manifest, state, wid):
         record = state["workstreams"][row["id"]]
         if record["status"] == "MERGED" or record.get("manual_merge") or row["id"] == wid:
             child = record.get("workspace")
-            for command in list(row.get("checks", [])) + list(record.get("checks", [])):
+            own = record.get("checks", [])
+            if record.get("manual_merge") and row["id"] != wid:
+                own = record["manual_merge"]["checks"]
+            for command in list(row.get("checks", [])) + list(own):
                 # A child's check names its own worktree; on the integration branch it runs there.
                 if child and child != integration:
                     command = command.replace(str(Path(child).resolve()), integration).replace(child, integration)
@@ -1123,7 +1129,8 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
         if later:
             # The later work merges on top as an ordinary merge, with every check a merge has. Until it lands, the
             # resolution on the branch is guarded like a merged workstream: its checks run on every other merge.
-            record.update(status="COMPLETE", manual_merge={"commit": integration_head(state), "branch_head": branch_head})
+            record.update(status="COMPLETE", manual_merge={"commit": integration_head(state), "branch_head": branch_head,
+                                                           "checks": list(record.get("checks", []))})
             note(state, "manual_merge_with_later_work", workstream=workstream["id"], commit=integration_head(state))
             reason = held(manifest, state, workstream["id"], merging=True)
             if reason:

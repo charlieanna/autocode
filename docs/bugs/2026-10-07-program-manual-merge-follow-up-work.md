@@ -39,10 +39,14 @@ Then it looks in the workstream's worktree for work the branch does not have, us
 - **A failure undoes only the program's merge.** The message says so, and a second
   conflict pauses again.
 - **The resolution stays guarded meanwhile.** The record carries `manual_merge`, which
-  `_owned_checks` reads. Until the later work lands, the workstream's checks run on
-  every other merge, as a merged workstream's would. This covers a change request
-  holding the later work, and a failed merge of it. `land` drops the key when the later
-  work lands, and `abandon` drops it with the run.
+  `_owned_checks` reads. Until the later work lands, the checks the resolution passed
+  run on every other merge, as a merged workstream's would. They are frozen, so a
+  follow-up's new checks do not guard other merges before its work is on the branch.
+  This covers a change request holding the later work, and a failed merge of it. `land`
+  drops the key when the later work lands.
+- **A re-check starts from the resolution.** `abandon` retires such a record like a
+  merged one: the fresh run starts in a new worktree from the integration head that
+  holds the resolution. It drops the key with the run.
 
 **Review rounds.** A first version reopened the workstream as `COMPLETE` without
 checking the resolution. A review found that:
@@ -60,6 +64,14 @@ two more problems:
 - While the later work waited, other merges skipped the workstream's checks, because
   only `MERGED` workstreams counted.
 
+A third review of the guard found two more:
+
+- The guard read the run's live checks, which `inspect()` refreshes. After a follow-up,
+  a check for work not yet on the branch failed every other merge, and the program
+  stalled.
+- Retiring such a record kept its old worktree, which lacks the person's resolution, so
+  the re-check conflicted again.
+
 **Tests.** `tests/test_program_agreement_runs.py`:
 
 - `test_a_conflict_resolved_by_hand_still_merges_what_the_run_delivered_after_it` fails
@@ -71,6 +83,11 @@ two more problems:
 - `test_while_a_resolutions_later_work_waits_its_checks_guard_every_other_merge`: the
   guard while a change request holds the later work.
 - `test_later_work_that_fails_its_merge_is_undone_and_the_hand_merge_stays`.
+- `test_a_skeleton_whose_later_work_fails_its_merge_is_not_delivered`: no skeleton and no
+  interface before the later work lands.
+- `test_a_resolutions_guard_keeps_the_checks_it_passed_while_its_run_goes_on`: the frozen
+  checks.
+- `test_a_resolution_re_checked_before_its_later_work_lands_starts_from_the_integration_head`.
 
 **Limits.**
 
