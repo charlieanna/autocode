@@ -1,7 +1,7 @@
 """Hidden tests: separate worker processes share one metadata cache.
 
 They go through the service's own entry point, app.metadata.metadata(tld), with the
-cache directory the deploy configuration names (METADATA_CACHE_DIR), and count calls
+cache directory the deploy configuration names and provisions (METADATA_CACHE_DIR), and count calls
 to the upstream at urllib.request.urlopen. They do not depend on the names a design
 chose for its cache module; the oracle checks the code against the design separately.
 """
@@ -40,7 +40,10 @@ class WorkersShareTheCache(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        # Provisioned, as deploy/gunicorn.conf.py says: whether to create a missing directory is the
+        # design's call (a live design fell back to a per-worker memo, and its contract tested that).
         self.cache = Path(temp.name) / "cache"
+        self.cache.mkdir()
         self.calls = Path(temp.name) / "upstream-calls.txt"
         self.calls.write_text("")
 

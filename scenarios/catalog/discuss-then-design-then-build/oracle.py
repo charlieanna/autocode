@@ -2,10 +2,12 @@
 discussion's decision, the build follows the design, and the code passes hidden tests that run
 separate worker processes against one cache directory.
 
-The hidden tests use only the service's entry point, so any design that follows the decision can
-pass them. Whether the build follows THIS design is checked against the names the design fixes:
-every app/ module it names exists and every callable it names is defined in app/ (or is a builtin
-or comes from a standard-library module the code imports, such as `flock(...)` from fcntl).
+The hidden tests use only the service's entry point, with METADATA_CACHE_DIR provisioned as the
+deploy configuration says, so any design that follows the decision can pass them. Whether the build
+follows THIS design is checked against the names the design fixes: every app/ module it names exists
+and every public callable it names is defined in app/ (or is a builtin or comes from a
+standard-library module the code imports, such as `flock(...)` from fcntl). A name with a leading
+underscore is a private helper, which the build may split or name differently.
 """
 import ast
 import builtins
@@ -45,9 +47,15 @@ def check(project, scenario, run=None):
     differs = [f"{name}({', '.join(want)}) vs {[list(p) for p in params.get(name, ())]}"
                for name, want in signatures.items() if want is not None and name in params
                and tuple(want) not in params[name]]
-    checks.append(Check("build_follows_design", bool(modules and signatures) and not missing and not differs,
+    # With a run record, the build turn must also have changed app/: a design that keeps the seed's
+    # interface names only what is already there (a live build turn that wrote nothing passed this).
+    built = [path for path in ((run or {}).get("turns") or [{}, {}, {}])[-1].get("changed_files") or []
+             if path.startswith("app/")] if run and len(run.get("turns") or []) == 3 else None
+    checks.append(Check("build_follows_design", bool(modules and signatures) and not missing and not differs
+                        and built != [],
                         f"design names modules {modules} and callables {sorted(signatures)}; "
-                        f"missing from app/: {missing}; other parameters: {differs}"))
+                        f"missing from app/: {missing}; other parameters: {differs}"
+                        + ("; the build turn changed nothing under app/" if built == [] else "")))
     with scratch_copy(project) as copy:
         suite = python_tests(copy)
         checks.append(Check("project_tests_pass", suite.returncode == 0, tail(suite)))
@@ -85,13 +93,15 @@ def named_interface(text):
     """The app/ modules and the callables the design names in code spans: {name: parameters or None}.
 
     `Name(a, b)` with plain parameter names is a signature the code must have; `name()` or a call with
-    arguments (`Name(os.environ.get(...), 3600)`) only names the callable."""
+    arguments (`Name(os.environ.get(...), 3600)`) only names the callable. `_name(...)` is a private
+    helper and fixes nothing: a live design listed its helpers as example names, and the build merged
+    two of them."""
     spans = SPAN.findall(text)
     modules = sorted({span for span in spans if MODULE.match(span)})
     signatures = {}
     for span in spans:
         match = SIGNATURE.match(span.strip())
-        if not match:
+        if not match or match.group(1).startswith("_"):
             continue
         names = [part.strip() for part in match.group(2).split(",") if part.strip()]
         exact = bool(names) and all(IDENTIFIER.match(name) for name in names)
