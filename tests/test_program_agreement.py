@@ -265,6 +265,38 @@ class ScopeTest(unittest.TestCase):
                     same = agreement.scope_digest(old, wid) == agreement.scope_digest(new, wid)
                     self.assertEqual(same, wid not in expected, wid)
 
+    def test_the_parent_contract_is_in_every_workstreams_scope_but_its_criteria_and_milestones(self):
+        def derived(m):
+            m["contract"] = {"task_id": "t1", "revision": 1, "hash": "h1",
+                             "body": {"intended_outcome": "Students practice lessons", "constraints": ["stdlib only"],
+                                      "acceptance_criteria": m.pop("requirements"),
+                                      "milestones": [{"id": "skeleton", "objective": "thin"},
+                                                     {"id": "engine", "objective": "engine"}]}}
+
+        def body(change):
+            return lambda m: (derived(m), change(m["contract"]["body"]))
+
+        every = ["skeleton", "engine", "web", "integration"]
+        cases = [
+            ("constraint", body(lambda b: b["constraints"].append("no network")), every),
+            ("outcome", body(lambda b: b.update(intended_outcome="Students master lessons")), every),
+            ("new section", body(lambda b: b.update(scope_exclusions=["payments"])), every),
+            # Its criteria count, like requirements, only for the workstreams that inherit them.
+            ("criterion text", body(lambda b: b["acceptance_criteria"][1].update(criterion="the engine adapts")),
+             ["engine", "integration"]),
+            ("criteria order", body(lambda b: b["acceptance_criteria"].reverse()), []),
+            ("milestones", body(lambda b: (b["milestones"].reverse(), b["milestones"][1].update(objective="thinner"))),
+             []),
+            ("task id, revision and hash",
+             lambda m: (derived(m), m["contract"].update(task_id="t2", revision=2, hash="h2")), []),
+        ]
+        old = build(derived)
+        for label, change, expected in cases:
+            with self.subTest(label):
+                new = build(change)
+                self.assertNotEqual(agreement.digest(old), agreement.digest(new))  # still a revision to approve
+                self.assertEqual(agreement.affected(old, new), expected)
+
     def test_execution_details_change_the_agreement_but_no_workstream_scope(self):
         old = build(lambda m: m.update(checks=["make test"]))
         cases = [
