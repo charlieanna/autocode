@@ -157,6 +157,82 @@ class InvestigationQuestionValidationTests(unittest.TestCase):
         bug_job.check(report, [])
 
 
+class RunnerDiagnosisArtifactTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.workspace = Path(temporary.name)
+        self.output = self.workspace / '.autocode' / 'bug-investigation-01.json'
+        self.output.parent.mkdir()
+        self.report = diagnosis()
+        self.output.write_text(json.dumps(self.report))
+        self.state = state_for(str(self.workspace))
+        bug_job.apply(self.state, self.report,
+                      {'changed_files': [], 'output': str(self.output)}, self.workspace)
+        self.note = self.workspace / self.report['note_path']
+
+    def test_only_the_exact_runner_note_is_identified_without_expanding_task_scope(self):
+        from autocode_util import file_hash
+        self.state['current_task'] = {'affected_paths': self.report['affected_paths'] + self.report['test_paths']}
+        other = self.note.with_name('unrelated.json')
+        other.write_bytes(self.note.read_bytes())
+        artifact = bug_job.diagnosis_artifact(self.state, self.workspace)
+        self.assertEqual(self.report['note_path'], artifact['path'])
+        self.assertEqual(file_hash(self.note), artifact['sha256'])
+        self.assertEqual('runner_written_diagnosis', artifact['kind'])
+        self.assertNotIn(artifact['path'], self.state['current_task']['affected_paths'])
+        self.assertNotEqual(str(other.relative_to(self.workspace)), artifact['path'])
+
+    def test_modified_or_deleted_note_is_not_classified_as_runner_evidence(self):
+        original = self.note.read_bytes()
+        self.note.write_bytes(original + b' ')
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+        self.note.unlink()
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+
+    def test_report_tampering_or_missing_provenance_cannot_exempt_a_note(self):
+        self.output.write_text(json.dumps({**self.report, 'root_cause': 'replacement diagnosis'}))
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+        self.output.write_text(json.dumps(self.report))
+        self.state['investigation'].pop('output_hash')
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+
+    def test_executable_note_is_not_classified_as_unchanged_runner_evidence(self):
+        self.note.chmod(self.note.stat().st_mode | 0o100)
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+
+    def test_symlinked_note_or_parent_is_not_classified_as_runner_evidence(self):
+        duplicate = self.workspace / 'copy.json'
+        duplicate.write_bytes(self.note.read_bytes())
+        self.note.unlink()
+        self.note.symlink_to(duplicate)
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+        self.note.unlink()
+        self.note.parent.rmdir()
+        alternative = self.workspace / 'other-notes'
+        alternative.mkdir()
+        (alternative / self.note.name).write_bytes(duplicate.read_bytes())
+        self.note.parent.symlink_to(alternative, target_is_directory=True)
+        self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
+
+    def test_review_handoff_distinguishes_note_but_preserves_all_actual_changes(self):
+        import autocode_stage_context as stage_context
+        paths = ['epp/client.py', self.report['note_path'], 'docs/bugs/unrelated.json']
+        self.state.update(changed_files=paths, current_task={'affected_paths': ['epp/client.py']},
+                          implementation={'changed_files': paths})
+        for stage in ('sol', 'astra_checkpoint', 'astra_review'):
+            with self.subTest(stage=stage), mock.patch.object(
+                    stage_context.support, 'snapshot', return_value={'revision': 'r1', 'head': 'h1'}):
+                prompt, _ = stage_context.context_packet(self.state, stage, self.output.parent / 'state.json')
+                data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+                self.assertEqual([self.report['note_path']], [r['path'] for r in data['runner_artifacts']])
+                self.assertEqual(paths, data['implementation']['changed_files'])
+                if stage != 'astra_review':
+                    self.assertEqual(paths, data['actual_changes'])
+                self.assertIn('not an out-of-scope Builder edit', prompt)
+                self.assertIn('grants no write permission', prompt)
+
+
 class ApplyTests(unittest.TestCase):
     def apply(self, value, changed=()):
         workspace = tempfile.mkdtemp()
