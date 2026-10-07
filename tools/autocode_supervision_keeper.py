@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import queue
 import select
 import signal
 import sys
@@ -18,6 +20,30 @@ except ImportError:
 
 class KeeperTree(processes.ProcessTree):
     """A CLI keeper excludes itself and may stop its exact configured parent."""
+    def inventory(self):
+        return list(self.known.values())
+
+    def admit(self, nested, owner):
+        if (not isinstance(nested, dict) or nested.get('schema') != 1
+                or not isinstance(nested.get('nonce'), str) or len(nested['nonce']) != 32
+                or not processes.matches(owner, nested.get('owner'))):
+            raise processes.ProcessError('Invalid nested supervision declaration')
+        rows = [nested[key] for key in ('keeper', 'provider')]
+        if (any(not isinstance(row, dict) or type(row.get('pid')) is not int
+                or row['pid'] <= 0 or type(row.get('birth_identity')) not in (int, float)
+                or not math.isfinite(row['birth_identity']) or row['birth_identity'] <= 0
+                for row in rows)
+                or len({row['pid'] for row in rows}) != 2):
+            raise processes.ProcessError('Invalid nested supervision identities')
+        table = processes.process_table({row['pid'] for row in rows})
+        if any(not processes.matches(row, table.get(row['pid']))
+               or table[row['pid']]['parent'] != owner['pid']
+               or not self._included(row) for row in rows):
+            raise processes.ProcessError('Nested supervision is not owned by this CLI')
+        # Only the sampling thread admits identities, so a stale sample cannot
+        # overwrite this transfer. Native sampling still handles PID reuse.
+        self.known.update({row['pid']: dict(row) for row in rows})
+
     def signal(self, rows, sig):
         parent = [row for row in rows if row['pid'] == os.getppid() == self.pid]
         super().signal([row for row in rows if row not in parent], sig)
@@ -99,7 +125,7 @@ def main(control, acknowledgement, external=None):
         # never waits for this disk lock or an in-progress checkpoint.
         with receipt_write_lock:
             with reason_lock:
-                snapshot = {**value, 'processes': [dict(row) for row in tree.known.values()],
+                snapshot = {**value, 'processes': [dict(row) for row in tree.inventory()],
                             'observed_at': util.now()}
             util.atomic_json(metadata['receipt'], snapshot)
     try:
@@ -107,10 +133,12 @@ def main(control, acknowledgement, external=None):
     except OSError:
         return 3
     os.write(acknowledgement, (json.dumps({'armed': metadata['nonce']}) + '\n').encode())
-    os.close(acknowledgement)
+    if external is None:
+        os.close(acknowledgement)
     triggered = threading.Event()
     done = threading.Event()
     monitor_error = []
+    admissions = queue.SimpleQueue()
     reason = [None]
     escalation = [None]
     def trigger(cause):
@@ -126,7 +154,7 @@ def main(control, acknowledgement, external=None):
         # writes. Recheck identities before signalling every recorded process.
         def signal_known(sig):
             try:
-                tree.signal(list(tree.known.values()), sig)
+                tree.signal(tree.inventory(), sig)
             except BaseException as error:
                 monitor_error.append(type(error).__name__)
         if policy == 'interrupt_root':
@@ -167,10 +195,16 @@ def main(control, acknowledgement, external=None):
                 if len(pending) > 65536:
                     trigger('invalid_owner_message')
                     return
-                if b'\n' in pending:
-                    notice = json.loads(pending.partition(b'\n')[0])
-                    trigger('controller_finished' if notice == {'finished': metadata['nonce']} else 'invalid_owner_message')
-                    return
+                while b'\n' in pending:
+                    line, _, remainder = pending.partition(b'\n')
+                    pending = bytearray(remainder)
+                    notice = json.loads(line)
+                    if (external is not None and isinstance(notice, dict)
+                            and set(notice) == {'admit', 'guard'} and notice['guard'] == metadata['nonce']):
+                        admissions.put(notice['admit'])
+                    else:
+                        trigger('controller_finished' if notice == {'finished': metadata['nonce']} else 'invalid_owner_message')
+                        return
         except BaseException as error:
             monitor_error.append(type(error).__name__)
             trigger('lifeline_failure')
@@ -179,11 +213,20 @@ def main(control, acknowledgement, external=None):
     result = 0
     terminal_phase = 'uncertain'
     terminal_error = None
-    previous_inventory = list(tree.known.values())
+    previous_inventory = tree.inventory()
     try:
         while not triggered.is_set():
+            # Admission disk I/O belongs to the sampling thread. The lifeline
+            # watcher must remain free to enforce EOF and the hard deadline.
+            while not admissions.empty() and not triggered.is_set():
+                nested = admissions.get_nowait()
+                tree.admit(nested, provider)
+                save()
+                if not triggered.is_set():
+                    os.write(acknowledgement,
+                             (json.dumps({'admitted': nested['nonce']}) + '\n').encode())
             rows = tree.sample(notify=False)
-            inventory = list(tree.known.values())
+            inventory = tree.inventory()
             if previous_inventory != inventory:
                 save()
                 previous_inventory = inventory
@@ -216,7 +259,7 @@ def main(control, acknowledgement, external=None):
         result = 4
         # Do not discard already recorded ownership when discovery fails.
         try:
-            tree.signal(list(tree.known.values()), signal.SIGKILL)
+            tree.signal(tree.inventory(), signal.SIGKILL)
         except BaseException:
             pass
     finally:
@@ -237,6 +280,7 @@ def main(control, acknowledgement, external=None):
             result = 3
         os.close(control)
         if external is not None:
+            os.close(acknowledgement)
             os.close(external)
     return result
 
