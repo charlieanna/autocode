@@ -35,6 +35,7 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_recovery_context as recovery_context
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_native_test_names as native_test_names
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_recovery_context as recovery_context
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_native_test_names as native_test_names
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -55,7 +57,9 @@ except ImportError:
         sealed, start_clarification_episode, token, validate_requirements_body)
 
 
-def validate_body(state, body, *, ready=False, allow_legacy=False):
+def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
+    """Refuse a contract body this run cannot hold. ``origin`` is the draft's (install_draft's, or the saved
+    contract's at approval): the user's own edit is not held to the Go test names read from their brief."""
     legacy = allow_legacy and not any(key in body for key in BRIEF_FIELDS)
     schema = PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA
     s.validate_schema(body, design_plan.body_schema(schema, (state.get("settings") or {}).get("design_manifest")))
@@ -150,6 +154,8 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
                     raise ValueError(f"Build brief is missing {key}")
             if set(c for m in milestones for c in m["acceptance_criteria"]) != criterion_ids:
                 raise ValueError("Implementation milestones must cover every acceptance criterion")
+        # A Go test the user asked for is proven only under its own name (#498), whatever a review accepted.
+        native_test_names.check(state, body, origin=origin)
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 
@@ -177,7 +183,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
-    validate_body(state, body, allow_legacy=allow_legacy)
+    validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
     previous = state.get("goal_contract")
@@ -475,7 +481,7 @@ def _approve(state, selected):
             or not sealed(contract)
             or selected != token(contract) or state.get("displayed_goal") != selected):
         raise ValueError("Approve only the current displayed draft token; show the goal again")
-    validate_body(state, contract["body"], ready=True, allow_legacy=True)
+    validate_body(state, contract["body"], ready=True, allow_legacy=True, origin=contract.get("origin"))
     if contract["body"]["open_blocking_questions"] or state.get("pending_questions"):
         raise ValueError("Blocking questions still need answers")
     if open_obligations(state):

@@ -24,12 +24,18 @@ class LifecycleAttacks(AdversarialCase):
                                cwd=self.project, capture_output=True, text=True, timeout=15)
         self.assertEqual(0, check.returncode, check.stdout + check.stderr)
 
-    def held_builder(self):
+    def held_builder(self, *, completed_report=False):
         self.approve(self.start_to_approval())
         barrier = ProviderBarrier(self.root)
         self.addCleanup(barrier.close)
         self.env.update(barrier.environment)
         self.set_fault("lifecycle", "provider_barrier")
+        if completed_report:
+            hooks = self.root / "completion-hooks"
+            hooks.mkdir()
+            shutil.copy2(Path(__file__).parent / "harness/attack_lifecycle.py", hooks / "sitecustomize.py")
+            self.env.update(PYTHONPATH=str(hooks), LIFECYCLE_CONTROLLER_CHECKPOINT=str(
+                self.driver.run_dir / "iterations/001/builder-01.after.json"))
         controller = self.spawn()
         announcement = barrier.wait()
         parent = next(p for p in self.owned if p.pid == controller.pid)
@@ -42,9 +48,29 @@ class LifecycleAttacks(AdversarialCase):
         self.assertTrue(provider.is_running())
         return barrier, controller, parent, provider
 
+    def assert_cleaned(self, provider):
+        provider.wait(timeout=10)
+        self.assertFalse(provider.is_running() and provider.status() != psutil.STATUS_ZOMBIE,
+                         "Independent supervision must stop the crashed controller's writer")
+
+    def stopped_receipt(self, *, provider=None, cause=None):
+        def receipt():
+            path = self.driver.run_dir / "iterations/001/builder-01.supervision.json"
+            if not path.exists():
+                return None
+            row = json.loads(path.read_text())
+            if (row.get("phase") == "stopped" and not row.get("cleanup_error")
+                    and (provider is None or (row["provider"]["pid"] == provider.pid
+                         and row["provider"]["birth_identity"] == provider._ident[1]))
+                    and (cause is None or row.get("cause") == cause)):
+                return row
+        return self.await_condition(receipt, timeout=10, message="verified supervision cleanup receipt")
+
     def clear_barrier_environment(self):
         for key in ("LIFECYCLE_HOLD_STAGE", "LIFECYCLE_READY_FIFO", "LIFECYCLE_RELEASE_FIFO"):
             self.env.pop(key, None)
+        if self.env.pop("LIFECYCLE_CONTROLLER_CHECKPOINT", None):
+            self.env.pop("PYTHONPATH", None)
 
     def second_run_in_same_checkout(self):
         original = self.driver.run_dir
@@ -116,15 +142,14 @@ class LifecycleAttacks(AdversarialCase):
         barrier, controller, parent, provider = self.held_builder()
         parent.kill()  # Retained psutil object checks PID and birth identity.
         self.assertLess(controller.wait(timeout=10), 0)
-        self.assertTrue(provider.is_running(), "The injected fault must leave a live provider")
         self.clear_barrier_environment()
         second = self.invoke("--resume-paused", timeout=15)
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
         self.assertFalse(self.status()["done"])
-        self.assertEqual(1, len(self.trace("stage_enter", "terra")), "A live orphan must retain workspace exclusivity")
-        self.assertTrue(provider.is_running(), "Resume cannot declare a living provider dead")
-        barrier.release()
-        provider.wait(timeout=10)
+        self.assertEqual(1, len(self.trace("stage_enter", "terra")),
+                         "An interrupted attempt cannot authorize a competing Builder")
+        self.assert_cleaned(provider)
+        self.assertEqual([], self.trace("stage_exit", "terra"), "Cleanup must not finish an interrupted report")
 
     def test_active_run_blocks_new_run_in_same_checkout(self):
         barrier, controller, _, provider = self.held_builder()
@@ -141,55 +166,29 @@ class LifecycleAttacks(AdversarialCase):
 
     def test_live_orphan_blocks_new_run_in_same_checkout(self):
         barrier, controller, parent, provider = self.held_builder()
+        before = len(self.trace("stage_enter"))
+        blocked = self.second_run_in_same_checkout()
+        self.assertEqual(2, blocked.returncode, blocked.stdout + blocked.stderr)
+        self.assertEqual(before, len(self.trace("stage_enter")))
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
-        self.assertTrue(provider.is_running(), "The injected crash must retain the writing provider")
+        self.stopped_receipt(provider=provider, cause="owner_lost")
+        self.assert_cleaned(provider)
         self.clear_barrier_environment()
-        before = len(self.trace("stage_enter"))
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
-        self.assertTrue(provider.is_running())
-        if len(self.trace("stage_enter")) > before:
-            # Do not stop at a surprising planning launch. If the bypass reached
-            # its normal approval gate, demonstrate whether it authorizes a
-            # second actual Builder while the first is still alive.
-            run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines()
-                         if line.startswith("Run: ")]
-            self.assertEqual(1, len(run_lines), second.stdout)
-            original = self.driver.run_dir
-            self.driver.run_dir = Path(run_lines[0])
-            try:
-                view = self.status()
-                if (view.get("needs") or {}).get("kind") == "approve_plan":
-                    self.approve(view)
-                    other_root = self.root / "competing-builder"
-                    other_root.mkdir()
-                    other_barrier = ProviderBarrier(other_root)
-                    self.addCleanup(other_barrier.close)
-                    self.env.update(other_barrier.environment)
-                    other_controller = self.spawn()
-                    announcement = other_barrier.wait()
-                    other_parent = next(p for p in self.owned if p.pid == other_controller.pid)
-                    descendants = other_parent.children(recursive=True)
-                    other_provider = next(p for p in descendants if p.pid == announcement["pid"])
-                    self.owned.extend(p for p in descendants if p not in self.owned)
-                    overlap = {
-                        "workspace": str(self.project), "original_run": str(original),
-                        "competing_run": str(self.driver.run_dir),
-                        "original_builder": {"pid": provider.pid, "birth_identity": provider._ident[1],
-                                             "cwd": provider.cwd(), "alive": provider.is_running()},
-                        "competing_builder": {"pid": other_provider.pid, "birth_identity": other_provider._ident[1],
-                                              "cwd": other_provider.cwd(), "alive": other_provider.is_running()},
-                    }
-                    (self.root / "overlapping-builders.json").write_text(json.dumps(overlap, indent=2))
-                    self.assertFalse(provider.is_running() and other_provider.is_running(),
-                                     "Two live Builders own the same checkout after controller crash: " + str(overlap))
-            finally:
-                self.driver.run_dir = original
-        self.assertEqual(before, len(self.trace("stage_enter")),
-                         "Starting a new run bypassed the live orphan's checkout ownership")
-        barrier.release()
-        provider.wait(timeout=10)
+        run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines()
+                     if line.startswith("Run: ")]
+        self.assertEqual(1, len(run_lines), second.stdout)
+        original = self.driver.run_dir
+        self.driver.run_dir = Path(run_lines[0])
+        try:
+            self.approve()
+            self.assert_completed(self.finish())
+        finally:
+            self.driver.run_dir = original
+        self.assertEqual(2, len(self.trace("stage_enter", "terra")),
+                         "A new Builder is allowed only after verified cleanup and fresh approval")
 
     def test_controller_death_before_first_process_receipt_keeps_checkout_locked(self):
         self.approve(self.start_to_approval())
@@ -206,24 +205,29 @@ class LifecycleAttacks(AdversarialCase):
         spec.write_text(json.dumps({"mode": "crash_before_replace", "target": str(target), "marker": str(marker)}))
         self.env.update(PYTHONPATH=str(hooks), AUTOCODE_TEST_IO_FAULT=str(spec))
         controller = self.spawn()
-        announcement = barrier.wait()
         self.assertEqual(97, controller.wait(timeout=15))
         self.assertTrue(marker.is_file(), "The fault must reach the first durable process receipt")
         self.assertFalse(target.exists(), "Controller must die before any provider receipt is published")
-        trace = next(row for row in self.trace("stage_enter", "terra") if row["pid"] == announcement["pid"])
-        provider = psutil.Process(announcement["pid"])
-        self.assertEqual(trace["birth_identity"], provider._ident[1])
-        self.owned.append(provider)
+        self.assertEqual([], self.trace("stage_enter", "terra"),
+                         "Durable admission must precede provider exec, even at the first receipt")
+        self.stopped_receipt(cause="owner_lost")
         self.clear_barrier_environment()
         self.env.pop("PYTHONPATH")
         self.env.pop("AUTOCODE_TEST_IO_FAULT")
-        before = len(self.trace("stage_enter"))
         second = self.second_run_in_same_checkout()
         self.assertEqual(2, second.returncode, second.stdout + second.stderr)
-        self.assertEqual(before, len(self.trace("stage_enter")), "No competing provider before the first receipt")
-        self.assertTrue(provider.is_running())
-        barrier.release()
-        provider.wait(timeout=15)
+        self.assertEqual([], self.trace("stage_enter", "terra"),
+                         "No Builder may launch without fresh approval after cleanup")
+        run_lines = [line.removeprefix("Run: ") for line in second.stdout.splitlines()
+                     if line.startswith("Run: ")]
+        self.assertEqual(1, len(run_lines), second.stdout)
+        original = self.driver.run_dir
+        self.driver.run_dir = Path(run_lines[0])
+        try:
+            self.assertEqual("approve_plan", self.status()["needs"]["kind"],
+                             "Verified bootstrap cleanup must allow fresh planning, not leave a stale lock")
+        finally:
+            self.driver.run_dir = original
 
     def test_crashed_provider_is_not_mistaken_for_successful_build(self):
         _, controller, parent, provider = self.held_builder()
@@ -245,14 +249,15 @@ class LifecycleAttacks(AdversarialCase):
         self.assertEqual(1, len(self.trace("attack_injected", "terra")))
 
     def test_finished_orphan_report_resumes_without_second_builder(self):
-        barrier, controller, parent, provider = self.held_builder()
+        barrier, controller, parent, provider = self.held_builder(completed_report=True)
+        barrier.release()
+        completed = barrier.wait()
+        self.assertEqual(controller.pid, completed["pid"], "Controller must publish the completed artifact")
+        self.assertEqual(1, len(self.trace("stage_exit", "terra")))
+        self.stopped_receipt(provider=provider, cause="provider_stopped")
         parent.kill()
         self.assertLess(controller.wait(timeout=10), 0)
-        self.assertTrue(provider.is_running())
-        barrier.release()
-        provider.wait(timeout=15)
-        self.assertEqual(1, len(self.trace("stage_exit", "terra")),
-                         "The orphan must finish its real report before resuming")
+        self.assert_cleaned(provider)
         self.clear_barrier_environment()
         result = self.invoke("--resume-paused", timeout=45)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)

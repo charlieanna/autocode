@@ -39,6 +39,7 @@ OPERATOR_FLAGS = (
     "--approve-goal", "--edit-goal", "--approve-review", "--reconcile-review",
     "--accept-completion", "--review-token", "--resume-paused", "--retry-failed-stage",
     "--diagnose-failed-stage", "--retry-builder", "--retry-report", "--abandon-stage",
+    '--recover-job-report',
     "--accept-transport-change", "--planning-review-call-limit", "--migrate-only",
     "--close-finding", "--close-reason", "--resolver-response",
     "--chat",
