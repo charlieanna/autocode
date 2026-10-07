@@ -388,7 +388,10 @@ runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`
   followed by a lease-queue API (`enqueue`, `claim`, `ack`, `nack`, `pending`)
   with durability or old-token wording, or a transactional-outbox API
   (`create_order`, `orders`, `pending`, `publish`) with outbox or reopening
-  wording. Generic durability, concurrency, security or performance wording adds
+  wording. An argument named anything but `path` counts only when the API names
+  the family's core methods (`enqueue`, `claim` and `ack`; `create_order` and
+  `publish`), so `TodoList(filename)` with `claim(item)` stays an ordinary task.
+  Generic durability, concurrency, security or performance wording adds
   no observation. The runner also needs every fact the protocol checks to be
   stated (signatures, return values, the token and deadline rules, at-least-once
   delivery). If one is missing the plan cannot be approved: the refusal names each
@@ -431,7 +434,11 @@ runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`
   completion gate refuses while it is open; the Completion Reviewer and Resolver
   see it in `open_findings`; a correction task assigns it to the Builder, whose
   handoff lists it in `actionable_findings`. No report closes it: the runner does,
-  when its own observation passes on a later source. A repair that changes nothing
+  when its own observation passes on a source it has not failed on. Because a race
+  can be missed, a PASS on a source it already failed on (the same candidate
+  validated again, after `--resume-paused`, or reverted to) closes nothing. An
+  approved amendment that removes the observation retracts its finding; completion
+  still needs every current observation to pass. A repair that changes nothing
   stops at the ordinary no-progress limit with the finding still open.
 
 Every other durability or concurrency sentence in the request is listed under
