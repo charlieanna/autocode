@@ -40,6 +40,12 @@ The `--fake` run passes on master because its plan marks no criterion `test:`, s
    as the current scan, so code that was ignored at launch still counts after the
    candidate stops ignoring it.
 
+The record counts only for the base it was taken with: `record` saves that base in
+`launch_sources`, and `supply` sets `recorded` only when it equals the run's `base_commit`. A
+run that found the checkout busy at launch pins its base later, after other runs' agents may
+have left ignored code, so its record vouches for nothing and it keeps the README-only rule (an
+adversarial review of this fix found that path).
+
 Unchanged: an executable `.md` file, a document in another format (`.rst`, `.txt`), any
 other non-empty file, links and submodules still need preservation. An in-place run with
 no launch record (a run saved before records existed), a continuation of an in-place run

@@ -386,6 +386,25 @@ class PreservationEvidenceCase(unittest.TestCase):
         project = Project({"README.md": "A new project.\n", "docs/design/feature.md": "# Feature\n"})
         self.check_first_suite(project, run="in_place", verdict=verify.UNVERIFIED)
 
+    def test_a_launch_record_taken_before_its_base_was_pinned_does_not_bind_it(self):
+        # The checkout was busy at launch: the record was taken first and the base pinned later, so
+        # ignored code left in between is in neither (review of this fix, 2026-10-07).
+        project = Project(self.DESIGNED)
+        self.addCleanup(project.close)
+        run_dir = Path(project.temp.name) / "run"
+        run_dir.mkdir()
+        state = {"base_commit": None, "goal_contract": {"body": {"task_kind": "build"}},
+                 "settings": {"regression": {"python": sys.executable, "test_timeout": 60}}}
+        launch_inputs.record(state, project.root, run_dir)
+        state["base_commit"] = project.base
+        self.assertFalse(launch_inputs.supply(state, project.root, run_dir).recorded)
+        references.write({"calc.py": "VALUE = 'new'\n",
+                          "tests/test_feature.py": "import unittest\nfrom calc import VALUE\n\n"
+                          "class Feature(unittest.TestCase):\n"
+                          "    def test_new_value(self):\n"
+                          "        self.assertEqual('new', VALUE)\n"}, project.root)
+        self.assertEqual(verify.UNVERIFIED, regression.prove(state, project.root, run_dir)["verdict"])
+
     def prove_in_place(self, project, change=None, *, record=True):
         """autocode_regression.prove for an --in-place run whose ignored inputs were recorded at launch
         (autocode_launch_inputs.record, before any provider), as autocode_run_setup records them.
