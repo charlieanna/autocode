@@ -18,7 +18,9 @@ The pytest case exposed a separate contradiction. Its Completion Reviewer and
 Resolver requested `src/_pytest/fixtures.py`, but assignment replaced those paths
 with the original milestone list. The Builder therefore received a requirement
 to fix a file it was forbidden to edit. A serial REWORK assignment for the same
-single milestone now retains the reviewed repair paths. Moving to another
+single milestone now adds the reviewed repair paths to its existing paths. A
+later narrower report retains that admitted scope so recovery evidence stays
+bound to the same source. Moving to another
 milestone, parallel worker ownership and progressive planning keep their existing
 scope rules. The contract and its acceptance criteria do not change.
 

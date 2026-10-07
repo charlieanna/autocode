@@ -633,13 +633,19 @@ def assign_task(state, decision, current):
         # Advancing milestones and parallel ownership retain the approved paths.
         serial_repair = (decision['status'] == 'REWORK' and len(milestones) == 1
                          and spec['milestone_id'] == (state.get('current_task') or {}).get('milestone_id')
-                         and (decision['next_objective'] != (state.get('current_task') or {}).get('objective')
-                              or any(spec[key] != (state.get('current_task') or {}).get(key)
-                                     for key in ('requirements', 'validation_plan')))
                          and not any(state.get(key) for key in
                                      ('parent_run', 'parent_batch', 'orchestration_batch', 'orchestration_history')))
-        if owned and not serial_repair:
-            task_paths = list(dict.fromkeys(owned))
+        if owned:
+            # Retain the milestone's existing source scope: replacing it with
+            # a narrower repair list invalidates the incident's evidence pins.
+            paths = list(owned)
+            if serial_repair:
+                previous = state.get('current_task') or {}
+                paths.extend(previous.get('affected_paths') or [])
+                if (decision['next_objective'] != previous.get('objective')
+                        or any(spec[key] != previous.get(key) for key in ('requirements', 'validation_plan'))):
+                    paths.extend(task_paths)
+            task_paths = list(dict.fromkeys(paths))
     progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])
     recovery = state.get("recovery_context") or {}
