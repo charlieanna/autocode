@@ -39,7 +39,8 @@ The fix applies the declared format to every line of a `one per line` listing:
   that both give the same verdict. Output may have one optional final LF or
   CRLF. Every line must fullmatch the line pattern or be the bound item, at
   least one line must be the bound item exactly, and line endings may not be
-  mixed. The bound item alone therefore still passes whatever its ID looks
+  mixed: CRLF lines pass with or without a final CRLF, as LF lines do without
+  a final LF. The bound item alone therefore still passes whatever its ID looks
   like (an ID argument with a space is not one opaque word). Headers, blank
   lines, extra terminators, trailing spaces, unbracketed or misspelled
   statuses, changed IDs and items nobody added all still fail.
@@ -52,7 +53,9 @@ The fix applies the declared format to every line of a `one per line` listing:
 
 This check still does not prove that every item appears, or appears once. A
 listing that leaves out or repeats other to-dos passes if the bound item is
-present. A TEXT line must carry a value that a step passed for TEXT itself, so
+present. Refusing a repeated line would also refuse a correct listing whose
+format has no unique field, such as two items added with the same text under
+a format without ID. A TEXT line must carry a value that a step passed for TEXT itself, so
 a value passed under another placeholder name (say a `rename ID NEW_TEXT`
 command) is refused, as it already was for the bound item.
 
@@ -90,7 +93,7 @@ replays run B's shape end to end.
 
 - `tests.test_brief_acceptance` runs the live multi-item observation against
   an independent correct product (PASS) and its unbracketed mutant (FAIL).
-  It checks 17 listings through `output_reason`, and runs one of each kind
+  It checks 20 listings through `output_reason`, and runs one of each kind
   through the contained runner to confirm both give the same verdict, and
   keeps a bound item alone valid when its ID has a space.
 - `tests.test_brief_evidence` checks a multi-item receipt, four forged
@@ -106,3 +109,21 @@ replays run B's shape end to end.
   Tester's rejected reports go through report repair and then stop as
   invalid output. Sending a failed brief replay to Builder rework instead is
   left for later.
+
+## Still open: a later command's format can be attributed to an earlier one
+
+Found while reviewing this fix; #522's declaration grammar behaves the same on
+master `0591e76`. A command's clause runs to the next `;` or line break, so a
+`prints ... as FORMAT ... one per line` that follows a later command in the
+same clause is also attributed to the earlier command. The brief
+`` `todo.py add TEXT` adds a to-do and exits 0. `todo.py list` prints every
+to-do as `ID TEXT [open|done]`, one per line, and exits 0. `` therefore
+declares that `add TEXT` prints the listing too, and a correct product whose
+`add` prints nothing is refused. When only the per-line words come later
+(`` `todo.py add TEXT` prints the new to-do as `ID TEXT [open|done]` and exits
+0, and `todo.py list` prints every to-do, one per line, and exits 0. ``), `add`
+is checked as a listing, which the per-line rule now lets print several lines.
+Ending a clause at the next command changes which declarations such a brief
+has, and so the sealed manifests of its runs already under way, and needs its
+own change. The catalog brief separates its commands with semicolons and is not
+affected.

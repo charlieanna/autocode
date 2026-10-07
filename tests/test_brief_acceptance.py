@@ -81,6 +81,7 @@ LISTINGS = [
     (b'1 buy milk [done]\n2 walk dog [open]\n', True, True),  # live run ewqn70hi
     (b'1 buy milk [done]\n2 walk dog [open]', True, False),
     (b'1 buy milk [done]\r\n2 walk dog [open]\r\n', True, True),
+    (b'1 buy milk [done]\r\n2 walk dog [open]', True, True),  # CRLF lines, no final line ending
     (b'2 walk dog [open]\n1 buy milk [done]\n', True, False),  # order is not part of the format
     (b'1 buy milk done\n2 walk dog open\n', False, False),  # the unbracketed mutant
     (b'1 buy milk [done]\n2 walk dog open\n', False, True),  # only the observed line is formatted
@@ -92,6 +93,8 @@ LISTINGS = [
     (b'1 buy milk [done]\n2 walk dog [open]\n\n', False, False),
     (b'1 buy milk [done] \n2 walk dog [open]\n', False, False),
     (b'1 buy milk [done]\r\n2 walk dog [open]\n', False, True),  # mixed line endings
+    (b'1 buy milk [done]\n2 walk dog [open]\r\n', False, False),
+    (b'1 buy milk [done]\r\n2 walk dog [open]\n1 buy milk [done]', False, True),
     (b'1 buy milk [done]\n2 walk dog [open]\n3 eggs [open]\n', False, False),  # nobody added eggs
     (b'', False, False),
     (b'1 buy milk [done]\n\xff\n', False, True),

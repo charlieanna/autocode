@@ -300,13 +300,14 @@ def line_pattern(observation):
 def output_reason(output, pattern, line):
     """'' when stdout bytes are the declared `one per line` listing, else why not.
 
-    One optional final LF or CRLF; one kind of line ending; every line fullmatches
-    `line` or is the observed item `pattern`, and at least one line is that item. The
-    item alone is always a valid listing, as before the per-line rule. No other
-    normalization. _RUNNER repeats this rule inside the clean replay.
+    One optional final LF or CRLF; one kind of line ending (CRLF when the output ends
+    with one, or has no final LF and contains one); every line fullmatches `line` or is
+    the observed item `pattern`, and at least one line is that item. The item alone is
+    always a valid listing, as before the per-line rule. No other normalization.
+    _RUNNER repeats this rule inside the clean replay.
     """
-    crlf = output.endswith(b'\r\n')
-    body = output[:-2] if crlf else output[:-1] if output.endswith(b'\n') else output
+    crlf = output.endswith(b'\r\n') or (not output.endswith(b'\n') and b'\r\n' in output)
+    body = output[:-2] if output.endswith(b'\r\n') else output[:-1] if output.endswith(b'\n') else output
     try:
         text = body.decode('utf-8')
     except UnicodeDecodeError:
@@ -436,8 +437,8 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
         # output_reason(): one optional final line ending is a printing convention,
         # not permission to strip spaces, extra lines, brackets or other source
         # literal bytes. Every listed line has the declared format or is the item; one is the item.
-        crlf=output.endswith(b'\r\n')
-        body=output[:-2] if crlf else output[:-1] if output.endswith(b'\n') else output
+        crlf=output.endswith(b'\r\n') or (not output.endswith(b'\n') and b'\r\n' in output)
+        body=output[:-2] if output.endswith(b'\r\n') else output[:-1] if output.endswith(b'\n') else output
         try:
             text=body.decode('utf-8')
         except UnicodeDecodeError:
