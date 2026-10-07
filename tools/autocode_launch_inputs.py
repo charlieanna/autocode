@@ -133,7 +133,10 @@ def record(state, workspace, run_dir):
             manifest[kind] = None  # failure is retained even if the files later disappear
     data = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
     _write(run_dir, f'{STORE}/manifest.json', data)
-    state['launch_sources'] = {'manifest_sha256': hashlib.sha256(data).hexdigest()}
+    # The base this record vouches for: the one pinned at launch, or None when the checkout was busy and
+    # the base is pinned later (autocode_build_loop); supply() trusts the record only for its own base.
+    state['launch_sources'] = {'manifest_sha256': hashlib.sha256(data).hexdigest(),
+                               'base_commit': state.get('base_commit')}
 
 
 def _manifest(state, store, checkout):
@@ -165,11 +168,18 @@ def _manifest(state, store, checkout):
 
 
 class Supply:
-    """Exact launch inputs for one proof; uncertainty blocks execution and reuse."""
-    def __init__(self, checkout, store, generated, vendored, unverified, notes):
+    """Exact launch inputs for one proof; uncertainty blocks execution and reuse.
+
+    ``recorded``: a valid launch manifest, taken with the base the run is proven against, backs
+    ``generated`` and ``vendored``, so with nothing ``unverified`` they are every ignored input the
+    checkout held then, still unchanged (autocode_verify._document_only_base reads it). Without one,
+    or for a run whose base was pinned after its record (the checkout was busy at launch), an empty
+    Supply says nothing."""
+    def __init__(self, checkout, store, generated, vendored, unverified, notes, *, recorded=False):
         self.checkout, self.store = Path(checkout), Path(store)
         self.generated, self.vendored = generated, vendored
         self.unverified, self.notes = unverified, notes
+        self.recorded = recorded
         self.identity = util.digest({'generated': generated, 'vendored': vendored, 'unverified': unverified})
 
     def copy_into(self, tree):
@@ -262,7 +272,9 @@ def supply(state, checkout, run_dir):
         if added:
             notes.append(f'Ignored {kind} files left out of every test copy (added since this in-place run started): '
                          + _names(added))
-    return Supply(checkout, store, selected['generated'], selected['vendored'], errors, notes)
+    base = (state.get('launch_sources') or {}).get('base_commit')
+    return Supply(checkout, store, selected['generated'], selected['vendored'], errors, notes,
+                  recorded=bool(base) and base == state.get('base_commit'))
 
 
 def guard(state, workspace, run_dir):

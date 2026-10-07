@@ -1,6 +1,7 @@
 """Source-derived CLI observations; independent tiny product and no providers."""
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -37,6 +38,64 @@ def proposal(records, value='brief-probe', criterion='AC1'):
     return {'declaration_id': brief.inventory(records)[0]['id'], 'criterion_ids': [criterion],
             'steps': [{'argv': ['add', value]}, {'argv': ['list']}], 'observe_step': 1,
             'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}]}
+
+
+def listing_proposal(records):
+    """The observation the live Plan Reviewers proposed in both #452 runs on d6aded9."""
+    return {'declaration_id': brief.inventory(records)[0]['id'], 'criterion_ids': ['AC1'],
+            'steps': [{'argv': ['add', 'buy milk']}, {'argv': ['add', 'walk dog']},
+                      {'argv': ['complete', '1']}, {'argv': ['list']}], 'observe_step': 3,
+            'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1},
+                         {'placeholder': 'ID', 'step': 2, 'argument': 1}]}
+
+
+# A correct multi-item to-do list, independent of the catalog reference and oracle.
+LIST_PRODUCT = """import json
+from pathlib import Path
+import sys
+store = Path('todos.json')
+items = json.loads(store.read_text()) if store.exists() else []
+if sys.argv[1] == 'add':
+    items.append({'id': len(items) + 1, 'text': sys.argv[2], 'done': False})
+    print(items[-1]['id'])
+elif sys.argv[1] == 'complete':
+    for item in items:
+        item['done'] = item['done'] or str(item['id']) == sys.argv[2]
+elif sys.argv[1] == 'list':
+    for item in items:
+        print(f"{item['id']} {item['text']} [{'done' if item['done'] else 'open'}]")
+else:
+    sys.exit(2)
+store.write_text(json.dumps(items))
+"""
+
+
+def printing(listing):
+    """A product whose `list` prints exactly these bytes; every other command succeeds silently."""
+    return f"import sys\nif sys.argv[1] == 'list':\n    sys.stdout.buffer.write({listing!r})\n"
+
+
+# What `todo.py list` prints after the live setup, whether the brief's format admits it, and
+# whether the contained runner also replays it (one per branch of the rule; each costs processes).
+LISTINGS = [
+    (b'1 buy milk [done]\n2 walk dog [open]\n', True, True),  # live run ewqn70hi
+    (b'1 buy milk [done]\n2 walk dog [open]', True, False),
+    (b'1 buy milk [done]\r\n2 walk dog [open]\r\n', True, True),
+    (b'2 walk dog [open]\n1 buy milk [done]\n', True, False),  # order is not part of the format
+    (b'1 buy milk done\n2 walk dog open\n', False, False),  # the unbracketed mutant
+    (b'1 buy milk [done]\n2 walk dog open\n', False, True),  # only the observed line is formatted
+    (b'2 walk dog [open]\n', False, True),  # the observed item is missing
+    (b'1 buy milk [closed]\n2 walk dog [open]\n', False, False),
+    (b'01 buy milk [done]\n2 walk dog [open]\n', False, False),  # the bound ID changed
+    (b'ID TEXT STATUS\n1 buy milk [done]\n2 walk dog [open]\n', False, False),
+    (b'1 buy milk [done]\n\n2 walk dog [open]\n', False, False),
+    (b'1 buy milk [done]\n2 walk dog [open]\n\n', False, False),
+    (b'1 buy milk [done] \n2 walk dog [open]\n', False, False),
+    (b'1 buy milk [done]\r\n2 walk dog [open]\n', False, True),  # mixed line endings
+    (b'1 buy milk [done]\n2 walk dog [open]\n3 eggs [open]\n', False, False),  # nobody added eggs
+    (b'', False, False),
+    (b'1 buy milk [done]\n\xff\n', False, True),
+]
 
 
 class BriefAcceptanceTests(unittest.TestCase):
@@ -319,6 +378,66 @@ class BriefAcceptanceTests(unittest.TestCase):
                 code, observation, _ = self.run_candidate(PRODUCT.replace(' [open]', suffix))
                 self.assertEqual(1, code)
                 self.assertIn('original brief format', observation['reason'])
+
+    def test_live_multi_item_listing_of_a_correct_product_passes_and_its_mutant_fails(self):
+        manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
+        # The pattern both live runs sealed: the bound item, not the whole listing.
+        self.assertEqual(r'1\ buy\ milk\ \[(?:open|done)\]', manifest['observations'][0]['pattern'])
+        code, observation, files = self.run_candidate(LIST_PRODUCT, manifest=manifest)
+        self.assertEqual(0, code, observation)
+        self.assertEqual('PASS', observation['verdict'])
+        self.assertEqual(b'1 buy milk [done]\n2 walk dog [open]\n',
+                         base64.b64decode(observation['steps'][3]['stdout_base64']))
+        self.assertEqual(['todo.py'], files)
+        unbracketed = LIST_PRODUCT.replace("[{'done' if item['done'] else 'open'}]",
+                                           "{'done' if item['done'] else 'open'}")
+        code, observation, _ = self.run_candidate(unbracketed, manifest=manifest)
+        self.assertEqual(1, code, observation)
+        self.assertEqual([0, 0, 0, 0], [step['exit_code'] for step in observation['steps']])
+        self.assertIn('original brief format', observation['reason'])
+
+    def test_every_listed_line_must_have_the_declared_format(self):
+        manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
+        observation = manifest['observations'][0]
+        # Derived from the sealed manifest, never stored in it: no new hash or manifest version.
+        self.assertEqual(r'[^\s]+\ (?:buy\ milk|walk\ dog)\ \[(?:open|done)\]', brief.line_pattern(observation))
+        self.assertEqual({'declaration', 'proposal', 'pattern', 'hash'}, set(observation))
+        for listing, accepted, replayed in LISTINGS:
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(listing, observation['pattern'], brief.line_pattern(observation))
+                self.assertEqual(accepted, reason == '', reason)
+                if not replayed:
+                    continue
+                code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
+                self.assertEqual(0 if accepted else 1, code, observed)
+                self.assertEqual(reason, observed['reason'])
+
+    def test_the_bound_item_is_always_a_valid_listed_line(self):
+        # An ID argument is any string, but the line pattern's opaque ID is one word. The
+        # bound item alone passed before the per-line rule and must still pass (#452 review).
+        steps = [{'argv': ['add', 'buy milk']}, {'argv': ['complete', 'a b']}, {'argv': ['list']}]
+        bindings = [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}, {'placeholder': 'ID', 'step': 1, 'argument': 1}]
+        manifest = brief.bind(self.sources, [{**listing_proposal(self.sources), 'steps': steps, 'observe_step': 2,
+                                              'bindings': bindings}])
+        observation = manifest['observations'][0]
+        line = brief.line_pattern(observation)
+        for listing, accepted in [(b'a b buy milk [done]\n', True), (b'a b buy milk [done]\nc buy milk [open]\n', True),
+                                  (b'a b buy milk done\n', False), (b'c d buy milk [done]\n', False)]:
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(listing, observation['pattern'], line)
+                self.assertEqual(accepted, reason == '', reason)
+                code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
+                self.assertEqual((0 if accepted else 1, reason), (code, observed['reason']), observed)
+
+    def test_listed_text_is_limited_to_values_supplied_before_the_listing(self):
+        records = sources(TASK.split('; `todo.py complete ID`')[0])
+        later = {'steps': [{'argv': ['add', 'brief-probe']}, {'argv': ['list']}, {'argv': ['add', 'later']}]}
+        observation = brief.bind(records, [{**proposal(records), **later}])['observations'][0]
+        line = brief.line_pattern(observation)
+        self.assertEqual(r'[^\s]+\ (?:brief\-probe)\ \[(?:open|done)\]', line)
+        self.assertEqual('', brief.output_reason(b'a brief-probe [open]\n', observation['pattern'], line))
+        self.assertIn('original brief format', brief.output_reason(
+            b'a brief-probe [open]\nb later [open]\n', observation['pattern'], line))
 
     def test_nonzero_exit_cannot_pass_even_when_output_format_is_correct(self):
         code, observation, _ = self.run_candidate(PRODUCT + '\nsys.exit(7)\n')

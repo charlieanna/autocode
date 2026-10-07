@@ -129,7 +129,10 @@ unsupported observations into passing validation.
 ## Milestone checkpoints and acceptance
 
 New runs enforce a milestone checkpoint in the runner. Each task names an outcome,
-affected paths, requirements, acceptance criteria and a validation plan. The Builder can
+affected paths, requirements, acceptance criteria and a validation plan. A validate task,
+which writes nothing, may name no paths: it checks its milestone's (in a progressive run,
+the active slice's), and none when its milestone owns none. A plan's first task is held to this rule while the plan is a draft,
+so a plan the runner could not start is repaired before anyone is asked to approve it. The Builder can
 implement, test and repair within the task; every completed handoff goes to the Tester and
 then the Plan Reviewer. A switch to a different milestone requires the Tester's passing evidence for
 **all criteria in the current milestone**, current source/contract/task identities,
