@@ -1234,13 +1234,49 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         self.assertIn("requirements_asked_about_outcomes_and_constraints",
                       self.failing_live(live["record"], live["design"]))
 
-    def test_without_a_no_preference_answer_only_a_mechanism_question_is_reasked(self):
-        # Live, every answer is the model's own default and none says "no preference". Nothing was re-asked when no
-        # question puts a mechanism to the person; one that does still fails, wherever it comes.
+    def test_no_other_question_stands_in_for_the_question_about_what_triggers_an_alert(self):
+        # Without the trigger question, a reliability question that says "what counts as better" or names a latency
+        # threshold asks about no trigger; a question about what should page someone does.
+        for question, failing in (
+                ("When it is uncertain whether a Slack alert was delivered, what counts as better: a duplicate or a "
+                 "miss? Is any latency expectation a target or a guarantee?",
+                 ["requirements_asked_about_outcomes_and_constraints"]),
+                ("When it is uncertain whether a Slack message was delivered, is a duplicate or a miss better, and is "
+                 "the latency threshold a target or a guarantee?", ["requirements_asked_about_outcomes_and_constraints"]),
+                ("What queue depth or oldest-message age should page the on-call engineer? When it is uncertain "
+                 "whether a Slack message was delivered, is a duplicate or a miss better, and is the latency a target "
+                 "or a guarantee?", [])):
+            with self.subTest(question=question):
+                live = self.live()
+                answers = [row for row in live["record"]["answers"] if row["id"] != "Q1"]
+                next(row for row in answers if row["id"] == "Q3")["question"] = question
+                live["record"]["answers"] = answers
+                self.assertEqual(failing, self.failing_live(live["record"], live["design"]))
+
+    def test_after_an_answer_that_no_constraint_binds_no_question_returns_to_mechanisms(self):
+        # The live answer to the question about an existing integration, "no existing integration constraint", is
+        # the person's "no preference": asking again whether an integration binds re-asks it.
         live = self.live()
         self.assertNotIn("no_mechanism_reasked_after_no_preference", self.failing_live(live["record"], live["design"]))
         live["record"]["answers"].append({
-            "id": "Q4", "question": "Which integration should post the alerts to Slack: an incoming webhook or AWS "
+            "id": "Q4", "question": "Must the alerts go through an existing integration or an approved service?",
+            "why": "Delivery.", "options": [], "answer": "No."})
+        self.assertEqual(["no_mechanism_reasked_after_no_preference"], self.failing_live(live["record"], live["design"]))
+
+    def test_without_a_no_preference_answer_only_a_mechanism_question_is_reasked(self):
+        # Live, every answer is the model's own default and need not say "no preference". Without such an answer to
+        # a question about mechanisms ("no latency constraint" about the trigger is not one), nothing was re-asked
+        # when no question puts a mechanism to the person; one that does still fails, wherever it comes.
+        live = self.live()
+        answers = {row["id"]: row for row in live["record"]["answers"]}
+        answers["Q1"]["answer"] += " There is no latency constraint."
+        answers["Q2"]["answer"] = "Channel is a configuration parameter; alerts contain queue name and counts only."
+        live["record"]["answers"].append({
+            "id": "Q4", "question": "Must the alerts go through an existing integration or an approved service?",
+            "why": "Delivery.", "options": [], "answer": "No."})
+        self.assertEqual([], self.failing_live(live["record"], live["design"]))
+        live["record"]["answers"].append({
+            "id": "Q5", "question": "Which integration should post the alerts to Slack: an incoming webhook or AWS "
                                     "Chatbot?", "why": "Delivery.", "options": [], "answer": "AWS Chatbot"})
         self.assertEqual(["no_mechanism_put_to_the_person", "no_mechanism_reasked_after_no_preference"],
                          self.failing_live(live["record"], live["design"]))
@@ -1252,6 +1288,40 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         self.assertNotIn("identities_are_parameters_not_blockers", self.failing_live(live["record"], live["design"]))
         live["design"]["parameters"] = [row for row in live["design"]["parameters"] if row["name"] != "AWS region"]
         self.assertEqual(["identities_are_parameters_not_blockers"], self.failing_live(live["record"], live["design"]))
+        # Nor does naming it in passing in another parameter's description declare it.
+        next(row for row in live["design"]["parameters"] if row["name"] == "AWS account ID")["description"] = (
+            "AWS account ID hosting the DLQ in its region (for IAM role policies).")
+        self.assertEqual(["identities_are_parameters_not_blockers"], self.failing_live(live["record"], live["design"]))
+
+    def reference(self):
+        return json.loads((self.scenario.reference / "design" / "alerting.json").read_text())
+
+    def failing_document(self, design):
+        """The document checks that fail for ``design`` in check mode (the person's words are the scenario's)."""
+        oracle_module = self.scenario._oracle_module()
+        checks = oracle_module.document_checks(design, oracle_module.person_words(self.scenario, None))
+        return {check.name: check.detail for check in checks if not check.ok}
+
+    def test_a_parameter_declares_the_identities_its_name_names(self):
+        # A parameter stands for what its name names. Its description declares an identity only when the name names
+        # none (the reference's dead_letter_queue, "by name or ARN"), never one it mentions in passing.
+        design = self.reference()
+        design["open_blockers"].append("The dead-letter queue ARN is supplied before deployment.")
+        self.assertEqual({}, self.failing_document(design))
+
+        design = self.reference()
+        design["parameters"] = [{"name": "slack_channel", "description": "The Slack channel that receives alerts; the "
+                                 "person named #orders-oncall. It must be in the workspace linked to the AWS account "
+                                 "and region that hold the queue ARN."}]
+        design["open_blockers"] += ["The AWS account ID is unknown: nothing can be designed further until it is given.",
+                                    "Which AWS region runs the pipeline?", "The dead-letter queue ARN."]
+        self.assertEqual(["identities_are_parameters_not_blockers"], list(self.failing_document(design)))
+
+        design = self.reference()
+        design["parameters"] = [row for row in design["parameters"] if row["name"] != "slack_channel"]
+        design["parameters"][0]["description"] += " Alerts go to the team's Slack channel."
+        self.assertEqual({"identities_are_parameters_not_blockers": "the Slack channel is not a parameter"},
+                         self.failing_document(design))
 
     def test_recommendations_are_explicit_when_an_assumption_names_their_mechanisms(self):
         # The live assumptions restate the recommended options in other words ("SNS and Lambda are used for alert
@@ -1262,6 +1332,37 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         live["design"]["assumptions"] = [row for row in live["design"]["assumptions"]
                                          if not row["text"].startswith("SNS and Lambda")]
         self.assertEqual(["assumptions_are_explicit"], self.failing_live(live["record"], live["design"]))
+
+    def test_a_recommendation_is_stated_only_by_a_statement_that_puts_it_forward(self):
+        # One statement may put several recommendations forward and the alternatives may follow it, as the live
+        # Planner's assumption did ("... -> SNS -> Lambda that posts to Slack ...; AWS Chatbot and a polling Lambda
+        # are listed as alternatives"). A statement that denies the mechanisms or lists the options without saying
+        # which one is recommended states none of them.
+        def proposing(design, *texts):
+            kept = [row for row in design["assumptions"] if row["basis"] != "agent_proposed"]
+            design["assumptions"] = kept + [{"text": text, "basis": "agent_proposed"} for text in texts]
+            return design
+
+        body = self.live()["record"]["view"]["approved_contract"]["body"]
+        planned = next(row["text"] for row in body["accepted_assumptions"] if row["text"].startswith("Recommended"))
+        for texts, failing in (
+                ([planned], []),
+                (["Detect with CloudWatch alarms.", "SNS and Lambda route and deliver alerts rather than AWS Chatbot."],
+                 []),
+                (["The design is documentation only: no CloudWatch alarm, SNS topic, Lambda function or webhook is "
+                  "created by it."], ["assumptions_are_explicit"]),
+                (["Alternatives considered and not recommended: AWS Chatbot, EventBridge, a polling Lambda, raw "
+                  "CloudWatch metric streams."], ["assumptions_are_explicit"])):
+            with self.subTest(texts=texts):
+                live = self.live()
+                self.assertEqual(failing, self.failing_live(live["record"], proposing(live["design"], *texts)))
+
+        design = self.reference()
+        design["mechanisms"][1]["recommended"] = "Slack incoming webhook"
+        proposing(design, design["assumptions"][0]["text"],
+                  "We considered a Slack incoming webhook, a Slack app with chat:write and AWS Chatbot.")
+        self.assertEqual({"assumptions_are_explicit": "recommendations not stated as proposed assumptions: "
+                                                      "['Slack incoming webhook']"}, self.failing_document(design))
 
 
 class ProgressiveLearningOracleTests(unittest.TestCase):

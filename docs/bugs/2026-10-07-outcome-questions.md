@@ -56,16 +56,23 @@ which the re-ask check required; the Builder listed the account, region, queue A
 `open_blockers` while declaring each a parameter, as the approved plan asked, both reading the brief's
 `open_blockers` (facts missing before deployment) literally; and the assumptions restated each recommendation
 in other words than the option's name. Now
-the trigger question may name a condition, a threshold or something going wrong; without a "no preference"
-answer only a question that puts a mechanism to the person counts as re-asked; the brief defines `open_blockers`
-as missing facts "that no parameter can stand in for", and the oracle holds an identity in `open_blockers`
-against the design only when no parameter declares it (so a run under the old wording is judged on whether the
-identity was taken as configuration, not on how it read a field name); and a recommendation counts as stated
-when a proposed assumption quotes it or names one of its mechanisms that not every option of that choice
-names. The run's questions, answers, approved plan and design are kept in the scenario's
-`tests/live-2026-10-07.json`; `OutcomeQuestionsOracleTests` scores them (all 19 checks pass) and, for each of the
-four checks, a copy with the failure that check exists to catch. The seven broken designs fail the same checks
-as before.
+the trigger question may say that something goes wrong or what should page someone instead of "alert" (and no
+one word, such as "threshold", counts as both the trigger and the condition); an answer to a question about
+mechanisms that no constraint binds them ("no existing integration constraint") counts as "no preference", and
+without such an answer only a question that puts a mechanism to the person counts as re-asked; the brief defines
+`open_blockers` as missing facts "that no parameter can stand in for", and the oracle holds an identity in
+`open_blockers` against the design only when no parameter's name declares it (a description counts only for a
+parameter whose name names no identity, so an identity mentioned in passing is not declared), so a run under the
+old wording is judged on whether the identity was taken as configuration, not on how it read a field name; and a
+recommendation counts as stated when one statement of a proposed assumption quotes it or names one of its
+mechanisms that not every option of that choice names, unless the statement denies the mechanisms ("no
+CloudWatch alarm, SNS topic or Lambda function is created") or also names one that only the choice's other
+options name (a list of the options without the pick). A mechanism another recommendation names is not counted
+as an alternative, so one statement may put several recommendations forward, as the live plan's did. The run's
+questions, answers, approved plan and design are kept in the scenario's `tests/live-2026-10-07.json`;
+`OutcomeQuestionsOracleTests` scores them (all 19 checks pass) and, for each of the four checks, copies with the
+failures that check exists to catch, including the wordings a review found the first loosening let through. The
+seven broken designs fail the same checks as before.
 
 **Not covered:** the person's premise live: the person's answers are `[fake] answers`, so live the driver
 answers with the model's own defaults, and the "no preference" order rule applies only when a default says so.
