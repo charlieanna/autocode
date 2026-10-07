@@ -22,6 +22,8 @@ What the agreement adds to that schedule:
   workstreams keep their approval.
 - A child plan that drops an inherited requirement is rejected: a draft gets
   feedback before anyone approves it; an approved one is replaced by a fresh run.
+  A workstream merges only under its current run's approved plan, once the
+  program has read and checked it.
 - Interfaces change only through a change request and a new version, which
   the person approves as an agreement revision.
 - The walking-skeleton workstream is merged and verified before any other
@@ -546,17 +548,21 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
                   "check only what the finished product keeps: never git status or uncommitted files, and never "
                   "that a command, option or file a later workstream adds is missing, unknown or refused.", ""]
     lines += ["This workstream's objective:", workstream["brief"].strip(), ""]
-    if workstream.get("acceptance_criteria"):
-        criteria = agreement.requirements(manifest)
+    criteria = agreement.requirements(manifest)
+    inherited = agreement.inherited(manifest, workstream["id"])
+    # The final check inherits requirements its own row need not list; it is told to keep each by id, so it is told
+    # what each one says too.
+    listed = list(dict.fromkeys(workstream.get("acceptance_criteria", [])
+                                + [cid for cid in inherited if cid in criteria]))
+    if listed:
         lines.append("Acceptance criteria for this workstream:")
-        for item in workstream["acceptance_criteria"]:
+        for item in listed:
             criterion = criteria.get(item)
             lines.append(_criterion_line(item, criterion) if criterion else f"- {item}")
         lines.append("")
     if workstream["kind"] == "integration":
         lines.append("User journeys (the final product check; verify each one end to end on the merged product):")
         lines += _journey_lines(manifest) + [""]
-    inherited = agreement.inherited(manifest, workstream["id"])
     if inherited:
         lines += ["Inherited requirements: keep each as an acceptance criterion of your plan with exactly this id "
                   f"({', '.join(inherited)}). A plan that drops one is rejected by the program.", ""]
@@ -601,14 +607,17 @@ def abandon(record, reason, *, new_worktree=False):
     """Retire a workstream's child run: its plan's approval no longer counts. A fresh run will start.
 
     With ``new_worktree`` the fresh run starts from the current integration head in a new worktree;
-    otherwise it plans in the same worktree. The retired run and its worktree stay on disk.
+    otherwise it plans in the same worktree. The retired run and its worktree stay on disk. Its
+    ``approved_plan`` goes with it into ``retired_runs``: the fresh run merges only under its own.
     """
     entry = {"at": util.now(), "reason": reason, **{key: record[key] for key in
-             ("run_dir", "run_status", "merged_commit", "workspace", "branch", "pin") if record.get(key)}}
+             ("run_dir", "run_status", "merged_commit", "workspace", "branch", "pin", "approved_plan")
+             if record.get(key)}}
     record.setdefault("retired_runs", []).append(entry)
     children.detach(record)
-    for key in ("finished_at", "conflict", "plan_check", "integration_check", "error", "merged_commit", "merged_at",
-                "merge_note", "checks", "journeys", "verification", "pin", "blocked_reason"):
+    for key in ("finished_at", "conflict", "plan_check", "approved_plan", "integration_check", "error",
+                "merged_commit", "merged_at", "merge_note", "checks", "journeys", "verification", "pin",
+                "blocked_reason"):
         record.pop(key, None)
     if new_worktree:
         for key in ("workspace", "branch", "base_commit"):
@@ -958,6 +967,15 @@ def _repeat_failure(manifest, state, wid, record, branch_head):
 
 def integrate(manifest, state, workstream, record, program_dir, options):
     """Merge one completed workstream onto the integration branch, verify it, or pause."""
+    if not record.get("approved_plan"):
+        # Fail closed: a workstream of any kind merges only under its current run's approved plan, which inspect()
+        # recorded from the run's status view once it kept every inherited id (abandon() drops it with the run).
+        # A run whose view never showed one, such as a run completed by hand, is not merged on its status alone.
+        raise util.Paused("PAUSED_INHERITANCE", (
+            f"Workstream {workstream['id']} completed (run {record.get('run_dir')}) without showing an approved plan, "
+            "so the program could not check that it keeps every inherited requirement, and it was not merged. "
+            f"Follow up its run (autocode --workspace {record.get('workspace')} --run-dir {record.get('run_dir')} "
+            "--follow-up \"...\") so it plans again, approve that plan when it asks, then rerun the program"))
     integration = Path(state["integration"]["workspace"])
     if workspaces.git(integration, "rev-parse", "--abbrev-ref", "HEAD") != state["integration"]["branch"]:
         raise util.Paused("PAUSED_INTEGRATION_DIRTY", "Restore the integration worktree to its recorded branch before merging")

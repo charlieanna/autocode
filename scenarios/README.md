@@ -526,8 +526,10 @@ merged run with its own approved plan, the walking skeleton verified first and
 nothing else started before that, every merge re-running the checks of all
 merged before it (a workstream with a run retired since the last passing
 verification, by an accepted change say, takes its checks out of that set until
-it merges again), each journey verified by name by the integration workstream,
-and each scripted change request accepted or rejected. For an acceptance, the
+it merges again), each journey verified by the integration workstream and named
+in the program's `final_check` with the name `[program] revise` gives it (else
+derive's `J1 Main user journey`), and each scripted change request accepted or
+rejected. For an acceptance, the
 producer and every consumer are merged under the latest agreement revision;
 each of them whose first run started before the change was accepted has a run
 retired since then, and no other workstream has a run retired after it. The run
