@@ -320,6 +320,28 @@ text. Automation must check these structured fields and bind the token to
 embedded in `--show-goal` prose. This projection is not approval, execution permission
 or completion proof; the existing CLI approval checks remain authoritative.
 
+`approved_contract` is the plan in force: the contract that was approved, for as long
+as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
+that was approved), `task_id`, `approved_at` and `body`, the full approved contract
+body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
+end-to-end flow, technical approach, milestones and the rest) copied as saved. It is
+absent until the current sealed contract carries an approval of exactly its token,
+once a newer draft revision replaces the approved one (a goal change, or the plan a
+`--follow-up` drafts), and while the contract itself records an open blocking
+question (approval refuses one); a question the run asks after approval does not
+remove it. An edited or stale contract does not expose it, and a completed run keeps
+it. Until a follow-up's own plan is drafted, and for a follow-up answered by a
+review, design or discussion, which drafts none, it is still the earlier request's
+approved plan; compare `turn` or `progress.for_earlier_request`. The approval is
+normally the user's, but a small bug fix approved under the workflow policy the user
+agreed to (the short path for small fixes, off for now; see
+[Bug fixes](workflow.md#bug-fixes)) shows it too, and the view does not say which.
+`displayed_plan` is what a person is asked to approve; `approved_contract` is what
+was approved. A coordinating layer such as
+`autocode program` reads a child run's approved criteria here (`program derive` and
+the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
+is neither execution permission nor completion proof.
+
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `route_assignments` lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,

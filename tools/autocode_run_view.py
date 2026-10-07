@@ -121,6 +121,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
+        approved = approved_contract(state)
+        if approved is not None:
+            result["approved_contract"] = approved
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
@@ -132,6 +135,30 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
     if projection is not None:
         result["progressive"] = projection
     return result
+
+
+def approved_contract(state: dict) -> dict | None:
+    """The plan in force: the approved contract, as long as that approval still holds.
+
+    Approved by the user, or, for a bug fix's small correction, under the workflow policy
+    the user agreed to (autocode_workflows.POLICY_ORIGINS); the view does not say which.
+    None while there is no approval, after a new draft revision replaces the approved one,
+    and while the contract itself records an open blocking question (approval refuses one);
+    a question the run asks after approval does not remove it (the runner's own approval
+    check, contract_identity.approved). Until a --follow-up drafts its own plan, and for a
+    follow-up answered by a review, design or discussion, it is the earlier request's plan.
+    A program coordinating several runs reads the child's approved criteria here, never
+    state.json.
+    """
+    contract = state.get("goal_contract") or {}
+    try:
+        if not contract_identity.approved(state):
+            return None
+        return {"revision": contract["revision"], "hash": contract["hash"], "token": contract_identity.token(contract),
+                "task_id": contract.get("task_id"), "approved_at": (contract.get("approval_event") or {}).get("at"),
+                "body": deepcopy(contract["body"])}
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return None
 
 
 def progressive(state: dict) -> dict | None:

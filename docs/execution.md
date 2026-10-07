@@ -338,6 +338,10 @@ before a PASS is accepted, the runner requires its own current execution of each
 - **What must hold.** Every check exits 0. There are no exceptions a model can
   claim: a check that needs a server or other setup starts and stops it itself,
   for example with a script in the repository.
+- **What is refused.** A check that runs `git status` is refused before anything
+  runs: it reads the working tree's state, not the product, and a program re-runs
+  checks after the work is committed and merged, where it lists nothing
+  ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)).
 - **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite

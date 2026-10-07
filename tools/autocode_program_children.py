@@ -9,7 +9,9 @@ only through autocode_taskrun (docs/task-run.md):
 - it advances a run exactly once per call;
 - it reads the run's status view (``autocode --status``) and maps it onto the
   program's workstream record (``apply_view``);
-- it keeps each invocation's stdout.log, stderr.log, exit code and command.
+- it keeps each invocation's stdout.log, stderr.log, exit code and command;
+- it sends the program's own feedback to a child whose displayed plan drops
+  a requirement the workstream inherited (``feedback``).
 
 It never approves, answers or resumes a pause on anyone's behalf, and never
 reads a child's state.json: the status view is the only source of a
@@ -34,6 +36,8 @@ TERMINAL_CODE = {"TASK_COMPLETE"}
 WAITING_CODE = {"WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"}
 NO_LOCK = nullcontext()
 VIEW_FIELDS = ("needs", "progress")  # copied from the child's latest status view by apply_view
+INTERNAL_FIELDS = ("command", "runs_before")  # this module's bookkeeping; a program summary leaves it out
+RUN_FIELDS = ("run_dir", "run_status", "runs_before", "exit_code", "command", "last_invocation_at", *VIEW_FIELDS)
 
 
 def _run(workspace, run_dir) -> taskrun.TaskRun:
@@ -128,6 +132,12 @@ def forget_view(record) -> None:
         record.pop(key, None)
 
 
+def detach(record) -> None:
+    """Forget the record's run, so the next ``start`` creates a fresh one; the old run stays on disk."""
+    for key in RUN_FIELDS:
+        record.pop(key, None)
+
+
 def _unreadable(record, error) -> None:
     record.update(status="FAILED", run_status=None, error=error)
     forget_view(record)
@@ -197,6 +207,15 @@ def advance(record, *, log_dir, lock=NO_LOCK) -> dict | None:
         # The relaunch was refused or could not run, or its status could not be read: read it once below.
         return _settle(record, run.last_advance, None, log_dir, lock, failure=str(error))
     return _settle(record, run.last_advance, view, log_dir, lock)
+
+
+def feedback(record, text) -> dict:
+    """Send the program's feedback on the run's displayed plan (``--feedback``); return its status view.
+
+    The child re-plans when it is next advanced. Raises TaskRunError when the
+    child refuses the feedback.
+    """
+    return _run(record["workspace"], record["run_dir"]).feedback(text)
 
 
 def _settle(record, process, view, log_dir, lock, failure=None) -> dict | None:
