@@ -2,7 +2,7 @@
 
 The assessment ran on origin/master `ddc940f`. The branch
 `claude/issue-451-risk-proof` was rebased onto `d0919ad`, then merged with master
-`87d8db3` and `0591e76`. No live model ran; every run used the scripted provider. These are
+`87d8db3`, `0591e76` and `0c2e9e8`. No live model ran; every run used the scripted provider. These are
 planted controls (#455), not failure rates of real builds.
 
 ## Before: what master did
@@ -76,6 +76,10 @@ planted controls (#455), not failure rates of real builds.
     orders and events.
   The transcript (version 2) pins the barrier ticks and the contenders'
   receipts. The bound is six owned workers, still within the 30-second cap.
+- The protocol's database and sink journal stay in the replay copy unless its
+  root is over 440 bytes; then they go to a short owned directory in the system
+  temporary directory, removed the same way. SQLite refuses a database path over
+  512 bytes, so a deep project used to fail honest products.
 - Two new catalog controls exercise the race: ladder-18
   `broken/non-atomic-claim` chooses a job and leases it in separate
   transactions, and ladder-19 `broken/racy-create-order` checks for a replay and
@@ -102,14 +106,15 @@ longer matches its saved lifecycle manifest; its plan must be approved again.
 The first implementation stopped before its review; the reviews scheduled after
 it were cut off before reporting. Each finding below, from the assessment and
 from the first review pass, was reproduced again on the branch merged with
-`0591e76` (`6d7f84e` and later):
+`0591e76` (`6d7f84e` and later). A third pass reproduced every row again on the
+branch merged with `0c2e9e8` (`1590dac` and later) and added the last two rows:
 
 | Finding | Status | Evidence |
 | --- | --- | --- |
 | `LeaseQueue(db_path)` let the token mutant complete | Fixed | CLI test: the renamed run binds the observation and stops on the runner finding |
 | A reworded honest brief could never be approved | Partly fixed | The token paraphrase completes with proof (CLI). Other wording still refuses until restated, naming each missing fact |
 | A lifecycle FAIL went to a report repair; the Builder never saw it | Fixed | CLI test: a corrected mutant completes after a second Builder run; the mutant runs below show two Builder runs and no report repair |
-| The scripted Tester's report repair has the wrong contract identity | Open, outside this route | No lifecycle failure takes that route now; brief-output failures (#452) still do |
+| The scripted Tester's report repair has the wrong contract identity | Fixed on master by #641 (`7fa5b3e`), merged in `1590dac` | On the merged branch a scripted `sol` report repair returns the handoff's `report_identity` (probe of `fake_codex.report_for`). No lifecycle failure takes that route now anyway |
 | No contention proof | Fixed for the two declared APIs | Two new mutants, both refused; a missed race can no longer close a runner finding |
 | Outbox failure sets not pinned | Fixed | `tests.test_outbox_oracle` |
 | Refusal blamed the lifecycle proof for a Tester FAIL | Fixed | `tests.test_risk_findings` |
@@ -121,6 +126,8 @@ from the first review pass, was reproduced again on the branch merged with
 | New: removing the promise left its runner finding blocking forever | Fixed | `tests.test_risk_findings` |
 | New (second pass): `Logger(log_file)` between `LeaseQueue(path)` and its methods took the API, so the honest brief stopped on an unsupported `Logger` queue (master: supported `LeaseQueue`) | Fixed in `6d7f84e` | `tests.test_risk_acceptance` (fails before the fix: 5 failures) |
 | New (second pass): `tools/autopilot.py` grew by 4 lines | Fixed in `6d7f84e`: the whole-product claim is computed once; same line count as master | `wc -l`, `tests.test_architecture` |
+| New (third pass): under a project path of about 260 characters both honest references failed with "unable to open database file", and the runner handed that to the Builder as a product defect. SQLite refuses a database path over 512 bytes, and the runner's scratch tree adds about 200 characters below the project. The protocol has kept its database inside the replay root since #524; this branch made the failure a Builder finding | Fixed in `1a70c46`: a replay root over 440 bytes keeps the database and sink journal in a short owned directory in the system temporary directory, removed the same way | `tests.test_risk_protocols` (fails before the fix: 3 failures). End to end, `ack-with-exception-rollback` under a 262-character project path reported the SQLite error. Rerun after the fix with replay roots of 467 to 472 bytes, which put the old database path past 512, it reports the lost event and both references complete |
+| New (third pass): the docs said only "need not" and "out of scope" keep a contention clause unraced, but any negation in the clause does ("atomic under contention, so a job is never leased twice") | Documented and pinned in `222299b`; behaviour unchanged on purpose (below) | `tests.test_risk_acceptance`, `tests.test_risk_disclosure` |
 
 ## After: qualification on the branch
 
@@ -198,7 +205,11 @@ This PR should reference #451, not close it.
 - **Contention beyond the two declared APIs.** Any other concurrency sentence is
   only disclosed, never raced. A stated contention promise with a negation in
   the same clause ("so a job is never leased twice") is not raced either; it is
-  disclosed.
+  disclosed. This is deliberate: the race checks enqueue and claim together (or
+  every `create_order`), and the grammar cannot tell which part a negation
+  excludes. Racing "claims are atomic under contention, but enqueue is not"
+  would refuse a product for a promise the person did not make, so an unplaced
+  negation leaves the sentence unverified instead.
 - **Brief-output failures.** A failed brief-output observation
   (`brief_acceptance`, #452) still takes the rejected-report route that lifecycle
   failures used to take. A progressive run whose product claim needs the replay
@@ -209,8 +220,6 @@ This PR should reference #451, not close it.
   closed), not turned into REWORK. No test exercises this route.
 - **Large integers.** The `sqlite-integer-range` and `overflowing-limit` mutants
   still complete falsely. This is outside #451; it belongs with #452.
-- **Scripted Tester report repair.** It still answers with the wrong contract
-  identity (`scenarios/harness/fake_codex.py`).
 - **Unsupported wording.** Recognition is still a finite grammar. Wording that
   states a fact some other way is refused: the run stops with the missing facts
   listed until a person restates them. `Name(path)` with only part of a family's

@@ -428,7 +428,9 @@ runs its own fixed lifecycle observation of it (#451, `tools/autocode_risk_*.py`
   tokens), or each creates the same six orders (every order must return `True`
   exactly once and never raise) and then sees the same six orders and events. At
   most six owned workers, 30 seconds within the replay allowance, bounded output;
-  every worker is reaped.
+  every worker is reaped. The databases live in a temporary directory inside the
+  replay copy (in the system temporary directory when that copy's path is too
+  deep for SQLite) and are removed afterwards.
 - **What a contention PASS means.** A race can be missed: a narrow window between
   a read and a write is often not hit by three interpreters. A PASS says no lost
   or duplicated write showed up, not that the code is atomic. The catalog's
