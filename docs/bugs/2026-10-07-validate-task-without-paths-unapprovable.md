@@ -31,7 +31,8 @@ also allow `[]` when the paths "cannot be established".
 ## Fixed (#615)
 
 - **Validate tasks.** A validate task writes nothing, so it no longer needs paths of its
-  own. `assign_task` gives it its milestone's paths, and when the milestone owns none
+  own. `assign_task` gives it its milestone's paths (in a progressive run, the active
+  slice's, which `guard_assignment` requires), and when the milestone owns none
   (as a program's final check owns none) the task keeps `[]`, which
   `before_assignment` now accepts for a validate task. An implement task still needs
   explicit paths.
@@ -54,5 +55,5 @@ also allow `[]` when the paths "cannot be established".
   task still fails at approval. Its recourse is `--feedback`, which plans again.
 - **Checkpoints switched on later.** A plan whose milestone checkpoints were switched on
   after it was drafted is checked only at approval, as before.
-- **Progressive runs.** `guard_assignment` refuses any task without paths. The draft
-  probe leaves out the progressive delegation, so that refusal still waits for approval.
+- **Progressive runs.** The draft probe leaves out the progressive delegation, so
+  `guard_assignment` still checks an implement first task's paths only at approval.

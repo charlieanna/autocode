@@ -633,8 +633,11 @@ def assign_task(state, decision, current):
     # task. Approved ownership permits its new outputs, never the previous owner's.
     task_paths = list(decision.get("affected_paths", []))
     if not task_paths and spec["kind"] == "validate":
-        # A validate task writes nothing; it checks what its milestone owns (#615).
-        task_paths = list(milestones.get(spec["milestone_id"], {}).get("affected_paths", []))
+        # A validate task writes nothing; it checks what its milestone owns, or in a progressive
+        # run what the active slice owns (#615).
+        task_paths = list(progressive_state.require_active(state)["definition"]["paths"]
+                          if progressive_state.enabled(state) else
+                          milestones.get(spec["milestone_id"], {}).get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
         # A serial repair of the current milestone may discover another source

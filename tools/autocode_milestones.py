@@ -39,7 +39,8 @@ POLICY = """
 ENFORCED MILESTONE CHECKPOINTS
 Finish one observable outcome within the approved scope before starting another
 milestone. Each task needs an objective, affected paths (a validate task, which writes
-nothing, checks its milestone's), requirements, criterion IDs and an executable validation plan. The Builder may implement, test and fix within that task.
+nothing, checks its milestone's, or in a progressive run its active slice's), requirements,
+criterion IDs and an executable validation plan. The Builder may implement, test and fix within that task.
 Every completed implementation handoff goes to the Validator, then the Plan Reviewer. Writer self-reports
 cannot authorize advancement. The Validator's verdict covers the CURRENT milestone's outcome;
 provide criterion evidence for all of its acceptance criteria. end_to_end_result
