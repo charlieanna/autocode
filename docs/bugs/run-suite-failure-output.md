@@ -5,7 +5,9 @@ module finishes, so a slow or hung module still running cannot hide it. It
 also dropped the copy printed at the end of the run. Two consequences showed up
 on master, both at `--verbosity 2`, which CI uses and which
 [saved-verification-commands.md](saved-verification-commands.md) names as a
-declared suite command.
+declared suite command. Both still reproduced on master at 0591e76, with
+`run_suite.py --jobs 5` run as a subprocess and its output read by that
+commit's verifier.
 
 **The verifier misread tracebacks.** AutoCode reads a declared suite command's
 output with `autocode_verify.per_test_results`, and
@@ -21,13 +23,15 @@ and a slow module. On master:
 | --- | --- | --- | --- |
 | missing mock read as a setup-only failure | yes | **no** | yes |
 | real assertion failure | failure | **"could not import its dependency on base"** | failure |
+| tracebacks after the last module's row | 2 | **0** | 2 |
 
 The second row means a regression proof would discount a real failure on base.
 At `--verbosity 1` passing modules print only their row, so it read correctly.
 
 **Failures were far from the summary.** An early failure's traceback ended up
-above every later module's output, with only module names beside the final
-line, where a CI log opens.
+above every later module's output (at `--verbosity 1`, above every later
+module's row), with only module names beside the final line, where a CI log
+opens.
 
 ## Fix
 
