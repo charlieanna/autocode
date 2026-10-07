@@ -2169,13 +2169,19 @@ class FakeRunTests(unittest.TestCase):
         # "Build it." named the design turn 2 wrote: it was checked as approved, and no Requirements ran.
         self.assertEqual(["recognize_workflow", "check_design"], result["turns"][2]["model_stage_names"][:2])
         self.assertNotIn("requirements_gather", result["turns"][2]["model_stage_names"])
-        # The Planner replaced the design turn's docs-only boundary in one row backed by "Build it."'s receipt,
-        # and the guard accepted it the first time (live runs were refused, then asked the user).
+        # The build was planned afresh from the approved design, not as a revision of the design turn's
+        # docs-only contract (live Planners were refused there, then repaired or asked the user): that
+        # contract moved to contract_history, and every contract since declares no change against it.
         self.assertNotIn("astra_discovery_report_repair", result["turns"][2]["model_stage_names"])
-        rows = [row for revision in state.get("contract_history") or []
-                for row in revision.get("declared_changes") or [] if row.get("change") == "permission_changed"]
-        self.assertEqual([(state["turns"][-1]["event_id"], "Edit only app/, tests/ in this scenario workspace")],
-                         [(row["answer_id"], row["replacement"]) for row in rows])
+        archived = state["turns"][-1]["fresh_plan"]["contract"]
+        contracts = [*state["contract_history"], state["goal_contract"]]
+        design = next(row for row in contracts if f"r{row['revision']}:{row['hash']}" == archived)
+        self.assertEqual(["Edit only docs/design/ in this scenario workspace"], design["body"]["permission_boundaries"])
+        built = [row for row in contracts if row["revision"] > design["revision"]]
+        self.assertEqual(state["goal_contract"], built[-1])
+        self.assertEqual([[]] * len(built), [row.get("declared_changes") for row in built])
+        self.assertEqual(["Edit only app/, tests/ in this scenario workspace"],
+                         state["goal_contract"]["body"]["permission_boundaries"])
 
     def test_a_design_turn_that_also_writes_code_is_judged_false_complete(self):
         # Nothing in the product limits a new design's Builder to documents; the per-turn check does.
