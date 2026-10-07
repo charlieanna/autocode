@@ -38,9 +38,8 @@ A name is requested (``requested``) when all of these hold:
   Elsewhere TestParser is a Python or Java class, not a test the proof reports.
 - The project's *_test.go files do not already declare it (or, for a subtest path, its function) as a
   top-level Go test function; subtest names live in strings, so one under an existing test asks for
-  nothing. Comments,
-  strings, references and production helpers do not declare tests. Declaration eligibility is a
-  lexical inventory; Go compilation, build selection and execution supply the actual proof.
+  nothing. Comments, strings, references and production helpers do not declare tests. Declaration
+  eligibility is a lexical inventory; Go compilation, build selection and execution supply the proof.
 - The user has not settled it otherwise. The user's own edit of the plan (``USER_EDIT``) is never refused
   here, and the names the latest such edit leaves unaccounted for are no longer requested of the
   planners' later drafts. An edit of a design job's plan, which a follow-up building that design archives,
@@ -125,17 +124,6 @@ def _test_name(token: str) -> str | None:
 def _function(name: str) -> str:
     """The test function of a requested name: TestA for TestA and for its subtest path TestA/empty."""
     return name.split("/", 1)[0]
-
-
-def _parenthesized(tokens, k) -> tuple[list[str], int]:
-    """The tokens of the parenthesized group opening at ``tokens[k]``, and where the group ends."""
-    depth, start = 0, k
-    while k < len(tokens):
-        depth += {"(": 1, ")": -1}.get(tokens[k], 0)
-        k += 1
-        if not depth:
-            break
-    return tokens[start + 1:k - 1], k
 
 
 def _skip(tokens, k, allowed) -> int:
@@ -224,7 +212,13 @@ def _names(tokens, k) -> list[tuple[int, str]]:
         found.append((k, name))
         k = _skip(tokens, k + 1, QUOTES)
         if k < len(tokens) and tokens[k] == "(":
-            k = _skip(tokens, _parenthesized(tokens, k)[1], QUOTES)
+            depth = 0
+            while k < len(tokens):
+                depth += {"(": 1, ")": -1}.get(tokens[k], 0)
+                k += 1
+                if not depth:
+                    break
+            k = _skip(tokens, k, QUOTES)
         if _apposition(tokens, k):
             after = _past_description(tokens, k + 1)
             if after is None:
