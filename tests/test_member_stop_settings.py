@@ -109,10 +109,33 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.assertEqual(3, state["settings"]["orchestration"]["max_parallel"])
         self.assertEqual([GLM, GLM], self.attempts(self.workers(state)["M1"]))
 
+    def test_a_quota_stopped_members_retry_with_a_builder_model_is_refused_and_saves_nothing(self):
+        # The retry reruns the member on the route its batch started it with; a Builder model given with it
+        # would be saved for the parent alone. The member's model is named by answering its question.
+        run, _ = self.paused()
+        checkpoint = run / "state.json"
+        before = checkpoint.read_bytes()
+        result = self.resume_with(run, "--retry-builder", "M1", "--terra-model", MIMO)
+        self.assertIn(f"Builder M1's retry runs on the Builder route its batch started it with ({GLM})", result.stderr)
+        self.assertIn("--answer route-terra=MODEL", result.stderr)
+        self.assertIn("Nothing was saved", result.stderr)
+        self.assertEqual(before, checkpoint.read_bytes())
+        self.answer(run, MIMO)  # the accepted form
+        state = self.resume(run)
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        self.assertEqual([GLM, MIMO], self.attempts(self.workers(state)["M1"]))
+
     def test_a_failed_member_gets_its_second_attempt_under_the_new_settings(self):
         run, state = self.paused("AUTOCODE_BUILDER_FAIL")
         assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
         del self.env["AUTOCODE_BUILDER_FAIL"]  # the cause was fixed
+        # A Builder model would not reach the member's retry, and a failed member has no model question.
+        before = (run / "state.json").read_bytes()
+        result = self.resume_with(run, "--retry-builder", "M1", "--terra-model", MIMO)
+        self.assertIn(f"Builder M1's retry runs on the Builder route its batch started it with ({GLM})", result.stderr)
+        self.assertNotIn("route-terra", result.stderr)
+        self.assertIn("Nothing was saved", result.stderr)
+        self.assertEqual(before, (run / "state.json").read_bytes())
         self.resume_with(run, "--retry-builder", "M1", "--sol-model", LUNA, expected=0)
         state = self.saved()[1]
         self.assertEqual("TASK_COMPLETE", state["status"])

@@ -109,6 +109,33 @@ def asked_again(state, error, origin):
     return error
 
 
+ROUTE = ("engine", "model", "provider", "reasoning_effort")
+
+
+def retry_route_refusal(state, selected, before, after):
+    """Why --retry-builder for the batch members ``selected`` may not come with a Builder route change, or None.
+
+    A member's retry runs on the route its batch started it with, saved in its own run; only an answer to
+    its route-terra question moves that (assign_child). A Builder model, provider or reasoning effort in
+    the same command would be saved for the parent alone, so the retry would not run under it (#543).
+    """
+    old, new = (((settings.get("roles") or {}).get("terra") or {}) for settings in (before, after))
+    if all(old.get(key) == new.get(key) for key in ROUTE):
+        return None
+    rows = {row["milestone_id"]: row for row in (state.get("orchestration_batch") or {}).get("workers", [])}
+    for mid in (mid for mid in selected if mid in rows):
+        try:
+            model = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            model = None
+        return (f"Builder {mid}'s retry runs on the Builder route its batch started it with"
+                + (f" ({model})" if model else "")
+                + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
+                + ("; it continues on another model named in answer to its route-terra question "
+                   "(--answer route-terra=MODEL)" if rows[mid].get("status") in quota_route.STATUSES else ""))
+    return None
+
+
 def refused_retry(row, result):
     """Why --retry-builder may not rerun this batch member, or None.
 

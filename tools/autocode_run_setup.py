@@ -34,6 +34,7 @@ try:
     from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    from . import autocode_worker_quota as worker_quota
     from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_regression as regression, autocode_verify as verify
     import autocode_launch_inputs as launch_inputs
     import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
     import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
@@ -302,9 +304,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
         refusal = refusal or job_route.settings_refusal(args, state, settings)
         # A batch member retry is checked before the settings it comes with are saved, so a refused one saves
-        # nothing (#543); an accepted one runs under them. request_retry checks it again, under the same rule.
+        # nothing (#543); an accepted one continues under them. request_retry checks it again, under the same
+        # rule. A Builder route change is refused with it: the member reruns on its batch's route.
         if not refusal and args.retry_builder and state.get('next_stage') != 'terra':
-            member = runner.dispatch.member_retry_refusal(state, args.retry_builder)
+            member = (runner.dispatch.member_retry_refusal(state, args.retry_builder)
+                      or worker_quota.retry_route_refusal(state, args.retry_builder, state["settings"], settings))
             refusal = member and (member.rstrip('.') + ". Nothing was saved, including this invocation's "
                                   "settings; they are saved by the same command without --retry-builder.")
         if refusal:
