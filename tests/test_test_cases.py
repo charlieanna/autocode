@@ -5,11 +5,13 @@ the runner's proof then requires that test to pass with the change and not witho
 See autocode_test_cases and docs/workflow.md.
 """
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression
 import autocode_test_cases as test_cases
 import autocode_verify as verify
@@ -159,6 +161,60 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
     task = {"milestone_ids": list(batch)} if batch else {"milestone_id": current}
     return {"goal_contract": {"hash": "h1", "body": {"milestones": milestones, "acceptance_criteria": criteria}},
             "current_task": task, "milestone_progress": progress}
+
+
+    # Guards may rest on the whole suite's pass-to-pass (autocode_verify._suite_guards); review findings, 2026-10-06.
+    GUARDED = {"id": "C4", "test_name": "test_c4_adds", "kind": "preserve", "text": "add still adds"}
+
+    def suite_checked(self, case, suite_passing, failing=()):
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
+        regression.check_cases(proof, [case], suite_passing=suite_passing, failing=failing)
+        return proof
+
+    def test_a_failing_variant_of_a_guards_test_breaks_it_and_a_namesake_elsewhere_does_not(self):
+        passing = ["tests/test_calc.py::test_c4_adds[1-2-3]"]
+        proof = self.suite_checked(self.GUARDED, passing, ["tests/test_calc.py::test_c4_adds[1-1-3]"])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn("has a test named after it that fails: tests/test_calc.py::test_c4_adds[1-1-3]", proof["failures"][0])
+        go = self.suite_checked(self.GUARDED, ["calc::TestC4Adds/one"], ["calc::TestC4Adds/two"])
+        self.assertEqual("FAIL", go["verdict"])
+        mixin = self.suite_checked(self.GUARDED, ["tests.test_calc.Plain.test_c4_adds"], ["tests.test_calc.Fast.test_c4_adds"])
+        self.assertEqual("FAIL", mixin["verdict"])
+        elsewhere = self.suite_checked(self.GUARDED, ["tests.test_calc.Plain.test_c4_adds"],
+                                       ["tests.test_other.Fast.test_c4_adds"])
+        self.assertEqual("PASS", elsewhere["verdict"], elsewhere["failures"])
+        for failing in (["tests/test_other.py::test_c4_adds"], ["tests/test_calc.py::test_c4_adds_more[x]"]):
+            with self.subTest(failing=failing):
+                proof = self.suite_checked(self.GUARDED, passing, failing)
+                self.assertEqual("PASS", proof["verdict"], proof["failures"])
+                self.assertEqual({"C4": passing}, proof["case_tests"])
+
+    def test_only_a_guard_naming_its_test_is_proven_by_the_whole_suite(self):
+        # A diagnosis's T4 is matched by its id alone; another fix's test_t4_... is not its test.
+        by_id = {"id": "T4", "kind": "preserve", "given": "a config file", "when": "it loads", "then": "it is optional"}
+        proof = self.suite_checked(by_id, ["tests/test_earlier.py::test_t4_config_file_is_optional"])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"T4": []}, proof["case_tests"])
+        proof = self.suite_checked(self.GUARDED, ["tests/test_calc.py::test_c4_adds"])
+        self.assertEqual(("PASS", {"C4": ["tests/test_calc.py::test_c4_adds"]}), (proof["verdict"], proof["case_tests"]))
+        # A guard run that did not finish leaves a guard naming its test unproven, not refuted.
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
+        regression.check_cases(proof, [self.GUARDED], incomplete=True)
+        self.assertEqual(("UNVERIFIED", []), (proof["verdict"], proof["failures"]))
+        self.assertIn("timed out or did not report every test", proof["unverified"][0])
+        # Ignored test files copied into the trees keep the whole suite out, and the failure says why.
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
+        regression.check_cases(proof, [self.GUARDED], ignored=["tests/test_scratch.py"])
+        self.assertIn("ignored test files are copied into the proof trees: tests/test_scratch.py", proof["failures"][0])
+
+    def test_the_suite_tests_a_changed_or_ignored_test_file_names_are_left_to_the_targeted_run(self):
+        folder = Path(tempfile.mkdtemp(prefix="untouched-"))
+        (folder / "test_changed.py").write_text("def test_c4_adds():\n    pass\n")
+        (folder / "checks.py").write_text("class Mixin:\n    def test_c5_mixed(self):\n        pass\n")
+        ids = ["test_changed.test_c4_adds", "tests.test_guard.Guard.test_c5_mixed",
+               "tests/test_other.py::test_c4_adds_more", "pkg::TestC4Adds/one"]
+        self.assertEqual(ids[2:], regression.untouched(ids, [folder / "test_changed.py", folder / "checks.py",
+                                                             folder / "missing.py"]))
 
 
 class MilestoneScopeTests(unittest.TestCase):
@@ -361,6 +417,158 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove([EXAMPLE, new_behavior], {**FEATURE, "test_more.py": test})
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("fails on the original code" in failure for failure in proof["failures"]), proof["failures"])
+
+    def prove_unchanged(self, criteria, seed):
+        project = Project(seed)
+        self.addCleanup(project.close)
+        return regression.prove(feature_state(project, criteria), project.root,
+                                Path(tempfile.mkdtemp(prefix="unchanged-proof-")))
+
+    # A program re-checks a merged workstream after an accepted interface change: its files already
+    # conform, so its validation-only plan marks every criterion guard: and changes nothing. A live
+    # skeleton re-check (2026-10-06) stopped on "No change" with its guard tests passing.
+    def test_a_guard_only_check_of_unchanged_source_passes_when_its_tests_hold(self):
+        proof = self.prove_unchanged([ORDINARY, self.GUARD], {**SEED, "test_guard.py": self.OWN_FILE})
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertEqual({"suite_on_candidate"}, set(proof["checks"]))
+        state = {"regression_proof": proof, "goal_contract": {"body": {"acceptance_criteria": [self.GUARD]}}}
+        self.assertTrue(regression.complete(state, proof["source_revision"]))
+
+    def test_an_unchanged_source_still_fails_a_guard_without_its_test(self):
+        proof = self.prove_unchanged([self.GUARD], SEED)
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"C4": []}, proof["case_tests"])
+        self.assertTrue(any("C4" in failure and "test_c4_add_still_works" in failure
+                            for failure in proof["failures"]), proof["failures"])
+        self.assertFalse(any("No change" in failure for failure in proof["failures"]), proof["failures"])
+
+    def test_an_unchanged_source_fails_a_guard_whose_test_fails(self):
+        broken = self.OWN_FILE.replace("self.assertEqual(3, add(1, 2))", "self.assertEqual(4, add(1, 2))")
+        proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": broken})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"C4": []}, proof["case_tests"])
+        self.assertTrue(any("passes both with the change and on the original code" in failure
+                            for failure in proof["failures"]), proof["failures"])
+
+    def test_an_ignored_test_file_cannot_prove_a_guard(self):
+        project = Project(SEED)
+        self.addCleanup(project.close)
+        with open(project.root / ".git" / "info" / "exclude", "a") as exclude:
+            exclude.write("test_guard.py\n")
+        project.write({"test_guard.py": self.OWN_FILE})
+        state, run_dir = feature_state(project, [self.GUARD]), Path(tempfile.mkdtemp(prefix="ignored-guard-"))
+        # The in-place run held the ignored file from its start, so the proof copies it into its trees.
+        launch_inputs.record(state, project.root, run_dir)
+        proof = regression.prove(state, project.root, run_dir)
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertTrue(any("the whole suite was not consulted" in failure for failure in proof["failures"]))
+        self.assertTrue(any("Ignored test files" in reason and "test_guard.py" in reason
+                            for reason in proof["unverified"]), proof["unverified"])
+
+    def test_a_guard_only_change_that_adds_no_test_proves_its_guards_with_existing_tests(self):
+        seed = {**SEED, "test_guard.py": self.OWN_FILE}
+        commented = {"calc.py": "# Adds two numbers.\n" + SEED["calc.py"]}
+        project = Project(seed)
+        self.addCleanup(project.close)
+        project.write(commented)
+        proof = regression.prove(feature_state(project, [self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="guard-change-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
+        project.write({"calc.py": "def add(a, b):\n    return a - b\n"})
+        broken = regression.prove(feature_state(project, [self.GUARD]), project.root,
+                                  Path(tempfile.mkdtemp(prefix="guard-change-")))
+        self.assertEqual("FAIL", broken["verdict"])
+        self.assertTrue(any("pass on base fail on the candidate" in failure for failure in broken["failures"]),
+                        broken["failures"])
+
+    # A program's final check adds its own tests on a branch where merged workstreams already proved each
+    # criterion; its guards name their tests, in files it leaves alone (live run, 2026-10-06).
+    def test_a_guard_names_an_existing_test_in_a_file_the_change_leaves_alone(self):
+        project = Project({**SEED, "test_guard.py": self.OWN_FILE})
+        self.addCleanup(project.close)
+        project.write(FEATURE)
+        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="untouched-guard-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual({"C2": ["test_calc.CalcTests.test_c2_subtracts"],
+                          "C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
+        self.assertNotIn("test_guard.GuardTests.test_c4_add_still_works", proof["pass_to_pass"])
+
+    def test_a_guard_whose_test_runs_in_a_second_failing_class_does_not_hold(self):
+        # One test, run by two classes (a mixin): the run that fails before and after breaks the guard.
+        failing = self.OWN_FILE.replace("GuardTests", "OtherGuardTests").replace("assertEqual(3", "assertEqual(4")
+        proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": self.OWN_FILE + "\n\n" + failing})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"C4": []}, proof["case_tests"])
+        self.assertTrue(any("has a test named after it that fails: test_guard.OtherGuardTests.test_c4_add_still_works"
+                            in failure for failure in proof["failures"]), proof["failures"])
+
+    def test_a_guard_naming_two_tests_holds_on_an_unchanged_source_by_its_id(self):
+        both = {**self.GUARD, "verification_method": "guard: test_c4_add_still_works, test_c4_adds_zero"}
+        zero = self.OWN_FILE + "\n    def test_c4_adds_zero(self):\n        self.assertEqual(1, add(1, 0))\n"
+        proof = self.prove_unchanged([both], {**SEED, "test_guard.py": zero})
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(2, len(proof["case_tests"]["C4"]), proof["case_tests"])
+        # The whole suite stays out of the proof the reviewers read; only the tests matched to a case appear.
+        self.assertEqual([], proof["pass_to_pass"])
+        # One of its tests failing, before and after, breaks it (review, 2026-10-06).
+        failing = zero.replace("assertEqual(1, add(1, 0))", "assertEqual(2, add(1, 0))")
+        proof = self.prove_unchanged([both], {**SEED, "test_guard.py": failing})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertTrue(any("fails: test_guard.GuardTests.test_c4_adds_zero" in failure
+                            for failure in proof["failures"]), proof["failures"])
+
+    def test_a_document_that_mentions_a_guards_test_does_not_drop_it(self):
+        project = Project({**SEED, "test_guard.py": self.OWN_FILE})
+        self.addCleanup(project.close)
+        project.write({**FEATURE, "docs/verification.md": "C4 is guarded by test_c4_add_still_works.\n"})
+        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="doc-guard-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
+
+    def test_a_guard_whose_expectation_the_change_rewrote_in_a_fixture_does_not_hold(self):
+        # The guard's test file is untouched, but it reads its expectation from a fixture the change rewrites
+        # along with the behavior: on the original code with the new fixture it fails (review, 2026-10-06).
+        reads = ("import json\nimport unittest\nfrom calc import add\n\n"
+                 "WANT = json.load(open('testdata/add.json'))\n\n\nclass GuardTests(unittest.TestCase):\n"
+                 "    def test_c4_add_still_works(self):\n        self.assertEqual(WANT['1+2'], add(1, 2))\n")
+        seed = {"calc.py": SEED["calc.py"], "test_guard.py": reads, "testdata/add.json": '{"1+2": 3}\n',
+                "test_calc.py": "import unittest\nimport calc\n\n\nclass CalcTests(unittest.TestCase):\n"
+                                "    def test_module(self):\n        self.assertTrue(hasattr(calc, 'add'))\n"}
+        project = Project(seed)
+        self.addCleanup(project.close)
+        project.write({"calc.py": "def add(a, b):\n    return a + b + 1\n\n\ndef sub(a, b):\n    return a - b\n",
+                       "test_calc.py": seed["test_calc.py"] + "\n    def test_c2_subtracts(self):\n"
+                                                              "        self.assertEqual(2, calc.sub(5, 3))\n",
+                       "testdata/add.json": '{"1+2": 4}\n'})
+        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
+                                 Path(tempfile.mkdtemp(prefix="fixture-guard-")))
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual([], proof["case_tests"]["C4"])
+        self.assertEqual(["test_calc.CalcTests.test_c2_subtracts"], proof["case_tests"]["C2"])
+
+    def test_a_rewritten_guard_test_is_decided_by_the_targeted_run_not_the_whole_suite(self):
+        # The change rewrites the guard's test to assert what only the change adds, and an explicit regression
+        # command skips that file: its old version passed on base, but it is not a test that passed before.
+        project = Project({**SEED, "test_guard.py": self.OWN_FILE})
+        self.addCleanup(project.close)
+        rewritten = self.OWN_FILE.replace("from calc import add", "import calc").replace(
+            "self.assertEqual(3, add(1, 2))", "self.assertEqual(2, calc.sub(5, 3))")
+        project.write({**FEATURE, "test_guard.py": rewritten})
+        state = feature_state(project, [EXAMPLE, self.GUARD])
+        state["settings"] = {"regression": {"regression_command": f"{sys.executable} -m unittest -v test_calc"}}
+        proof = regression.prove(state, project.root, Path(tempfile.mkdtemp(prefix="rewritten-guard-")))
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual([], proof["case_tests"]["C4"])
+
+    def test_an_unchanged_source_never_proves_new_behavior(self):
+        proof = self.prove_unchanged([EXAMPLE, self.GUARD], {**FEATURE, "test_guard.py": self.OWN_FILE})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn("No change: the candidate is identical to the base revision", proof["failures"])
 
 
 class BaseAndTimeoutTests(unittest.TestCase):

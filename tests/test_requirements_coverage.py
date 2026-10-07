@@ -103,6 +103,46 @@ class HeadingCueTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Refunds must credit'):
             goals.check_requirement_handoff({'task': task}, self.report())
 
+    def test_a_fenced_block_is_context_not_an_obligation(self):
+        task = ('Build notes. Notes must be numbered from 1.\n\n```json\n{"note": "M4 must only test the journey."}\n```\n'
+                'Search must ignore case.')
+        self.assertEqual(['Notes must be numbered from 1.', 'Search must ignore case.'], goals.cue_sentences(task))
+        goals.check_requirement_handoff({'task': task}, self.report('Notes must be numbered from 1.',
+                                                                    'Search must ignore case.'))
+        with self.assertRaisesRegex(ValueError, 'Search must ignore case'):
+            goals.check_requirement_handoff({'task': task}, self.report('Notes must be numbered from 1.'))
+        # A sentence inside the block stays quotable.
+        self.assertIn(task, goals.source_texts({'task': task}))
+
+    def test_a_fenced_block_ends_the_sentence_before_it(self):
+        # A program brief's parent plan follows a label with no stop and is followed by an instruction; joined,
+        # they made a sentence found nowhere in the brief, which no verbatim quote could cover (2026-10-06).
+        task = ('Paths you own: only notes/store.py\n\nApproved parent contract (read only):\n```json\n'
+                '{"note": "M4 must only test the journey."}\n```\nKeep its exclusions; never merge branches.')
+        sentences = goals.cue_sentences(task)
+        self.assertEqual(['Paths you own: only notes/store.py\n\nApproved parent contract (read only):',
+                          'Keep its exclusions; never merge branches.'], sentences)
+        self.assertTrue(all(sentence in task for sentence in sentences), sentences)
+        goals.check_requirement_handoff({'task': task}, self.report(*sentences))
+        # Quotes that run into the block, as a report splitting the brief only on its stops writes them, still cover.
+        into, out_of = task[:task.index(' the journey')], task[task.index('{"note"'):]
+        self.assertTrue(into.endswith('```json\n{"note": "M4 must only test') and out_of.startswith('{"note"'), into)
+        goals.check_requirement_handoff({'task': task}, self.report(into, out_of))
+
+    def test_only_a_closed_fence_on_lines_of_its_own_hides_obligations(self):
+        for task, owed in (
+                ('Wrap code in ``` fences when you paste it. You must never log tokens.',
+                 ['You must never log tokens.']),
+                ('Example:\n```python\nprint(1)\n\nYou must keep the exit code 0 on success.',
+                 ['Example:\n```python\nprint(1)\n\nYou must keep the exit code 0 on success.']),
+                ('Search must ignore case.\n\n```\nexport must never print a header\n',
+                 ['Search must ignore case.', '```\nexport must never print a header'])):
+            with self.subTest(task=task):
+                self.assertEqual(owed, goals.cue_sentences(task))
+                self.assertTrue(all(sentence in task for sentence in owed))
+                with self.assertRaisesRegex(ValueError, 'neither quoted nor explicitly ignored'):
+                    goals.check_requirement_handoff({'task': task}, self.report())
+
     def test_delegated_answer_is_quotable_but_never_owed(self):
         state = {'task': 'Add receipts.',
                  'answers': {'q1': {'kind': 'delegated', 'text': 'Use plain-text receipts only.'}}}

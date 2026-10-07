@@ -35,6 +35,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_milestones as milestones
+    from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
@@ -62,6 +63,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_goal_lifecycle as lifecycle
     import autocode_milestones as milestones
+    import autocode_operational_information as operational_information
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
@@ -127,20 +129,9 @@ def next_command(state, issued, run_dir, workspace):
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {}) or {}
     pause = origin.get('pause_status') or state.get('status')
     where = f'--workspace {workspace} --run-dir {run_dir}'
-    if pause == 'PAUSED_TIMEOUT_RECOVERY':
-        return f'Next command: autocode --resume-paused --grant-recovery N {where}'
-    budget_flag = {'PAUSED_TIME_LIMIT': '--max-seconds',
-                   'PAUSED_ITERATION_LIMIT': '--max-iterations',
-                   'PAUSED_MILESTONE_TIME_LIMIT': '--max-milestone-seconds',
-                   'PAUSED_MILESTONE_BUDGET': '--max-milestone-seconds',
-                   'PAUSED_NO_PROGRESS': '--no-progress-limit'}.get(pause)
-    if budget_flag:
-        return f'Next command: autocode --resume-paused {budget_flag} N {where}'
-    if pause == 'PAUSED_BUILDER_RETRY_LIMIT':
-        milestone = (state.get('current_task') or {}).get('milestone_id') or 'MILESTONE_ID'
-        return f'Next command: autocode --resume-paused --retry-builder {milestone} {where}'
-    if pause == 'PAUSED_REPEATED_FAILURE':
-        return f'Next command: autocode --resume-paused --retry-failed-stage {where}'
+    flags = operational_information.resume_flags(state, pause)
+    if flags:
+        return f'Next command: autocode {flags} {where}'
     if issued:
         return (f'Next command: autocode --resolver-request {issued["request_id"]} '
                 f'--resolver-token {issued["request_token"]} --resolver-response provide_information '
@@ -307,10 +298,32 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state['status'] = marker['pause_status']
         state.pop('_authorized_bound_change', None)
         runner.write_json(state_path, state)
+    # Corrective information is re-evaluated once by AutoResolver at an explicit resume (#486).
+    review = None
     if (not decision_action and not specific_recovery and not acknowledged_bound_change
+            and not explicit_recovery_requested(args)):
+        review = operational_information.reevaluate(runner, state, run_dir, workspace, resume=args.resume_paused)
+        if review is not None:
+            print(review.message, flush=True)
+            if review.action in ('hold', 'pending'):
+                return 2
+    information_admitted = review is not None and review.action == 'continue'
+    if (not decision_action and not specific_recovery and not acknowledged_bound_change and not information_admitted
             and not any((args.retry_builder, args.retry_failed_stage, args.retry_report,
                          args.abandon_stage, args.grant_recovery is not None))
             and resolver_human.response_holds_current_frontier(state)):
+        retired = operational_information.retired(state)
+        if retired:
+            # Retired with the run still at the answered frontier (only its records or evidence
+            # changed): holding on the consumed request is #486 again. Ask again; launch nothing.
+            state.pop('user_request', None)
+            state['pending_questions'] = []
+            if resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
+                                                              support.Paused(state['status'], retired)):
+                runner.write_json(state_path, state)
+                if resolver_human.current(state):
+                    print(lifecycle.render(state))
+                    return 2
         print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
               'the run remains paused without repeating the same request.')
         return 2
@@ -322,8 +335,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    if (not decision_action and not specific_recovery and not explicit_recovery_requested(args)
-            and state.get('status') != 'RUNNING'
+    if (not decision_action and not specific_recovery and not information_admitted
+            and not explicit_recovery_requested(args) and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')
             and not resolver_human.current(state) and not state.get(resolver_human.PRIVATE)):
@@ -341,6 +354,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if routed is not None:
         return routed
     if args.resolver_response:
+        answered = ((state.get('resolver') or {}).get('human_escalations') or {}).get(args.resolver_request) or {}
+        replay = isinstance(answered, dict) and answered.get('status') == 'consumed'
         candidate = copy.deepcopy(state)
         try:
             resolver_human.respond_operational(candidate, args.resolver_request, args.resolver_token,
@@ -355,9 +370,22 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 return 2
             resolver_human.respond_operational(candidate, fresh['request_id'], fresh['request_token'],
                                                args.resolver_response, args.resolver_message)
+        if replay:
+            # The same response sent again (respond_operational refuses a different one): nothing changes.
+            live = resolver_human.current(state)
+            review = operational_information.projection(state) or {}
+            print(f'AutoResolver already received this response to request {args.resolver_request[:12]}; nothing '
+                  'changed and no provider launched.'
+                  + (' It re-evaluates the response once at the next autocode resume.'
+                     if review.get('request_id') == args.resolver_request and review.get('status') == 'pending' else '')
+                  + (f" A newer AutoResolver request is waiting: answer request {live['request_id']} with its own token."
+                     if live and live['request_id'] != args.resolver_request else ''))
+            return 0
         resolver_human.review_operational_response(candidate)
+        scheduled = (operational_information.projection(candidate) or {}).get('status') == 'pending'
         runner.commit_user_action(state, candidate, run_dir)
-        print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.')
+        print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.'
+              + (' It re-evaluates the response once at the next autocode resume.' if scheduled else ''))
         return 0
     if (not decision_action and not explicit_recovery_requested(args)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'
@@ -369,7 +397,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 print(state['stop_reason'])
             print('AutoResolver retained the operational request; no unchanged, permitted recovery credit was proven.')
             return 2
-    if (not decision_action and args.grant_recovery is None
+    if (not decision_action and args.grant_recovery is None and not information_admitted
             and state.get('status') in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY')
             and planning.is_planning(state, state.get('next_stage'))):
         resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
@@ -411,8 +439,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                         row["seconds_by_role"] = {}
             # Renew the resolver evaluation epoch without resetting the
             # lifetime diagnostic allowance. Report repair is renewed
-            # only after exhaustion-gated retry decisions below.
-            resolver_runtime.reset_for_resume(state)
+            # only after exhaustion-gated retry decisions below. A
+            # continuation admitted on corrective information renews
+            # neither allowance: information never resets a count (#486).
+            if not information_admitted:
+                resolver_runtime.reset_for_resume(state)
             if args.retry_report:
                 try:
                     runner.retry_format_failed_report(state, run_dir, workspace, args.retry_report)
@@ -453,7 +484,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # above (which requires and archives the true attempt count)
             # already consumed it if one applied; resetting first would
             # corrupt that archived count and always fail those guards.
-            runner.reset_report_repair_for_resume(state)
+            if not information_admitted:
+                runner.reset_report_repair_for_resume(state)
         runner.reconcile_active(state, run_dir, workspace)
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.

@@ -43,6 +43,7 @@ from urllib.parse import unquote, urlparse
 try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
+    from . import autocode_python_tests as python_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_verification_schedule as schedule
     from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
@@ -54,6 +55,7 @@ try:
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
+    import autocode_python_tests as python_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_verification_schedule as schedule
     import autocode_node_tests as node_tests
@@ -113,20 +115,54 @@ def _git(cwd, *args, check=True):
     return result.stdout
 
 
-def _document_only_base(workspace, base):
-    """Only an empty pinned tree or a regular non-executable root README.md.
+def _document_only_base(workspace, base, *, dependencies_from=None, independent=None):
+    """True when the base the proof runs holds no behavior: every entry of the
+    pinned tree is a regular non-executable blob that is the root README.md or,
+    when ``dependencies_from`` is a checkout independent of the candidate, a
+    .gitignore or an empty file; and make_tree copies no git-ignored code from
+    ``dependencies_from`` into the proof trees (``generated_sources`` is empty;
+    the launch copies of an in-place run, autocode_launch_inputs, are files of
+    that same checkout, withheld when they changed or went missing).
 
     Source/test filename conventions cannot establish absence of existing
-    behavior. Keep this positive documentation inventory deliberately narrow:
-    unknown files, executable documents, links and submodules need preservation.
+    behavior. Keep this positive inventory deliberately narrow: other non-empty
+    files, executable files (even empty ones), links and submodules need
+    preservation. A .gitignore and an empty file cannot hold behavior to
+    preserve. An ignore rule (.gitignore, .git/info/exclude) keeps code out of
+    the pinned tree but not out of the proof: copy_generated_sources puts
+    ignored code that sits next to tracked files into the base and candidate
+    trees, so any such file counts as existing behavior, whatever made it.
+    Ignored files are not versioned, so that check is only as good as the
+    checkout it reads. The original checkout of a task worktree is one the
+    candidate does not edit. The workspace itself (an --in-place run, compared
+    with both paths resolved, so a symlink to it is the workspace too) is not:
+    the candidate can delete ignored code, or stop ignoring it, before the proof
+    reads it. Nor is a checkout an earlier Builder of the run worked in, which
+    the caller states with ``independent=False``: a continuation restored from a
+    checkpoint of an --in-place run works in a new worktree whose original
+    checkout is that run's workspace (autocode_regression.proof_dependencies).
+    There (or with no ``dependencies_from``) only the root README.md is
+    accepted, the rule this function had before .gitignore and empty files.
+    ``independent=None`` (or True) leaves the decision to the path comparison:
+    no caller can make the workspace independent of itself. Third-party
+    dependencies make_tree links or copies separately (node_modules, venvs, an
+    ignored vendor/) count only where ``generated_sources`` lists a file, which
+    it never does under node_modules or a venv
+    (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
     """
-    for entry in _git(workspace, "ls-tree", "-r", "-z", base).split("\0"):
+    separate = (independent is not False and bool(dependencies_from)
+                and Path(dependencies_from).resolve() != Path(workspace).resolve())
+    for entry in _git(workspace, "ls-tree", "-r", "-l", "-z", base).split("\0"):
         if not entry:
             continue
         metadata, separator, path = entry.partition("\t")
-        if not separator or metadata.split()[:2] != ["100644", "blob"] or path != "README.md":
+        fields = metadata.split()  # mode, type, object, size ("-" for a submodule)
+        if not separator or len(fields) != 4 or fields[:2] != ["100644", "blob"]:
             return False
-    return True
+        if not (path == "README.md"
+                or (separate and (PurePosixPath(path).name == ".gitignore" or fields[3] == "0"))):
+            return False
+    return not generated_sources(dependencies_from)
 
 
 def _package_scripts(text) -> dict:
@@ -265,9 +301,10 @@ def _python_can_import(python, module):
 class Framework:
     """How to run the whole suite and a targeted subset for one project."""
 
-    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=()):
+    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None):
         self.name, self.suite, self.python, self.runner, self.note = name, suite, python, runner, note
         self.node_files = frozenset(node_files)
+        self.invocation = invocation
 
     @property
     def per_test(self):
@@ -275,6 +312,9 @@ class Framework:
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
+        if self.invocation:
+            modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
+            return self.invocation.targeted(modules) if modules else None
         if self.name == "node":
             scripts = [p for p in files if p in self.node_files]
             return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
@@ -705,6 +745,13 @@ def classify_generated_sources(source_root, record=None, *, unrecorded=False):
     return trusted, notes, sorted(set(current) - set(trusted))
 
 
+def _copied_generated(source_root, record, unrecorded, ignored_inputs):
+    """The ignored generated sources make_tree copies into every proof tree."""
+    if ignored_inputs is not None:
+        return sorted(ignored_inputs.generated)
+    return classify_generated_sources(source_root, record, unrecorded=unrecorded)[0]
+
+
 def copy_generated_sources(source_root, tree, *, record=None, unrecorded=False):
     """Copy build-generated source files (git-ignored code next to tracked code,
     such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
@@ -872,9 +919,9 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
 
 def command_framework(command):
     """Recognize a plain runner invocation, never infer coverage from similar text."""
-    kind = schedule.collection_kind(command)
-    if kind:
-        return Framework(kind, command, python=shlex.split(command)[0])
+    invocation = python_tests.parse(command)
+    if invocation:
+        return Framework(invocation.kind, command, python=invocation.python, invocation=invocation)
     if _go_test(command):
         return Framework("go", command)
     return None
@@ -901,6 +948,9 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
             stat = path.stat()
             source_metadata[name] = [stat.st_mode, stat.st_mtime_ns, stat.st_uid, stat.st_gid]
     environment = test_environment(workspace)
+    invocation = python_tests.parse(command)
+    if invocation and invocation.prefix:
+        environment.update(word.split('=', 1) for word in invocation.prefix[1:])
     relative_pythonpath = [p for p in environment.get("PYTHONPATH", "").split(os.pathsep)
                            if p and not Path(p).is_absolute()
                            and not (workspace / p).resolve().is_relative_to(workspace.resolve())]
@@ -910,7 +960,8 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
         words = []
     python_command = bool(words and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
                           and not re.search(r"[;&|<>`$\n]", command))
-    python = words[0] if python_command else python_for(dependencies_from or workspace)
+    python = (invocation.python if invocation else words[0] if python_command
+              else python_for(dependencies_from or workspace))
     executable = shutil.which(python, path=environment.get("PATH", ""))
     venv_config = Path(executable).parent.parent / "pyvenv.cfg" if executable else None
     try:
@@ -1154,8 +1205,9 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=(),
-           test_only_allowed=False, generated_record=None, generated_unrecorded=False, ignored_inputs=None) -> dict:
+           independent_dependencies=None, allow_no_test=False, new_behavior=False, preserve_only=False,
+           base_patch=None, source_paths=(), test_only_allowed=False, generated_record=None,
+           generated_unrecorded=False, ignored_inputs=None, guards=()) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1168,7 +1220,22 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     and fail on base (an import error is not a reproduction).
 
     ``preserve_only`` is coverage of behavior the product already implements: the diff may
-    be test files alone, and each new test must pass on the base and on the candidate.
+    be test files alone, and each new test must pass on the base and on the candidate. It
+    may also change no test at all, when the tests the cases name already exist; the diff may
+    then be empty (a validation-only re-check of a merged workstream). The suite runs on the
+    candidate (_suite_guards).
+
+    ``guards`` are the exact test names the plan's guards give. A guard may name a test the
+    project already had in a file the change leaves alone, which the targeted run never sees: the
+    whole suite then also runs on the base with the change's test files (base_with_tests), so each
+    test runs with the content the candidate has, and its tests that pass there and on the candidate
+    are kept as ``suite_pass_to_pass``, with the candidate's failures as ``failed_on_candidate``
+    (autocode_regression.check_cases decides which guard may use them).
+
+    ``dependencies_from`` is the checkout make_tree copies dependencies and ignored code
+    from. ``independent_dependencies=False`` says an earlier Builder of this run worked in
+    it, so it may no longer show the ignored code the base had; None compares it with
+    ``workspace`` (see _document_only_base, the only reader).
 
     ``test_only_allowed`` covers a contract whose criteria are all test criteria without
     saying whether product code must change (a coverage or characterization build): when
@@ -1196,7 +1263,10 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     if ignored_inputs is None:
         notes += classify_generated_sources(dependencies_from or workspace, generated_record,
                                             unrecorded=generated_unrecorded)[1]
-    if not changes:
+    runnable_tests = [p for p in tests if changes[p] != "deleted"]
+    # Coverage the source already has: no test changed, so nothing can flip; the guards must hold.
+    existing_guards = preserve_only and not runnable_tests
+    if not changes and not preserve_only:
         fail.append("No change: the candidate is identical to the base revision")
     elif not sources and not preserve:
         fail.append("Only test files changed; a fix must change product code")
@@ -1206,8 +1276,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     removed = removed_python_tests(workspace, base, changes)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
-    runnable_tests = [p for p in tests if changes[p] != "deleted"]
-    if not runnable_tests:
+    if not runnable_tests and not existing_guards:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced")
     for kind in ("regression", "suite"):
@@ -1216,9 +1285,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                               f"--{'regression' if kind == 'regression' else 'test'}-command to verify with "
                               "a command you trust")
 
-    trees = {}
+    trees, hidden = {}, []
     try:
-        if changes and (commands["regression"] or commands["suite"]):
+        if (changes or existing_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
                                            dependencies_from=dependencies_from, generated_record=generated_record,
                                            generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
@@ -1266,15 +1335,37 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                               "suite-on-candidate", timeout=timeout)
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
-            # A positively identified document-only project may introduce its
-            # first source and suite. Filename heuristics cannot rule out old
-            # behavior: empty collection can hide a filtered existing program.
+            # A positively identified document-only project (a root README.md,
+            # plus .gitignore files and empty files when the ignored code is read
+            # from a checkout the candidate does not edit, all regular and
+            # non-executable, and no ignored code copied into the trees) may
+            # introduce its first source and suite. Filename heuristics cannot
+            # rule out old behavior: empty collection can hide a filtered
+            # existing program, so any other base file or copied ignored code
+            # still counts.
             allow_empty_base = bool(new_behavior and not preserve and not base_patch
                                     and comparable and comparable.get("base") == base
-                                    and _document_only_base(workspace, base))
+                                    and _document_only_base(workspace, base,
+                                                            dependencies_from=dependencies_from,
+                                                            independent=independent_dependencies))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base,
                          script_redefined=_package_script_redefined(workspace, base, commands["suite"]))
+            # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
+            hidden = [path for path in _copied_generated(dependencies_from, generated_record, generated_unrecorded,
+                                                         ignored_inputs) if is_test_path(path)]
+            if hidden and existing_guards:
+                unverified.append("Ignored test files are copied into the proof trees, so the guards cannot "
+                                  "be shown to rest on tests the base revision holds: " + ", ".join(hidden[:5]))
+            with_tests = None
+            if guards and "base_with_tests" in trees and not hidden:
+                # Without a targeted command the whole suite already ran there (regression_on_base).
+                with_tests = (checks.get("regression_on_base") if not commands["regression"] else None) or \
+                    run_suite(framework, commands["suite"], trees["base_with_tests"], run_dir,
+                              "suite-on-base-with-tests", timeout=timeout)
+                checks.setdefault("regression_on_base" if not commands["regression"] else
+                                  "suite_on_base_with_tests", with_tests)
+            _suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
         elif sources or preserve:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1302,7 +1393,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             "baseline": ({"health": base_suite["health"], "exit_code": base_suite["receipt"]["exit_code"],
                           "output": base_suite["receipt"]["output"]} if base_suite else None),
             "fail_to_pass": proof.get("fail_to_pass"), "pass_to_pass": proof.get("pass_to_pass"),
-            "not_run_on_base": proof.get("not_run_on_base"),
+            "not_run_on_base": proof.get("not_run_on_base"), "failed_on_candidate": proof.get("failed_on_candidate"),
+            "suite_pass_to_pass": proof.get("suite_pass_to_pass"), "ignored_test_files": hidden,
+            "no_test_changed": existing_guards, "guard_run_incomplete": bool(proof.get("guard_run_incomplete")),
             "checks": checks}
 
 
@@ -1428,6 +1521,36 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
+
+
+def _suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None):
+    """What the whole suite shows about guards (preserve cases), with complete per-test results on both runs.
+
+    When no test changed (``unchanged``), nothing can flip and the base suite ran the same tests, so the
+    targeted lists stay empty and the guards rest on its tests that pass on base and on the candidate, by
+    id as well as by exact name (autocode_regression.check_cases). Otherwise
+    ``with_tests`` is the suite on the base with the change's test files: its tests that pass there and on
+    the candidate (``suite_pass_to_pass``) ran the same content on the original code and the change, which
+    the pristine base cannot show once a test, fixture or golden file changed. ``failed_on_candidate`` is
+    the candidate's failures: a guard with a failing variant does not hold, even when that variant already
+    failed on base.
+    """
+    candidate = on_candidate.get("results")
+    if not (candidate and candidate.get("complete")):
+        return
+    if unchanged:
+        base = ((base_suite or {}).get("receipt") or {}).get("results")
+        if base and base.get("complete"):
+            proof.update(fail_to_pass=[], pass_to_pass=[], not_run_on_base=[],
+                         suite_pass_to_pass=sorted(set(base["passed"]) & set(candidate["passed"])),
+                         failed_on_candidate=sorted(candidate["failed"]))
+        return
+    before = (with_tests or {}).get("results")
+    if before and before.get("complete") and not with_tests.get("timed_out"):
+        proof.update(suite_pass_to_pass=sorted(set(before["passed"]) & set(candidate["passed"])),
+                     failed_on_candidate=sorted(candidate["failed"]))
+    elif with_tests is not None:
+        proof["guard_run_incomplete"] = True  # a guard left without a test is then unproven, not refuted
 
 
 def _seam_names(workspace, base, changes, receipt):

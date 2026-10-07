@@ -23,7 +23,10 @@ autocode_test_cases.contract_cases): each such test must pass with the change
 and must not have passed without it (verify's ``new_behavior``). A milestone
 whose due criteria are all ``guard:`` (behavior the product already implements)
 is coverage: the diff may be test files alone, and each test must pass on the
-base and on the candidate (verify's ``preserve_only``). A saved permission
+base and on the candidate (verify's ``preserve_only``). It may also change no
+test when those tests already exist, and be empty, as in a program's
+validation-only re-check: each must then pass on base and on the candidate, and
+none of its variants may fail. A saved permission
 answer that grants a test-only regression-proof exception for the current
 contract is the same coverage proof, so a plan that marked that coverage
 ``test:`` can still finish. With several milestones, a checkpoint proves the
@@ -32,6 +35,7 @@ criteria of its own milestone and of those already accepted
 """
 from __future__ import annotations
 
+import re
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -202,6 +206,20 @@ def reviewed_patch(state, workspace):
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
+def proof_dependencies(state, workspace):
+    """verify.verify's ``dependencies_from`` and ``independent_dependencies`` for this run.
+
+    The proof trees take dependencies and ignored code from the original checkout of a task
+    worktree (``project_workspace``) or, in place, from the workspace itself. That checkout
+    is not independent of the candidate when a Builder of the run this one continues worked
+    in it: ``project_worked_in_place``, which autocode_checkpoint_continuation.create writes
+    for a continuation restored from a checkpoint of an --in-place run (and every later
+    restore of it). This is its only reader. None leaves verify to compare the paths.
+    """
+    return {"dependencies_from": state.get("project_workspace") or str(workspace),
+            "independent_dependencies": False if state.get("project_worked_in_place") else None}
+
+
 def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None,
               inputs=None):
     cached = state.get("regression_baseline") or {}
@@ -326,10 +344,11 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                  "source_revision": current, "test_files": [], "source_files": []}
         path = None
     else:
-        dependencies = state.get("project_workspace") or str(workspace)
+        dependencies = proof_dependencies(state, workspace)
         suite = options.get("test_command") or (framework.suite if framework else None)
-        base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch, progress,
-                                inputs) if suite else None)
+        base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies["dependencies_from"],
+                                base_patch, progress, inputs)
+                      if suite else None)
         number = len(state.get("regression_proofs", [])) + 1
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
@@ -344,13 +363,14 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         regression_command = options.get("regression_command")
         if coverage and not regression_command:
             regression_command = options.get("test_command")
+        guards = sorted({case["test_name"] for case in due if case.get("kind") == "preserve" and case.get("test_name")})
         result = verify.verify(workspace, base, out, framework=framework, suite_command=options.get("test_command"),
                                regression_command=regression_command,
-                               reported=None, base_suite=base_suite, dependencies_from=dependencies,
+                               reported=None, base_suite=base_suite, **dependencies,
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
                                preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
-                               source_paths=source_scope.paths(state), ignored_inputs=inputs)
+                               source_paths=source_scope.paths(state), ignored_inputs=inputs, guards=guards)
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if inputs:
@@ -360,8 +380,17 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         if ((coverage or (test_only and not result.get("source_files")))
                 and any(case.get("kind") != "preserve" for case in due)):
             due = [{**case, "kind": "preserve"} for case in due]
+        # Code only: a changed README or note that mentions a test is not a test.
+        changed = [path for path, status in (result.get("changes") or {}).items()
+                   if status != "deleted" and verify.is_code_path(path)]
+        suite = untouched(result.get("suite_pass_to_pass") or [],
+                          [Path(workspace) / path for path in changed]
+                          + [Path(dependencies["dependencies_from"]) / path for path in result.get("ignored_test_files") or []])
         named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
-        check_cases(proof, due, wrapped_runner.refusals(workspace, named) if due else {})
+        check_cases(proof, due, wrapped_runner.refusals(workspace, [*named, *suite]) if due else {},
+                    suite_passing=suite, failing=result.get("failed_on_candidate") or [],
+                    ignored=result.get("ignored_test_files") or [], by_id=bool(result.get("no_test_changed")),
+                    incomplete=bool(result.get("guard_run_incomplete")))
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
                            for label, receipt in result["checks"].items()}
@@ -405,7 +434,37 @@ def rejection(state):
     return f"Completion rejected: this change has no passing regression proof for the current source ({reasons})"
 
 
-def check_cases(proof, cases, refused=None):
+def untouched(test_ids, files):
+    """The suite's tests whose own name no changed file, and no ignored test file, names.
+
+    A changed test file's tests are the targeted run's to decide (a rewritten guard test that fails on base is
+    mis-tagged); a changed product module may define a test (a mixin), whose old content ran on base; an
+    ignored file's tests never existed in the base revision.
+    """
+    texts = []
+    for path in files:
+        try:
+            texts.append(Path(path).read_text(errors="replace"))
+        except OSError:
+            continue
+    text = "\n".join(texts)
+    return [test for test in test_ids if not test_cases.named_in(test, text)]
+
+
+def _variant(test):
+    """The test a variant belongs to: its file or module and its own function, without parameters, a Go
+    subtest, or the class that runs it (a mixin's test that two classes run is one test)."""
+    test = re.sub(r"\[.*\]$", "", test)
+    if "::" in test:
+        container = test.split("::", 1)[0]
+    else:
+        parts = test.split(".")
+        container = ".".join(parts[:-2] if len(parts) > 2 else parts[:-1])
+    return container, test_cases.function_name(test)
+
+
+def check_cases(proof, cases, refused=None, *, suite_passing=(), failing=(), ignored=(), by_id=False,
+                incomplete=False):
     """Each English test case needs a test named after it.
 
     A restore case (the default, and what a case without a kind means) needs a
@@ -418,6 +477,23 @@ def check_cases(proof, cases, refused=None):
     file that runs another test runner, so it passes on that runner's exit code
     (autocode_wrapped_runner.refusals, #380). Such a test is never matched to a
     case, and a case left without a test says why.
+
+    ``suite_passing`` is the whole suite's tests that passed on base and on the
+    candidate, in files the change leaves alone (untouched): a preserve case that
+    names its test exactly (a plan's guard: test_x) may be proven by one, as a
+    program's final check proves what the merged workstreams delivered. A case
+    matched by its id alone (a diagnosis's T4) never is: another fix's test_t4_...
+    is not its test. ``failing`` is the suite's failures on the candidate: a failing
+    variant (another parameter set, a Go subtest, another class running the same
+    test) of a test matched to a preserve case breaks it, even when that variant
+    failed on base too. ``ignored`` names the git-ignored test files the proof
+    copied into its trees; with any, the whole suite is not consulted, and a
+    preserve case left without a test says so. ``by_id``: no test changed, so
+    there is no targeted run and every preserve case is matched against the
+    suite, by its id too (a plan case, never a diagnosis's: such a run is never a
+    bug fix). ``incomplete``: the suite run on the original code with the
+    change's test files did not finish, so a preserve case that names its test
+    and is left without one is unproven rather than refuted.
     """
     if not cases:
         return
@@ -449,6 +525,10 @@ def check_cases(proof, cases, refused=None):
     preserve = [case for case in cases if case.get("kind") == "preserve"]
     proof["case_tests"] = test_cases.match_cases(restore, usable(proof["fail_to_pass"]), framework=framework)
     proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass")), framework=framework))
+    suite_ids = usable(suite_passing)
+    for case in preserve:
+        if (case.get("test_name") or by_id) and not proof["case_tests"][case["id"]]:
+            proof["case_tests"][case["id"]] = test_cases.match_cases([case], suite_ids, framework=framework)[case["id"]]
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
     failures += [refusal("Test case", case) or
@@ -468,12 +548,38 @@ def check_cases(proof, cases, refused=None):
                 "have passed before"]
     mistagged = [case for case in preserve
                  if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]), framework=framework)[case["id"]]) - set(unrun)]
+    # One failing variant of a test matched to a guard breaks it, though the suite comparison only notes a
+    # failure that was there before too; a failing test that merely shares the guard's name does not. A guard
+    # matched by its id alone (naming several tests) also breaks on a failing one beside a test it matched.
+    broken = {}
+    for case in preserve:
+        found = proof["case_tests"][case["id"]]
+        variants, files = {_variant(test) for test in found}, {_variant(test)[0] for test in found}
+        by_name = test_cases.match_cases([case], failing, framework=framework)[case["id"]] if not case.get("test_name") else []
+        broken[case["id"]] = [test for test in failing
+                              if _variant(test) in variants or (test in by_name and _variant(test)[0] in files)]
+    for case in preserve:
+        if broken[case["id"]]:
+            proof["case_tests"][case["id"]] = []
+    failures += [f"Preserve case {test_cases.case_text(case)} has a test named after it that fails: "
+                 + ", ".join(broken[case["id"]][:5]) for case in preserve if broken[case["id"]]]
     untested = [case for case in preserve
-                if not proof["case_tests"][case["id"]] and case not in mistagged]
+                if not proof["case_tests"][case["id"]] and case not in mistagged and not broken[case["id"]]]
+    limited = (" (the whole suite was not consulted: ignored test files are copied into the proof trees: "
+               + ", ".join(list(ignored)[:5]) + ")") if ignored else ""
+    unproven = [case for case in untested if incomplete and case.get("test_name") and not refusal("Preserve case", case)]
     failures += [refusal("Preserve case", case) or
                  f"Preserve case {test_cases.case_text(case)} has no test named "
                  f"{test_cases.case_test_name(case['id'], case.get('test_name'))} "
-                 "that passes both with the change and on the original code" for case in untested]
+                 "that passes both with the change and on the original code"
+                 + (limited if case.get("test_name") else "") for case in untested if case not in unproven]
+    if unproven:
+        proof["unverified"] = list(proof.get("unverified") or []) + [
+            f"Preserve case {test_cases.case_text(case)}: the suite run on the original code with the change's "
+            "test files timed out or did not report every test, so its test "
+            f"{case['test_name']} is not shown to pass before and after the change" for case in unproven]
+        if proof["verdict"] == verify.PASS:
+            proof["verdict"] = verify.UNVERIFIED
     failures += [
         f"Preserve case {test_cases.case_text(case)} has a test that fails on the original code, so it "
         "describes behavior the fix restores: tag it restore, or rewrite the test to assert the behavior "

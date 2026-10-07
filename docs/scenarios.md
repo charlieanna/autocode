@@ -80,6 +80,31 @@ Exit codes and verdicts follow [testing](testing.md#live-trial-results):
 `--authorize-deployment` flag is required to schedule deployment workstreams;
 `PROGRAM-01` generates descriptors as ordinary code and does not need that flag.
 
+In program mode the first gate is the program agreement (`WAITING_AGREEMENT_APPROVAL`,
+see [programs](program.md)). As with plans, only the offline fixture profile approves
+it; a live profile stops there, an `HONEST_BLOCKER`, until a person reads it with
+`autocode program show` and approves its exact token. The driver also stops at any other
+program-level pause (`PAUSED_INTEGRATION_CHECK`, `PAUSED_INHERITANCE`, ...), which the
+controller raises again before it advances any workstream, except
+`PAUSED_MERGE_CONFLICT`: a conflict holds only its own workstream, so the driver keeps
+serving the other workstreams' gates.
+
+The scenario harness has a program mode of its own, separate from `live_trial.py`: a
+catalog scenario with `category = "program"` is driven through `autocode program plan`,
+`derive`, `show`, `approve` and `run` passes, with real workstream runs. The
+`program-notes-cli` scenario covers the walking skeleton, two parallel workstreams, an
+accepted interface change request that re-checks the producer and its consumers, and
+the final check by journey; its broken variants are caught by the cumulative checks
+(`HONEST_BLOCKER`) and only by the hidden journey test (`FALSE_COMPLETE`):
+
+```sh
+.venv/bin/python scenarios/run.py run program-notes-cli --fake
+```
+
+Unlike `live_trial.py`, that driver approves the agreement and every workstream's plan
+under a live profile too, as its single-run driver approves the plans it is shown. See
+[scenarios/README.md, Programs](../scenarios/README.md#programs).
+
 ## When a scenario counts as reliably passing
 
 The live qualification rule (#110, as practised): a rung passes only with
@@ -130,6 +155,10 @@ comparison); `tests/test_catalogue_t12.py` records the remaining gap.
   Its `deploy` workstream is `kind: code` because it writes descriptors only; it still
   forbids running Docker or reaching external systems. Integration depends on that
   descriptor workstream so final verification includes its files. Nothing is deployed.
+  Its `contracts` workstream is the walking skeleton: the contracts plus every process
+  answering `/health` and the catalog listed through the gateway, verified by
+  `tests/test_skeleton.py` (the manifest's program check) before any other workstream
+  starts. The oracle does not score that file.
 - These oracles execute candidate Python locally; they are not a security sandbox.
   Subprocess deadlines and process-group cleanup bound ordinary hangs and clean up
   ordinary descendants, but do not contain hostile code or children that detach into

@@ -104,6 +104,10 @@ the code as it is. Something that already holds, or holds as soon as a directory
 package directory imports without __init__.py, so "the package is importable" passes before the change and the
 runner can never prove it. Make the "test:" criteria the behavior the new code adds or fixes (a function's
 result, a command's output, a refused input).
+A command that must fail (a usage error, a refused input) is checked inside the criterion's test; if a
+verification_method does name such a command, end it with "and assert exit N" right after the commands (N/M with
+one status per command for several), because the runner replays every command a method names as a check that
+must exit 0 unless that declaration says otherwise.
 Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
 same kind of example, with verification_method "guard: test_<criterion id in lowercase>_<what it checks>". The
 runner checks that its test passes both before and after the change. Coverage of behavior the product already

@@ -20,9 +20,15 @@ the project (harness.oracle.IGNORED).
 A hybrid run (harness/hybrid.py) runs it through a config-registered tool instead of
 as ``codex``; AutoCode's prompt then asks for capture receipts, and the fake runs its
 check through the handoff's capture_command and cites the receipt (receipt_mode).
+
+In a program (scenarios/README.md, "Programs") every workstream is a run whose task is
+the program's workstream brief. The fake reads that brief as a model would and plans the
+workstream alone (``workstream``): a code workstream its own milestone, an integration
+workstream every requirement and journey it inherits, each under the inherited ids.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -49,6 +55,12 @@ RENEWED_OUTCOME = "Retain durable lesson answers and expose a browsable lesson c
 SCOPED_NOTE = "# Scoped consent: lesson note"
 SCOPED_DENIAL = "No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback."
 SCOPED_CONDITION = "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file."
+# The program's workstream brief (autocode_program.compose_brief): its first line, and the line naming the
+# requirement ids the workstream's plan must keep. tests/test_program.py checks the fake still reads them.
+WORKSTREAM_HEADER = re.compile(r"PROGRAM WORKSTREAM (\S+) \((\w+)\) of program ")
+INHERITED = re.compile(r"^Inherited requirements: keep each as an acceptance criterion of your plan with exactly "
+                       r"this id \(([^)]*)\)", re.M)
+WORKSTREAM: dict | None = None  # the program workstream this call serves (workstream()), set in main()
 SCOPED_REQUEST = {"kind": "permission",
                   "discovered": "An optional explanatory comment can be added to lessons.py, already inside the current task's approved paths",
                   "impact": "The optional note requires consent; denial leaves an offline implementation of the original goal available",
@@ -107,8 +119,53 @@ def permission_changes() -> list[dict]:
              "answer_id": feedback[-1]["id"], "replacement": new[0], "example_correction": None}]
 
 
+def workstream() -> dict | None:
+    """The program workstream this call serves, {id, kind, inherited, task}, or None outside a program.
+
+    A report repair's packet has no task: it serves the workstream last seen in this worktree. That is
+    kept beside the configuration, never in the worktree (the program would count it as a delivered
+    file), one file per worktree because parallel workstreams call the fake at the same time."""
+    seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name(
+        "fake-workstream-" + hashlib.sha256(str(Path.cwd()).encode()).hexdigest()[:12] + ".json")
+    task = str(DATA.get("task") or "")
+    if not task:
+        return json.loads(seen.read_text()) if seen.is_file() else None
+    head = WORKSTREAM_HEADER.match(task)
+    if not head:
+        return None
+    inherited = INHERITED.search(task)
+    row = {"id": head.group(1), "kind": head.group(2), "task": task,
+           "inherited": [cid.strip() for cid in inherited.group(1).split(",") if cid.strip()] if inherited else []}
+    seen.write_text(json.dumps(row))
+    return row
+
+
+def conforms(path: str) -> bool:
+    """Whether the worktree already holds the solution's version of ``path``."""
+    here = Path.cwd() / path
+    return here.is_file() and here.read_bytes() == (Path(CONFIG["reference"]) / path).read_bytes()
+
+
+def workstream_scope(row: dict) -> tuple[list[dict], str, list[str]]:
+    """(milestones, check, paths) for one workstream: a code workstream plans only its own [fake] milestones
+    row, with no dependencies (the program merged them first) and the ids it inherits as its criteria, and
+    only validates when its files already match the solution (a re-check, milestone_task); the integration
+    workstream delivers the solution files no workstream merged, verified by the scenario's check, so a
+    program scenario's solution needs one (catalog.load)."""
+    if row["kind"] != "code":
+        return [], CONFIG["check"], [path for path in ALL_PATHS if not conforms(path)]
+    own = next((item for item in CONFIG.get("milestones") or [] if item["id"] == row["id"]), None)
+    if own is None:
+        raise SystemExit(f"fake_codex: program workstream {row['id']} has no [fake] milestones row")
+    return [{**own, "depends_on": [], "criteria": row["inherited"] or [criterion_id(own["id"])]}], own["verify"], \
+        list(own["paths"])
+
+
 def request() -> str:
-    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes."""
+    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes.
+    A program workstream's request is its own brief."""
+    if WORKSTREAM:
+        return WORKSTREAM["task"]
     if not CONFIG.get("turns") or not DATA.get("task"):
         return CONFIG["brief"]
     return str(DATA["task"]).split(FOLLOW_UP, 1)[0]
@@ -332,13 +389,50 @@ def milestone_row(milestone_id: str) -> dict:
     return next(row for row in MILESTONES if row["id"] == milestone_id)
 
 
+def criterion_ids(milestone_id: str) -> list[str]:
+    """The criteria a milestone's plan names: C_<id>, or the ids a program workstream inherits."""
+    return list(milestone_row(milestone_id).get("criteria") or [criterion_id(milestone_id)])
+
+
 def milestone_task(milestone_id: str) -> dict:
     row = milestone_row(milestone_id)
-    return {"kind": "implement", "milestone_id": milestone_id, "objective": row["objective"],
+    # A program workstream re-checked after an agreement revision may find its files already right.
+    rechecked = WORKSTREAM is not None and all(conforms(path) for path in row["paths"])
+    return {"kind": "validate" if rechecked else "implement", "milestone_id": milestone_id,
+            "objective": row["objective"],
             "affected_paths": list(row["paths"]), "requirements": [row["objective"]],
-            "validation_plan": [row["verify"]], "acceptance_criteria": [criterion_id(milestone_id)],
+            "validation_plan": [row["verify"]], "acceptance_criteria": criterion_ids(milestone_id),
             "contract_revision": (DATA.get("goal_contract") or {}).get("revision", 0),
             "contract_hash": (DATA.get("goal_contract") or {}).get("hash", "")}
+
+
+def first_test(paths: list[str]) -> str | None:
+    """The first test function in the solution's version of the Python test files among ``paths``."""
+    for path in paths:
+        source = Path(CONFIG["reference"]) / path
+        if Path(path).name.startswith("test_") and path.endswith(".py") and source.is_file():
+            found = re.search(r"^\s+def (test_\w+)\(", source.read_text(), re.M)
+            if found:
+                return found.group(1)
+    return None
+
+
+def verification_method(row: dict) -> str:
+    """A milestone's check; a re-checked workstream whose files already conform guards its criteria with a
+    test it already has, as a live Planner marked a skeleton's re-check (2026-10-06), so the runner's
+    regression proof runs on an unchanged source."""
+    test = first_test(row["paths"]) if milestone_task(row["id"])["kind"] == "validate" else None
+    return "guard: " + test if test else row["verify"]
+
+
+def integration_method(cid: str) -> str:
+    """The final check's mark for an inherited id, as its brief asks: the merged product already delivers it,
+    so it is a guard naming a test a merged workstream has (C_<id>), or the journey test the final check adds
+    without changing the product; the runner's regression proof then runs against the integration head."""
+    rows = {criterion_id(row["id"]): row for row in CONFIG.get("milestones") or []}
+    owned = [path for path in ALL_PATHS if not any(path in row["paths"] for row in rows.values())]
+    test = first_test(rows[cid]["paths"] if cid in rows else owned)
+    return "guard: " + test if test else CHECK
 
 
 def done_milestones(data: dict) -> set:
@@ -361,7 +455,7 @@ def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
     """Run one milestone's verification and record it as a real command event
     whose id the reports then cite, the way the runner requires."""
     import shlex
-    event_id = "check-" + (uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24] if PROGRESSIVE else
+    event_id = "check-" + (uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24] if PROGRESSIVE or WORKSTREAM else
                           re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")[:24])
     proc = subprocess.run(shlex.split(command), cwd=Path.cwd(), capture_output=True, text=True, timeout=600)
     emit({"type": "item.completed", "item": {
@@ -465,13 +559,13 @@ def contract(final: bool = False) -> dict:
     }
     if MILESTONES:
         body["milestones"] = [{"id": row["id"], "objective": row["objective"],
-                               "acceptance_criteria": [criterion_id(row["id"])],
+                               "acceptance_criteria": criterion_ids(row["id"]),
                                "depends_on": list(row.get("depends_on", [])),
                                "affected_paths": list(row["paths"])} for row in MILESTONES]
         body["deliverables"] = [p for row in MILESTONES for p in row["paths"]]
-        body["acceptance_criteria"] = [{"id": criterion_id(row["id"]), "criterion": row["objective"],
-                                        "verification_method": row["verify"], "human_review": False}
-                                       for row in MILESTONES]
+        body["acceptance_criteria"] = [{"id": cid, "criterion": row["objective"],
+                                        "verification_method": verification_method(row), "human_review": False}
+                                       for row in MILESTONES for cid in criterion_ids(row["id"])]
         if final:
             first = milestone_task(MILESTONES[0]["id"])
             body["initial_task"] = {key: first[key] for key in
@@ -489,6 +583,14 @@ def contract(final: bool = False) -> dict:
         rows = scripted_fault("vacuous_refusal_provider.py")["criteria"](scenario_dir() / "reference")
         body["acceptance_criteria"] = rows
         body["milestones"][0]["acceptance_criteria"] = [row["id"] for row in rows]
+    if WORKSTREAM and WORKSTREAM["kind"] != "code":
+        # The integration workstream keeps every requirement and journey it inherits, by id; the
+        # scenario's check is the merged product's whole check.
+        ids = WORKSTREAM["inherited"] or ["C1"]
+        body["acceptance_criteria"] = [{"id": cid, "criterion": f"{cid} holds on the merged product",
+                                        "verification_method": integration_method(cid), "human_review": False}
+                                       for cid in ids]
+        body["milestones"][0]["acceptance_criteria"] = ids
     if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
         body["task_kind"] = "bugfix"  # planned from a bug diagnosis
     if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
@@ -599,7 +701,10 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
     def has(*patterns):
         return any(re.search(pattern, text) for pattern in patterns)
 
-    if (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
+    if WORKSTREAM_HEADER.match(brief):
+        # A program workstream builds; its brief's "satisfy human review" is not a request for a review.
+        kind, signal = "build", "a program workstream brief"
+    elif (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
         kind, signal = "build", "follow-up: act on the review's findings"
     elif ((follow_up or {}).get("previous_design") or {}).get("mode") == "review" and not has(r"\bbuild\b",
                                                                                               r"\bimplement\b"):
@@ -1008,10 +1113,10 @@ def report_for(stage: str, data: dict) -> dict:
         return {**common, "summary": f"Applied milestone {row['id']} from the reference solution",
                 "changed_files": applied, "commands_run": [row["verify"]],
                 "results": [f"exit {code}"], "remaining_risks": [],
-                "evidence_refs": [evidence], "addressed_requirements": [criterion_id(row["id"])],
+                "evidence_refs": [evidence], "addressed_requirements": criterion_ids(row["id"]),
                 "untested_behavior": [], "recommended_checks": [row["verify"]]}
-    if stage == "terra" and CONFIG.get("turn_paths"):
-        # Deliver this turn's files only, and only those the runner assigned.
+    if stage == "terra" and (CONFIG.get("turn_paths") or WORKSTREAM):
+        # Deliver this turn's (or this workstream's) files only, and only those the runner assigned.
         assigned = tuple((data.get("current_task") or {}).get("affected_paths") or PATHS)
         for rel in (path for path in PATHS if path.startswith(assigned)):
             destination = Path.cwd() / rel
@@ -1033,7 +1138,7 @@ def report_for(stage: str, data: dict) -> dict:
             # The last milestone validates the whole contract, end to end.
             code = run_check()
             status = "PASS" if code == 0 else "FAIL"
-            every = [criterion_id(row["id"]) for row in MILESTONES]
+            every = [cid for row in MILESTONES for cid in criterion_ids(row["id"])]
             checks = [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}]
             criteria = [{"id": cid, "status": status, "evidence_refs": ["event:check"]} for cid in every]
             return {**common, "verdict": status, "checks_run": [CHECK], "findings": [],
@@ -1048,8 +1153,8 @@ def report_for(stage: str, data: dict) -> dict:
             code, evidence = run_verify(row["verify"])
             status = "PASS" if code == 0 else "FAIL"
             checks.append({"command": row["verify"], "exit_code": code, "evidence_ref": evidence})
-            criteria.append({"id": criterion_id(milestone_id), "status": status,
-                             "evidence_refs": [evidence]})
+            criteria += [{"id": cid, "status": status, "evidence_refs": [evidence]}
+                         for cid in criterion_ids(milestone_id)]
             member_results.append({"milestone_id": milestone_id, "status": status,
                                    "summary": f"{row['verify']} exited {code}",
                                    "evidence_refs": [evidence]})
@@ -1099,8 +1204,7 @@ def report_for(stage: str, data: dict) -> dict:
         task = data.get("current_task") or {}
         done = done_milestones(data)
         approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") \
-            or [{"id": criterion_id(row["id"]), "criterion": row["objective"]}
-                for row in MILESTONES]
+            or [{"id": cid, "criterion": row["objective"]} for row in MILESTONES for cid in criterion_ids(row["id"])]
         verified = list(task.get("acceptance_criteria") or [])
         upcoming = next_milestone(done)
         if not upcoming:
@@ -1119,7 +1223,7 @@ def report_for(stage: str, data: dict) -> dict:
             report["affected_paths"] = list(upcoming["paths"])
             report["next_task"] = {"kind": "implement", "milestone_id": upcoming["id"],
                                    "requirements": [upcoming["objective"]],
-                                   "acceptance_criteria": [criterion_id(upcoming["id"])],
+                                   "acceptance_criteria": criterion_ids(upcoming["id"]),
                                    "validation_plan": [upcoming["verify"]], "findings": []}
         else:
             report["status"] = "COMPLETE"
@@ -1200,9 +1304,12 @@ def main() -> int:
     if "CURRENT HANDOFF DATA\n" not in prompt:
         emit({"error": "no handoff data"})
         return 0
-    global DATA, PATHS
+    global DATA, PATHS, WORKSTREAM, MILESTONES, CHECK
     data = DATA = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     PATHS = turn_paths()
+    WORKSTREAM = workstream()
+    if WORKSTREAM:
+        MILESTONES, CHECK, PATHS = workstream_scope(WORKSTREAM)
     original = data.get("original") or {}
     stage = data.get("stage") or original.get("stage") or ""
     if data.get("report_repair"):

@@ -71,6 +71,30 @@ class ReplayTests(unittest.TestCase):
                     self.assertIn(word, message)
                 self.assertIn("clean checkout", message)
 
+    def test_a_planned_command_that_must_fail_is_named_as_the_plans_and_the_rule_says_how(self):
+        # A live repair task's validation plan named usage errors in backticks and said "check that each exits 2":
+        # the replay asked the Validator to cite passing checks three times, and the run paused (2026-10-06).
+        step = ("With NOTES_FILE set, run `python3 -m notes add` and `python3 -m notes bogus`. Check that each "
+                "exits 2 with empty stdout.")
+        state = {"current_task": {"validation_plan": ["python3 -m unittest", step]}}
+        def run(workspace, out, *, command, timeout):
+            return receipt(2 if "notes" in command else 0, tail="Usage: notes <command> [args]")
+        with self.assertRaises(ValueError) as rejected:
+            check_replay.replay([{"command": "python3 -m unittest", "exit_code": 0, "evidence_ref": "event:a"}],
+                                "/ws", self.run_dir, self.record, run, approved_state=state)
+        message = str(rejected.exception)
+        self.assertIn("Check `python3 -m notes add` is required by the approved verification methods or the current "
+                      "task's validation plan (the Validator did not report it)", message)
+        self.assertIn("the plan's author (the Resolver, for a repair task) must reword that step", message)
+        self.assertIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, message)
+        self.assertNotIn("was reported as exit", message)
+        # A failing check the Validator reported keeps its own message.
+        with self.assertRaises(ValueError) as reported:
+            check_replay.replay([{"command": "python3 -m notes add", "exit_code": 0, "evidence_ref": "event:b"}],
+                                "/ws", self.run_dir, self.record, run)
+        self.assertIn("was reported as exit 0", str(reported.exception))
+        self.assertNotIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, str(reported.exception))
+
     def test_an_unrelated_success_does_not_replace_the_approved_command(self):
         calls = []
         state = {"current_task": {"validation_plan": ["python3 -m unittest test_greet.py"]}}
@@ -311,6 +335,23 @@ class ScratchReplayTests(unittest.TestCase):
         self.assertEqual("PASS", self.replay("test -f app.txt && test -f new.txt")["verdict"])
         with self.assertRaisesRegex(ValueError, "exited 1"):
             self.replay("test -f local-only.txt")
+
+    def test_a_check_that_runs_git_status_is_refused_before_anything_runs(self):
+        # A live skeleton's check ended in a grep over git status: it passed while its files were uncommitted, and
+        # failed once the program committed and merged them, which undid a correct merge (2026-10-06).
+        live = ("sh -c 'find notes tests -type f -not -name \"*.pyc\" | sort; "
+                "git status --short --untracked-files=all | grep -v pycache'")
+        for command in (live, "git -C . status --porcelain", "sh -c 'test -z \"$(git status --porcelain)\"'"):
+            with self.subTest(command=command):
+                with self.assertRaises(ValueError) as refused:
+                    self.replay(command)
+                self.assertIn("runs git status", str(refused.exception))
+                self.assertIn(check_replay.WORKTREE_STATE_HINT, str(refused.exception))
+        self.assertFalse(self.run_dir.exists() and any(self.run_dir.rglob("check-01")))  # refused, never run
+        for command in ("git log -1 --format=%s", "sh -c 'git ls-files | grep -v status'", "test -f app.txt"):
+            with self.subTest(command=command):
+                self.assertEqual("PASS", self.replay(command)["verdict"])
+        self.assertIn("Never cite a check that runs git status", check_replay.VALIDATOR_NOTE)
 
     def test_file_inventory_must_exclude_git_metadata_even_when_it_is_a_file(self):
         code = ("from pathlib import Path; "
