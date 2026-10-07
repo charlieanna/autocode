@@ -605,13 +605,15 @@ acknowledges it. A flag for any other limit is still saved, even when it restate
 default, but it is only a settings change. The pause stays in force, and AutoResolver
 asks its operational request again under the new settings, answered or not. For
 example, `--max-stage-seconds` on a run paused for exhausted recoveries changes the
-stage limit and launches nothing. Enabling `--joint-planning` is a settings change too:
-planning restarts once the pause is released.
+stage limit and launches nothing. Enabling `--joint-planning` once the request is
+answered is a settings change too: planning restarts once the pause is released. While
+an unanswered operational request is shown it is refused, and the setting is not saved.
 
 Input that arrives while an operational pause holds the run is applied by the next
 invocation, without starting a provider, and the pause stays in force. A pause or
-feedback intervention is applied as usual, and `--resume-paused` then acknowledges it
-and returns the run to the earlier pause, whose own rules apply. Those include the one
+feedback intervention is applied as usual, also by a `--resume-paused` that finds it
+still queued, and the next `--resume-paused` then acknowledges it and returns the run to
+the earlier pause, whose own rules apply. Those include the one
 re-evaluation of corrective information already sent for its request (see below), which
 applies only while the run is as that information found it; applied feedback changes the
 run, so the request is asked again instead. Feedback acknowledges only a pause that
@@ -623,6 +625,9 @@ run-local `pause-requested` file keeps the run at its pause until you remove it.
 input is applied, an unanswered operational request is asked again. If the same command
 also acknowledges the pause (the exhausted bound's flag, `--grant-recovery`), the pause is
 released first, and a queued pause intervention then pauses the released run.
+`--retry-builder` is checked only after queued input is applied, so it does not release
+the pause in that command: the input is applied under the pause, the retry is not
+applied, and you send it again with `--resume-paused`.
 
 An `--answer` or `--approve-goal` given with `--resume-paused` dispatches the next stage
 in the same command once it clears a human gate (#509). At an operational pause there is

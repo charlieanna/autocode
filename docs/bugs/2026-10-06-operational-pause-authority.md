@@ -7,7 +7,8 @@ admitted, only by the operator's authority for that pause. A settings write is n
 that authority, and neither is a pause intervention, queued feedback, a requested
 pause, enabling joint planning, an edited goal or a design reference revision. A review
 of the first fix found more paths; they are in "Review follow-ups" below.
-"Composition with #509 and #581" covers the merge with those changes.
+"Composition with #509 and #581" covers the merge with those changes, and "Second
+review" the paths a review of the whole branch found.
 
 ## Reproduced behavior
 
@@ -60,7 +61,11 @@ no-progress and the milestone budgets). Most statuses have no such guard.
   The republish, the reconsideration and the answered-frontier hold therefore apply.
 - `load_locked` asks again for every pause, not only the active-time limit, after a
   settings write withdraws the request without changing its bound. It uses the
-  request's own cause.
+  request's own cause. The generic re-ask in `run_actions.handle` covers a plain or
+  resuming command, but not one whose other input is then refused or only shows the
+  goal (`--feedback`, `--approve-goal`, `--show-goal`): without this the refusal named
+  a request that no longer existed
+  (`test_a_settings_write_beside_other_input_leaves_the_request_asked`).
 - `record_operational_exhaustion` refuses while any interruption is pending
   (`resolver_human.pending_interruptions`, the same set the binding uses). The input
   is applied first, and the request is asked afterwards.
@@ -156,7 +161,9 @@ information once (`resolver.information_reviews`, the `information_review` view 
   operational request takes only `--resolver-response`, so `--answer` is refused, and
   `--approve-goal` finds no plan request to approve. The tests send both with
   `--resume-paused` at every pause after an answered request, and at a sample of
-  unanswered ones. Nothing launches. The next `--resume-paused` then admits exactly
+  unanswered ones, with the token AutoResolver showed. Each is refused when it is
+  checked, so #586's dispatch decision is never reached, and the test asserts each
+  refusal. Nothing launches. The next `--resume-paused` then admits exactly
   what the answered request alone admits, and #581 records the same decision (held or
   admitted), so neither input uses up or stands in for that one re-evaluation.
 - **An edited goal put a human gate in place of the pause.** `--edit-goal` was
@@ -190,10 +197,52 @@ information once (`resolver.information_reviews`, the `information_review` view 
   on this branch and on master `0175e89` recorded identical stages and
   `information_review` decisions for all 21 pauses.
 
+## Second review
+
+A review of the whole branch, merged with master `deb3a7a`, found one more release, which
+master shares, and one lost answer. On master that second order launched the Tester
+through the stranded-request path the first fix closed; on the branch it held instead.
+
+- **An unchecked `--retry-builder` counted as the pause's authority.**
+  `explicit_recovery_requested` counted any `--retry-builder` value, but the CLI checks
+  the milestone only after it applies queued input (`dispatch.try_request_retry`). So
+  `--resume-paused --retry-builder M-unknown` with a pause queued on an answered request,
+  or feedback queued on an unanswered one, applied that input to a released run. The
+  retry was then refused, or never checked, and the next plain `--resume-paused`
+  launched the Tester (or Requirements, after feedback) at all 21 pauses. Now only the
+  authority checked before the input is applied releases the pause
+  (`explicit_recovery_requested(..., checked=True)`), and the command says the retry was
+  not applied (`test_a_builder_retry_is_no_authority_until_it_is_checked`).
+- **A pause applied by `--resume-paused` itself retired the answer.** After an answered
+  request, "pause, plain invocation, `--resume-paused`" continued at a stop caused
+  outside the run as #581 decides, but "pause, `--resume-paused`, `--resume-paused`"
+  held and asked the request again: the first resume ran the information review while
+  the pause was still in the inbox, which is part of the binding the information was
+  sent for, so the review retired it as stale. That failed closed but contradicted the
+  rule that the intervention adds nothing. Now that resume applies the queued input
+  under the pause before the review
+  (`test_no_pause_intervention_releases_any_answered_operational_pause`, both orders).
+  Queued feedback still changes the run, so its request is asked again.
+- **Smaller corrections.** `load_locked` decides whether the operator changed the
+  exhausted bound with `pause_authority.changes_held_bound` instead of its own table,
+  which lacked `PAUSED_MILESTONE_BUDGET`: that bound's own flag still resumed, but the
+  withdrawn request recorded "Settings changed without changing the exhausted bound".
+  `held_pause` is recorded for any pause an intervention interrupts, and for a pause
+  that is not operational the stop reason no longer says only its own authority
+  releases it (a plain `--resume-paused` does). The process-level test of sequence (b)
+  now uses `PAUSED_TIMEOUT_RECOVERY`, where the answer alone holds; at
+  `PAUSED_RESOLVER_OPERATIONAL` #581 already continues, so it passed on master. The
+  pure checks moved to `tests/test_pause_authority.py`, which `--changed` selects for
+  `autocode_pause_authority` and `autocode_stop`.
+
 ## Not changed
 
 - **`autopilot.dispatch_unit`.** It has the same save-then-launch shape as the build
   loop's dispatch. It is used only by the `autopilot` entry, and `autopilot.py` is
   not grown here.
-- **`--joint-planning` on an unanswered request** stops in `configure` with an
-  uncaught `ValueError`. That fails closed, but it is not a clean refusal.
+- **`--joint-planning` on an unanswered request** is refused by `configure` ("Start a
+  new run or reach an approved execution boundary before enabling joint planning",
+  exit 2) and the setting is not saved, on master too.
+- **A stalled-validation hold in the information review** advises revising the goal
+  with `--feedback`, which a conversation checkpoint then refuses for lack of text.
+  That is #581's advice, unchanged here and on master.
