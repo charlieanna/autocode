@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_support as support
+    from . import autocode_support as support, autocode_cmd_only_report as cmd_only
     from . import autocode_opencode as opencode
     from .autocode_util import read as read_json
 except ImportError:
-    import autocode_support as support
+    import autocode_support as support, autocode_cmd_only_report as cmd_only
     import autocode_opencode as opencode
     from autocode_util import read as read_json
 
@@ -99,7 +99,10 @@ def recovered_timeout_attempt(record, stage_completed):
 
 
 def repair_report_instruction(pending):
-    """State the stricter source-only rule when the original output was cut off."""
+    """State the stricter source-only rule when the original output was cut off, and that a
+    shell command returned as the report holds nothing to repair (autocode_cmd_only_report)."""
+    if cmd_only.matches(pending.get('error')):
+        return cmd_only.REPAIR_INSTRUCTION
     truncated = bool((pending.get('original') or {}).get('truncated_output')
                      or (pending.get('latest_rejected') or {}).get('truncated_output'))
     if truncated:

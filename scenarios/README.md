@@ -117,6 +117,15 @@ unnoticed (issue #15).
 wrong solution. Because its own checks pass, AutoCode completes, and the
 harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 
+`SCENARIO_FAKE_CMD_ONLY=<stage>[:<count>]` in the environment makes the scripted
+model end that stage's first `<count>` calls (every call without a count, report
+repairs and corrections included) with a shell command, `{"cmd": ...}`, instead
+of its report, as a Codex-transport model did
+([#512](../docs/bugs/2026-10-07-cmd-only-final-message.md));
+`tests/test_cmd_only_report_cli.py` drives it. The scripted model answers a
+same-session correction, which carries no handoff, from the handoff it kept for
+that session beside its configuration, never in the project.
+
 `run --profile NAME --provider OTHER` runs the profile's models and efforts
 through another provider (`kilocode`, or any tool set up as in
 `docs/providers.md`). The result records the provider, and its mode is
