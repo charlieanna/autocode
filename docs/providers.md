@@ -163,6 +163,49 @@ Non-interactive invocations default to the command-per-turn interface.
 For the connected Z.ai Coding Plan, use the OpenCode engine above. Changing the global
 provider/auth in local Codex config still pauses a saved Codex-engine run.
 
+### A final message that is only a shell command
+
+Some models served through a Codex transport sometimes end a stage with the
+arguments of a shell tool call instead of the stage's JSON report
+([#512](https://github.com/charlieanna/autocode/issues/512)):
+
+```json
+{"cmd": "ls docs/ && wc -l docs/*.md"}
+```
+
+AutoCode treats this as a known provider defect, never as a report, and never
+runs the command. A final message counts as only a command when its keys are
+`cmd` or `command` (holding a command) and, at most, the other arguments of a
+Codex shell call (`workdir`, `timeout_ms`, `yield_time_ms`, `max_output_tokens`,
+`shell`, `login`, `with_escalated_permissions`, `justification`), and none of
+them is a field of the stage's schema. A command whose text embeds a JSON report
+is still a command: AutoCode does not unwrap it, though a wrapper in your
+provider command may before AutoCode reads the report. The stage is rejected
+with `Provider final message is a shell command ({"cmd": ...}) instead of the
+JSON report; ...` and then:
+
+1. On a transport that keeps sessions (`--engine codex`, OpenCode, or a tool with
+   `output = "opencode_events"` and `resume`), the runner resumes the stage's own
+   session once and asks for the report alone, with no command. This correction
+   spends no report-repair attempt. It applies to every stage, planning stages
+   included, but only on the route (engine, provider, model, effort) that
+   started the session.
+2. Otherwise, or when that correction fails, the usual report-only repairs run
+   (`report_repair.max_attempts`, two by default), told that the rejected report
+   is a command with nothing to repair.
+3. A stage that keeps doing it stops there, usually at `PAUSED_REPEATED_FAILURE`,
+   with that reason in `stop_reason`. As for any stuck stage, the Investigator
+   looks at it first.
+
+**Roles affected.** Every stage's final message is checked, so every role is
+covered. The defect was seen (2026-10-05) on the roles one profile ran through
+Codex with the `gocode` provider: the Plan Reviewer (`astra_challenge`,
+`astra_finalize`) and the Tester (`sol`). Its Builder and Requirements ran
+through another tool and did not show it. No role is qualified on a route that
+shows the defect: if a role keeps stopping this way, run it on another model,
+and check a new tool/model pair with the
+[conformance probe](provider-conformance.md) first.
+
 ## Add a tool
 
 [`examples/claude-provider`](../examples/claude-provider/README.md) is a worked example: it registers the

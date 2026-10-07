@@ -1293,6 +1293,24 @@ def empty(schema: dict):
             "integer": int, "number": float, "null": lambda: None}.get(kind, lambda: None)()
 
 
+# Were it ever run, it would leave cmd-only-final-ran in the project (tests/test_cmd_only_report_cli.py).
+CMD_ONLY_FINAL = {"cmd": "touch cmd-only-final-ran && ls docs/ && wc -l docs/*.md"}
+
+
+def cmd_only_final(stage: str) -> bool:
+    """Fault SCENARIO_FAKE_CMD_ONLY=<stage>[:<count>] (issue #512): the stage's final message is a shell
+    command, ``{"cmd": ...}``, instead of its report, as a Codex-transport provider did for the Plan
+    Reviewer. Its first <count> calls answer so, report repairs and corrections included; with no count,
+    every call does. The count is kept beside the configuration, never in the project."""
+    wanted, _, count = os.environ.get("SCENARIO_FAKE_CMD_ONLY", "").partition(":")
+    if not wanted or wanted != stage:
+        return False
+    seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-cmd-only.json")
+    calls = json.loads(seen.read_text()) if seen.is_file() else 0
+    seen.write_text(json.dumps(calls + 1))
+    return not count or calls < int(count)
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
@@ -1301,9 +1319,16 @@ def main() -> int:
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     emit({"type": "thread.started", "thread_id": session})
+    # Each session's handoff, beside the configuration: a same-session correction
+    # (autocode_format_correction) carries none, and the model answers it from its session.
+    remembered = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-sessions") / f"{session}.txt"
+    if "CURRENT HANDOFF DATA\n" not in prompt and "resume" in sys.argv and remembered.is_file():
+        prompt = PROMPT = remembered.read_text()
     if "CURRENT HANDOFF DATA\n" not in prompt:
         emit({"error": "no handoff data"})
         return 0
+    remembered.parent.mkdir(exist_ok=True)
+    remembered.write_text(prompt)
     global DATA, PATHS, WORKSTREAM, MILESTONES, CHECK
     data = DATA = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     PATHS = turn_paths()
@@ -1338,6 +1363,8 @@ def main() -> int:
             if field not in schema.get('properties', {}):
                 report.pop(field, None)
         complete(report, schema)
+    if cmd_only_final(stage):
+        report = dict(CMD_ONLY_FINAL)
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
     # Plausible usage, so a reader of the events is not misled by an all-zero turn.
     emit({"type": "turn.completed", "usage": {"input_tokens": max(1, len(prompt) // 4),
