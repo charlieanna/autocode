@@ -6,10 +6,11 @@ request itself (--grant-recovery, --retry-failed-stage, --abandon-stage, a route
 resolver response). A budget flag for any other bound is a settings write, not that authority,
 and neither is a pause intervention, queued feedback, a requested pause or enabling joint
 planning (autocode_stop records the pause an intervention interrupted). A correction (brief
-feedback, an edited goal) is a pause's own authority only where that pause offers feedback
-(feedback_acknowledges): the exhausted plan-review budget, and the validation-only stop, whose
-request names --feedback. Elsewhere it would put a human gate in place of the pause, which an
-answer or approval with --resume-paused then dispatches past at once (#509).
+feedback, an edited goal, a design reference revision) is a pause's own authority only where
+that pause offers feedback (feedback_acknowledges): the exhausted plan-review budget, and the
+validation-only stop, whose request names --feedback. Elsewhere it would put a human gate in
+place of the pause, which an answer or approval with --resume-paused then dispatches past at
+once (#509).
 
 held_origin() names the pause from the run's own records: its live or queued operational
 request, the request its answer consumed, else its saved status. interrupted() is the pause an
@@ -156,7 +157,7 @@ def operational(status):
 
 
 def correction_refusal(state, correction):
-    """Why ``correction`` (brief feedback, an edited goal) may not restart planning past the pause holding ``state``.
+    """Why ``correction`` (feedback, an edited goal, a design revision) may not restart planning past the held pause.
 
     None when it may. A correction asks for a fresh approval in place of the pause, and an approval
     with --resume-paused dispatches the Planner at once (#509), so it is refused at an operational
