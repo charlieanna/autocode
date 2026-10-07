@@ -135,7 +135,7 @@ class ControllerFindingsTests(unittest.TestCase):
         self.assertEqual(len(prior_history) + 1, len(row["assigned_history"]))
         self.assertEqual(self.state["current_task"]["id"], row["assigned_history"][-1]["task_id"])
 
-    def test_ac2_resolver_rejects_added_and_duplicate_criteria(self):
+    def test_resolver_cannot_add_or_duplicate_criteria(self):
         diagnosis, record = self.resolver_fixture()
         for change in ("unknown", "duplicate"):
             value = copy.deepcopy(diagnosis)
@@ -147,6 +147,15 @@ class ControllerFindingsTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(support.Paused):
                 runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
             self.assertEqual(before, self.state)
+
+    def test_a_resolver_that_restates_a_criterion_keeps_the_approved_wording(self):
+        # Since #627 (issue 624) a restatement no longer rejects the report; it cannot redefine the criterion.
+        diagnosis, record = self.resolver_fixture()
+        approved = copy.deepcopy(self.state["acceptance_criteria"])
+        diagnosis["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
+        runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
+        self.assertEqual(approved, self.state["acceptance_criteria"])
+        self.assertEqual(approved, self.state["last_decision"]["report"]["acceptance_criteria"])
 
     def test_blocked_user_request_records_the_finding_before_pausing(self):
         decision = self.astra_decision("BLOCKED", "Missing authorization check", output="blocked.json")

@@ -14,3 +14,12 @@ sol = { model = "claude-sonnet-5-5", effort = "medium" }
 completion = { model = "claude-opus-5-5", effort = "medium" }
 glm = { model = "claude-sonnet-5-5", effort = "medium" }
 plan_reviewer = { model = "claude-opus-5-5", effort = "medium" }
+
+# After the ordinary retry a failing milestone's Builder moves to strong_model at strong_effort (xhigh when
+# unset; `claude -p --model claude-sonnet-5-5 --effort xhigh` is accepted, checked 2026-10-07). A Tester or
+# Completion Reviewer on that model moves to checker_model until the next milestone. Copy a changed file to
+# ~/.config/autocode/providers/ only between batches: a saved run whose config changed stops with
+# PAUSED_TRANSPORT_CHANGED.
+[builder_retry]
+strong_model = "claude-sonnet-5-5"
+checker_model = "claude-opus-5-5"
