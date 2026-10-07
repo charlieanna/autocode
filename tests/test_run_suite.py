@@ -6,11 +6,15 @@ listed modules from the discovered suite (each with a recorded reason, never
 silently), and fails loudly if an exclusion entry no longer matches anything
 discovered — so a stale exclusion is caught rather than quietly rotting.
 """
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_suite
@@ -190,6 +194,64 @@ class HarnessClassesTests(unittest.TestCase):
             self.assertEqual(["scenarios.no_such_harness"], run_suite.harness_tests())
         finally:
             run_suite.HARNESS = original
+
+
+class _Watched(io.StringIO):
+    """stdout that releases ``event`` once ``needle`` has been written."""
+
+    def __init__(self, needle, event):
+        super().__init__()
+        self.needle, self.event = needle, event
+
+    def write(self, text):
+        written = super().write(text)
+        if self.needle in self.getvalue():
+            self.event.set()
+        return written
+
+
+class PromptFailureOutputTests(unittest.TestCase):
+    """#545: a finished failing module's output is printed while other modules are still running."""
+
+    def run_with_pending_module(self, verbosity):
+        printed = threading.Event()
+        seen_while_pending = []
+
+        def run_module(module, _verbosity):
+            if module == "tests.test_slow":
+                # Finishes only after the failure's traceback is out, or after the bound if it never comes.
+                seen_while_pending.append(printed.wait(10))
+                return {"module": module, "ok": True, "seconds": 0.0, "tests": 4, "output": "slow output\n"}
+            return {"module": module, "ok": False, "seconds": 0.0, "tests": 2,
+                    "output": "Traceback: AssertionError in test_broken\n"}
+
+        out = _Watched("Traceback: AssertionError in test_broken", printed)
+        with mock.patch.object(run_suite, "run_module", run_module), contextlib.redirect_stdout(out):
+            ok = run_suite.run_parallel(["tests.test_slow", "tests.test_broken"], 2, verbosity)
+        return ok, seen_while_pending, out.getvalue()
+
+    def test_a_failure_is_printed_while_another_module_is_still_running(self):
+        for verbosity in (1, 2):
+            with self.subTest(verbosity=verbosity):
+                ok, seen_while_pending, output = self.run_with_pending_module(verbosity)
+                self.assertEqual([True], seen_while_pending)
+                self.assertFalse(ok)
+                self.assertEqual(1, output.count("Traceback: AssertionError in test_broken"))
+                self.assertLess(output.index("FAIL: tests.test_broken"), output.index("ok      0.0s  tests.test_slow"))
+                self.assertIn("Ran 6 tests in 2 modules, 2 at a time", output)
+                self.assertTrue(output.rstrip().endswith("1 module(s) FAILED: tests.test_broken"))
+                self.assertEqual(verbosity > 1, "slow output" in output)
+
+    def test_every_module_runs_and_all_failures_are_counted(self):
+        def run_module(module, _verbosity):
+            return {"module": module, "ok": module != "tests.test_c", "seconds": 0.0, "tests": 1, "output": module}
+
+        with mock.patch.object(run_suite, "run_module", run_module), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(run_suite.run_parallel(["tests.test_a", "tests.test_b", "tests.test_c"], 2, 1))
+            self.assertTrue(run_suite.run_parallel(["tests.test_a", "tests.test_b"], 2, 1))
+        lines = out.getvalue().splitlines()
+        self.assertIn("Ran 3 tests in 3 modules, 2 at a time, in 0s: 1 module(s) FAILED: tests.test_c", lines)
+        self.assertIn("Ran 2 tests in 2 modules, 2 at a time, in 0s: OK", lines)
 
 
 if __name__ == "__main__":

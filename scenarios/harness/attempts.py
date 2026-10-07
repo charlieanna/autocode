@@ -115,9 +115,21 @@ def observe(root, view):
     path = Path(root) / "attempt.json"
     value = read(path)
     if value is not None and isinstance(view.get("usage"), dict):
-        value.update(usage_snapshot=view["usage"], runner_status=view.get("status"),
+        value.update(usage_snapshot=totals(view["usage"]), runner_status=view.get("status"),
                      usage_observed_at=time.time())
         atomic_json(path, value)
+
+
+def totals(usage):
+    """The usage the record keeps: everything but the accounting's per-attempt and per-issue rows,
+    which are kept as counts. A long run reports one row per model attempt, and a three-turn build
+    outgrew MAX_RECORD_BYTES and stopped its harness mid-run; the run's own state keeps the rows."""
+    accounting = usage.get("accounting")
+    if not isinstance(accounting, dict):
+        return usage
+    rows = {key: row for key, row in accounting.items() if isinstance(row, list)}
+    return {**usage, "accounting": {**{key: row for key, row in accounting.items() if key not in rows},
+                                    **{f"{key}_rows": len(row) for key, row in rows.items()}}}
 
 
 def unfinished(root):

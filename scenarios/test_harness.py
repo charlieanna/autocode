@@ -515,6 +515,21 @@ class HarnessAttemptTests(unittest.TestCase):
                              ("runs", "passes", "streak", "interrupted", "usage_unknown", "median_model_minutes")))
             self.assertFalse((root / "result.json").exists())  # Reading stats never finalizes or resumes.
 
+    def test_a_long_run_s_usage_rows_never_outgrow_the_attempt_record(self):
+        # A three-turn build reported 40 attempt rows (150 KB) and stopped its harness mid-run.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "attempt"
+            self.admission(root)
+            row = {"stage": "terra", "tokens": {"input_tokens": {"known": 1, "total": 1}}, "note": "x" * 4000}
+            usage = {"cost_usd": {"reported": 9.3, "complete": True},
+                     "accounting": {"schema": 1, "attempts": [row] * 200, "issues": ["late"] * 50,
+                                    "tokens": {"output_tokens": {"known": 7, "total": 7}}, "complete": True}}
+            attempts.observe(root, {"status": "BUILDER_RUNNING", "usage": usage})
+            saved = attempts.read(root / "attempt.json")["usage_snapshot"]
+            self.assertEqual({"schema": 1, "attempts_rows": 200, "issues_rows": 50, "complete": True,
+                              "tokens": {"output_tokens": {"known": 7, "total": 7}}}, saved["accounting"])
+            self.assertEqual(usage["cost_usd"], saved["cost_usd"])
+
     def test_live_owner_is_pending_and_reused_birth_is_dead(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1830,6 +1845,50 @@ class TurnTests(unittest.TestCase):
         written = {"changed_files": ["docs/design/README.md", "docs/design/metadata-cache.md"]}
         self.assertEqual("docs/design/metadata-cache.md", design_document(None, {"turns": [{}, written, {}]}))
 
+    def test_a_build_turn_that_changed_no_code_does_not_follow_the_design(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            turns = lambda built: [{"changed_files": ["docs/decisions/metadata-cache.json"]},
+                                   {"changed_files": ["docs/design/metadata-cache.md"]}, {"changed_files": built}]
+            follows = lambda built: next(check for check in scenario.oracle()(project, scenario, {"turns": turns(built)})
+                                         if check.name == "build_follows_design")
+            self.assertFalse(follows([]).ok, "a build turn that wrote nothing cannot follow the design")
+            self.assertIn("changed nothing under app/", follows([]).detail)
+            self.assertTrue(follows(["app/shared_cache.py", "tests/test_shared_cache.py"]).ok,
+                            follows(["app/shared_cache.py"]).detail)
+
+    def test_a_design_s_private_helpers_do_not_bind_the_build(self):
+        """A live design listed `_check_fetch_budget(...)` among "example names"; the build merged two helpers."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            decided = design.read_text().replace("## Rejected", "## Helpers (example names)\n\n"
+                                                 "- `_check_fetch_budget(tld)`\n- `_read(key, now)`\n\n## Rejected")
+            follows = lambda extra: (design.write_text(decided.replace("## Rejected", extra + "## Rejected")),
+                                     next(check for check in scenario.oracle()(project, scenario)
+                                          if check.name == "build_follows_design"))[1]
+            self.assertTrue(follows("").ok, follows("").detail)
+            missing = follows("- `evict(key)` drops one entry.\n\n")
+            self.assertFalse(missing.ok, "a public callable the design names must still exist")
+            self.assertIn("missing from app/: ['evict']", missing.detail)
+
+    def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
+        """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
+        memo when it is missing, and the hidden tests failed it for not creating the directory."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.oracle import hidden_tests
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            cache = project / "app" / "shared_cache.py"
+            cache.write_text(cache.read_text().replace("        self.directory.mkdir(parents=True, exist_ok=True)\n", ""))
+            result = hidden_tests(project, scenario.dir / "hidden")
+            self.assertEqual(0, result.returncode, (result.stdout or "")[-1500:] + (result.stderr or "")[-1500:])
+
     def test_each_turn_records_what_it_changed_in_the_workspace(self):
         with tempfile.TemporaryDirectory() as root:
             project = Path(root)
@@ -2080,12 +2139,23 @@ class FakeRunTests(unittest.TestCase):
                 return self.run_fake(solution, scenario)
 
     def test_discuss_then_design_then_build_builds_the_design_its_second_turn_wrote(self):
-        result = self.run_fake("reference", "discuss-then-design-then-build")
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("discuss-then-design-then-build"), args)
+            state = json.loads((Path(result["evidence"]) / "state.json").read_text())
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["discuss", "design", "build"], [turn["workflow"] for turn in result["turns"]])
         # "Build it." named the design turn 2 wrote: it was checked as approved, and no Requirements ran.
         self.assertEqual(["recognize_workflow", "check_design"], result["turns"][2]["model_stage_names"][:2])
         self.assertNotIn("requirements_gather", result["turns"][2]["model_stage_names"])
+        # The Planner replaced the design turn's docs-only boundary in one row backed by "Build it."'s receipt,
+        # and the guard accepted it the first time (live runs were refused, then asked the user).
+        self.assertNotIn("astra_discovery_report_repair", result["turns"][2]["model_stage_names"])
+        rows = [row for revision in state.get("contract_history") or []
+                for row in revision.get("declared_changes") or [] if row.get("change") == "permission_changed"]
+        self.assertEqual([(state["turns"][-1]["event_id"], "Edit only app/, tests/ in this scenario workspace")],
+                         [(row["answer_id"], row["replacement"]) for row in rows])
 
     def test_a_design_turn_that_also_writes_code_is_judged_false_complete(self):
         # Nothing in the product limits a new design's Builder to documents; the per-turn check does.
@@ -2093,7 +2163,8 @@ class FakeRunTests(unittest.TestCase):
         result = self.run_copy("discuss-then-design-then-build", widened)
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
         failing = [check["name"] for check in result["checks"] if not check["ok"]]
-        self.assertEqual(["design_turn_changed_only_its_report"], failing)
+        # The code came in the design turn, so the build turn changed nothing under app/ either.
+        self.assertEqual(["build_follows_design", "design_turn_changed_only_its_report"], failing)
 
     def test_a_design_review_is_revised_in_the_same_run_as_the_user_answers_it(self):
         result = self.run_fake("reference", "design-review-with-answers")

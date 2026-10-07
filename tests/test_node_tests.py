@@ -97,8 +97,11 @@ class NodeTests(unittest.TestCase):
         self.assertEqual([], result['uncollected'])
 
     def test_timeout_and_running_abort_keep_complete_nonpassing_results(self):
+        # Keep Node's event loop alive until its test timeout, including on Node 22.
         sources = {
-            'testTimeoutFailure': "test('test_cancel', {timeout:100}, async()=>{await new Promise(()=>{});});",
+            'testTimeoutFailure': "test('test_cancel', {timeout:100}, async t=>{"
+                                 "const hold=setTimeout(()=>{},1000);t.after(()=>clearTimeout(hold));"
+                                 "await new Promise(()=>{});});",
             'testAborted': "const ac=new AbortController();"
                            "test('test_cancel',{signal:ac.signal,timeout:1000},async()=>{"
                            "setImmediate(()=>ac.abort(new Error('fixture abort')));await new Promise(()=>{});});",
@@ -120,7 +123,8 @@ class NodeTests(unittest.TestCase):
     def regression_proof(self, *, ordinary):
         preamble = "const {test}=require('node:test');const assert=require('node:assert/strict');const p=require('./product.cjs');\n"
         healthy = "test('test_existing',()=>assert.equal(p.existing(),1));\n"
-        cancelled = "test('test_increment',{timeout:100},async()=>assert.equal(await p.increment(4),5));\n"
+        cancelled = "test('test_increment',{timeout:100},async t=>{const hold=setTimeout(()=>{},1000);"
+        cancelled += "t.after(()=>clearTimeout(hold));assert.equal(await p.increment(4),5);});\n"
         restored = "test('test_restore',async()=>{for(const x of [-7,-1,0,4,16]){const value=p.increment(x);"
         restored += "assert.ok(value instanceof Promise);const pending=Symbol('pending');"
         restored += "assert.equal(await Promise.race([value,Promise.resolve(pending)]),x+1);}});\n"
