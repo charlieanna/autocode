@@ -53,8 +53,12 @@ opens.
 - `run_parallel` still prints each failed module's output when it finishes, and
   after the last module it prints `The failures again:` and each failed module's
   unittest report again (from its first `FAIL`, `ERROR` or `UNEXPECTED SUCCESS`
-  on, or the whole output when there is none). The repeat has no per-test result
-  lines. The per-module rows, the counts and the final
+  on, or the whole output when there is none). The repeat normally has no
+  per-test result lines. A module that stopped before its report (a crash or an
+  early exit) is repeated whole, and a module that printed a report-like block
+  to stdout, which comes before unittest's report, is repeated from that block;
+  either way a repeated result line names a test already read, so the verifier's
+  counts do not change. The per-module rows, the counts and the final
   `Ran N tests in M modules ...` line are unchanged.
 
 `--jobs 1` was never changed and still prints unittest's own report.

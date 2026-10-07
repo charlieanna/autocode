@@ -27,9 +27,10 @@ By default each test module runs in its own interpreter, one per CPU at a time.
 Most of the suite's time is spent waiting on subprocesses and timeouts, so
 running modules side by side cuts the wall time several times over. A failing
 module's whole output is printed as soon as it finishes, so a slow or hung
-module still running cannot hide it, and its failures (unittest's report from
-the first FAIL or ERROR on) are printed again before the summary, where a CI
-log opens (#545).
+module still running cannot hide it. Its failures are printed again before the
+summary, where a CI log opens: unittest's report from the first FAIL, ERROR or
+UNEXPECTED SUCCESS on, or the whole output of a module that stopped before its
+report (#545).
 
 --changed runs the tests for the files changed since a base (committed,
 staged, unstaged and untracked): a changed test module, the tests named after a
@@ -263,7 +264,8 @@ FAILURE_REPORT = re.compile(rf"^{'=' * 70}\n(?:FAIL|ERROR|UNEXPECTED SUCCESS): "
 
 def failure_report(output: str) -> str:
     """A failed module's output from unittest's first FAIL, ERROR or UNEXPECTED SUCCESS on, or all of it
-    when there is none (the module crashed or exited early): what the end of the run shows again."""
+    when there is none (the module crashed or exited early): what the end of the run shows again. The
+    module's stdout comes first, so such a block printed there starts the repeat."""
     found = FAILURE_REPORT.search(output)
     return output[found.start():] if found else output
 
@@ -272,11 +274,13 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
     """Run each module in its own process, ``jobs`` at a time. A failing module's whole output is printed
     as soon as it finishes, so a slow or hung module cannot hold back a finished failure (#545), and its
     failure report again at the end, so the tracebacks sit above the summary rather than under every later
-    module's output. The repeat holds no per-test result line and its headers name modules, not tests, so
-    the per-module rows, the counts and the summary line read as before. AutoCode's verifier reads this
+    module's output. The repeat normally holds no per-test result line; a module that stopped before its
+    report is repeated whole, and one that printed a report-like block to stdout from that block. Its
+    headers name modules, not tests, and a repeated result line names a test already counted, so the
+    per-module rows, the counts and the summary line read as before. AutoCode's verifier reads this
     output when a project declares run_suite as its suite command: it ends each traceback at its module's
-    "Ran N tests" footer (``autocode_test_setup.failure_details``), so later modules' output never reads
-    as part of one."""
+    "Ran N tests ... FAILED" footer (``autocode_test_setup.failure_details``), so later modules' output
+    never reads as part of one."""
     started = time.monotonic()
     failed = []
     tests = 0
