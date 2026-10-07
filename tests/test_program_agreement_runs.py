@@ -750,7 +750,9 @@ class AgreementTests(ProgramHarness):
         self.assertNotIn("b/service.py", self.integration_files(result))
         self.assertIn("a/service.py", self.integration_files(result))
 
-    def test_a_failing_manual_merge_says_it_is_still_on_the_integration_branch(self):
+    def fail_a_manual_merge(self, *, later_work=False):
+        """a's merge conflicts; a person resolves it by hand in a way that breaks a's check, then the program reruns.
+        With ``later_work`` a follow-up of a's run left work in a's worktree first (#626)."""
         path = self.write_manifest(manifest())
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
         _, result = self.run_program(path)
@@ -764,6 +766,8 @@ class AgreementTests(ProgramHarness):
         self.child_checks["a"] = ["grep -q external a/service.py"]  # passes only while the external repair stays
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]))
+        if later_work:
+            (Path(self.records(result)["a"]["workspace"]) / "a/retry.py").write_text("retry\n")
         git(integration, *program.GIT_IDENTITY, "merge", "--no-ff", "-X", "theirs", "--no-edit",
             self.records(result)["a"]["branch"])
         head = git(integration, "rev-parse", "HEAD")
@@ -772,6 +776,17 @@ class AgreementTests(ProgramHarness):
         self.assertNotIn("The merge was undone", result["next"])
         self.assertIn("Your merge is still on the integration branch", result["next"])
         self.assertEqual(head, git(integration, "rev-parse", "HEAD"))
+        return result
+
+    def test_a_failing_manual_merge_says_it_is_still_on_the_integration_branch(self):
+        self.fail_a_manual_merge()
+
+    def test_a_failing_manual_merge_is_named_before_the_runs_later_work_merges_on_it(self):
+        # The person's resolution is checked on its own first (#626): the later work does not merge on top of it,
+        # and the pause names the person's merge, not a merge the program made.
+        result = self.fail_a_manual_merge(later_work=True)
+        self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
+        self.assertNotIn("a/retry.py", self.integration_files(result))
 
     def test_brief_md_keeps_the_brief_that_started_the_run(self):
         path = self.write_manifest(manifest())

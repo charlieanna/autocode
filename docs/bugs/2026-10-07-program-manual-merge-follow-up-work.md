@@ -20,22 +20,34 @@ follow-up's plan.
 
 ## Fixed (#626)
 
-When the person's merge brought the branch tip in, `adopt_manual_merge` now first
-checks the workstream's worktree for work the branch does not have. It checks with
-`_uncommitted`, the changes `_commit_all` would commit.
+`adopt_manual_merge` checks the person's resolution on its own first, as before:
 
-If it finds any, the program does not land the tip on its own. The workstream goes
-back to `COMPLETE`, and the same pass's `integrate()` commits that work and merges it
-on top, the hand-merged tip being already there. That is an ordinary merge, with
-every check a merge has:
-
-- ownership and interfaces;
 - the run's checked plan;
-- the cumulative checks.
+- the cumulative checks, through `land(manual=True)`. A failure keeps the workstream
+  `CONFLICT` and says the person's merge is still on the integration branch.
 
-A second conflict pauses again.
+Then it looks in the workstream's worktree for work the branch does not have. It uses
+`_uncommitted`, which lists the changes `_commit_all` would commit. If it finds any, the
+workstream goes back to `COMPLETE`. Unless something holds it, `integrate()` then
+commits that work and merges it on top in the same step, before any other workstream
+merges. That is an ordinary merge, with every check a merge has: ownership,
+interfaces, the plan and the cumulative checks. Its failure undoes only the program's
+own merge, and a second conflict pauses again.
 
-`tests/test_program_agreement_runs.py`
-(`test_a_conflict_resolved_by_hand_still_merges_what_the_run_delivered_after_it`)
-drives this scenario. On master the follow-up's file never reaches the integration
-branch.
+A first version reopened the workstream as `COMPLETE` without checking the resolution.
+A review found two problems with that:
+
+- another workstream could merge on top of the unchecked resolution and take the blame
+  for its failure;
+- a failure said "The merge was undone" while the person's merge stayed on the branch.
+
+**Tests.** `tests/test_program_agreement_runs.py` covers both ways the scenario can go:
+
+- `test_a_conflict_resolved_by_hand_still_merges_what_the_run_delivered_after_it` fails
+  on master: the follow-up's file never reaches the integration branch.
+- `test_a_failing_manual_merge_is_named_before_the_runs_later_work_merges_on_it` covers
+  the review's case.
+
+**Limit.** The fix covers uncommitted work only. A commit made on the workstream branch
+after the hand merge is not an ancestor of the integration head, so the workstream stays
+`CONFLICT` until the person merges the branch again (docs/program.md says so).
