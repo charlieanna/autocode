@@ -21,6 +21,10 @@ built (its own question's proposed default was "No").
 The fake Planner now bounds each turn of a `turn_paths` conversation to that turn's paths and declares
 the change the same way, so the fake run reproduces the live refusal before the fix.
 
+**Later (2026-10-07):** a build of the design the previous turn proposed now plans afresh
+(`docs/bugs/2026-10-07-build-after-design-revised-the-design-contract.md`), so this scenario no longer
+declares a permission change; `tests/test_contract_revision.py` is the guard's remaining test.
+
 **Not fixed here:** a design turn written by a weak Builder tier may not converge in three rounds
 (one live run stopped at `PAUSED_BUILDER_RETRY_LIMIT`); the `claude-tiers` profile has no stronger
 Builder to escalate to. The guard is still skipped when a Planner replaces an unapproved draft.

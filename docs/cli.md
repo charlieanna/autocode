@@ -97,9 +97,11 @@ approve or correct it (`--approve-goal`/`--feedback`), or resume it. Jobs that r
 waiting for a reply (design review, discussion, code review) complete with their questions or
 findings in their report; you reply to them with `--follow-up`. After a design turn, "Build it."
 builds that design as approved (checked against the code first, no requirements gathering or
-questions, plan approval still required). A follow-up builds as approved only the design its
-previous turn wrote, or the design a design review approved; any other document is planned from
-requirements as usual.
+questions, plan approval still required). The build gets a plan of its own: the design turn's
+plan (which wrote no code), with whatever earlier turns agreed that it carried, and its open
+non-blocking findings are archived in the run, not revised; the design is now the requirements.
+After a design review instead, building the design it approved revises the plan in force. A follow-up builds as approved only the design its previous turn wrote, or the design a
+design review approved; any other document is planned from requirements as usual.
 
 | The run is | Status view | Say the next thing with | Through `TaskRun` |
 | --- | --- | --- | --- |

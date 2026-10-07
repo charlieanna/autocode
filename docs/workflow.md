@@ -40,7 +40,9 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
              conflicts (a frozen API, a documented invariant) → written to <design>.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
-               at the Planner (no requirements gathering; the Planner may not redesign or ask)
+               at the Planner (no requirements gathering; the Planner may not redesign or ask);
+               after a design turn the earlier turn's plan is archived, so the Planner drafts a new
+               contract for the build instead of revising the design job's
 You → Requirements Gatherer: rough idea → saved requirements report
 Requirements Gatherer → Planner: draft task DAG
 Planner → Plan Reviewer → Planner revision → Plan Reviewer final → your approval

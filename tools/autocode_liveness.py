@@ -15,6 +15,7 @@ ROLES = ('owner', 'keeper', 'provider')
 PHASES = frozenset({'armed', 'stopping', 'stopped', 'uncertain', 'discharged'})
 INTERRUPTIONS = frozenset({'owner_lost', 'stage_deadline'})
 NORMAL_STOPS = frozenset({'provider_stopped', 'controller_finished'})
+PROCESS_INVENTORY_LIMIT = 20000
 CAUSES = INTERRUPTIONS | NORMAL_STOPS | frozenset({
     'invalid_owner_message', 'lifeline_failure', 'keeper_failure'})
 
@@ -49,7 +50,7 @@ def _receipt(metadata, value):
             or (value['cause'] is not None and (not isinstance(value['cause'], str) or value['cause'] not in CAUSES))
             or (value['cleanup_error'] is not None and not isinstance(value['cleanup_error'], str))
             or not isinstance(value['observed_at'], str) or not value['observed_at']
-            or not isinstance(value['processes'], list) or len(value['processes']) > 20000
+            or not isinstance(value['processes'], list) or len(value['processes']) > PROCESS_INVENTORY_LIMIT
             or not all(_identity(row) for row in value['processes'])
             or len({row['pid'] for row in value['processes']}) != len(value['processes'])
             or not any(row['pid'] == metadata['provider']['pid']
