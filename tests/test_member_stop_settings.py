@@ -17,6 +17,7 @@ from goal_fixtures import assert_operational_wait
 QUOTA, REFUSAL, GLM, MIMO = quota_worker.QUOTA, quota_worker.REFUSAL, quota_worker.GLM, quota_worker.MIMO
 LUNA = "openai/gpt-6-luna"
 ADVICE = "--answer route-terra=MODEL"
+RESOLVER_ADVICE = "AutoResolver could not resolve"
 GUARD = "belongs to another implementation task"
 
 
@@ -63,6 +64,23 @@ class MemberStopSettingsTests(unittest.TestCase):
 
     def test_a_settings_flag_asks_a_refused_members_model_question_again(self):
         self.settings_flag_asks_the_member_again(REFUSAL, "PAUSED_CONTENT_FILTER")
+
+    def test_a_settings_flag_asks_a_failed_member_again_with_its_advice_once(self):
+        # A generic Builder failure asks no model question. Asked again after the settings write, its
+        # request starts from the member's own cause, not from the stop reason the withdrawn request
+        # composed, so AutoResolver's advice is given once.
+        run, state = self.paused("AUTOCODE_BUILDER_FAIL")
+        assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertEqual(1, state["stop_reason"].count(RESOLVER_ADVICE), state["stop_reason"])
+        self.resume_with(run, "--sol-model", LUNA)
+        state = self.saved()[1]
+        self.assertEqual(LUNA, state["settings"]["roles"]["sol"]["model"])
+        request = assert_operational_wait(self, state, "PAUSED_ORCHESTRATOR_WORKER")
+        self.assertFalse([q for q in request["questions"] if q["id"] == "route-terra"])
+        self.assertEqual(1, state["stop_reason"].count(RESOLVER_ADVICE), state["stop_reason"])
+        del self.env["AUTOCODE_BUILDER_FAIL"]  # the cause was fixed
+        self.resume_with(run, "--retry-builder", "M1", expected=0)
+        self.assertEqual("TASK_COMPLETE", self.saved()[1]["status"])
 
     def test_a_request_that_asks_no_model_question_repeats_no_route_advice(self):
         # The member's stop is withdrawn and, by the time the run asks again, it is no longer the batch's
@@ -111,6 +129,10 @@ class MemberStopSettingsTests(unittest.TestCase):
         self.assertIn(f"Builder M1 was refused by its provider's content filter on {GLM}", result.stderr)
         self.assertIn("route-terra question", result.stderr)
         self.assertIn("Nothing was saved", result.stderr)
+        self.assertEqual(before, checkpoint.read_bytes())
+        # Every member refusal is followed by what was not saved, in a sentence of its own.
+        result = self.resume_with(run, "--retry-builder", "M2", "--sol-model", LUNA)
+        self.assertIn("Builder M2 already completed; its work will be retained. Nothing was saved", result.stderr)
         self.assertEqual(before, checkpoint.read_bytes())
         # The accepted form: the settings alone, then the member's model answer.
         self.resume_with(run, "--sol-model", LUNA)
