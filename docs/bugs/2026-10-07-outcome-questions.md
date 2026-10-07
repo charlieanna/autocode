@@ -12,18 +12,21 @@ Requirements (`requirements_gather`, v2 `requirements`) reads the repository's c
 about outcomes, thresholds, deadlines, destinations, privacy and organizational restrictions; it asks whether a
 binding constraint exists instead of which mechanism to use, keeps parameterizable identities (a channel, an
 account) out of the blocking questions, and raises reliability constraints early (what "no repeated alert"
-means after an uncertain delivery, whether a deadline is a healthy-path target or a guarantee). The Planner
-(`astra_discovery`, `glm_revise`, v2 `plan`, `plan_revise`) recommends mechanisms with their tradeoffs as an
-`agent_proposed` assumption, never a user decision and never permission to deploy, and keeps missing facts and
-unsupported guarantees blocking until the user decides them. The Plan Reviewer (`astra_challenge`,
-`astra_finalize`, v2 `plan_review`, `plan_finalize`) checks both. Whenever the plan names external systems,
-the Planner states what approval does not authorize (every deployment, provisioning step and external call the
+means after an uncertain delivery, whether a deadline is a healthy-path target or a guarantee). The stages
+that draft and revise the plan (`astra_discovery`, `glm_revise`, v2 `plan`, `plan_revise`; their prompts call
+them the Planner, while the screen names `astra_discovery` and `glm_revise` Requirements) recommend mechanisms
+with their tradeoffs as an `agent_proposed` assumption, never a user decision and never permission to deploy,
+and keep missing facts and unsupported guarantees blocking until the user decides them. The Plan Reviewer
+(`astra_challenge`, `astra_finalize`, v2 `plan_review`, `plan_finalize`) checks both. Whenever the plan names
+external systems,
+the plan states what approval does not authorize (every deployment, provisioning step and external call the
 user has not explicitly asked for, so a request that does ask for a call or a deployment is not contradicted by
 its own plan) in `constraints`, not in `permission_boundaries`: the contract guard
 (`autocode_contract_revision`) refuses a boundary that a revision adds without the user's backing, whereas a
 constraint may be added and then cannot be dropped without it. `units/autoplanner.context` appends the
 rule for the stage; without joint planning `astra_discovery` does both jobs and gets both rules
-(`autocode_stage_context`). Execution stages (Builder, Tester, completion, `astra_plan`) get none.
+(`autocode_stage_context`). The stages after approval (Builder, Tester, completion, and `astra_plan`, the
+build unit's milestone planner that the screen calls Planner) get none.
 
 **Coverage:** `tests/test_outcome_questions.py` (which prompt gets which rule, and that execution prompts get
 none). The scenario `design-alerting-outcomes` drives the CLI: its scripted Requirements and Planner follow the
@@ -34,7 +37,18 @@ preference", never put the uncertain-delivery and deadline promises to the user,
 mechanism as the user's decision and no word on deployment); with the change it passes all 19.
 `scenarios/test_harness.py` runs it and checks the saved prompt of every stage. The oracle accepts any named
 mechanisms (AWS services, Slack's, or third-party monitors) and the usual wordings of the uncertain-delivery
-question (sent again, retried or duplicated versus missed, lost or dropped).
+question (sent again, retried or duplicated versus missed, lost or dropped). After review it also fails a
+design or plan that records any mechanism the person never named as their decision, binding constraint or
+answer (named or not: "the integration the person picked"); a delivery promise opposite to the side the person
+chose; a plan or design note that grants deployment in any wording ("authorizes deploying", "lets the Builder
+deploy"), or whose only no-deployment line is not about approval (the brief no longer says "do not deploy", so
+that line must be the plan's); and a question that puts a mechanism to the person anywhere in the batch,
+whether it names one ("through AWS Chatbot?") or only asks for one ("which Slack API?"). A question that asks
+whether an existing integration or a restriction binds may name mechanisms as examples. Seven broken designs
+and `OutcomeQuestionsOracleTests` hold these cases.
 
-**Not covered:** whether real models follow the rules (no live run was authorized). The Designer
+**Not covered:** whether real models follow the rules (no live run was authorized). A live run of the
+scenario cannot set up its premise: the person's answers are `[fake] answers`, so live the driver answers with
+the model's own defaults, and the "no preference" check fails unless a default says so. The checks read
+wording, not meaning. The Designer
 (`review_design`) prompt is unchanged: a request for a new design goes on to this pipeline, which has the rules.

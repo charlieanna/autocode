@@ -9,9 +9,11 @@ Planner's to recommend. These rules tell each planning job its part:
   whether a mechanism is a binding constraint rather than asking which mechanism to use, keeps
   parameterizable identities (a channel, an account) out of the blocking questions, and raises
   reliability constraints (an uncertain delivery, a latency promise) early.
-- The Planner (``PLANNER_RULE``) recommends mechanisms with their tradeoffs, records the choice as
-  its own proposal (never a user decision, never permission to deploy), and keeps missing
-  consequential facts and unsupported guarantees as blocking questions.
+- The stages that draft and revise the plan (``PLANNER_RULE``: ``astra_discovery``, ``glm_revise``,
+  v2 ``plan`` and ``plan_revise``) recommend mechanisms with their tradeoffs, record the choice as
+  their own proposal (never a user decision, never permission to deploy), and keep missing
+  consequential facts and unsupported guarantees as blocking questions. Their prompts call them the
+  Planner; on screen ``autocode_roles`` names ``astra_discovery`` and ``glm_revise`` Requirements.
 - The Plan Reviewer (``REVIEWER_RULE``) checks both.
 
 The Builder, the Tester and the completion stages get none of them: by then the plan is approved.
@@ -37,9 +39,10 @@ binding constraint makes that choice theirs. Ask whether such a constraint exist
 "Which channel should receive alerts, and must we use an existing integration?". Without a restriction,
 the Planner recommends the mechanism. A mechanism the person named is theirs: keep it as stated.
 Separate parameterizable identities from true blockers. A channel, account, region, queue, table or other
-resource name that a provisional design can take as a named configuration parameter is not a blocking
-question. Block only on facts that change the outcome or the design (what triggers an alert, which records
-matter, what data may leave the organization).
+resource name that a provisional design can take as a named configuration parameter is never a blocking
+question on its own: ask for it only alongside a question that does block (as in the example above), with a
+proposed default, and otherwise keep it as a parameter. Block only on facts that change the outcome or the
+design (what triggers an alert, which records matter, what data may leave the organization).
 Surface reliability constraints early, as decision questions: what "no repeated alert" means after an
 uncertain delivery result (retrying may send a duplicate, not retrying may miss one), and whether a latency
 or delivery requirement is a healthy-path target or an unconditional guarantee. A guarantee the design
@@ -55,7 +58,8 @@ with basis=agent_proposed. Ask the person to choose a mechanism only when it is 
 approved-services policy, an existing integration that must be used, a privacy or account restriction);
 a mechanism the person named or a constraint fixes is not yours to replace. When the person has given
 outcome rules and no integration preference, do not ask again which API, service or integration to use.
-Any question you add asks about outcomes and constraints, never about a mechanism.
+Any question you add asks about outcomes and constraints, and never asks the person to pick a mechanism
+unless a binding constraint makes it theirs.
 A recommendation is never a user decision (never basis user_answer or delegated) and never permission to
 deploy, provision infrastructure, call an external service or spend: producing a plan or a design document
 authorizes none of that. Whenever the work names external systems, state in constraints what approving the
@@ -76,7 +80,8 @@ deploy or to call external services, blocks on a parameterizable identity, or dr
 fact or an unsupported delivery or latency guarantee from open_blocking_questions.
 """
 
-# Stage code names (AGENTS.md "Names"), today's joint pipeline and the v2 planning flow alike.
+# Stage code names (AGENTS.md "Names"), today's joint pipeline and the v2 planning flow alike, grouped by the
+# rule they get, not by screen name (autocode_roles): PLANNER_STAGES draft or revise the plan contract.
 REQUIREMENTS_STAGES = ("requirements_gather", "requirements")
 PLANNER_STAGES = ("astra_discovery", "glm_revise", "plan", "plan_revise")
 REVIEWER_STAGES = ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")

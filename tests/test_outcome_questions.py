@@ -52,6 +52,8 @@ class JointPlanningPromptTests(unittest.TestCase):
             "privacy and data-handling limits", "organizational restrictions",
             "Which channel should receive alerts, and must we use an existing integration?",
             "Separate parameterizable identities from true blockers",
+            # The example asks for the channel alongside a true blocker: an identity never blocks on its own.
+            "is never a blocking question on its own: ask for it only alongside a question that does block",
             "healthy-path target or an unconditional guarantee", "uncertain delivery result")))
 
     def test_the_planner_recommends_mechanisms_and_keeps_blockers(self):
@@ -65,7 +67,10 @@ class JointPlanningPromptTests(unittest.TestCase):
                     "never permission to deploy",
                     "state in constraints what approving the plan does not authorize",
                     "the person has not explicitly asked for", "Keep what they did ask for",
-                    "in open_blocking_questions until the person decides them")))
+                    "in open_blocking_questions until the person decides them",
+                    "never asks the person to pick a mechanism unless a binding constraint makes it theirs")))
+                # The rule allows a mechanism question under a binding constraint, so it never forbids one outright.
+                self.assertNotIn("never about a mechanism", " ".join(prompt.split()))
 
     def test_the_plan_reviewer_checks_both(self):
         for stage in ("astra_challenge", "astra_finalize"):
