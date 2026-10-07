@@ -60,10 +60,14 @@ must not already declare the name as a top-level test in a `*_test.go` file.
 Comments, strings and callable production APIs (`func TestConnection() error`,
 "a func named TestConnection") do not make a test existing or requested. This
 inventory does not replace Go compilation or execution proof. A subtest path
-such as `TestCacheExpiry/expired` asks for its test function, `TestCacheExpiry`;
-the plan accounts for it by declaring that function or any subtest of it.
-The user's own `--edit-goal` is never refused by this check and settles which
-requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
+such as `TestCacheExpiry/expired` is requested as the user wrote it: planning
+stages and refusals ask for `test: TestCacheExpiry/expired`, and declaring that
+path, its function or another subtest of the function accounts for it. "Instead
+of", "rather than" or "not" right before the path withdraws that path; before
+the function, the function and its paths. The user's own `--edit-goal` is never
+refused by this check and settles which requested names stay; an edit of a
+design job's plan, which "Build it." archives when it plans the build afresh,
+settles nothing for the build. `TestMain` and `TestXxx` are never tests to write. Other
 frameworks, and bug fixes proven by their diagnosis's cases, keep the
 criterion-ID convention. The details and limits are in
 `docs/bugs/2026-10-06-native-proof-names.md`.
