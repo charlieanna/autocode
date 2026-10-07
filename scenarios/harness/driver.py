@@ -19,6 +19,9 @@ finished run (docs/cli.md); a run that stops first never hears the next turn
 (``TurnNotReached``). ``turn_marks`` records where each turn began, so the run
 record can be split per turn afterwards, including what each turn changed in the
 workspace (``workspace_files``: read from disk, never from AutoCode's state).
+A file a later turn overwrites (a design review revised in place) is gone by the
+end, so the files each turn changed are also copied, as that turn left them, to
+``turn-files/<turn>/`` in the evidence directory (``keep_turn_files``).
 """
 from __future__ import annotations
 
@@ -212,12 +215,25 @@ class Driver:
             if turn.after not in reached:
                 raise TurnNotReached(f"stopped before turn {number + 1}: it is said after {turn.after!r}, but the "
                                      f"run ended {' / '.join(reached)} (status {view['status']!r})", number + 1)
+            files = workspace_files(self.project)
+            before = self.turn_marks[-1]["files"] if self.turn_marks else self.start_files
             self.turn_marks.append({"said_at": datetime.now(timezone.utc).isoformat(), "say": turn.say,
                                     "steps": len(self.steps), "answers": len(self.answers), "view": view,
-                                    "files": workspace_files(self.project)})
+                                    "files": files, "kept": str(self.keep_turn_files(number - 1, before, files))})
             self.call("follow-up", "--follow-up", turn.say, action=True)
             view = self.until_stopped()
         return view
+
+    def keep_turn_files(self, index: int, before: dict[str, str], after: dict[str, str]) -> Path:
+        """Copy the files turn ``index`` created or changed (``before`` to ``after``, two
+        ``workspace_files`` snapshots) from the workspace now to turn-files/<index>/, and return it."""
+        target = self.root / "turn-files" / str(index)
+        target.mkdir(parents=True, exist_ok=True)
+        for path in changed_between(before, after):
+            if path in after and (self.project / path).is_file():
+                (target / path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(self.project / path, target / path)
+        return target
 
     def until_stopped(self, say_at: str | None = None) -> dict:
         """Drive until the run is done or needs something the driver does not serve.

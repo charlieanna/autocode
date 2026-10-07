@@ -128,6 +128,47 @@ def _document_only_base(workspace, base):
     return True
 
 
+def _package_scripts(text) -> dict:
+    try:
+        package = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    scripts = package.get("scripts")
+    return dict(scripts) if isinstance(scripts, dict) else {}
+
+
+def _suite_package_script(command):
+    """The package.json script name an npm/yarn/pnpm suite command runs, if any."""
+    if not isinstance(command, str) or re.search(r"[;&|<>`$\n\r]", command):
+        return None
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words or PurePosixPath(words[0]).name not in ("npm", "npm.cmd", "yarn", "yarn.cmd", "pnpm", "pnpm.cmd"):
+        return None
+    positional = [word for word in words[1:] if not word.startswith("-")]
+    if not positional:
+        return None
+    if positional[0] in ("run", "run-script"):
+        return positional[1] if len(positional) > 1 else None
+    return "test" if positional[0] in ("test", "t") else None
+
+
+def _package_script_redefined(workspace, base, suite_command):
+    """True when the suite runs a package.json script the candidate redefined.
+
+    ``npm test`` reads each tree's own package.json, so identical suite text can
+    run different tests after the candidate narrows the script (#528).
+    """
+    name = _suite_package_script(suite_command)
+    if name is None:
+        return False
+    before = _package_scripts(_git(workspace, "show", f"{base}:package.json", check=False))
+    after = _package_scripts(_read(Path(workspace) / "package.json"))
+    return before.get(name) != after.get(name)
+
+
 def _ignored(path: str) -> bool:
     # Top-level dependency links are runner-made (link_dependencies), never part of a fix.
     return (path.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{path}"
@@ -594,13 +635,63 @@ def _generated_sources(source_root):
     return selected
 
 
-def copy_generated_sources(source_root, tree):
+def generated_source_record(source_root):
+    """Byte identity of the ignored generated sources ``source_root`` holds right now.
+
+    Saved on a new in-place run as ``generated_sources_at_start``. The proof
+    copies a file only while its bytes still match this record (``autocode_regression``).
+    """
+    if not source_root:
+        return {}
+    root = Path(source_root)
+    return {path: util.file_hash(root / path) for path in _generated_sources(root)}
+
+
+def classify_generated_sources(source_root, record=None, *, unrecorded=False):
+    """Trusted copy paths, proof notes, and paths left out.
+
+    ``record is None`` without ``unrecorded`` trusts every eligible file: a
+    separate project checkout, or a direct call. A dict trusts only paths whose
+    bytes still match. ``unrecorded`` trusts nothing, because a saved run has no
+    start record (#529). The omitted list is None when the filter is off, so
+    receipt identity stays as it was.
+    """
+    current = generated_source_record(source_root)
+    if record is None and not unrecorded:
+        return list(current), [], None
+    saved = record if isinstance(record, dict) else {}
+    trusted, added, changed = [], [], []
+    for path, digest in current.items():
+        if unrecorded or path not in saved:
+            added.append(path)
+        elif saved[path] == digest:
+            trusted.append(path)
+        else:
+            changed.append(path)
+    notes = []
+    if added and unrecorded:
+        notes.append("Ignored generated sources were left out of the proof because this run has no record "
+                     "of them from when it started: " + ", ".join(added))
+    elif added:
+        notes.append("Ignored generated sources added during the run were left out of the proof: "
+                     + ", ".join(added))
+    if changed:
+        notes.append("Ignored generated sources changed during the run were left out of the proof: "
+                     + ", ".join(changed))
+    return trusted, notes, sorted(set(current) - set(trusted))
+
+
+def copy_generated_sources(source_root, tree, *, record=None, unrecorded=False):
     """Copy build-generated source files (git-ignored code next to tracked code,
     such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
     A fresh worktree lacks them, so the package would not import there. Base and
-    candidate trees receive the same files, so the comparison stays fair."""
+    candidate trees receive the same files, so the comparison stays fair.
+
+    ``record`` and ``unrecorded`` limit that copy to sources the run already
+    held; see ``classify_generated_sources``.
+    """
     copied = []
-    for relative in _generated_sources(source_root):
+    for relative in classify_generated_sources(source_root, record, unrecorded=unrecorded)[0]:
         source, target = Path(source_root) / relative, Path(tree) / relative
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -616,7 +707,8 @@ def _clear(path):
         shutil.rmtree(path)
 
 
-def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_from=None, patch=None):
+def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_from=None, patch=None,
+              generated_record=None, generated_unrecorded=False):
     """A detached worktree of ``base`` with ``changes`` copied from ``overlay_root``.
 
     ``patch`` (a patch file) is applied to ``base`` before the changes are copied in: the
@@ -651,7 +743,8 @@ def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_fr
                 shutil.copy2(source, target)
         link_dependencies(dependencies_from, destination)
         copy_vendored_dependencies(dependencies_from, destination)
-        copy_generated_sources(dependencies_from, destination)
+        copy_generated_sources(dependencies_from, destination, record=generated_record,
+                               unrecorded=generated_unrecorded)
     except BaseException:
         remove_tree(repo, destination)
         raise
@@ -756,7 +849,8 @@ def command_framework(command):
     return None
 
 
-def execution_identity(workspace, *, command=None, dependencies_from=None, full=True, source_paths=()):
+def execution_identity(workspace, *, command=None, dependencies_from=None, full=True, source_paths=(),
+                       generated_record=None, generated_unrecorded=False):
     """Conservative observable source/runtime/environment identity for receipts.
 
     Full dependency bytes are included, not only manifests or changed paths.
@@ -850,24 +944,31 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                  _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split("\0")
                  if p and not p.endswith("/") and PurePosixPath(p).suffix in CODE_SUFFIXES
                  and not _ignored(p) and not any(part in DEPENDENCY_DIRS for part in PurePosixPath(p).parts)}
-    return {"source_revision": source_snapshot_value["revision"], "source_metadata": util.digest(source_metadata),
-            "unbound_source_symlinks": source_symlinks,
-            "reuse_supported": python_command and full, "cache_binding_complete": full,
-            "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
-            "environment_hash": util.digest(environment), "runtime_sources": util.digest(runtime),
-            "interpreter": schedule.tree_identity(executable) if executable else None,
-            "shell": schedule.tree_identity("/bin/sh"),
-            "dependencies": [schedule.tree_identity(p) for p in sorted(roots)] if full else None,
-            "editable_sources": editable_sources, "unbound_editables": unbound_editables,
-            "unbound_relative_pythonpath": relative_pythonpath,
-            "generated_sources": generated,
-            # make_tree receives these from the dependency checkout, which may
-            # differ from the candidate. They also affect the base suite: keep
-            # this binding when baseline_identity drops candidate source fields.
-            "generated_dependency_sources": {
-                p: schedule.tree_identity(Path(dependencies_from or workspace) / p)
-                for p in _generated_sources(dependencies_from or workspace)},
-            "platform": [sys.platform, os.uname().release, os.uname().machine]}
+    trusted, _notes, omitted_generated = classify_generated_sources(
+        dependencies_from or workspace, generated_record, unrecorded=generated_unrecorded)
+    dependency_root = Path(dependencies_from or workspace)
+    identity = {"source_revision": source_snapshot_value["revision"], "source_metadata": util.digest(source_metadata),
+                "unbound_source_symlinks": source_symlinks,
+                "reuse_supported": python_command and full, "cache_binding_complete": full,
+                "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
+                "environment_hash": util.digest(environment), "runtime_sources": util.digest(runtime),
+                "interpreter": schedule.tree_identity(executable) if executable else None,
+                "shell": schedule.tree_identity("/bin/sh"),
+                "dependencies": [schedule.tree_identity(p) for p in sorted(roots)] if full else None,
+                "editable_sources": editable_sources, "unbound_editables": unbound_editables,
+                "unbound_relative_pythonpath": relative_pythonpath,
+                "generated_sources": generated,
+                # make_tree receives these from the dependency checkout, which may
+                # differ from the candidate. They also affect the base suite: keep
+                # this binding when baseline_identity drops candidate source fields.
+                "generated_dependency_sources": {
+                    p: schedule.tree_identity(dependency_root / p) for p in trusted},
+                "platform": [sys.platform, os.uname().release, os.uname().machine]}
+    if omitted_generated is not None:
+        # Present only when an in-place run filters the copy, so a file the run
+        # adds later cannot reuse a proof that never considered it (#529).
+        identity["omitted_generated_sources"] = omitted_generated
+    return identity
 
 
 # Candidate-tree fields: they change with every Builder edit and therefore must
@@ -875,7 +976,8 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
 _SOURCE_IDENTITY_KEYS = ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks")
 
 
-def baseline_identity(workspace, *, command=None, dependencies_from=None):
+def baseline_identity(workspace, *, command=None, dependencies_from=None,
+                      generated_record=None, generated_unrecorded=False):
     """Runtime/dependency identity of a base-suite run, never the candidate tree.
 
     The base suite is executed on a scratch tree of the base commit (plus an
@@ -891,7 +993,8 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
     Python virtualenv is not required: npm, Go and a global interpreter still
     get a stable cache key.
     """
-    identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from)
+    identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from,
+                                  generated_record=generated_record, generated_unrecorded=generated_unrecorded)
     environment = test_environment(workspace)
     roots = test_env.dependency_roots(dependencies_from or workspace)
     dependencies = []
@@ -977,11 +1080,12 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
 
 
 def baseline(workspace, base, run_dir, *, framework, suite_command, timeout=DEFAULT_TIMEOUT,
-             dependencies_from=None, base_patch=None) -> dict:
+             dependencies_from=None, base_patch=None, generated_record=None, generated_unrecorded=False) -> dict:
     """Run the suite once on the pristine base revision, with ``base_patch`` applied (cached by the caller)."""
     evidence = Path(run_dir) / "baseline"
     tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "baseline", workspace, {},
-                     dependencies_from=dependencies_from, patch=base_patch)
+                     dependencies_from=dependencies_from, patch=base_patch, generated_record=generated_record,
+                     generated_unrecorded=generated_unrecorded)
     try:
         receipt = run_suite(framework, suite_command, tree, evidence, "suite-on-base", timeout=timeout)
     finally:
@@ -1012,7 +1116,7 @@ def suite_health(receipt) -> str:
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
            allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=(),
-           test_only_allowed=False) -> dict:
+           test_only_allowed=False, generated_record=None, generated_unrecorded=False) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1048,6 +1152,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                suite_command=suite_command, regression_command=regression_command,
                                reported=reported)
     notes += commands["notes"]
+    notes += classify_generated_sources(dependencies_from or workspace, generated_record,
+                                        unrecorded=generated_unrecorded)[1]
     if not changes:
         fail.append("No change: the candidate is identical to the base revision")
     elif not sources and not preserve:
@@ -1072,11 +1178,13 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     try:
         if changes and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
-                                           dependencies_from=dependencies_from)
+                                           dependencies_from=dependencies_from, generated_record=generated_record,
+                                           generated_unrecorded=generated_unrecorded)
         if trees and runnable_tests and (sources or preserve):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
-                                                 patch=base_patch)
+                                                 patch=base_patch, generated_record=generated_record,
+                                                 generated_unrecorded=generated_unrecorded)
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
             on_candidate = run_suite(framework, commands["regression"], trees["candidate"], run_dir,
@@ -1090,7 +1198,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
                               new_behavior=new_behavior, preserve_only=preserve, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
-                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
+                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch,
+                                  generated_record=generated_record, generated_unrecorded=generated_unrecorded),
                               seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
@@ -1121,7 +1230,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
-                         allow_empty_base=allow_empty_base)
+                         allow_empty_base=allow_empty_base,
+                         script_redefined=_package_script_redefined(workspace, base, commands["suite"]))
         elif sources or preserve:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1294,7 +1404,7 @@ def _seam_names(workspace, base, changes, receipt):
 
 
 def _pre_existing(framework, commands, changes, runnable_tests, workspace, base, run_dir, checks, *,
-                  timeout, dependencies_from, base_patch=None):
+                  timeout, dependencies_from, base_patch=None, generated_record=None, generated_unrecorded=False):
     """Failures of the changed test files' base versions on the pristine base, by test id."""
     if not framework or not framework.per_test or not str(commands["regression_source"]).startswith("derived"):
         return None
@@ -1303,7 +1413,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     if not command:
         return set()
     tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "base", workspace, {},
-                     dependencies_from=dependencies_from, patch=base_patch)
+                     dependencies_from=dependencies_from, patch=base_patch, generated_record=generated_record,
+                     generated_unrecorded=generated_unrecorded)
     try:
         receipt = run_suite(framework, command, tree, run_dir, "regression-files-on-base", timeout=timeout)
     finally:
@@ -1313,7 +1424,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
             if command_receipt.completed(receipt) and receipt.get("results") else None)
 
 
-def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
+def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False,
+                 script_redefined=False):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -1411,6 +1523,13 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             notes.append(f"{len(base_results['failed'])} test(s) already failed on base; none newly fail")
         return
     if on_candidate["exit_code"] == 0:
+        # An exit code proves preservation only when both trees ran the same suite.
+        # npm/yarn/pnpm run each tree's own package.json script, so a redefined
+        # script can hide the old tests behind a green exit (#528). A document-only
+        # base has no old behavior, so that first suite may still pass.
+        if script_redefined and not allow_empty_base:
+            unverified.append("The package.json test script was redefined, so base and candidate did not "
+                              "run the same tests; preservation of existing behavior is unproven")
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")

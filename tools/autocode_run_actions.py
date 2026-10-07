@@ -231,15 +231,20 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     routed = job_route.answer(runner, args, state, run_dir, workspace)
     if routed is not None:
         return routed
-    if state.get('job_failure') and (state.get('status') in job_failure.PAUSES or args.job_retry_token):
-        if not (args.resume_paused and args.retry_failed_stage):
-            print(state.get('stop_reason', 'Inspect the retained workflow-job attempt before retrying.'))
-            return 2
+    gate = job_failure.resume_gate(state, resume=bool(args.resume_paused), retry=bool(args.retry_failed_stage),
+                                   token=args.job_retry_token)
+    if gate == 'authorize':
         try:
             job_failure.authorize(runner, state, run_dir, workspace, args.job_retry_token)
         except ValueError as error:
             print(f'Input rejected: {error}', file=sys.stderr)
             return 2
+    elif gate:
+        if gate.startswith('this pause'):
+            print(f'Input rejected: {gate}', file=sys.stderr)
+        else:
+            print(gate)
+        return 2
     explicit_run_seconds = getattr(args, "max_seconds", None)
     explicit_slice_seconds = getattr(args, "max_milestone_seconds", None)
     if explicit_run_seconds is not None or explicit_slice_seconds is not None:
