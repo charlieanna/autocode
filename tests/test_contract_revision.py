@@ -426,3 +426,65 @@ class ExampleCorrectionSchemaTests(unittest.TestCase):
                 validate_schema(self.change("none"), item)
             with self.assertRaisesRegex(ValueError, "missing after"):
                 validate_schema(self.change({"concern_id": "C1", "before": "3"}), item)
+
+
+class PermissionReplacementTests(unittest.TestCase):
+    """"Build it." after a design turn (issue #185): the approved contract allows docs only, and the user's
+    follow-up is the basis for allowing code. The Planner declares that as one row, as it is asked to: the
+    previous boundary as item, the new one as replacement. Live runs were refused for it and asked the user."""
+    DOCS = "Create only docs/design/metadata-cache.md; no code."
+    CODE = "Edit only app/ and tests/; no network."
+
+    def inputs(self):
+        event = {"kind": "brief_feedback", "id": "feedback-1", "text": "Build it."}
+        body = {"acceptance_criteria": [], "required_behaviors": [], "scope_exclusions": [], "constraints": [],
+                "important_failure_cases": [], "permission_boundaries": [self.DOCS],
+                "accepted_assumptions": [{"text": "The deliverable is a design document only.",
+                                          "basis": "agent_proposed", "answer_id": ""}],
+                "delegated_decisions": []}
+        state = {"goal_contract": {"body": body, "approval_status": "approved"}, "brief_feedback": [event],
+                 "user_events": [event], "answers": {"Q1": {"answer": "yes"}}}
+        after = dict(copy.deepcopy(body), permission_boundaries=[self.CODE])
+        return state, after
+
+    def row(self, item, replacement="", basis="user_feedback", answer_id="feedback-1", change="permission_changed"):
+        return {"item": item, "change": change, "basis": basis, "answer_id": answer_id, "replacement": replacement}
+
+    def test_one_row_replacing_a_boundary_with_a_user_basis_is_accepted(self):
+        for basis, answer_id in (("user_feedback", "feedback-1"), ("user_answer", "Q1")):
+            with self.subTest(basis=basis):
+                state, after = self.inputs()
+                revision_guard(state, after, [self.row(self.DOCS, self.CODE, basis, answer_id)], "astra_discovery")
+        # Declaring the new boundary in a row of its own still works.
+        state, after = self.inputs()
+        revision_guard(state, after, [self.row(self.DOCS), self.row(self.CODE)], "astra_discovery")
+
+    def test_a_permission_change_still_needs_a_user_basis_and_a_matching_replacement(self):
+        cases = {
+            "undeclared": ([], "drops or changes"),
+            "agent proposed": ([self.row(self.DOCS, self.CODE, "agent_proposed", "")], "needs a saved user"),
+            "forged event": ([self.row(self.DOCS, self.CODE, answer_id="feedback-forged")], "needs a saved user"),
+            "replacement not in the body": ([self.row(self.DOCS, "Edit anything")], "must appear in permission_boundaries"),
+            "no replacement": ([self.row(self.DOCS)], "adds permission boundary 'Edit only app/"),
+        }
+        for name, (changes, refusal) in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, refusal):
+                state, after = self.inputs()
+                revision_guard(state, after, changes, "astra_discovery")
+        # A second boundary added beside the replacement needs its own row.
+        state, after = self.inputs()
+        after["permission_boundaries"].append("Network allowed")
+        with self.assertRaisesRegex(ValueError, "adds permission boundary 'Network allowed' without a user-backed"):
+            revision_guard(state, after, [self.row(self.DOCS, self.CODE)], "astra_discovery")
+
+    def test_a_declared_assumption_the_revision_dropped_is_not_an_error_and_a_leftover_row_is_named(self):
+        state, after = self.inputs()
+        assumption = state["goal_contract"]["body"]["accepted_assumptions"][0]["text"]
+        after["accepted_assumptions"] = []
+        revision_guard(state, after, [self.row(self.DOCS, self.CODE), self.row(assumption, change="removed")],
+                       "astra_discovery")
+        # Declared but kept, or a protected item declared but unchanged: refused, naming the row.
+        state, after = self.inputs()
+        with self.assertRaisesRegex(ValueError, "names 'The deliverable is a design document only.', which was not changed"):
+            revision_guard(state, after, [self.row(self.DOCS, self.CODE), self.row(assumption, change="removed")],
+                           "astra_discovery")
