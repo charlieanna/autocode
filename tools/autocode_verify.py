@@ -82,6 +82,7 @@ COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailu
 UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.]+)\)")
 UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
 UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
+UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
 TAIL_CHARS = 4000
 DEFAULT_TIMEOUT = 900
 
@@ -502,9 +503,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
             result_tree = ET.parse(xml_path)
         except ET.ParseError:
             return None
-        total = 0
         for case in result_tree.iter("testcase"):
-            total += 1
             test = f"{case.get('classname', '')}::{case.get('name', '')}"
             problem = case.find("failure") if case.find("failure") is not None else case.find("error")
             if problem is not None:
@@ -518,6 +517,9 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
                 skipped.add(test)
             else:
                 passed.add(test)
+        # A test that fails and then errors in teardown is two testcases of one id; a test reported
+        # with two different outcomes stays a duplicate id, never a complete result.
+        total = len(passed | failed | skipped)
         complete = True
     else:
         text = Path(receipt["output"]).read_text(errors="replace")
@@ -553,6 +555,12 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
             if reason:
                 setup_errors[test] = reason
         passed -= failed
+        # "setUpClass (m.C) ... skipped" or ERROR (also setUpModule, tearDown*) is outside "Ran N": a
+        # skipped fixture names no test (its tests are absent from N); an error is one more failure, but
+        # never a test: "Ran 0" with only fixture errors stays zero tests, so it proves nothing.
+        fixtures = {test for test in skipped | failed if test.rpartition("::")[2] in UNITTEST_FIXTURES}
+        skipped -= fixtures
+        total += len(fixtures & failed) if total else 0
         collection = {test for test in failed if COLLECTION_ERROR.search(test)}
         complete = len(passed) + len(skipped) + len(failed) >= total
     results = {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
