@@ -79,9 +79,10 @@ with the original definitions and the original tests put back
   so a `package.json`, `.npmrc` or test that was only in the working tree at
   launch is original: put back when the candidate changes it, never treated as
   added, and its suite is the one the base run ran. The candidate's files are
-  the paths `changed_files` reports against that base, read from the workspace. The tree is built like the candidate's, with the same
-  dependencies, ignored inputs and timeout, but in a temporary folder outside the
-  workspace, and removed afterwards. `regression.prove` keeps its run folder
+  the paths `changed_files` reports against that base, read from the workspace.
+- The tree is built like the candidate's, with the same dependencies, ignored
+  inputs and timeout, but in a temporary folder outside the workspace, and
+  removed afterwards. `regression.prove` keeps its run folder
   inside the workspace, and there Yarn 1 (which reads `.npmrc` and `.yarnrc` from
   every parent folder) and pnpm (which takes settings from the nearest parent
   `pnpm-workspace.yaml`) would still apply the candidate's configuration. The
