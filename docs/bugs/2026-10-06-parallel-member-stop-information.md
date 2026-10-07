@@ -9,8 +9,8 @@ agreed on what came next.
 Before #486 a plain `--resume-paused` held for good, so a refused member had no
 way on short of re-planning. #486 (#581) re-evaluates the information once: it
 admits a plain resume, which collects the batch again and asks `route-terra`
-again without a launch. Reproduced on master `87d8db3` (with #486) through the
-real CLI and worker processes, using the `tests/test_quota_worker.py` fixture
+again without a launch. Reproduced on master `87d8db3` (with #486), and again
+unchanged on `0591e76`, through the real CLI and worker processes, using the `tests/test_quota_worker.py` fixture
 (M1 stopped, M2 `BUILT`), what was still wrong:
 
 - The request still advised "..., then `autocode resume`".
@@ -49,7 +49,8 @@ model-stop request was answered without a model (information or leave paused):
   review is pending, `information_review.action` already names it. After
   `leave_paused` a plain resume holds as before and names it too.
 - The request's advice at a member's stop names it instead of "then `autocode
-  resume`" (`autocode_resolver_runtime.record_operational_exhaustion`), and so do
+  resume`" (`autocode_resolver_runtime.record_operational_exhaustion`), also when
+  a spent automatic-recovery allowance adds `--grant-recovery N`, and so do
   the response's acknowledgement and stop reason, `needs.action`
   (`autocode_run_view`) and the recovery card (`autocode_recovery_view`: "Retry
   Builder task M1 unchanged", or "Ask which model Builder task M1 continues on").
@@ -57,7 +58,8 @@ model-stop request was answered without a model (information or leave paused):
   refused; its message names the open question only when it is that member's,
   and otherwise says the member is asked once the open request is answered.
   With none open, another refused member's retry is refused naming the answered
-  member's command, which is asked about first.
+  member's command, whose stop AutoCode continues from first (a quota-stopped
+  member reruns; it is not asked about).
 - A stale or retired re-ask at a member's stop (for example after
   `--terra-model`) asks that member's question again, reporting the member's own
   stop, not a generic request.
@@ -66,9 +68,11 @@ model-stop request was answered without a model (information or leave paused):
 
 ## Still open
 
-- `--grant-recovery N` advice can still appear at a member's stop when the run's
-  automatic-recovery allowance is spent; a grant then re-collects the batch and
-  asks the member's question again.
+- While a member's request is open and the run's automatic-recovery allowance is
+  spent, the request also offers `--grant-recovery N`, which the CLI accepts
+  there. A grant re-collects the batch and asks the member's question again, so
+  it continues nothing; after information it is refused like any other control
+  but the member's.
 - After corrective information on another pause (#486), `needs.action` names
   `--resume-paused` while the recovery card offers a resume only for the pauses
   in its own list.
