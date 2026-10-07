@@ -28,6 +28,7 @@ if "--version" in sys.argv:
     raise SystemExit(0)
 
 EVENTS = "--events" in sys.argv
+MODEL = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else ""
 SESSION = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
 MESSAGE = "msg_" + uuid.uuid4().hex
 
@@ -201,6 +202,14 @@ elif stage == "astra_finalize":
         "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [],
         "obligation_decisions": [], "decisions": [{"concern_id": "P1", "decision": "Reject whitespace",
             "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2", "resolved": True}]}
+elif stage == "terra" and MODEL and MODEL in os.environ.get("AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS", "").split(","):
+    # This model's Builder changes nothing, so the run's Builder retry policy picks the next attempt.
+    note = Path(".autocode/evidence/idle-builder.txt").resolve()
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("No source change was made\n")
+    result = {**common, "summary": "No change made", "changed_files": [], "commands_run": [],
+              "results": ["Nothing written"], "remaining_risks": [], "evidence_refs": [str(note)],
+              "addressed_requirements": [], "untested_behavior": [], "recommended_checks": []}
 elif stage == "terra":
     Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n")
     result = {**common, "summary": "Greeting written", "changed_files": ["greet.py"], "commands_run": [],
