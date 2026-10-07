@@ -1,9 +1,9 @@
 # Risk-appropriate proof: qualification and the remaining #451 work
 
-The assessment ran on origin/master `ddc940f`; the branch
-`claude/issue-451-risk-proof` is rebased onto `d0919ad`. No live model ran;
-every run used the scripted provider. These are planted controls (#455), not
-failure rates of real builds.
+The assessment ran on origin/master `ddc940f`. The branch
+`claude/issue-451-risk-proof` was rebased onto `d0919ad`, then merged with master
+`87d8db3`. No live model ran; every run used the scripted provider. These are
+planted controls (#455), not failure rates of real builds.
 
 ## Before: what master did
 
@@ -42,11 +42,20 @@ failure rates of real builds.
   (`tools/autocode_risk_findings.py`). The Tester's report stands, and the replay
   is saved with verdict `FAIL`. The runner opens a blocking finding with source
   `runner`, naming the failed promise, what the fixed protocol does and the
-  pinned transcript. The ordinary REWORK route delivers it to the Builder. The
-  runner closes the finding only when its own observation passes on a later
-  source.
+  pinned transcript. The ordinary REWORK route delivers it to the Builder.
+  - Only the runner closes the finding: its own observation must pass on a source
+    it has not failed on. The row lists every revision it failed on
+    (`failed_revisions`), because a race can be missed: the same racy source
+    validated again, after `--resume-paused` or reverted to, must not close it.
+  - An approved amendment that removes the observation retracts the finding.
+    Completion still needs every current observation to pass.
 - Recognition is less tied to wording (`tools/autocode_risk_acceptance.py`):
-  - A constructor may name its storage argument anything path-like.
+  - A constructor may name its storage argument anything path-like. An argument
+    other than `path` counts only when the API names the family's core methods
+    (`enqueue`, `claim` and `ack`; `create_order` and `publish`). Otherwise
+    `TodoList(filename)` with `claim(item)` and "must survive restart" became an
+    unsupported declaration whose plan could never be approved. Now its sentence
+    is only disclosed.
   - The token-freshness fact accepts word-order and synonym paraphrases.
   - An unsupported declaration's refusal lists each missing fact in words and
     says how to supply it.
@@ -83,48 +92,71 @@ A run approved before this change whose brief now reads differently (a
 contention promise, or a path-like constructor argument other than `path`) no
 longer matches its saved lifecycle manifest; its plan must be approved again.
 
+## Review of the branch (2026-10-07)
+
+The first implementation stopped before its review. Each earlier finding was
+reproduced again on the merged branch:
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| `LeaseQueue(db_path)` let the token mutant complete | Fixed | CLI test: the renamed run binds the observation and stops on the runner finding |
+| A reworded honest brief could never be approved | Partly fixed | The token paraphrase completes with proof (CLI). Other wording still refuses until restated, naming each missing fact |
+| A lifecycle FAIL went to a report repair; the Builder never saw it | Fixed | CLI test: a corrected mutant completes after a second Builder run; the mutant runs below show two Builder runs and no report repair |
+| The scripted Tester's report repair has the wrong contract identity | Open, outside this route | No lifecycle failure takes that route now; brief-output failures (#452) still do |
+| No contention proof | Fixed for the two declared APIs | Two new mutants, both refused; a missed race can no longer close a runner finding |
+| Outbox failure sets not pinned | Fixed | `tests.test_outbox_oracle` |
+| Refusal blamed the lifecycle proof for a Tester FAIL | Fixed | `tests.test_risk_findings` |
+| Large-integer mutants complete | Open, outside #451 | #452 |
+| No security or performance proof | Open, outside this PR | Separate issue |
+| `docs/task-run.md` lacked `risk_acceptance` | Fixed | Docs below |
+| New: renamed storage arguments turned ordinary tasks into unapprovable plans | Fixed | `tests.test_risk_acceptance`, `tests.test_risk_disclosure` |
+| New: a PASS on the same racy source closed the runner finding | Fixed | `tests.test_risk_findings` |
+| New: removing the promise left its runner finding blocking forever | Fixed | `tests.test_risk_findings` |
+
 ## After: qualification on the branch
 
-Run on `6b6ff2f` (the branch before this note), on a loaded Linux machine,
-one test module at a time. Evidence is in the session scratchpad only.
+Unless noted, run on the merged branch with the review fixes (`c136a68`), on a
+Linux machine with 4 CPUs at load average 17 to 31 (other sessions' suites).
+Evidence is in the session scratchpad only.
 
 | Check | Result |
 | --- | --- |
 | `scenarios/run.py check ladder-18-durable-lease-queue ladder-19-transactional-outbox` | All 15 lines `ok`. Both seeds fail, both references pass 5/5, and all 11 broken variants fail `hidden_tests_pass` |
-| `tests.test_outbox_oracle`, `tests.test_lease_queue_oracle` | Every ladder-19 variant fails exactly its pinned hidden tests. `racy-create-order` fails only `test_concurrent_creation_once`, and `non-atomic-claim` only `test_concurrent_claims_are_unique` |
-| `tests.test_risk_cli` (10 public CLI tests) | OK (26 tests with the two oracle modules, 699 s) |
-| Supervisor alone, contention promised, ten runs each (load average 29 on 4 CPUs) | Both references PASS 10/10. `non-atomic-claim` and `racy-create-order` are refused 10/10. The slowest supervisor took 3.3 s of its 30 s cap |
-| `scenarios/run.py run --fake` (whole catalog) | 64 entries: 62 PASS, including both references at 6/6. `feature-refund-window` is NOT_EXERCISED (oracle 5/5, but the Resolver never ran, the same on master `4b58ebe`). `stuck-planner-citation` is SKIPPED: its Investigator is a live model |
-| `tools/run_suite.py --changed 711a264 --jobs 1` | SUITE |
+| `tests.test_outbox_oracle`, `tests.test_lease_queue_oracle`, `tests.test_risk_runtime`, `tests.test_risk_targets` | 46 tests OK. Every ladder-19 variant fails exactly its pinned hidden tests. `racy-create-order` fails only `test_concurrent_creation_once`, and `non-atomic-claim` only `test_concurrent_claims_are_unique` |
+| `tests.test_risk_cli` (10 public CLI tests) | OK in 120 s |
+| Architecture and unit modules (`test_architecture`, `test_risk_acceptance`, `_disclosure`, `_findings`, `_protocols`, `_evidence`, `_obligations`, `test_taskrun`, `test_progressive_run_view`) | 146 tests OK before the review fixes; 62 OK after them (architecture and the risk unit modules) |
+| Supervisor alone, contention promised, ten runs each (on `6b6ff2f`, load average 29) | Both references PASS 10/10. `non-atomic-claim` and `racy-create-order` are refused 10/10. The slowest supervisor took 3.3 s of its 30 s cap |
+| `scenarios/run.py run --fake` (whole catalog) | 64 entries: 62 PASS, including both references at 6/6. `feature-refund-window` is NOT_EXERCISED (oracle 5/5, but the Resolver never ran; reported the same on master `4b58ebe`). `stuck-planner-citation` is SKIPPED: its Investigator is a live model |
+| `tools/run_suite.py --changed --all-fast --jobs 2` | Pending |
 
-`--changed` ran from the outbox-pin commit rather than from `origin/master`.
-That commit adds `tests/test_outbox_oracle.py` to `tests/suite_slow.json`, and
-`--changed` treats any change to that file as a reason to run the whole suite.
-Both oracle modules ran on their own (above).
+The branch changes `tests/suite_slow.json`, so `--changed` runs every module,
+the slow ones included.
 
 Every ladder-18 and ladder-19 variant, run end to end with
-`scenarios/run.py run ID --fake --fake-solution VARIANT`:
+`scenarios/run.py run ID --fake --fake-solution VARIANT` on `6b6ff2f`; the four
+marked again were rerun on `c136a68` with the same outcome:
 
 | Variant | Branch outcome | Runner finding (open, assigned to the correction task) |
 | --- | --- | --- |
 | ladder-18 reference | PASS: `TASK_COMPLETE`, oracle 6/6; replay PASS with six reaped workers | none |
 | ladder-19 reference | PASS: `TASK_COMPLETE`, oracle 6/6; replay PASS with six reaped workers | none |
-| ladder-18 `process-local-tokens` | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | Restart reused a lease token or accepted a stale acknowledgment/release |
+| ladder-18 `process-local-tokens` (again) | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | Restart reused a lease token or accepted a stale acknowledgment/release |
 | ladder-18 `unfenced-ack` | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | the same |
 | ladder-18 `late-expiration` | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | Lease identity, payload or exact deadline changed |
-| ladder-18 `non-atomic-claim` (new) | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6; master: FALSE_COMPLETE | Concurrent claims leased one job twice and left another unclaimed |
-| ladder-19 `ack-with-exception-rollback` | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | Hard-kill lost the unacknowledged event or changed its stable identity |
+| ladder-18 `non-atomic-claim` (new; again) | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6; master: FALSE_COMPLETE | Concurrent claims leased one job twice and left another unclaimed |
+| ladder-19 `ack-with-exception-rollback` (again) | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | Hard-kill lost the unacknowledged event or changed its stable identity |
 | ladder-19 `ack-before-send` | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6 | the same |
-| ladder-19 `racy-create-order` (new) | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6; master: FALSE_COMPLETE | Concurrent create_order for one key raised or returned a non-boolean: raised ValueError: duplicate order |
+| ladder-19 `racy-create-order` (new; again) | HONEST_BLOCKER at `RESOLVER_PENDING`, oracle 5/6; master: FALSE_COMPLETE | Concurrent create_order for one key raised or returned a non-boolean: raised ValueError: duplicate order |
 | ladder-19 `replay-changes-event-id` | HONEST_BLOCKER at `PAUSED_INVALID_OUTPUT`, oracle 4/6; the Tester reports FAIL, and the refusal names the failing criteria | none: no replay runs after a FAIL |
 | ladder-18 `sqlite-integer-range`, ladder-19 `sqlite-integer-range`, `overflowing-limit` | FALSE_COMPLETE, oracle 5/6 (outside #451) | none: replay PASS |
 
 In every refused run the Builder ran twice and no report repair ran. The runner
-reported its finding to both Tester validations.
+reported its finding to both Tester validations; in the reruns its
+`failed_revisions` names the one source both Builders produced.
 
-These new tests fail on master `4b58ebe`:
+These new tests fail on master:
 
-- In `tests.test_risk_cli`, five fail:
+- In `tests.test_risk_cli`, five fail (on `4b58ebe`):
   - The corrected token mutant stops at `PAUSED_INVALID_OUTPUT` instead of
     completing.
   - The `db_path` token mutant reaches `TASK_COMPLETE`.
@@ -132,29 +164,49 @@ These new tests fail on master `4b58ebe`:
   - The unsupported wording stops with the generic "requires exactly one
     independent observation".
   - `non-atomic-claim` reaches `TASK_COMPLETE`.
-- The unit tests fail too: `test_risk_protocols` (contention), `test_risk_acceptance`
-  (paraphrases, missing-fact refusal, contention promise), and
-  `test_risk_disclosure` and `test_risk_findings` (new modules). In all, 7
-  failures and 11 errors.
+- The unit modules `test_risk_acceptance`, `test_risk_protocols`,
+  `test_risk_findings` and `test_risk_disclosure` run against master `87d8db3`'s
+  `tools/`: 8 failures and 11 errors (34 tests). The two new modules fail to
+  import, and the contention and paraphrase tests fail.
+
+## What this PR covers
+
+| #451 criterion | Decision |
+| --- | --- |
+| Controls qualified through the catalog, failing for the intended reason | Covered: `check` plus exact failure sets pinned for every ladder-18 and ladder-19 variant |
+| The runtime's own proof rejects both known mutants before completion | Covered for the two declared API families, including the held-out `db_path` and token rewordings and the two contention mutants |
+| Honest references complete; other jobs do not silently acquire the requirement | Covered: both references complete; only ladder-18 and ladder-19 declare an observation across the catalog; other durability and concurrency sentences are disclosed, never required |
+| Bounded, owned cleanup, failures kept across restart, no budget replenishment | Covered: at most six owned and reaped workers within 30 s; a failure stays open across restart and on the same source; no report repair is spent on it; the rework uses the ordinary bounded repair loop |
+| Independent holdout preserved | Partly: the runtime protocol stays separate from the hidden tests, and held-out rewordings are tested. Live qualification is still owed |
+| Diagnosis quality qualified separately | Not covered: fake runs cannot measure it (#59) |
+
+This PR should reference #451, not close it.
 
 ## What is still open
 
 - **Security boundaries and performance limits.** No runtime proof exists for
   either, and no catalog control plants one (ladder-16, ladder-22, ladder-23).
 - **Contention beyond the two declared APIs.** Any other concurrency sentence is
-  only disclosed, never raced.
+  only disclosed, never raced. A stated contention promise with a negation in
+  the same clause ("so a job is never leased twice") is not raced either; it is
+  disclosed.
 - **Brief-output failures.** A failed brief-output observation
   (`brief_acceptance`, #452) still takes the rejected-report route that lifecycle
   failures used to take. A progressive run whose product claim needs the replay
   also refuses a FAIL replay as before.
+- **Reviewer routing.** Under the opt-in `glm_first_v1` routing, the checkpoint
+  report holds the validation and the decision together, so its decision is
+  written before the runner's observation. A COMPLETE there is refused (fail
+  closed), not turned into REWORK. No test exercises this route.
 - **Large integers.** The `sqlite-integer-range` and `overflowing-limit` mutants
   still complete falsely. This is outside #451; it belongs with #452.
 - **Scripted Tester report repair.** It still answers with the wrong contract
-  identity (`scenarios/harness/fake_codex.py`). No lifecycle failure uses that
-  route any more.
+  identity (`scenarios/harness/fake_codex.py`).
 - **Unsupported wording.** Recognition is still a finite grammar. Wording that
   states a fact some other way is refused: the run stops with the missing facts
-  listed until a person restates them.
+  listed until a person restates them. `Name(path)` with only part of a family's
+  API and a durability word is still an unsupported declaration, as before this
+  branch; a renamed argument is not.
 - **Live work.** Live qualification of the proof (#524) is owed. Diagnosis
   quality cannot be measured by fake runs, because the fake Investigator cannot
   diagnose; it stays live-only work in #59.
