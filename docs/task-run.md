@@ -335,7 +335,10 @@ question (approval refuses one); a question the run asks after approval does not
 remove it. An edited or stale contract does not expose it, and a completed run keeps
 it. Until a follow-up's own plan is drafted, and for a follow-up answered by a
 review, design or discussion, which drafts none, it is still the earlier request's
-approved plan; compare `turn` or `progress.for_earlier_request`. The approval is
+approved plan; compare `turn` or `progress.for_earlier_request`. A follow-up that
+builds the design the previous turn proposed is the exception: when the design
+check passes, the design turn's plan is archived, so `approved_contract` is absent
+until the build's own plan is approved. The approval is
 normally the user's, but a small bug fix approved under the workflow policy the user
 agreed to (the short path for small fixes, off for now; see
 [Bug fixes](workflow.md#bug-fixes)) shows it too, and the view does not say which.

@@ -15,9 +15,9 @@ either conflicts or the design's binding decisions. The runner then:
   and continues straight to the Planner. Requirements gathering is skipped because
   the approved design already is the requirements, and the Planner is told the
   design is a constraint it may not redesign or ask about. In a follow-up that
-  builds the design an earlier turn produced or approved, the earlier turn's
-  contract, requirements handoff, planning record and task move to their histories
-  first (autocode_follow_up.plan_afresh): the build gets a new contract, which the
+  builds the design the previous turn proposed, that turn's contract,
+  requirements handoff, planning record and task move to their histories first
+  (autocode_follow_up.plan_afresh): the build gets a new contract, which the
   user approves, rather than revising the design job's.
 
 Pure module: prompt, schema, transition; the unit passes in the function that
@@ -153,8 +153,8 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         return
     state["design_constraint"] = {"design_document": design, "summary": value["summary"],
                                   "constraints": value["constraints"]}
-    # A follow-up that builds the earlier turn's design is planned from it, not as a revision of
-    # that turn's contract (autocode_follow_up.plan_afresh); a first request has nothing to move.
+    # A follow-up that builds the design the previous turn proposed is planned from it, not as a
+    # revision of that turn's contract (autocode_follow_up.plan_afresh); otherwise nothing moves.
     follow_up.plan_afresh(state)
     state.update(status="RUNNING", phase="PLANNING", next_stage=workflows.planner_stage(state))
 

@@ -222,12 +222,18 @@ def feedback_stage(event: dict, default: str) -> str:
 
 def feedback_requirements(state: dict) -> list[dict]:
     """Feedback the Planner must trace as requirements, as requirements-handoff rows quoting the user: each
-    feedback that revised a shown plan and that no Requirements report has read since (a later one takes it in)."""
+    feedback that revised a shown plan and that no Requirements report has read since (a later one takes it in).
+
+    Only feedback on this turn's plans: feedback given before the newest follow-up revised an earlier job's
+    plan. A handoff that follow-up archived (autocode_follow_up.plan_afresh) would otherwise make feedback
+    marked with no handoff, which a Requirements report has since read, match again."""
     current = _handoff(state)
+    turns = [turn for turn in state.get("turns") or [] if isinstance(turn, dict)]
+    since = str(turns[-1].get("at") or "") if turns else ""
     return [{"id": event["id"], "text": event.get("text", ""), "source_quote": event.get("text", "")}
             for event in state.get("brief_feedback") or []
             if isinstance(event, dict) and event.get("id") and isinstance(event.get(FEEDBACK), dict)
-            and event[FEEDBACK].get("requirements_handoff") == current]
+            and event[FEEDBACK].get("requirements_handoff") == current and str(event.get("at") or "") >= since]
 
 
 def can_rerun(state: dict) -> bool:

@@ -37,6 +37,13 @@ def retracted(fid, evidence="The finding was based on a stale screenshot"):
 
 
 class LedgerTests(unittest.TestCase):
+    def test_an_archived_finding_s_id_is_never_given_again(self):
+        # A checkpoint continuation keeps turns but not findings_seq; a finding a follow-up archived with
+        # an earlier turn's contract (follow_up.plan_afresh) is no longer in the ledger.
+        first = findings.allocate_id({})
+        state = {"turns": [{"fresh_plan": {"findings": [{"id": first}]}}], "findings_ledger": []}
+        self.assertNotEqual(first, findings.allocate_id(state))
+
     def test_partial_milestone_scope_defers_only_proven_unrelated_findings(self):
         milestones = [
             {'id': 'M1', 'acceptance_criteria': ['C1'], 'depends_on': []},

@@ -125,7 +125,9 @@ class ApplyTests(unittest.TestCase):
                 state = {**state_for(workspace_with_design(root)), "turns": turns, "goal_contract": dict(contract),
                          "requirements_handoff": {"report": {"requirements": [{"id": "R2"}]}},
                          "planning": {"astra_calls": 2, "reports": {"astra_challenge": {}}}, "current_task": {"id": "T9"},
-                         "findings_ledger": [dict(nit), dict(blocker), dict(settled)]}
+                         "findings_ledger": [dict(nit), dict(blocker), dict(settled)],
+                         "acceptance_criteria": [{"id": "AC1", "status": "verified"}], "criteria_revision": "c4",
+                         "validation": {"verdict": "PASS"}, "unresolved_findings": [dict(nit), dict(blocker)]}
                 autoreview.apply_job(check_job.STAGE, state, report(conflicts, constraints=() if conflicts else
                                      ("Bucket lives in ratelimit/bucket.py",)), {"output": "o"}, root)
             return state
@@ -142,13 +144,22 @@ class ApplyTests(unittest.TestCase):
             self.assertEqual([kept], state[history])
         # The design turn's open nit moves with its contract, unresolved; nothing else leaves the ledger.
         self.assertEqual([blocker, settled], state["findings_ledger"])
+        self.assertEqual([blocker], state["unresolved_findings"])
         self.assertEqual({"archived": ["goal_contract", "requirements_handoff", "planning", "current_task"],
                           "contract": "r4:h4", "findings": [nit]}, state["turns"][-1]["fresh_plan"])
+        # The archived contract's checklist and its last validation go too: the new plan defines its own.
+        self.assertEqual(([], None), (state["acceptance_criteria"], state["criteria_revision"]))
+        self.assertNotIn("validation", state)
+        self.assertEqual({"verdict": "PASS"}, state["validation_archive"][-1]["validation"])
         # The check runs once per turn.
         turns = state["turns"]
         state = checked((), turns)
         self.assertEqual(contract, state["goal_contract"])
-        for name, conflicts, turns in (("conflicts stop the run", [CONFLICT], follow_up()), ("a first request", (), [])):
+        # A design review installs no contract: a build of the design it approved revises the one in force.
+        reviewed = [{"say": "Build it.", "event_id": "feedback-2", "previous": {"workflow": "design", "design": {
+            "mode": "review", "verdict": "approve", "design_under_review": DESIGN}}}]
+        for name, conflicts, turns in (("conflicts stop the run", [CONFLICT], follow_up()), ("a first request", (), []),
+                                       ("after a design review", (), reviewed)):
             with self.subTest(name):
                 state = checked(conflicts, turns)
                 self.assertEqual(contract, state["goal_contract"])

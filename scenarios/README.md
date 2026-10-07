@@ -436,9 +436,12 @@ starts with, so no turn's message may begin another's, repeat another or begin
 the brief (`catalog.load` refuses it, in every scenario with turns). With
 `turn_paths` the scripted Planner also bounds each turn's plan to that turn's
 paths, and declares the change of boundary from an approved contract the way a
-real Planner must: one `permission_changed` row backed by the follow-up's receipt. `discuss-then-design-then-build` is the
-example: a discussion's note, then a design that follows it, then "Build it."
-implementing that design (AutoCode checks it first as an approved design).
+real Planner must: one `permission_changed` row backed by the follow-up's receipt
+(no catalog scenario reaches that row today: a build of a proposed design plans
+afresh, and `tests/test_contract_revision.py` covers the guard).
+`discuss-then-design-then-build` is the example of turns: a discussion's note,
+then a design that follows it, then "Build it." implementing that design (AutoCode
+checks it first as an approved design, then plans the build afresh from it).
 
 When a job's report itself changes from turn to turn, the solution scripts each
 turn's report in `.fake-turns/<turn>/<stage>.json` (`0` for the brief). Only the
