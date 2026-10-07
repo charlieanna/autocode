@@ -383,9 +383,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 if resolver_human.current(state):
                     print(lifecycle.render(state))
                     return 2
+        step = member_stop.next_step(state)  # a member's model stop names its one control (#541)
         print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
-              'the run remains paused without repeating the same request.'
-              + (' ' + member_stop.next_step(state) if member_stop.next_step(state) else ''))
+              'the run remains paused without repeating the same request.' + (' ' + step if step else ''))
         return 2
     default_budget_kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
                            'PAUSED_TIME_LIMIT': 'max_seconds',
@@ -436,9 +436,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # The same response sent again (respond_operational refuses a different one): nothing changes.
             live = resolver_human.current(state)
             review = operational_information.projection(state) or {}
+            step = member_stop.next_step(state)
             print(f'AutoResolver already received this response to request {args.resolver_request[:12]}; nothing '
                   'changed and no provider launched.'
-                  + (' ' + member_stop.next_step(state) if member_stop.next_step(state) else
+                  + (' ' + step if step else
                      ' It re-evaluates the response once at the next autocode resume.'
                      if review.get('request_id') == args.resolver_request and review.get('status') == 'pending' else '')
                   + (f" A newer AutoResolver request is waiting: answer request {live['request_id']} with its own token."

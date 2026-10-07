@@ -9,7 +9,7 @@ agreed on what came next.
 Before #486 a plain `--resume-paused` held for good, so a refused member had no
 way on short of re-planning. #486 (#581) re-evaluates the information once: it
 admits a plain resume, which collects the batch again and asks `route-terra`
-again without a launch. Reproduced on master `5071412` (with #486) through the
+again without a launch. Reproduced on master `87d8db3` (with #486) through the
 real CLI and worker processes, using the `tests/test_quota_worker.py` fixture
 (M1 stopped, M2 `BUILT`), what was still wrong:
 
@@ -22,9 +22,14 @@ real CLI and worker processes, using the `tests/test_quota_worker.py` fixture
   the information and asked a generic request with no `route-terra` question, so
   no answer could rerun M1. `--answer route-terra=MODEL` was rejected, naming a
   relaunch that publishes nothing.
+- Refused member left paused (`--resolver-response leave_paused`): no way on at
+  all. `needs` had no `action`, the card offered only `inspect` and `feedback`,
+  a plain resume held without naming a command, and `--retry-builder M1` and
+  `--answer route-terra=MODEL` were refused as above.
 - Quota member: two commands were accepted. The resume asked `route-terra`
   again, and `--retry-builder M1` reran M1 and completed the run. The card
-  offered neither.
+  offered neither. Left paused, `needs` had no `action` and a plain resume held,
+  while `--retry-builder M1` still completed the run.
 
 ## Fix
 

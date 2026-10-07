@@ -482,8 +482,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             need["no_progress_batches"] = state.get("no_progress_batches", 0)
         # A parallel member's model stop whose request a person answered continues only by its own
         # control (#541): --resume-paused --retry-builder M.
-        if "action" not in need and member_stop.action(state):
-            need["action"] = member_stop.action(state)
+        member = member_stop.action(state) if "action" not in need else None
+        if member:
+            need["action"] = member
         # AutoResolver evaluated corrective information and held: name the control it requires (#486).
         review = operational_information.projection(state) or {}
         if review.get("action") and (review["status"] == "held" or "action" not in need):
