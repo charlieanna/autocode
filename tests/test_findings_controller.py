@@ -117,18 +117,28 @@ class ControllerFindingsTests(unittest.TestCase):
 
     def test_resolver_cannot_redefine_add_or_duplicate_criteria(self):
         diagnosis, record = self.resolver_fixture()
-        for change in ("rewrite", "unknown", "duplicate"):
+        for change, status in (("unknown", "PAUSED_CRITERIA_CHANGE"), ("duplicate", "PAUSED_INVALID_OUTPUT")):
             value = copy.deepcopy(diagnosis)
-            if change == "rewrite":
-                value["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
-            elif change == "unknown":
+            if change == "unknown":
                 value["acceptance_criteria"][0]["id"] = "C999"
             else:
                 value["acceptance_criteria"] *= 2
             before = copy.deepcopy(self.state)
-            with self.subTest(change=change), self.assertRaises(support.Paused):
+            with self.subTest(change=change), self.assertRaises(support.Paused) as paused:
                 runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+            self.assertEqual(status, paused.exception.status)
             self.assertEqual(before, self.state)
+        # A restated criterion no longer rejects the report (#624), but it cannot
+        # redefine the criterion either: the approved wording is what is kept.
+        approved = copy.deepcopy(self.state["acceptance_criteria"])
+        contract = copy.deepcopy(self.state["goal_contract"])
+        value = copy.deepcopy(diagnosis)
+        value["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
+        runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual(approved, self.state["acceptance_criteria"])
+        self.assertEqual(contract, self.state["goal_contract"])
+        self.assertNotIn("Weaker requirement", json.dumps(self.state))
 
     def test_blocked_user_request_records_the_finding_before_pausing(self):
         decision = self.astra_decision("BLOCKED", "Missing authorization check", output="blocked.json")
