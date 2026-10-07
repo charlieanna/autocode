@@ -16,10 +16,12 @@ means after an uncertain delivery, whether a deadline is a healthy-path target o
 (`astra_discovery`, `glm_revise`, v2 `plan`, `plan_revise`) recommends mechanisms with their tradeoffs as an
 `agent_proposed` assumption, never a user decision and never permission to deploy, and keeps missing facts and
 unsupported guarantees blocking until the user decides them. The Plan Reviewer (`astra_challenge`,
-`astra_finalize`, v2 `plan_review`, `plan_finalize`) checks both. The Planner says that approval deploys
-nothing in `constraints`, not in `permission_boundaries`: the contract guard (`autocode_contract_revision`)
-refuses a boundary that a revision adds without the user's backing, whereas a constraint may be added and then
-cannot be dropped without it. `units/autoplanner.context` appends the
+`astra_finalize`, v2 `plan_review`, `plan_finalize`) checks both. Whenever the plan names external systems,
+the Planner states what approval does not authorize (every deployment, provisioning step and external call the
+user has not explicitly asked for, so a request that does ask for a call or a deployment is not contradicted by
+its own plan) in `constraints`, not in `permission_boundaries`: the contract guard
+(`autocode_contract_revision`) refuses a boundary that a revision adds without the user's backing, whereas a
+constraint may be added and then cannot be dropped without it. `units/autoplanner.context` appends the
 rule for the stage; without joint planning `astra_discovery` does both jobs and gets both rules
 (`autocode_stage_context`). Execution stages (Builder, Tester, completion, `astra_plan`) get none.
 
@@ -29,7 +31,10 @@ rules only when the rules are in their prompts, and its oracle reads the questio
 without requiring any one AWS architecture. Run against the tools from before this change it was
 `FALSE_COMPLETE` on seven checks (it asked the 2026-10-03 question, re-asked the integration after "no
 preference", never put the uncertain-delivery and deadline promises to the user, and approved a plan with the
-mechanism as the user's decision and no word on deployment); with the change it passes all 19. `scenarios/test_harness.py` runs it and checks the saved prompt of every stage.
+mechanism as the user's decision and no word on deployment); with the change it passes all 19.
+`scenarios/test_harness.py` runs it and checks the saved prompt of every stage. The oracle accepts any named
+mechanisms (AWS services, Slack's, or third-party monitors) and the usual wordings of the uncertain-delivery
+question (sent again, retried or duplicated versus missed, lost or dropped).
 
 **Not covered:** whether real models follow the rules (no live run was authorized). The Designer
 (`review_design`) prompt is unchanged: a request for a new design goes on to this pipeline, which has the rules.

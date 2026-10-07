@@ -62,7 +62,9 @@ class JointPlanningPromptTests(unittest.TestCase):
                 self.assertEqual([], missing(prompt, (
                     "name the viable options with their tradeoffs", "basis=agent_proposed",
                     "only when it is a binding constraint", "do not ask again which API",
-                    "never permission to deploy", "say so in constraints",
+                    "never permission to deploy",
+                    "state in constraints what approving the plan does not authorize",
+                    "the person has not explicitly asked for", "Keep what they did ask for",
                     "in open_blocking_questions until the person decides them")))
 
     def test_the_plan_reviewer_checks_both(self):

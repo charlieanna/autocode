@@ -20,12 +20,19 @@ import tomllib
 from harness.oracle import Check, load_json, only_changed_under, run_checks
 
 KEYS = ("outcome_rules", "mechanisms", "parameters", "open_blockers", "reliability", "assumptions", "deployment")
-# Named mechanisms a person should be recommended rather than asked to pick between. The dead-letter queue
-# itself (SQS) is the person's own system, not a choice, so it is not listed.
+# Named mechanisms a person should be recommended rather than asked to pick between: AWS services and others
+# alike, so no one architecture is required. The dead-letter queue itself (SQS) is the person's own system,
+# not a choice, so it is not listed.
 MECHANISMS = {"webhook": r"web ?hooks?", "chat:write": r"chat:write", "slack app": r"slack app\b",
               "chatbot": r"chatbot|amazon q developer", "sns": r"\bsns\b|simple notification service",
               "lambda": r"\blambda\b", "eventbridge": r"eventbridge", "cloudwatch": r"cloudwatch",
-              "step functions": r"step functions", "api gateway": r"api gateway"}
+              "step functions": r"step functions", "api gateway": r"api gateway",
+              "ses": r"\bses\b|simple email service", "datadog": r"datadog", "pagerduty": r"pagerduty",
+              "opsgenie": r"opsgenie", "prometheus": r"prometheus|alertmanager", "grafana": r"grafana",
+              "new relic": r"new ?relic"}
+# How a question puts the uncertain-delivery choice: the duplicate side and the missed side.
+REPEATED = re.compile(r"\b(twice|duplicate[sd]?|again|retr\w*|repeat\w*|resen\w*|at[- ]least[- ]once)\b", re.I)
+MISSED = re.compile(r"\b(miss\w*|lost|drop\w*|at[- ]most[- ]once)\b", re.I)
 # Identities a provisional design takes as configuration (issue #450: parameters, not blockers).
 IDENTITY = re.compile(r"\b(channel|account(?: id)?|region|arn|queue (?:name|url))\b", re.I)
 NEGATED_DEPLOYMENT = re.compile(r"\b(no|not|never|without)\b[^.;]*\b(deploy\w*|provision\w*)"
@@ -161,8 +168,7 @@ def process_checks(run):
                         f"re-asked after the person had no preference: {reasked}" if reasked else
                         ("" if free is not None else "the person was never asked about restrictions or preferences")))
 
-    duplicate = any(re.search(r"\b(twice|duplicate|again)\b", text, re.I) and re.search(r"\bmiss", text, re.I)
-                    for text in asked)
+    duplicate = any(REPEATED.search(text) and MISSED.search(text) for text in asked)
     deadline = any(re.search(r"\btarget\b", text, re.I) and re.search(r"\bguarantee", text, re.I) for text in asked)
     steps = [step.get("kind") for step in run.get("steps") or []]
     last_answer = max((index for index, kind in enumerate(steps) if kind == "answer"), default=-1)

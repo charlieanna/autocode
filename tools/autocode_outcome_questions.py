@@ -58,9 +58,10 @@ outcome rules and no integration preference, do not ask again which API, service
 Any question you add asks about outcomes and constraints, never about a mechanism.
 A recommendation is never a user decision (never basis user_answer or delegated) and never permission to
 deploy, provision infrastructure, call an external service or spend: producing a plan or a design document
-authorizes none of that. Whenever the work names external systems the person has not explicitly asked you
-to change, say so in constraints (for example "Approving this plan deploys nothing and calls no external
-service"); do not widen permission_boundaries.
+authorizes none of that. Whenever the work names external systems, state in constraints what approving the
+plan does not authorize: every deployment, provisioning step and external call the person has not explicitly
+asked for (for example "Approving this plan deploys nothing and calls no external service" when they asked
+for neither). Keep what they did ask for; do not widen permission_boundaries.
 Keep parameterizable identities (channel, account, region, resource names) as named configuration
 parameters, not blocking questions. Keep missing consequential facts and unsupported delivery or latency
 guarantees in open_blocking_questions until the person decides them. State each latency requirement as a

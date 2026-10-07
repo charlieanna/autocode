@@ -1066,6 +1066,32 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         checks = self.scenario._oracle_module().process_checks(record)
         self.assertEqual(["unsupported_guarantees_were_blockers"], [check.name for check in checks if not check.ok])
 
+    def test_the_uncertain_delivery_question_may_be_worded_as_retries_and_duplicates(self):
+        # A real model need not say "twice" or "again": retrying, duplicates and a dropped alert ask the same thing.
+        record = self.record(self.provider["REQUIREMENTS_HEADING"] + self.provider["PLANNER_HEADING"])
+        row = next(row for row in record["answers"] if row["id"] == "Q4")
+        row["question"] = ("When Slack's reply is lost, should the sender retry (the team may get duplicates) or not "
+                           "(an alert may be dropped)?")
+        row["options"] = ["Retry", "Do not retry"]
+        checks = self.scenario._oracle_module().process_checks(record)
+        self.assertEqual([], [check.name for check in checks if not check.ok])
+
+    def test_mechanisms_outside_aws_count_as_recommended_mechanisms(self):
+        # The oracle requires no AWS architecture: a plan recommending a third-party monitor passes too.
+        record = self.record(self.provider["REQUIREMENTS_HEADING"] + self.provider["PLANNER_HEADING"])
+        body = record["view"]["approved_contract"]["body"]
+        body["technical_approach"] = [
+            "Detect: options are a Datadog monitor on the queue's oldest-message age (managed, per-host cost) or a "
+            "Prometheus alert rule with Alertmanager (self-run). Recommended: the Datadog monitor, which the "
+            "person's age rule maps to directly.",
+            "Deliver: Datadog's Slack integration or PagerDuty routing to Slack. Recommended: Datadog's integration."]
+        body["accepted_assumptions"] = [
+            {"text": "Recommendation, not a user decision: detect with a Datadog monitor and deliver through its "
+                     "Slack integration.", "basis": "agent_proposed", "answer_id": ""},
+            *[row for row in body["accepted_assumptions"] if row["basis"] == "user_answer"]]
+        checks = self.scenario._oracle_module().process_checks(record)
+        self.assertEqual([], [check.name for check in checks if not check.ok])
+
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
     def setUp(self):

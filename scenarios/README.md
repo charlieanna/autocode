@@ -237,8 +237,10 @@ exception is a scenario's explicit `[fake] answers`: a person's own answer to a
 question the driver never answers by default (a quota stop's `route-sol`, for
 example). The driver gives that answer, then resumes the pause it leaves once. A
 scenario may also answer ordinary clarifying questions this way when the person's own
-words are what it tests (`design-alerting-outcomes`); the driver uses them only when
-every question it is asked has one.
+words are what it tests (`design-alerting-outcomes`): the driver gives the explicit
+answer to each question that has one and AutoCode's proposed default to the others. A
+gate the driver otherwise leaves to the person is served only when every one of its
+questions has an explicit answer.
 
 ## Hybrid runs
 
