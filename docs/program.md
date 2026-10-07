@@ -449,7 +449,9 @@ reads each child's plan from its status view: the draft shown for approval
   ids before anyone approves it, and plans again at its next invocation. This feedback
   is the only input the program ever gives a child; it never approves anything.
 - An approved plan that drops one is never resumed or merged. Its run is retired
-  (`STALE`) and a fresh run plans again in the same worktree.
+  (`STALE`) and a fresh run plans again in the same worktree, or, while a conflict
+  you resolved by hand waits for the run's later work, in a new worktree from the
+  integration head.
 - Nothing merges while the last plan the program saw from a workstream's run drops an
   inherited id, even when that run completes.
 - The program rejects a workstream's dropping plans twice at most (`plan_rejections`,
