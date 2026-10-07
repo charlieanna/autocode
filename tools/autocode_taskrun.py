@@ -193,6 +193,12 @@ class TaskRun:
                      "--no-chat", *self.options, advancing=True)
         return self.status()
 
+    def accept_source_edit(self) -> dict:
+        """Hand a paused repair the source edited while it was stopped, and continue."""
+        self._invoke("accept source edit", "--resume-paused", "--accept-source-edit",
+                     "--no-chat", *self.options, advancing=True)
+        return self.status()
+
     def retry_report(self, attempt_id: str) -> dict:
         """Request one fresh report for the exact inspected rejected attempt."""
         self._invoke("retry report", "--resume-paused", "--retry-report", attempt_id,
