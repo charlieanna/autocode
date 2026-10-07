@@ -25,12 +25,33 @@ def _reconcile(record):
 
 
 def clear(state, run_dir, persist):
-    """Retire a check only after its retained command has verified cleanup."""
+    """Retire a check after verified cleanup, or after a dead terminal inventory.
+
+    A readable stopped or uncertain receipt whose owner, keeper, provider and
+    recorded processes are all gone can be dropped so the check runs again.
+    That retirement is an audit event, not a passing result. A live process,
+    an unreadable receipt, or denied inspection keeps the hold.
+    """
     record = state.get("active_runner_check")
-    if record is not None:
-        _reconcile(record)
-        state.pop("active_runner_check")
-        persist(Path(run_dir) / "state.json", state)
+    if record is None:
+        return
+    if "supervision" in record:
+        try:
+            _reconcile(record)
+        except command_supervision.receipts.OwnershipUncertain:
+            try:
+                gone = command_supervision.processes_absent(record["supervision"])
+            except (processes.ProcessError, OSError, ValueError, KeyError, TypeError):
+                gone = False
+            if not gone:
+                raise
+            state.setdefault("user_events", []).append({
+                "kind": "runner_check_retired", "actor": "runner", "at": util.now(),
+                "receipt": record["supervision"].get("receipt"),
+                "reason": "recorded processes were confirmed gone; the check will run again",
+            })
+    state.pop("active_runner_check")
+    persist(Path(run_dir) / "state.json", state)
 
 
 @contextmanager

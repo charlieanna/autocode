@@ -27,6 +27,20 @@ CHECKPOINT = ContextVar("verification_command_checkpoint", default=None)
 TAIL_CHARS = 4000
 
 
+def processes_absent(metadata):
+    """Whether a readable terminal receipt's recorded processes are all gone.
+
+    An armed or stopping receipt is not a finished inventory. Unreadable bytes,
+    a live process, or denied inspection return false so the hold stays.
+    Absence is not command evidence.
+    """
+    final = receipts.load(metadata)
+    if not final or final.get("phase") not in ("stopped", "uncertain"):
+        return False
+    rows = [metadata["provider"], metadata["keeper"], metadata["owner"], *final["processes"]]
+    return not processes.live_processes(rows)
+
+
 def reconcile(metadata):
     """Allow retry only after authenticated cleanup and fresh native absence.
 

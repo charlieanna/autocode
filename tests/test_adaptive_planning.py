@@ -225,6 +225,19 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         state["requirements_handoff"] = {**HANDOFF, "output": "iterations/002/requirements_gather-01.json"}
         self.assertEqual([], adaptive.feedback_requirements(state), "the new Requirements report took it in")
 
+    def test_feedback_on_an_earlier_turn_s_plan_is_not_traced_again(self):
+        # Feedback on a plan with no handoff, then a design turn whose Requirements report read it, then
+        # "Build it.": archiving that turn's handoff (follow_up.plan_afresh) must not make it unread again.
+        state = awaiting()
+        goals.feedback(state, "Also accept --shout.")
+        self.assertEqual(1, len(adaptive.feedback_requirements(state)))
+        state["turns"] = [{"at": "9999-01-01T00:00:00+00:00", "say": "Build it."}]
+        self.assertEqual([], adaptive.feedback_requirements(state))
+        # Feedback on this turn's own plan is still traced.
+        state["brief_feedback"].append({**state["brief_feedback"][-1], "id": "feedback-new", "text": "And --quiet.",
+                                        "at": "9999-01-01T00:00:01+00:00"})
+        self.assertEqual(["And --quiet."], [row["text"] for row in adaptive.feedback_requirements(state)])
+
     def test_without_a_requirements_stage_the_feedback_is_still_traced(self):
         state = awaiting()
         goals.feedback(state, "Also accept --shout.")

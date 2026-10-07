@@ -46,6 +46,9 @@ def allocate_id(state) -> str:
     """A runner-owned id. Wording and evidence are not part of it, so two defects
     with the same description stay distinct until a report cites one id."""
     taken = {row.get("id") for row in state.get("findings_ledger", [])}
+    # Findings a follow-up archived with an earlier turn's contract (autocode_follow_up.plan_afresh).
+    taken |= {row.get("id") for turn in state.get("turns") or [] if isinstance(turn, dict)
+              for row in (turn.get("fresh_plan") or {}).get("findings") or [] if isinstance(row, dict)}
     seq = int(state.get("findings_seq", 0))
     while True:
         seq += 1

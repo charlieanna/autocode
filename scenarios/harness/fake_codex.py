@@ -108,7 +108,9 @@ def turn_permissions() -> list[str]:
 def permission_changes() -> list[dict]:
     """What the Planner declares when this turn's boundary replaces the approved one, as it is asked to:
     one row naming the previous boundary, the new text as its replacement, backed by the newest
-    follow-up's receipt. Live Planners wrote exactly this row for "Build it." (issue #185)."""
+    follow-up's receipt. Live Planners wrote exactly this row for "Build it." (issue #185). A build of
+    the design an earlier turn wrote has no approved contract to revise (the design check archives it),
+    so it declares nothing."""
     contract = DATA.get("goal_contract") or {}
     old = (contract.get("body") or {}).get("permission_boundaries") or []
     new = turn_permissions()

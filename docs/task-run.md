@@ -118,7 +118,9 @@ approval. The rewritten task names what the previous turn wrote (its report or
 note, then the files its stages changed; at most eight paths). After a design
 turn, a follow-up that asks to build the design names that document, so the
 build starts by checking it against the repository (`check_design`) instead of
-gathering requirements; its plan still needs approval. After a design review, a
+gathering requirements. The build is planned afresh from the design: the design
+turn's contract and requirements move to the run's history rather than being
+revised, and the new plan still needs approval. After a design review, a
 reply to it (an answer, a correction) is recognized as design and the Architect
 revises the same review: concern ids are kept, settled concerns stay as resolved,
 and `review/design-review.json` records every revision
@@ -348,7 +350,10 @@ question (approval refuses one); a question the run asks after approval does not
 remove it. An edited or stale contract does not expose it, and a completed run keeps
 it. Until a follow-up's own plan is drafted, and for a follow-up answered by a
 review, design or discussion, which drafts none, it is still the earlier request's
-approved plan; compare `turn` or `progress.for_earlier_request`. The approval is
+approved plan; compare `turn` or `progress.for_earlier_request`. A follow-up that
+builds the design the previous turn proposed is the exception: when the design
+check passes, the design turn's plan is archived, so `approved_contract` is absent
+until the build's own plan is approved. The approval is
 normally the user's, but a small bug fix approved under the workflow policy the user
 agreed to (the short path for small fixes, off for now; see
 [Bug fixes](workflow.md#bug-fixes)) shows it too, and the view does not say which.
