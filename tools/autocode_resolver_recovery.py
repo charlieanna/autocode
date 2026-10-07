@@ -156,10 +156,24 @@ def _source_revision(state, stage, pointer, packet, workspace):
     return current["revision"]
 
 
-def _narrows(failed, scope):
-    """A repair may keep fewer of the failed task's criteria; it never adds one or moves."""
+def _narrows(failed, scope, decided=()):
+    """A repair may keep fewer of the failed task's criteria; it never adds one or moves. A criterion
+    the reviewed decision assigned (`decided`) is not an addition: an earlier repair may have narrowed
+    it away, and the Completion Reviewer may name any criterion of the approved milestone again."""
     same = all(scope[key] == failed[key] for key in ("task_id", "contract_hash", "milestones"))
-    return scope == failed or (same and bool(scope["criteria"]) and set(scope["criteria"]) <= set(failed["criteria"]))
+    allowed = set(failed["criteria"]) | set(decided)
+    return scope == failed or (same and bool(scope["criteria"]) and set(scope["criteria"]) <= allowed)
+
+
+def _decided(packet):
+    """The criteria the packet's sealed decision assigns to its next task, within that task's approved
+    milestone when it is the failed task's own. The Resolver cannot change either: both are hashed."""
+    task = (packet.get("current_error") or {}).get("next_task") or {}
+    milestone = next((row for row in (packet.get("protected_obligations") or {}).get("milestones", [])
+                      if isinstance(row, dict) and row.get("id") == task.get("milestone_id")), None)
+    if milestone is None or [task.get("milestone_id")] != packet["scope"]["milestones"]:
+        return set()
+    return set(task.get("acceptance_criteria") or []) & set(milestone.get("acceptance_criteria") or [])
 
 
 def _returned_nothing(row):
@@ -1026,7 +1040,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if admission.get("packet") != pointer or admission.get("scope") != scope:
             _stale("repair admission changed packet or scope")
         expected = admission["binding"]
-        within = _narrows(packet["scope"], scope)
+        within = _narrows(packet["scope"], scope, _decided(packet))
     if bound != expected or not within:
         _stale("current source, task, settings, contract or scope changed before admission")
     active = state.get("active_stage")
