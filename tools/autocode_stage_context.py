@@ -20,12 +20,13 @@ try:
     from . import autocode_support as support
     from .autocode_util import criteria_definition
     from . import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
-    from . import autocode_milestone_replan as replan
+    from . import autocode_milestone_replan as replan, autocode_outcome_questions as outcome_questions
 except ImportError:
     import autocode_support as support
     from autocode_util import criteria_definition
     import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
     import autocode_milestone_replan as replan
+    import autocode_outcome_questions as outcome_questions
 
 
 def context_packet(state, stage, state_path):
@@ -203,6 +204,7 @@ def context_packet(state, stage, state_path):
             {k: entry["validation"].get(k) for k in ("output", "source_revision", "contract_revision", "verdict")}
             for entry in state.get("validation_archive", [])]
         instruction = (goals.DISCOVERY_PROMPT + goals.JOB_TYPE_POLICY + goals.DECISION_PROVENANCE
+                       + outcome_questions.rule(stage, joint=False)
                        if stage == "astra_discovery" else instruction + goals.EXECUTION_PROMPT)
         if stage in ("astra_plan", "astra_review"):
             instruction += support.ASTRA_DECISIONS

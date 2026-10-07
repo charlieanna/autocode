@@ -15,6 +15,7 @@ try:
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
     from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from .. import autocode_outcome_questions as outcome_questions
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_brief_literals as brief_literals
     import autocode_design_plan as design_plan
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_outcome_questions as outcome_questions
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -1188,7 +1190,7 @@ def context(state, stage, state_path):
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
     clarification_policy = ("" if stage == "astra_challenge" else QUESTION_POLICY) + (
-        ASSUMPTION_POLICY if stage == "requirements_gather" else "")
+        ASSUMPTION_POLICY if stage == "requirements_gather" else "") + outcome_questions.rule(stage)
     if stage != "requirements_gather":
         packet["deferred_obligations"] = state.get("deferred_obligations", [])
         packet["clarification_episode"] = state.get("clarification_episode")
