@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,15 @@ def digest(path: Path) -> str:
 
 
 class OpenCodeStageRouterTests(unittest.TestCase):
+    def test_recorded_variant_reads_a_model_suffix_when_the_flag_is_absent(self):
+        spec = importlib.util.spec_from_file_location("opencode_stage_router", ROUTER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual("high", module.recorded_variant(
+            ["run", "--standalone", "--model", "openai/gpt-6-sol#high"]))
+        self.assertEqual("medium", module.recorded_variant(
+            ["run", "--model", "openai/gpt-6-sol", "--variant", "medium"]))
+        self.assertIsNone(module.recorded_variant(["run", "--model", "openai/gpt-6-sol"]))
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

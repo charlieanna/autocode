@@ -1,6 +1,7 @@
 """Public CLI and adversarial oracle checks, with no live model requests."""
 import copy
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 import provider_conformance as cli
 import provider_conformance_contract as contract
+import provider_conformance_fake as fake
 import provider_conformance_transport as transport
 
 
@@ -126,6 +128,22 @@ class CliTests(unittest.TestCase):
                         self.assertTrue(any(f.startswith(reason) for f in failure["failures"]), failure)
                     else:
                         self.assertEqual(9, failure["process_exit"])
+
+    def test_opencode_2_fixture_launches_standalone_and_reads_nested_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = fake.environment(root, os.environ)
+            env["AUTOCODE_CONFORMANCE_OPENCODE_GENERATION"] = "2"
+            result = cli.run_route("opencode", "test/probe", root / "route",
+                                   effort="high", timeout=30, env=env, fake_mode=True)
+            self.assertEqual("PASS", result["status"], result)
+            launch = json.loads((Path(result["phases"][0]["artifacts"]) / "launch.json").read_text())
+            argv = launch["argv"]
+            self.assertIn("--standalone", argv)
+            self.assertNotIn("--dir", argv)
+            self.assertNotIn("--variant", argv)
+            self.assertTrue(argv[argv.index("--model") + 1].endswith("#high"))
+            self.assertEqual("2.0.20", result["identity"]["version"])
 
     def test_live_requires_explicit_authorization_before_any_launch(self):
         with tempfile.TemporaryDirectory() as directory:

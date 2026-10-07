@@ -417,6 +417,9 @@ when they finished. Each turn record also carries `changed_files`: the files
 that turn created, changed or deleted in the workspace, read from disk before
 and after it (`.git/`, `.autocode/` and bytecode left out), so reports the
 runner writes, such as a discussion's note, count for the turn that wrote them.
+A later turn can overwrite what an earlier one wrote (a design review is revised
+in place), so `kept_files` is a directory holding each of those files as that
+turn left them: `turn-files/<turn>/` in the evidence directory, `0` for the brief.
 
 The reference solution of a conversation is its end state, every turn's files
 together. With the scripted model, `[fake] turn_paths` says which turn delivers
@@ -430,9 +433,17 @@ turn_paths = [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
 
 The scripted model tells the turns apart by the message the handoff's task
 starts with, so no turn's message may begin another's, repeat another or begin
-the brief (`catalog.load` refuses it). `discuss-then-design-then-build` is the
+the brief (`catalog.load` refuses it, in every scenario with turns). `discuss-then-design-then-build` is the
 example: a discussion's note, then a design that follows it, then "Build it."
 implementing that design (AutoCode checks it first as an approved design).
+
+When a job's report itself changes from turn to turn, the solution scripts each
+turn's report in `.fake-turns/<turn>/<stage>.json` (`0` for the brief). Only the
+Architect (`review_design.json`) reads one today; a revision's concerns carry
+their `status` and `resolution`. `.fake-turns/` is never part of a project: it
+is not materialized, listed or copied, and the solution's
+`review/design-review.json` is the report the runner wrote in a fake run, for
+`check`. `design-review-with-answers` is the example.
 
 ## Programs
 
@@ -684,6 +695,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `discuss-cache-choice` | discuss | In-process vs. shared cache, decided by facts planted in the repository (four shared-nothing workers against a 60/hour upstream limit). Cites sources, weighs both options, writes no code, asks at most three questions. |
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |
+| `design-review-with-answers` | conversation | Issue #185: a design review asks which ordering consumers need, and each reply revises the same review in the same run. Before any answer ordering is a question, not a blocker; after "Ordering is per-domain." it is blocking (a transfer moves a domain to another registry, splitting its events across `registry_id` partitions); after "Per-registry is fine." that concern is resolved under the same id. The migration gap stays blocking, the unowned DLQ is advisory, nothing is renumbered or invented, and each turn runs only the Architect and changes only the review. The oracle reads the report's `revisions` trail and each turn's kept report. |
 | `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. The design and build turns each have their plan approved. |
 | `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies the journey `capture-and-find` by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
 
@@ -778,6 +790,9 @@ catalog/<id>/
                           turn delivers, the brief first; one list per turn)
                     [program] max_parallel, revise, [[program.change]] (category "program" only: driven
                           through `autocode program`; see "Programs")
+  reference/.fake-turns/<turn>/<stage>.json
+                    a conversation's scripted report for one stage in one turn (0 = the brief);
+                    never part of the project
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
   oracle.py         def check(project, scenario, run=None) -> list[Check]

@@ -351,7 +351,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     if status in COMPLETE:
         return None
     failure = state.get('job_failure') or {}
-    if status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') and failure:
+    if quota_route.job_pause_current(state) and failure:
         known_source = bool(failure.get('source_identity'))
         need = {'kind': 'retry_job' if known_source else 'recover_source',
                 'reason': failure['reason'], 'stage': failure['stage'],

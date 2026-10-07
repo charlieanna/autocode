@@ -338,6 +338,12 @@ def run_record(driver: Driver, state: dict) -> dict:
         # Workspace snapshots at the start, at each follow-up and now (None where a record has none).
         files = [getattr(driver, "start_files", None), *(mark.get("files") for mark in driver.turn_marks),
                  workspace_files(driver.project) if getattr(driver, "project", None) else None]
+        # Each turn's changed files as it left them: earlier turns were kept when the next was said.
+        kept = [mark.get("kept") for mark in driver.turn_marks]
+        last = len(driver.turn_marks)
+        kept.append(str(driver.keep_turn_files(last, files[last], files[last + 1]))
+                    if files[last] is not None and files[last + 1] is not None and hasattr(driver, "keep_turn_files")
+                    else None)
         for index, stages in enumerate(stage_turns):
             turn_metrics = metrics({"stages": stages})
             record["turns"].append({
@@ -350,6 +356,8 @@ def run_record(driver: Driver, state: dict) -> dict:
                 # What this turn changed in the workspace, read from disk before and after it.
                 "changed_files": (changed_between(files[index], files[index + 1])
                                   if files[index] is not None and files[index + 1] is not None else None),
+                # A directory holding those files as this turn left them (Driver.keep_turn_files).
+                "kept_files": kept[index],
                 "view": (driver.turn_marks[index].get("view") if index < len(driver.turn_marks) else view) or {}})
     return record
 

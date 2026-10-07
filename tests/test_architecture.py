@@ -25,7 +25,8 @@ TANGLED = frozenset({
 # 2026-10-01: the durable-intervention application policy (metadata, consume,
 # boundary effects) moved to autocode_stop, shrinking autocode.py further.
 # 2026-10-04: the regression proof's prompt notes moved to autocode_regression, which owns the proof.
-MAX_LINES = {"autocode.py": 1491, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
+# 2026-10-06: the closed-terminal output wrappers moved to autocode_detached_output (#454).
+MAX_LINES = {"autocode.py": 1462, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
 
 
 def source_modules() -> dict[str, Path]:

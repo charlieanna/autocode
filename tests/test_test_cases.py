@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression
 import autocode_test_cases as test_cases
 import autocode_verify as verify
@@ -457,8 +458,10 @@ class FeatureProofTests(unittest.TestCase):
         with open(project.root / ".git" / "info" / "exclude", "a") as exclude:
             exclude.write("test_guard.py\n")
         project.write({"test_guard.py": self.OWN_FILE})
-        proof = regression.prove(feature_state(project, [self.GUARD]), project.root,
-                                 Path(tempfile.mkdtemp(prefix="ignored-guard-")))
+        state, run_dir = feature_state(project, [self.GUARD]), Path(tempfile.mkdtemp(prefix="ignored-guard-"))
+        # The in-place run held the ignored file from its start, so the proof copies it into its trees.
+        launch_inputs.record(state, project.root, run_dir)
+        proof = regression.prove(state, project.root, run_dir)
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("the whole suite was not consulted" in failure for failure in proof["failures"]))
         self.assertTrue(any("Ignored test files" in reason and "test_guard.py" in reason

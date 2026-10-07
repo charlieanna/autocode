@@ -23,7 +23,14 @@ RISK_FLAGS = frozenset({"permission", "external-system", "destructive", "securit
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 _REQUIRED = frozenset({"intended_outcome", "intended_user", "deliverables", "required_behaviors", "important_failure_cases", "scope_exclusions", "constraints", "permission_boundaries", "accepted_assumptions", "delegated_decisions", "acceptance_criteria", "open_blocking_questions", "end_to_end_flow", "technical_approach", "milestones"})
-_KNOWN = _REQUIRED | {"initial_task"}
+# Runner-sealed acceptance evidence lives in the approved body (autocode_goals'
+# schema names both); a body carrying it must still evaluate. Found live when
+# every AutoResolver evaluation on a #522-sealed contract was refused.
+# Known-but-optional body keys. Runner-sealed acceptance evidence (autocode_goals'
+# schema names both) lives in the approved body; a body carrying it must still
+# evaluate. Found live when every AutoResolver evaluation on a #522-sealed
+# contract was refused.
+_KNOWN = _REQUIRED | {"initial_task", "brief_acceptance", "risk_acceptance"}
 _FORBIDDEN_PAYLOAD_KEYS = frozenset({"body", "contract", "contract_body", "contract_delta", "delta", "lineage", "prior_lineage", "new_lineage", "next_task", "contract_revision", "revision", "hash", "task_id", "approval_status", "approval_event", "role_output"})
 
 
@@ -164,7 +171,12 @@ def _freeze(value: Any) -> Any:
 
 
 def _validate_body(body: Any) -> bool:
-    if not isinstance(body, Mapping) or set(body) - {"task_kind"} not in (_REQUIRED, _KNOWN):
+    # Every required key and no unknown one; known-optional keys combine freely,
+    # so a contract sealed with runner acceptance evidence still evaluates.
+    if not isinstance(body, Mapping):
+        return False
+    keys = set(body) - {"task_kind"}
+    if not _REQUIRED <= keys or keys - _KNOWN:
         return False
     if body.get("task_kind", "build") not in ("build", "bugfix"):  # optional job type (autocode_goals.TASK_KINDS)
         return False

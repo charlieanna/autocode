@@ -82,6 +82,7 @@ COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailu
 UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.]+)\)")
 UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
 UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
+UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
 TAIL_CHARS = 4000
 DEFAULT_TIMEOUT = 900
 
@@ -117,7 +118,9 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     pinned tree is a regular non-executable blob that is the root README.md or,
     when ``dependencies_from`` is a checkout independent of the candidate, a
     .gitignore or an empty file; and make_tree copies no git-ignored code from
-    ``dependencies_from`` into the proof trees (``_generated_sources`` is empty).
+    ``dependencies_from`` into the proof trees (``generated_sources`` is empty;
+    the launch copies of an in-place run, autocode_launch_inputs, are files of
+    that same checkout, withheld when they changed or went missing).
 
     Source/test filename conventions cannot establish absence of existing
     behavior. Keep this positive inventory deliberately narrow: other non-empty
@@ -141,7 +144,7 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     ``independent=None`` (or True) leaves the decision to the path comparison:
     no caller can make the workspace independent of itself. Third-party
     dependencies make_tree links or copies separately (node_modules, venvs, an
-    ignored vendor/) count only where ``_generated_sources`` lists a file, which
+    ignored vendor/) count only where ``generated_sources`` lists a file, which
     it never does under node_modules or a venv
     (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
     """
@@ -157,7 +160,48 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
         if not (path == "README.md"
                 or (separate and (PurePosixPath(path).name == ".gitignore" or fields[3] == "0"))):
             return False
-    return not _generated_sources(dependencies_from)
+    return not generated_sources(dependencies_from)
+
+
+def _package_scripts(text) -> dict:
+    try:
+        package = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    scripts = package.get("scripts")
+    return dict(scripts) if isinstance(scripts, dict) else {}
+
+
+def _suite_package_script(command):
+    """The package.json script name an npm/yarn/pnpm suite command runs, if any."""
+    if not isinstance(command, str) or re.search(r"[;&|<>`$\n\r]", command):
+        return None
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if not words or PurePosixPath(words[0]).name not in ("npm", "npm.cmd", "yarn", "yarn.cmd", "pnpm", "pnpm.cmd"):
+        return None
+    positional = [word for word in words[1:] if not word.startswith("-")]
+    if not positional:
+        return None
+    if positional[0] in ("run", "run-script"):
+        return positional[1] if len(positional) > 1 else None
+    return "test" if positional[0] in ("test", "t") else None
+
+
+def _package_script_redefined(workspace, base, suite_command):
+    """True when the suite runs a package.json script the candidate redefined.
+
+    ``npm test`` reads each tree's own package.json, so identical suite text can
+    run different tests after the candidate narrows the script (#528).
+    """
+    name = _suite_package_script(suite_command)
+    if name is None:
+        return False
+    before = _package_scripts(_git(workspace, "show", f"{base}:package.json", check=False))
+    after = _package_scripts(_read(Path(workspace) / "package.json"))
+    return before.get(name) != after.get(name)
 
 
 def _ignored(path: str) -> bool:
@@ -493,9 +537,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
             result_tree = ET.parse(xml_path)
         except ET.ParseError:
             return None
-        total = 0
         for case in result_tree.iter("testcase"):
-            total += 1
             test = f"{case.get('classname', '')}::{case.get('name', '')}"
             problem = case.find("failure") if case.find("failure") is not None else case.find("error")
             if problem is not None:
@@ -509,6 +551,9 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
                 skipped.add(test)
             else:
                 passed.add(test)
+        # A test that fails and then errors in teardown is two testcases of one id; a test reported
+        # with two different outcomes stays a duplicate id, never a complete result.
+        total = len(passed | failed | skipped)
         complete = True
     else:
         text = Path(receipt["output"]).read_text(errors="replace")
@@ -544,6 +589,12 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
             if reason:
                 setup_errors[test] = reason
         passed -= failed
+        # "setUpClass (m.C) ... skipped" or ERROR (also setUpModule, tearDown*) is outside "Ran N": a
+        # skipped fixture names no test (its tests are absent from N); an error is one more failure, but
+        # never a test: "Ran 0" with only fixture errors stays zero tests, so it proves nothing.
+        fixtures = {test for test in skipped | failed if test.rpartition("::")[2] in UNITTEST_FIXTURES}
+        skipped -= fixtures
+        total += len(fixtures & failed) if total else 0
         collection = {test for test in failed if COLLECTION_ERROR.search(test)}
         complete = len(passed) + len(skipped) + len(failed) >= total
     results = {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
@@ -556,33 +607,48 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
 
 # --- scratch trees ----------------------------------------------------------
 
+def vendored_files(source_root):
+    """The ignored, untracked files under ``vendor/`` a scratch tree receives, relative to ``source_root``.
+
+    Only those files: a new tracked vendor tree must not bring candidate code into the base.
+    A symlink is followed to the file it names inside ``source_root``; a symlinked root or
+    directory, or one that leaves the checkout, raises ValueError."""
+    source_root = Path(source_root).resolve()
+    source = source_root / 'vendor'
+    if source.is_symlink():
+        raise ValueError('Vendored dependencies must not use a symlinked root')
+    if not source.is_dir():
+        return []
+    included = set()
+    for name in filter(None, _git(source_root, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard',
+                                  '--', 'vendor').split('\0')):
+        path = Path(name)
+        included.update((path, *path.parents))
+    files = []
+    for directory, dirs, names in os.walk(source):
+        relative = Path(directory).relative_to(source_root)
+        omitted = {name for name in dirs + names if relative / name not in included}
+        omitted |= investigation_workspace.ignored_entries(source_root, directory, set(dirs + names) - omitted)
+        dirs[:] = sorted(name for name in dirs if name not in omitted)
+        files += [str(relative / name) for name in sorted(names) if name not in omitted]
+    return files
+
+
 def copy_vendored_dependencies(source_root, tree):
     """Make ignored vendored dependencies available without sharing writable source files."""
     if not source_root:
         return
     source_root = Path(source_root).resolve()
-    source, target = source_root / 'vendor', Path(tree) / 'vendor'
-    if source.is_symlink() or target.is_symlink():
+    target = Path(tree) / 'vendor'
+    if (source_root / 'vendor').is_symlink() or target.is_symlink():
         raise ValueError('Vendored dependencies must not use a symlinked root')
-    if not source.is_dir() or target.exists():
+    if target.exists():
         return  # Tracked dependencies already come from the selected Git base and overlay.
-    ignored_files = _git(source_root, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard',
-                         '--', 'vendor').split('\0')
-    # Include only ignored, untracked files and their ancestors. In particular,
-    # a new tracked vendor tree must not bring candidate code into the base.
-    included = set()
-    for name in filter(None, ignored_files):
-        path = Path(name)
-        included.update((path, *path.parents))
-    if not included:
-        return
+    for relative in vendored_files(source_root):
+        destination = Path(tree) / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_root / relative, destination)
 
-    def ignored_entries(directory, names):
-        relative = Path(directory).relative_to(source_root)
-        omitted = {name for name in names if relative / name not in included}
-        return omitted | investigation_workspace.ignored_entries(source_root, directory, set(names) - omitted)
-
-    shutil.copytree(source, target, ignore=ignored_entries)
 
 def link_dependencies(source_root, tree):
     """Expose ignored dependency directories (node_modules, venvs) to a scratch tree."""
@@ -605,8 +671,9 @@ def link_dependencies(source_root, tree):
 GENERATED_SOURCE_LIMIT = 1_000_000
 
 
-def _generated_sources(source_root):
-    """Eligible ignored build inputs, shared by scratch copies and receipt identity."""
+def generated_sources(source_root):
+    """Eligible ignored build inputs, shared by scratch copies, receipt identity and
+    autocode_launch_inputs."""
     if not source_root:
         return []
     source_root = Path(source_root)
@@ -626,13 +693,70 @@ def _generated_sources(source_root):
     return selected
 
 
-def copy_generated_sources(source_root, tree):
+def generated_source_record(source_root):
+    """Byte identity of the ignored generated sources ``source_root`` holds right now.
+
+    The optional record-based copy policy admits a file only while its bytes
+    match. In-place launch-bound proofs use ``autocode_launch_inputs`` instead.
+    """
+    if not source_root:
+        return {}
+    root = Path(source_root)
+    return {path: util.file_hash(root / path) for path in generated_sources(root)}
+
+
+def classify_generated_sources(source_root, record=None, *, unrecorded=False):
+    """Trusted copy paths, proof notes, and paths left out.
+
+    ``record is None`` without ``unrecorded`` trusts every eligible file: a
+    separate project checkout, or a direct call. A dict trusts only paths whose
+    bytes still match. ``unrecorded`` trusts nothing, because a saved run has no
+    start record (#529). The omitted list is None when the filter is off, so
+    receipt identity stays as it was.
+    """
+    current = generated_source_record(source_root)
+    if record is None and not unrecorded:
+        return list(current), [], None
+    saved = record if isinstance(record, dict) else {}
+    trusted, added, changed = [], [], []
+    for path, digest in current.items():
+        if unrecorded or path not in saved:
+            added.append(path)
+        elif saved[path] == digest:
+            trusted.append(path)
+        else:
+            changed.append(path)
+    notes = []
+    if added and unrecorded:
+        notes.append("Ignored generated sources were left out of the proof because this run has no record "
+                     "of them from when it started: " + ", ".join(added))
+    elif added:
+        notes.append("Ignored generated sources added during the run were left out of the proof: "
+                     + ", ".join(added))
+    if changed:
+        notes.append("Ignored generated sources changed during the run were left out of the proof: "
+                     + ", ".join(changed))
+    return trusted, notes, sorted(set(current) - set(trusted))
+
+
+def _copied_generated(source_root, record, unrecorded, ignored_inputs):
+    """The ignored generated sources make_tree copies into every proof tree."""
+    if ignored_inputs is not None:
+        return sorted(ignored_inputs.generated)
+    return classify_generated_sources(source_root, record, unrecorded=unrecorded)[0]
+
+
+def copy_generated_sources(source_root, tree, *, record=None, unrecorded=False):
     """Copy build-generated source files (git-ignored code next to tracked code,
     such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
     A fresh worktree lacks them, so the package would not import there. Base and
-    candidate trees receive the same files, so the comparison stays fair."""
+    candidate trees receive the same files, so the comparison stays fair.
+
+    ``record`` and ``unrecorded`` limit that copy to sources the run already
+    held; see ``classify_generated_sources``.
+    """
     copied = []
-    for relative in _generated_sources(source_root):
+    for relative in classify_generated_sources(source_root, record, unrecorded=unrecorded)[0]:
         source, target = Path(source_root) / relative, Path(tree) / relative
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -648,11 +772,16 @@ def _clear(path):
         shutil.rmtree(path)
 
 
-def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_from=None, patch=None):
+def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_from=None, patch=None,
+              generated_record=None, generated_unrecorded=False, ignored_inputs=None):
     """A detached worktree of ``base`` with ``changes`` copied from ``overlay_root``.
 
     ``patch`` (a patch file) is applied to ``base`` before the changes are copied in: the
-    base a review follow-up is proven against is the change the review judged."""
+    base a review follow-up is proven against is the change the review judged.
+    ``ignored_inputs`` (autocode_launch_inputs.Supply), when given, supplies the ignored
+    vendored and generated files instead of copies from ``dependencies_from``.
+    Otherwise ``generated_record`` and ``generated_unrecorded`` retain the optional
+    generated-file filter used by direct callers."""
     destination = Path(destination)
     if destination.exists():
         remove_tree(repo, destination)
@@ -682,8 +811,12 @@ def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_fr
             elif source.is_file():
                 shutil.copy2(source, target)
         link_dependencies(dependencies_from, destination)
-        copy_vendored_dependencies(dependencies_from, destination)
-        copy_generated_sources(dependencies_from, destination)
+        if ignored_inputs is None:
+            copy_vendored_dependencies(dependencies_from, destination)
+            copy_generated_sources(dependencies_from, destination, record=generated_record,
+                                   unrecorded=generated_unrecorded)
+        else:
+            ignored_inputs.copy_into(destination)
     except BaseException:
         remove_tree(repo, destination)
         raise
@@ -788,12 +921,15 @@ def command_framework(command):
     return None
 
 
-def execution_identity(workspace, *, command=None, dependencies_from=None, full=True, source_paths=()):
+def execution_identity(workspace, *, command=None, dependencies_from=None, full=True, source_paths=(),
+                       generated_record=None, generated_unrecorded=False, ignored_inputs=None):
     """Conservative observable source/runtime/environment identity for receipts.
 
     Full dependency bytes are included, not only manifests or changed paths.
     Unknown runtimes cannot reuse clean replay evidence. This does not attest a
     remote service, wall clock or provider sandbox; those remain fresh checks.
+    ``ignored_inputs`` is make_tree's: what it supplies is bound in place of the
+    generated sources and ``vendor`` tree of ``dependencies_from``.
     """
     workspace = Path(workspace)
     source_snapshot_value = source_snapshot.snapshot(workspace, paths=source_paths)
@@ -871,7 +1007,7 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
         source = next((root / name for root in candidates if (root / name).exists()), None)
         if source:
             roots.add(source.resolve())
-    if dependency_roots and (dependency_roots[0] / "vendor").exists():
+    if dependency_roots and (dependency_roots[0] / "vendor").exists() and ignored_inputs is None:
         roots.add((dependency_roots[0] / "vendor").resolve())
     roots = {root for root in roots if not any(parent in roots for parent in root.parents)}
     runtime_root = Path(__file__).parent
@@ -882,7 +1018,13 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                  _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split("\0")
                  if p and not p.endswith("/") and PurePosixPath(p).suffix in CODE_SUFFIXES
                  and not _ignored(p) and not any(part in DEPENDENCY_DIRS for part in PurePosixPath(p).parts)}
-    return {"source_revision": source_snapshot_value["revision"], "source_metadata": util.digest(source_metadata),
+    if ignored_inputs is None:
+        trusted, _notes, omitted_generated = classify_generated_sources(
+            dependencies_from or workspace, generated_record, unrecorded=generated_unrecorded)
+        copied_inputs = {p: schedule.tree_identity(Path(dependencies_from or workspace) / p) for p in trusted}
+    else:
+        copied_inputs, omitted_generated = ignored_inputs.identity, None
+    identity = {"source_revision": source_snapshot_value["revision"], "source_metadata": util.digest(source_metadata),
             "unbound_source_symlinks": source_symlinks,
             "reuse_supported": python_command and full, "cache_binding_complete": full,
             "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
@@ -896,10 +1038,12 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
             # make_tree receives these from the dependency checkout, which may
             # differ from the candidate. They also affect the base suite: keep
             # this binding when baseline_identity drops candidate source fields.
-            "generated_dependency_sources": {
-                p: schedule.tree_identity(Path(dependencies_from or workspace) / p)
-                for p in _generated_sources(dependencies_from or workspace)},
+            "generated_dependency_sources": copied_inputs,
             "platform": [sys.platform, os.uname().release, os.uname().machine]}
+    if omitted_generated is not None:
+        # The optional filter changes receipt identity even when it omits no files.
+        identity["omitted_generated_sources"] = omitted_generated
+    return identity
 
 
 # Candidate-tree fields: they change with every Builder edit and therefore must
@@ -907,7 +1051,8 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
 _SOURCE_IDENTITY_KEYS = ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks")
 
 
-def baseline_identity(workspace, *, command=None, dependencies_from=None):
+def baseline_identity(workspace, *, command=None, dependencies_from=None,
+                      generated_record=None, generated_unrecorded=False, ignored_inputs=None):
     """Runtime/dependency identity of a base-suite run, never the candidate tree.
 
     The base suite is executed on a scratch tree of the base commit (plus an
@@ -921,9 +1066,12 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
     runtime change (no unbound editables or relative PYTHONPATH, and dependency
     roots hashed or none present). Unlike ``execution_identity``, an isolated
     Python virtualenv is not required: npm, Go and a global interpreter still
-    get a stable cache key.
+    get a stable cache key. With ``ignored_inputs`` (make_tree's), the ignored
+    vendored files are bound by what it supplies, not the whole ``vendor`` tree.
     """
-    identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from)
+    identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from,
+                                  generated_record=generated_record, generated_unrecorded=generated_unrecorded,
+                                  ignored_inputs=ignored_inputs)
     environment = test_environment(workspace)
     roots = test_env.dependency_roots(dependencies_from or workspace)
     dependencies = []
@@ -931,7 +1079,7 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
         source = next((root / name for root in roots if (root / name).exists()), None)
         if source:
             dependencies.append(schedule.tree_identity(source.resolve()))
-    if roots and (roots[0] / "vendor").exists():
+    if roots and (roots[0] / "vendor").exists() and ignored_inputs is None:
         dependencies.append(schedule.tree_identity((roots[0] / "vendor").resolve()))
     bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
     bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
@@ -946,7 +1094,8 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
 
 
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
-                files=None, links=None, source_paths=()) -> dict:
+                files=None, links=None, source_paths=(), dependencies_from=None,
+                generated_record=None, generated_unrecorded=False, ignored_inputs=None) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
 
     The copy is HEAD plus every uncommitted change (so files a stage just delivered are there),
@@ -962,7 +1111,8 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
     workspace, run_dir = Path(workspace), Path(run_dir)
     head = _git(workspace, "rev-parse", "HEAD").strip()
     tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace, changed_files(workspace, head, source_paths=source_paths),
-                     dependencies_from=workspace)
+                     dependencies_from=dependencies_from or workspace, generated_record=generated_record,
+                     generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
     try:
         if patch:
             applied = subprocess.run(["git", "-C", str(tree), "apply", str(patch)], capture_output=True, text=True)
@@ -1009,11 +1159,13 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
 
 
 def baseline(workspace, base, run_dir, *, framework, suite_command, timeout=DEFAULT_TIMEOUT,
-             dependencies_from=None, base_patch=None) -> dict:
+             dependencies_from=None, base_patch=None, generated_record=None, generated_unrecorded=False,
+             ignored_inputs=None) -> dict:
     """Run the suite once on the pristine base revision, with ``base_patch`` applied (cached by the caller)."""
     evidence = Path(run_dir) / "baseline"
     tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "baseline", workspace, {},
-                     dependencies_from=dependencies_from, patch=base_patch)
+                     dependencies_from=dependencies_from, patch=base_patch, generated_record=generated_record,
+                     generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
     try:
         receipt = run_suite(framework, suite_command, tree, evidence, "suite-on-base", timeout=timeout)
     finally:
@@ -1044,7 +1196,8 @@ def suite_health(receipt) -> str:
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
            independent_dependencies=None, allow_no_test=False, new_behavior=False, preserve_only=False,
-           base_patch=None, source_paths=(), test_only_allowed=False, guards=()) -> dict:
+           base_patch=None, source_paths=(), test_only_allowed=False, generated_record=None,
+           generated_unrecorded=False, ignored_inputs=None, guards=()) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1079,6 +1232,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     the diff turns out to be test files alone, the proof runs in that same preserve mode
     instead of failing "a fix must change product code". A test that does not pass on the
     base then still blocks it, as a mis-tagged case or a failing regression.
+
+    ``ignored_inputs`` is make_tree's, for every scratch tree.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1095,6 +1250,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                suite_command=suite_command, regression_command=regression_command,
                                reported=reported)
     notes += commands["notes"]
+    if ignored_inputs is None:
+        notes += classify_generated_sources(dependencies_from or workspace, generated_record,
+                                            unrecorded=generated_unrecorded)[1]
     runnable_tests = [p for p in tests if changes[p] != "deleted"]
     # Coverage the source already has: no test changed, so nothing can flip; the guards must hold.
     existing_guards = preserve_only and not runnable_tests
@@ -1121,11 +1279,13 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     try:
         if (changes or existing_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
-                                           dependencies_from=dependencies_from)
+                                           dependencies_from=dependencies_from, generated_record=generated_record,
+                                           generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
         if trees and runnable_tests and (sources or preserve):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
-                                                 patch=base_patch)
+                                                 patch=base_patch, generated_record=generated_record,
+                                                 generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
             on_candidate = run_suite(framework, commands["regression"], trees["candidate"], run_dir,
@@ -1139,7 +1299,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
                               new_behavior=new_behavior, preserve_only=preserve, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
-                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
+                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch,
+                                  generated_record=generated_record, generated_unrecorded=generated_unrecorded,
+                                  ignored_inputs=ignored_inputs),
                               seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
@@ -1177,9 +1339,11 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                                             dependencies_from=dependencies_from,
                                                             independent=independent_dependencies))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
-                         allow_empty_base=allow_empty_base)
+                         allow_empty_base=allow_empty_base,
+                         script_redefined=_package_script_redefined(workspace, base, commands["suite"]))
             # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
-            hidden = [path for path in _generated_sources(dependencies_from) if is_test_path(path)]
+            hidden = [path for path in _copied_generated(dependencies_from, generated_record, generated_unrecorded,
+                                                         ignored_inputs) if is_test_path(path)]
             if hidden and existing_guards:
                 unverified.append("Ignored test files are copied into the proof trees, so the guards cannot "
                                   "be shown to rest on tests the base revision holds: " + ", ".join(hidden[:5]))
@@ -1396,7 +1560,8 @@ def _seam_names(workspace, base, changes, receipt):
 
 
 def _pre_existing(framework, commands, changes, runnable_tests, workspace, base, run_dir, checks, *,
-                  timeout, dependencies_from, base_patch=None):
+                  timeout, dependencies_from, base_patch=None, generated_record=None, generated_unrecorded=False,
+                  ignored_inputs=None):
     """Failures of the changed test files' base versions on the pristine base, by test id."""
     if not framework or not framework.per_test or not str(commands["regression_source"]).startswith("derived"):
         return None
@@ -1405,7 +1570,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     if not command:
         return set()
     tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "base", workspace, {},
-                     dependencies_from=dependencies_from, patch=base_patch)
+                     dependencies_from=dependencies_from, patch=base_patch, generated_record=generated_record,
+                     generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
     try:
         receipt = run_suite(framework, command, tree, run_dir, "regression-files-on-base", timeout=timeout)
     finally:
@@ -1415,7 +1581,8 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
             if command_receipt.completed(receipt) and receipt.get("results") else None)
 
 
-def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
+def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False,
+                 script_redefined=False):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -1513,6 +1680,13 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             notes.append(f"{len(base_results['failed'])} test(s) already failed on base; none newly fail")
         return
     if on_candidate["exit_code"] == 0:
+        # An exit code proves preservation only when both trees ran the same suite.
+        # npm/yarn/pnpm run each tree's own package.json script, so a redefined
+        # script can hide the old tests behind a green exit (#528). A document-only
+        # base has no old behavior, so that first suite may still pass.
+        if script_redefined and not allow_empty_base:
+            unverified.append("The package.json test script was redefined, so base and candidate did not "
+                              "run the same tests; preservation of existing behavior is unproven")
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")

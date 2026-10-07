@@ -1,4 +1,11 @@
-"""OpenCode 1.x transport. Credentials stay in OpenCode's own provider setup."""
+"""OpenCode transport. Credentials stay in OpenCode's own provider setup.
+
+1.x and 2.x are both accepted. The command line follows the major version:
+1.x keeps ``--dir`` and ``--variant``; 2.x runs in the workspace directory with
+``--standalone`` and puts reasoning effort in the model id (``provider/model#effort``).
+A saved run records the version, so resume does not silently change major versions.
+Strict tool containment stays qualified only for the pinned 1.x release.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -28,6 +35,46 @@ try:
     from .. import autocode_tool_handoff as tool_handoff
 except ImportError:
     import autocode_tool_handoff as tool_handoff
+
+
+# 1.x prints ``1.18.33``. 2.x prints ``opencode v2.0.20``. Other majors are refused.
+_VERSION_TEXT = re.compile(
+    r"(?:opencode\s+v|v)?(\d+)\.(\d+)\.(\d+)([-+][0-9A-Za-z.-]+)?\Z",
+    re.IGNORECASE)
+
+
+def parse_opencode_version(text):
+    """Normalized ``major.minor.patch`` for OpenCode 1.x or 2.x, otherwise None."""
+    if not isinstance(text, str):
+        return None
+    match = _VERSION_TEXT.fullmatch(text.strip())
+    if not match:
+        return None
+    major = int(match.group(1))
+    if major not in (1, 2):
+        return None
+    return f"{major}.{int(match.group(2))}.{int(match.group(3))}{match.group(4) or ''}"
+
+
+def opencode_major(version):
+    parsed = parse_opencode_version(version) if isinstance(version, str) else None
+    if not parsed:
+        return None
+    return int(parsed.split(".", 1)[0])
+
+
+def transport_version(settings):
+    """The OpenCode version recorded on a run, if that identity is present."""
+    if not isinstance(settings, dict):
+        return None
+    identities = settings.get("transport_identities")
+    identity = identities.get("opencode") if isinstance(identities, dict) else None
+    if not isinstance(identity, dict):
+        identity = settings.get("transport_identity")
+    if not isinstance(identity, dict) or identity.get("engine") not in (None, "opencode"):
+        return None
+    version = identity.get("version")
+    return version if isinstance(version, str) else None
 
 
 DEFAULT_MODELS = {
@@ -130,7 +177,7 @@ def _configuration_hash(path, *, primary):
     return hashlib.sha256(raw).hexdigest()
 
 
-def local_settings(workspace, *, env=None):
+def _probe_version(workspace, *, env=None):
     effective = env_prep.snapshot_environment(env)
     cwd = workspace if env is not None else None
     executable = env_prep.resolve_executable("opencode", effective, cwd=cwd,
@@ -144,9 +191,15 @@ def local_settings(workspace, *, env=None):
         raise RuntimeError("OpenCode version check timed out; no agent was launched") from error
     except OSError as error:
         raise RuntimeError("OpenCode version check cannot start; no provider request was launched") from error
-    version = result.stdout.strip()
-    if result.returncode or not re.fullmatch(r"1\.\d+\.\d+(?:[-+].*)?", version):
-        raise RuntimeError("This adapter requires OpenCode 1.x; inspect opencode --version")
+    version = parse_opencode_version(result.stdout)
+    if result.returncode or not version:
+        raise RuntimeError("This adapter requires OpenCode 1.x or 2.x; inspect opencode --version")
+    return executable, version
+
+
+def local_settings(workspace, *, env=None):
+    effective = env_prep.snapshot_environment(env)
+    executable, version = _probe_version(workspace, env=env)
     # Fingerprint configuration, never credentials. OAuth token refreshes must not
     # invalidate a run, and the runner never opens OpenCode's auth.json.
     primary, definitions = _configuration_sources(workspace, env=effective)
@@ -272,9 +325,16 @@ def _openai_auth_modes(workspace, env=None):
 
 
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False,
-           report=None, schema=None, prompt_file=None, sandbox=None, env=None, containment=None):
-    if not model or "/" not in model or any(c.isspace() for c in model):
+           report=None, schema=None, prompt_file=None, sandbox=None, env=None, containment=None,
+           opencode_version=None):
+    if not model or "/" not in model or "#" in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
+    if opencode_version is None:
+        major = 1
+    else:
+        major = opencode_major(opencode_version)
+        if major is None:
+            raise RuntimeError("This adapter requires OpenCode 1.x or 2.x; inspect opencode --version")
     agent = "autocode_" + role
     if planning:
         # Fresh name prevents deep-merged configured role/tool allows from
@@ -319,11 +379,19 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     combined = {**inherited, **overrides, "agent": {**agents, agent: definition},
                 "plugin": [p for p in plugins if p != activity_plugin] + [activity_plugin]}
     child["OPENCODE_CONFIG_CONTENT"] = json.dumps(combined)
-    command = ["opencode", "run", "--dir", str(workspace), "--format", "json", "--agent", agent,
-               "--model", model, "--title", f"Autocode {role}: {run_dir}"]
+    # 2.x has no --dir or --variant. The runner already starts the process in the
+    # workspace, and --standalone keeps that process's private server inside the
+    # supervised tree instead of a shared background service.
+    if major == 2:
+        selected = f"{model}#{effort}" if effort else model
+        command = ["opencode", "run", "--standalone", "--format", "json", "--agent", agent,
+                   "--model", selected, "--title", f"Autocode {role}: {run_dir}"]
+    else:
+        command = ["opencode", "run", "--dir", str(workspace), "--format", "json", "--agent", agent,
+                   "--model", model, "--title", f"Autocode {role}: {run_dir}"]
     if session:
         command += ["--session", session]
-    if effort:
+    if major == 1 and effort:
         command += ["--variant", effort]
     if containment is not None:
         child, boundary = tool_containment.configure(command, child, workspace,
@@ -346,7 +414,8 @@ def prompt_for_schema(prompt, schema, events):
         "Never write, truncate, replace, delete, chmod or repair this event log, including via shell commands. "
         "It is a live transport stream, not an output destination. If it looks damaged, report that fact "
         "in your response without changing it. A command event may be cited only when "
-        "part.tool is bash, part.state.status is completed, and part.state.metadata.exit is an integer. "
+        "part.tool is bash or shell, part.state.status is completed, and the exit code is an integer "
+        "at part.state.metadata.exit or, on OpenCode 2, at part.state.metadata.metadata.exit. "
         "Cite event:<part.id>, copy part.state.input.command exactly, and report that exit code; a Validator "
         "check instead says event: with no ID and exit_code null, and the runner attaches both, so do not "
         "read this log to look them up. Never invent event IDs or exit codes.\n"
@@ -406,6 +475,20 @@ def _session_parts(rows, session):
     return parts
 
 
+def _command_exit(state):
+    """Integer exit from a 1.x event, or from OpenCode 2's nested tool metadata."""
+    metadata = state.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    if "exit" in metadata:
+        code = metadata.get("exit")
+        return code if type(code) is int else None
+    nested = metadata.get("metadata")
+    if isinstance(nested, dict) and type(nested.get("exit")) is int:
+        return nested["exit"]
+    return None
+
+
 def normalized_events(rows):
     """Adapt real transport events; never interpret a model's prose as tool proof."""
     sessions = {r["sessionID"] for r in rows if isinstance(r.get("sessionID"), str)}
@@ -422,7 +505,7 @@ def normalized_events(rows):
         if row.get("type") == "tool_use" and part.get("tool") in ("bash", "shell"):
             state = part.get("state", {})
             command = state.get("input", {}).get("command")
-            code = state.get("metadata", {}).get("exit")
+            code = _command_exit(state)
             if state.get("status") == "completed" and isinstance(command, str) and type(code) is int:
                 normalized.append({"type": "item.completed", "item": {
                     "type": "command_execution", "id": part["id"], "command": command,

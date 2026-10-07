@@ -112,7 +112,7 @@ run when switching between Codex and OpenCode; their session IDs cannot be reuse
 across engines. A response with an unexpected session ID pauses the run.
 OpenCode version or configuration drift pauses the saved run, including changes to
 custom config-directory files, agent definitions and local plugin/tool definitions.
-This adapter was live-checked with OpenCode **1.18.31**; OpenCode 2.x is not supported.
+This adapter was live-checked with OpenCode **1.18.31**. OpenCode 2.x is accepted: the stage runs in the workspace directory with `--standalone`, and reasoning effort is `provider/model#effort` rather than `--variant`. A saved run records the OpenCode version, so resume refuses a silent major-version change. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
 
 ## Check provider compatibility
 

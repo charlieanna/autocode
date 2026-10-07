@@ -21,7 +21,7 @@ _GUIDANCE = {
     'python': ('Python 3.11 or newer', 'Install Python 3.11+ and reinstall AutoCode with that interpreter.'),
     'psutil': ('Process inspection', 'Reinstall AutoCode with its declared dependencies, or use the repository virtual environment.'),
     'git': ('Git', 'Install Git using the instructions for your operating system.'),
-    'engine:opencode': ('OpenCode 1.x', 'Install OpenCode 1.x. OpenCode 2.x is not supported by this runner.'),
+    'engine:opencode': ('OpenCode', 'Install OpenCode 1.x or 2.x. Strict tool containment is qualified only for OpenCode 1.18.33.'),
     'engine:codex': ('Codex sign-in', 'Install Codex and sign in through Codex. Credentials stay with the provider.'),
     'engine': ('Selected model tool', 'Choose an installed model tool and complete its own sign-in.'),
     'workspace': ('Committed Git project', 'Choose an existing committed Git repository, or create a new project below.'),

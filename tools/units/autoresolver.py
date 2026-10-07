@@ -14,11 +14,12 @@ try:
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
-    from .. import autocode_providers, autocode_verify as verify, autocode_verification_plan as verification_plan
+    from .. import autocode_providers, autocode_verify as verify, autocode_verification_plan as verification_plan, autocode_launch_inputs as launch_inputs
     from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
 except ImportError:
     import autocode_verify as verify
     import autocode_verification_plan as verification_plan
+    import autocode_launch_inputs as launch_inputs
     import autocode_util as util
     import autocode_source_scope as source_scope
     import autocode_goals as goals
@@ -67,23 +68,24 @@ def prepare_investigation(state):
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
 
-def apply_job(stage, state, value, record, workspace):
+def apply_job(stage, state, value, record, workspace, *, run_dir=None):
     """Autopilot hands a job stage's validated report here. The Analyst's answer completes
     the run. For the Investigator, a small reproduced bug becomes one Builder task at once
     while that short path is enabled (bug_job.SMALL_CORRECTION_ENABLED); anything else
     continues where bug_job.apply sent it."""
+    clean_run, _ = launch_inputs.runners(state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run)
     if stage == discuss_job.STAGE:
         # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code.
-        return discuss_job.apply(state, value, record, workspace, run_probe=lambda command: verify.scratch_run(
+        return discuss_job.apply(state, value, record, workspace, run_probe=lambda command: clean_run(
             workspace, Path(record.get("output") or workspace).parent / "answer-probes", command=command,
             timeout=PROBE_TIMEOUT))
     if stage == stuck_job.STAGE:
         # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files.
-        return stuck_job.apply(state, value, record, workspace, run_probe=lambda command, files: verify.scratch_run(
+        return stuck_job.apply(state, value, record, workspace, run_probe=lambda command, files: clean_run(
             workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
             files=files, timeout=PROBE_TIMEOUT))
     # The runner, not the Investigator, shows the bug: its probe must exit 0 on the code as it is.
-    bug_job.apply(state, value, record, workspace, run_probe=lambda command: verify.scratch_run(
+    bug_job.apply(state, value, record, workspace, run_probe=lambda command: clean_run(
         workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
         timeout=PROBE_TIMEOUT))
     if bug_questions.has_questions(state):

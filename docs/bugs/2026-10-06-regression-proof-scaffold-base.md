@@ -56,9 +56,9 @@ all three of these hold:
    empty ones; symlinks, including one named `.gitignore`; submodules; and every
    non-empty file other than the root `README.md` and `.gitignore` files, such as a
    `.gitattributes` with content or a non-empty `__init__.py`.
-2. **No ignored code reaches the proof trees.** `_generated_sources(dependencies_from)` is
-   empty. Those are the files `make_tree` copies into both the base and the candidate tree
-   (`copy_generated_sources`): git-ignored, untracked regular files (not symlinks) of at
+2. **No ignored code reaches the proof trees.** `generated_sources(dependencies_from)` is
+   empty. Those are the files `make_tree` copies into both
+   the base and the candidate tree (`copy_generated_sources`): git-ignored, untracked regular files (not symlinks) of at
    most 1,000,000 bytes, with a code suffix (`CODE_SUFFIXES`), outside `node_modules`,
    `.venv` and `venv`, in a directory that holds a file tracked in that checkout. Neither
    a `.gitignore` nor an empty file can hold behavior, but an ignore rule (a `.gitignore`,

@@ -116,9 +116,9 @@ if source and mode in ('later','missing','corrupt','replace_error','staging_erro
  source.stopped=witness
  if mode=='replace_error':
   replace=source.os.replace
-  def fail(a,b):
+  def fail(a,b,**kwargs):
    if Path(b).name=='notes.txt':raise OSError('injected replacement failure')
-   return replace(a,b)
+   return replace(a,b,**kwargs)
   source.os.replace=fail
  if mode=='staging_error':
   create=source.tempfile.mkstemp

@@ -13,6 +13,9 @@ Configuration comes from the JSON file named by SCENARIO_FAKE_CONFIG:
 In a conversation (``turns``) the solution is the end state of every turn. The fake
 reads which turn it serves from the handoff's task, which starts with the newest
 message (autocode_follow_up), and with ``turn_paths`` delivers only that turn's files.
+A job whose report changes from turn to turn reads it from the solution's
+``.fake-turns/<turn>/<stage>.json`` (``turn_report``); that folder is never part of
+the project (harness.oracle.IGNORED).
 
 A hybrid run (harness/hybrid.py) runs it through a config-registered tool instead of
 as ``codex``; AutoCode's prompt then asks for capture receipts, and the fake runs its
@@ -76,6 +79,12 @@ def turn_number() -> int:
     number = max((n for n, say in enumerate(CONFIG.get("turns") or [], start=1) if task.startswith(say)), default=0)
     seen.write_text(json.dumps(number))
     return number
+
+
+def turn_report(stage: str) -> dict | None:
+    """The solution's scripted report for ``stage`` in this turn, or None when it has none."""
+    path = Path(CONFIG["reference"]) / ".fake-turns" / str(turn_number()) / f"{stage}.json"
+    return json.loads(path.read_text()) if path.is_file() else None
 
 
 def turn_paths() -> list[str]:
@@ -674,6 +683,9 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
         kind, signal = "build", "a program workstream brief"
     elif (follow_up or {}).get("previous_workflow") == "review" and has(r"\bfix\b", r"\bland\b", r"\bapply\b"):
         kind, signal = "build", "follow-up: act on the review's findings"
+    elif ((follow_up or {}).get("previous_design") or {}).get("mode") == "review" and not has(r"\bbuild\b",
+                                                                                              r"\bimplement\b"):
+        kind, signal = "design", "follow-up: a reply to the design review"
     elif has(r"\bimplement (it|this|the design)\b", r"has already been .*approved") and not has(r"do(n't| not) implement anything"):
         kind, signal = "build", "implement it / already approved"
     elif has(r"\bdesign\b") and has(r"\breview\b", r"do(n't| not) implement", r"\bdesign how\b", r"^design\b",
@@ -721,7 +733,8 @@ def stray_edits(allowed: str) -> None:
     root = Path(CONFIG["reference"])
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
-        if path.is_file() and not relative.startswith(allowed) and "__pycache__" not in relative:
+        if (path.is_file() and not relative.startswith(allowed) and "__pycache__" not in relative
+                and not relative.startswith(".fake-turns/")):
             target = Path.cwd() / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, target)
@@ -812,21 +825,32 @@ def scripted_cases() -> list[dict]:
 
 def design() -> dict:
     """The fake's Architect: the design review in the solution it was told to apply, if any. With none
-    (a request for a new design, such as architecture-two-services), it hands over to the build pipeline."""
+    (a request for a new design, such as architecture-two-services), it hands over to the build pipeline.
+    In a conversation each turn's review can be scripted apart (``turn_report``); a revision (the runner
+    sends previous_review, or a repair's schema asks for a resolution) passes each concern's status and
+    resolution through."""
     path = Path(CONFIG["reference"]) / "review" / "design-review.json"
-    if path.is_file():
+    scripted = turn_report("review_design")
+    if path.is_file() or scripted:
         stray_edits("review/")
-    if not path.is_file():
+    if not path.is_file() and not scripted:
         return {"mode": "propose", "design_under_review": "", "verdict": "not_applicable",
                 "summary": "A new design is requested", "satisfied": [], "concerns": [], "questions": []}
-    saved = json.loads(path.read_text())
+    saved = scripted or json.loads(path.read_text())
+    schema = (Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()
+              if "--output-schema" in sys.argv else "")
+    revising = "previous_review" in DATA or '"resolution"' in schema
     # A blocking concern needs its example; a scripted review probes nothing (probe "").
     concerns = [{**{key: str(c.get(key, "")) for key in ("id", "area", "severity", "summary", "evidence")},
                  "example": str(c.get("example") or "Scripted example: " + str(c.get("summary", ""))),
-                 "probe": str(c.get("probe", ""))}
+                 "probe": str(c.get("probe", "")),
+                 **({"status": str(c.get("status") or "open"), "resolution": str(c.get("resolution", ""))}
+                    if revising else {})}
                 for c in saved.get("concerns", [])]
-    return {"mode": "review", "design_under_review": "the design named in the request",
-            "verdict": "request_changes" if any(c["severity"] == "blocking" for c in concerns) else "approve",
+    open_blocking = any(c["severity"] == "blocking" and c.get("status", "open") == "open" for c in concerns)
+    return {"mode": "review", "design_under_review": str(saved.get("design_under_review")
+                                                         or "the design named in the request"),
+            "verdict": "request_changes" if open_blocking else "approve",
             "summary": "Scripted design review from the scenario solution",
             "satisfied": [str(s) for s in saved.get("satisfied", [])], "concerns": concerns,
             "questions": [{"id": str(q.get("id", "")), "question": str(q.get("question", "")),

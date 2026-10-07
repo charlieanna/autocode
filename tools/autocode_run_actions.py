@@ -231,15 +231,20 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     routed = job_route.answer(runner, args, state, run_dir, workspace)
     if routed is not None:
         return routed
-    if state.get('job_failure') and (state.get('status') in job_failure.PAUSES or args.job_retry_token):
-        if not (args.resume_paused and args.retry_failed_stage):
-            print(state.get('stop_reason', 'Inspect the retained workflow-job attempt before retrying.'))
-            return 2
+    gate = job_failure.resume_gate(state, resume=bool(args.resume_paused), retry=bool(args.retry_failed_stage),
+                                   token=args.job_retry_token)
+    if gate == 'authorize':
         try:
             job_failure.authorize(runner, state, run_dir, workspace, args.job_retry_token)
         except ValueError as error:
             print(f'Input rejected: {error}', file=sys.stderr)
             return 2
+    elif gate:
+        if gate.startswith('this pause'):
+            print(f'Input rejected: {gate}', file=sys.stderr)
+        else:
+            print(gate)
+        return 2
     explicit_run_seconds = getattr(args, "max_seconds", None)
     explicit_slice_seconds = getattr(args, "max_milestone_seconds", None)
     if explicit_run_seconds is not None or explicit_slice_seconds is not None:
@@ -520,7 +525,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             raise support.Paused("PAUSED_INTERVENTION_PENDING",
                                  "Queued intervention must be applied before approval, review, or completion")
         candidate = copy.deepcopy(state)
+        require_current_inputs = bool(args.approve_review or args.reconcile_review or args.accept_completion)
         try:
+            if require_current_inputs:
+                runner.launch_inputs.guard(candidate, workspace, run_dir)
             published = resolver_human.current(candidate)
             if not published and candidate.get('status') == 'TASK_COMPLETE':
                 follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
@@ -564,6 +572,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     goals.resolve_permission(candidate, question, response)
                 elif (request.get("kind") == "blocker" and response == (request.get("options") or [None])[0]
                       and response.startswith("Reconcile ")):
+                    runner.launch_inputs.guard(candidate, workspace, run_dir)
+                    require_current_inputs = True
                     lifecycle.resolve_passing_checkpoint(candidate, question, response)
                 else:
                     goals.answer(candidate, question, response)
@@ -591,7 +601,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 goals.reconcile_legacy_review(candidate, criterion, answer_id,
                                               args.review_token, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
             if args.accept_completion:
-                runner.accept_completion(candidate, workspace)
+                runner.accept_completion(candidate, workspace, run_dir=run_dir)
             if args.close_finding:
                 finding_close.close(candidate, args.close_finding, args.close_reason,
                                     current=resolver_human.current, supersede=resolver_human.supersede_operational)
@@ -603,12 +613,13 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         runner.normalize_human_boundary(candidate, run_dir)
         rendered = lifecycle.present(candidate, run_dir)
         autopilot.publish_handoffs(candidate, run_dir)
-        runner.commit_user_action(state, candidate, run_dir)
+        runner.commit_user_action(state, candidate, run_dir,
+                                 require_current_inputs=require_current_inputs)
         print(rendered)
         print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
         return 0
     if state["status"] == "TASK_COMPLETE":
-        runner.recheck_completion(state, workspace)
+        runner.recheck_completion(state, workspace, run_dir=run_dir)
         if state["status"] != "TASK_COMPLETE":
             runner.write_json(state_path, state)
     if state["status"] == "TASK_COMPLETE":

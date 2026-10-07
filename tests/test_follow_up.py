@@ -5,6 +5,7 @@ review-then-fix scenario; these are the pure rules behind it, and the CLI's
 answer to a finished run (docs/cli.md, "Waiting or finished").
 """
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -289,11 +290,20 @@ class FollowUpTests(unittest.TestCase):
                                     "advisory": 1, "questions": 1, "verdict": "request_changes"}}
         before = copy.deepcopy(review)
         follow_up.accept(review, "Ordering is per-domain.", self.workspace, "t1")
+        # The whole report, so the Architect can revise it; a report from before revisions is revision 1.
+        concern = lambda **fields: {"id": "", "area": "", "severity": "", "status": "open", "resolution": "",
+                                    "summary": "", "evidence": "", "example": "", "probe": "", **fields}
         self.assertEqual({"mode": "review", "report_path": "review/design-review.json",
                           "design_under_review": "docs/design/cache.md", "verdict": "request_changes",
+                          "summary": "", "satisfied": [],
+                          "concerns": [concern(id="F1", area="ordering", severity="blocking", summary="order lost",
+                                               evidence="e", example="x"),
+                                       concern(id="F2", area="ops", severity="advisory", summary="no owner",
+                                               evidence="e")],
                           "blocking": [{"id": "F1", "area": "ordering", "summary": "order lost"}],
                           "advisory": [{"id": "F2", "area": "ops", "summary": "no owner"}],
-                          "questions": [{"id": "Q1", "question": "Per domain or per registry?"}]},
+                          "questions": [{"id": "Q1", "question": "Per domain or per registry?", "options": ["a", "b"]}],
+                          "revision": 1, "revisions": []},
                          follow_up.current(review)["previous"]["design"])
         for unreadable in ("{not json", "[]"):
             (self.workspace / "review" / "design-review.json").write_text(unreadable)
@@ -304,6 +314,48 @@ class FollowUpTests(unittest.TestCase):
             self.assertEqual(before, unread)
         # Another job's run carries no design.
         self.assertIsNone(follow_up.carried_design(self.state, self.workspace))
+
+    def test_a_design_review_edited_since_the_architect_wrote_it_is_not_carried(self):
+        """The reply revises the Architect's report, so a report changed by hand is refused, state unchanged."""
+        (self.workspace / "review").mkdir(exist_ok=True)
+        text = json.dumps({"design_under_review": "docs/design/cache.md", "verdict": "approve", "concerns": [],
+                           "questions": []}) + "\n"
+        (self.workspace / "review" / "design-review.json").write_text(text)
+        review = {**finished_design(self.workspace, [stage("review_design")]),
+                  "design_review": {"mode": "review", "report_path": "review/design-review.json", "blocking": 0,
+                                    "advisory": 0, "questions": 0, "verdict": "approve",
+                                    "report_sha256": hashlib.sha256(text.encode()).hexdigest()}}
+        follow_up.accept(copy.deepcopy(review), "Looks good.", self.workspace, "t1")
+        (self.workspace / "review" / "design-review.json").write_text(text.replace("approve", "request_changes"))
+        before = copy.deepcopy(review)
+        with self.assertRaisesRegex(ValueError, "review/design-review.json changed since the Architect's review"):
+            follow_up.accept(review, "Looks good.", self.workspace, "t1")
+        self.assertEqual(before, review)
+
+    def test_only_a_design_reply_to_a_design_review_revises_it(self):
+        (self.workspace / "review").mkdir(exist_ok=True)
+        (self.workspace / "review" / "design-review.json").write_text(json.dumps({
+            "design_under_review": "docs/design/cache.md", "verdict": "approve", "concerns": [], "questions": []}))
+        review = {**finished_design(self.workspace, [stage("review_design")]),
+                  "design_review": {"mode": "review", "report_path": "review/design-review.json", "blocking": 0,
+                                    "advisory": 0, "questions": 0, "verdict": "approve"}}
+        self.assertIsNone(follow_up.design_review_to_revise(review), "no reply yet")
+        follow_up.accept(review, "Per host.", self.workspace, "t1")
+        event = review["turns"][-1]["event_id"]
+        for kind, revises in (("design", True), ("build", False), ("discuss", False)):
+            recognized = copy.deepcopy(review)
+            recognized["workflow"]["kind"] = kind
+            with self.subTest(kind):
+                found = follow_up.design_review_to_revise(recognized)
+                self.assertEqual((revises, "Per host.", event) if revises else (False,),
+                                 (True, found["said"], found["event_id"]) if found else (False,))
+        # A reply to a new design (propose mode) has no review to revise.
+        built = [began(self.workspace)]
+        write(self.workspace, "docs/design/cache.md")
+        proposed = finished_design(self.workspace, built)
+        follow_up.accept(proposed, "Make it per host.", self.workspace, "t1")
+        proposed["workflow"]["kind"] = "design"
+        self.assertIsNone(follow_up.design_review_to_revise(proposed))
 
     def test_an_unreadable_review_report_is_refused(self):
         (self.workspace / "review" / "findings.json").write_text("{not json")

@@ -82,9 +82,12 @@ def execute(*, adapter, workspace, directory, model, effort, session, allow_writ
         argv += ["-", "--json", "--output-schema", str(schema_path), "-o", str(report_path), "--model", model]
     else:
         prompt = adapter.prompt_for_schema(prompt, schema, event_path)
+        launch_kwargs = {}
+        if hasattr(adapter, "parse_opencode_version"):
+            launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]
         argv, child_env, _ = adapter.launch(
             "terra" if allow_write else "sol", workspace, directory, session, model, effort, allow_write,
-            report=report_path, schema=schema_path, prompt_file=prompt_path, env=child_env)
+            report=report_path, schema=schema_path, prompt_file=prompt_path, env=child_env, **launch_kwargs)
     prompt_path.write_text(prompt)
     executable = env_prep.resolve_executable(argv[0], child_env, cwd=workspace)
     if not executable:

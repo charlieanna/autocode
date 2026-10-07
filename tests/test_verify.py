@@ -20,6 +20,8 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import autocode_regression as regression  # noqa: E402
+import autocode_verification_schedule as schedule  # noqa: E402
 import autocode_verify as verify  # noqa: E402
 import autocode_workspaces as workspaces  # noqa: E402
 import scenario_references as references  # noqa: E402
@@ -270,11 +272,11 @@ class PreservationEvidenceCase(unittest.TestCase):
     # the check must read dependencies_from, the checkout make_tree copies from.
     def check_ignored_program(self, project, path, *, run="worktree"):
         (project.root / path).write_text(LEGACY_PROGRAM)
-        self.assertIn(path, verify._generated_sources(project.root))
+        self.assertIn(path, verify.generated_sources(project.root))
         workspace = self.check_first_suite(project, verdict=verify.UNVERIFIED, run=run)
         if run == "worktree":
             self.assertFalse((workspace / path).exists())
-            self.assertEqual([], verify._generated_sources(workspace))
+            self.assertEqual([], verify.generated_sources(workspace))
 
     def test_ignored_code_beside_a_tracked_file_is_not_a_first_suite_base(self):
         self.check_ignored_program(Project({"README.md": "A project.\n", ".gitignore": "legacy.py\n"}),
@@ -306,7 +308,7 @@ class PreservationEvidenceCase(unittest.TestCase):
         (project.root / "legacy.py").write_text(LEGACY_PROGRAM)  # the user's ignored program
         (project.root / ".gitignore").write_text("__pycache__/\n")  # the candidate stops ignoring it
         (project.root / "legacy.py").write_text("def answer():\n    raise SystemExit('broken')\n")
-        self.assertEqual([], verify._generated_sources(project.root))
+        self.assertEqual([], verify.generated_sources(project.root))
         self.check_first_suite(project, run="in_place", verdict=verify.UNVERIFIED)
 
     def test_in_place_candidate_that_deletes_ignored_code_cannot_prove_a_first_suite(self):
@@ -320,7 +322,7 @@ class PreservationEvidenceCase(unittest.TestCase):
         (project.root / ".git" / "info").mkdir(exist_ok=True)
         (project.root / ".git" / "info" / "exclude").write_text("src_pkg/core.py\n")
         (project.root / "src_pkg" / "core.py").write_text(LEGACY_PROGRAM)  # the user's excluded program
-        self.assertIn("src_pkg/core.py", verify._generated_sources(project.root))
+        self.assertIn("src_pkg/core.py", verify.generated_sources(project.root))
         (project.root / "src_pkg" / "core.py").unlink()  # the candidate deletes it
         self.check_first_suite(project, run="in_place", verdict=verify.UNVERIFIED)
 
@@ -350,7 +352,7 @@ class PreservationEvidenceCase(unittest.TestCase):
                 project = Project({"README.md": "A project.\n", ".gitignore": "legacy.py\n"})
                 (project.root / "legacy.py").write_text(LEGACY_PROGRAM)  # the user's ignored program
                 hide(project.root)  # the earlier Builder, in place, before the checkpoint
-                self.assertEqual([], verify._generated_sources(project.root))
+                self.assertEqual([], verify.generated_sources(project.root))
                 self.check_first_suite(project, verdict=verify.UNVERIFIED, independent_dependencies=False)
 
     def test_without_dependencies_from_a_gitignore_is_not_a_first_suite_base(self):
@@ -628,6 +630,107 @@ class VerifyCase(unittest.TestCase):
                 project.write({'app.cjs': source})
                 rejected = project.verify()
                 self.assertEqual(verify.FAIL, rejected['verdict'], rejected)
+
+    @staticmethod
+    def _narrowed_package_suite():
+        # Existing Node project whose suite is `npm test --silent`. The candidate
+        # breaks add() and narrows scripts.test so the old test never runs (#528).
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        }
+        candidate = {
+            'calc.js': 'module.exports = {add: (a, b) => a - b, mul: (a, b) => a * b};\n',
+            'package.json': json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+            'test/feature.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n"),
+        }
+        return seed, candidate
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_narrowing_the_package_test_script_cannot_hide_a_break_from_the_suite(self):
+        seed, candidate = self._narrowed_package_suite()
+        project = self.project(seed)
+        project.write(candidate)
+        result = project.verify(new_behavior=True)
+        self.assertEqual('npm test --silent', result['commands']['suite'], result)
+        self.assertEqual(['test/feature.test.js::mul'], result['fail_to_pass'], result)
+        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+        self.assertTrue(any('redefined' in reason for reason in result['unverified']), result)
+        self.assertEqual([], result['failures'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_the_same_break_without_narrowing_the_script_still_fails(self):
+        seed, candidate = self._narrowed_package_suite()
+        candidate = {**candidate, 'package.json': seed['package.json']}
+        project = self.project(seed)
+        project.write(candidate)
+        result = project.verify(new_behavior=True)
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertTrue(any('passes on base but fails on the candidate' in reason
+                            for reason in result['failures']), result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_a_package_json_change_that_leaves_scripts_alone_still_passes(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        }
+        project = self.project(seed)
+        project.write({
+            'calc.js': 'module.exports = {add: (a, b) => a + b, mul: (a, b) => a * b};\n',
+            'package.json': json.dumps({
+                "scripts": {"test": "node --test"},
+                "dependencies": {"left-pad": "1.3.0"},
+            }),
+            'test/feature.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n"),
+        })
+        result = project.verify(new_behavior=True)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+        self.assertFalse(any('redefined' in reason for reason in result['unverified']), result)
+        self.assertIn('test/feature.test.js::mul', result['fail_to_pass'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_a_first_node_project_defining_its_test_script_still_passes(self):
+        project = self.project({'README.md': 'A new project.\n'})
+        project.write({
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        })
+        result = project.verify(new_behavior=True)
+        self.assertEqual('npm test --silent', result['commands']['suite'], result)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+
+    def test_suite_package_script_names_the_script_an_npm_command_runs(self):
+        self.assertEqual('test', verify._suite_package_script('npm test --silent'))
+        self.assertEqual('test', verify._suite_package_script('yarn test'))
+        self.assertEqual('test', verify._suite_package_script('pnpm run test'))
+        self.assertEqual('test:unit', verify._suite_package_script('npm run test:unit'))
+        self.assertIsNone(verify._suite_package_script('node --test a.test.js'))
+        self.assertIsNone(verify._suite_package_script('npm test && echo done'))
+        self.assertIsNone(verify._suite_package_script('npm run'))
 
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})
@@ -907,6 +1010,77 @@ class VerifyCase(unittest.TestCase):
         (project.root / "src/pkg/_version.py").unlink()
         self.assertEqual({}, generated_identity())
 
+    def test_an_in_place_proof_does_not_run_an_ignored_file_the_run_added(self):
+        # #529: the ignored file fails test_add only in the base scratch tree, so
+        # preservation would treat the candidate's break as already present.
+        seed = {
+            "calc.py": "def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a + b\n",
+            "test_calc.py": "import unittest\nimport calc\n\nclass Add(unittest.TestCase):\n"
+                            "    def test_add(self):\n        self.assertEqual(5, calc.add(2, 3))\n",
+            "test_other.py": "import unittest\n\nclass Other(unittest.TestCase):\n"
+                             "    def test_ok(self):\n        self.assertEqual(1, 1)\n",
+        }
+        project = self.project(seed)
+        record = verify.generated_source_record(project.root)
+        self.assertEqual({}, record)
+        # Capture before the Builder edits, through the launch-input policy.
+        import autocode_launch_inputs as launch_inputs
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix"}}}
+        project.evidence = project.evidence.resolve()
+        project.evidence.mkdir()
+        launch_inputs.record(state, project.root, project.evidence)
+        project.write({
+            "calc.py": "def add(a, b):\n    return a * b\n\ndef sub(a, b):\n    return a - b\n",
+            "test_feature.py": "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n"
+                               "    def test_t1_sub_is_correct(self):\n"
+                               "        self.assertEqual(1, calc.sub(3, 2))\n",
+            "test_aaa_env.py": "import os\nimport calc\n"
+                              "if '/baseline' in os.getcwd().replace('\\\\', '/'):\n"
+                              "    calc.add = lambda a, b: -999\n",
+        })
+        exclude = project.root / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text().rstrip() + "\ntest_aaa_env.py\n")
+        self.assertEqual(["test_aaa_env.py"], sorted(verify.generated_source_record(project.root)))
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertTrue(any("test_calc.Add.test_add" in reason for reason in proof["failures"]), proof)
+        self.assertTrue(any("test_aaa_env.py" in note and "added since" in note
+                            for note in proof["notes"]), proof)
+        direct = subprocess.run([sys.executable, "-m", "unittest", "test_calc"], cwd=project.root,
+                                capture_output=True, text=True)
+        self.assertEqual(1, direct.returncode, direct.stdout + direct.stderr)
+
+        old = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+               "goal_contract": {"body": {"task_kind": "bugfix"}}}
+        missing = regression.prove(old, project.root, project.evidence / "unrecorded")
+        self.assertEqual(verify.UNVERIFIED, missing["verdict"], missing)
+        self.assertTrue(any("record" in reason and "test_aaa_env.py" in reason
+                            for reason in missing["unverified"]), missing)
+
+    def test_a_recorded_generated_file_is_copied_until_its_bytes_change(self):
+        project = self.project({
+            ".gitignore": "src/pkg/_version.py\ntest_aaa_env.py\n",
+            "src/pkg/__init__.py": "",
+            "src/pkg/calc.py": "def mean(values):\n    return sum(values) / len(values)\n",
+        })
+        project.write({"src/pkg/_version.py": "VERSION = '1.0'\n"})
+        record = verify.generated_source_record(project.root)
+        project.write({"test_aaa_env.py": "import calc\n"})
+        tree = Path(project.temp.name) / "tree"
+        git(project.root, "worktree", "add", "-q", "--detach", str(tree), project.base)
+        self.addCleanup(git, project.root, "worktree", "remove", "--force", str(tree))
+        self.assertEqual(["src/pkg/_version.py"], verify.copy_generated_sources(project.root, tree, record=record))
+        self.assertFalse((tree / "test_aaa_env.py").exists())
+        _trusted, notes, omitted = verify.classify_generated_sources(project.root, record)
+        self.assertEqual(["test_aaa_env.py"], omitted)
+        self.assertTrue(any("added during the run" in note for note in notes), notes)
+        project.write({"src/pkg/_version.py": "VERSION = '2.0'\n"})
+        trusted, notes, omitted = verify.classify_generated_sources(project.root, record)
+        self.assertEqual([], trusted)
+        self.assertEqual(["src/pkg/_version.py", "test_aaa_env.py"], omitted)
+        self.assertTrue(any("changed during the run" in note and "_version.py" in note for note in notes), notes)
+
     def test_a_suite_that_cannot_start_is_broken_not_failing(self):
         """Review finding 15: command-not-found and no-results runs stop before any model call."""
         receipt = {"timed_out": False, "results": None, "results_expected": False}
@@ -1042,6 +1216,103 @@ class VerifyCase(unittest.TestCase):
             self.assertEqual({"passed": ["m.C.test_a", "m.C.test_d"], "failed": ["m.C.test_b", "m.C::test_c"],
                               "skipped": ["m.C.test_e", "m.C.test_f"], "collection_errors": [], "uncollected": [],
                               "total": 6, "complete": True}, results)
+
+    def test_class_and_module_fixtures_outside_ran_count_keep_unittest_runs_complete(self):
+        """#416: "Ran 2 tests ... OK (skipped=1)" from a setUpClass skip was an incomplete, broken run."""
+        classes = ("\nclass Runs(unittest.TestCase):\n    def test_one(self): pass\n    def test_two(self): pass\n")
+        project = self.project({"test_x.py": "import unittest\n" + classes})
+        command = f"{sys.executable} -m unittest -v"
+        cases = {
+            "setUpClass skip": ("class Skipped(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
+                                "        raise unittest.SkipTest('needs a service')\n    def test_a(self): pass\n",
+                                0, [], "passing"),
+            "setUpModule skip in another module": ("", 0, [], "passing"),
+            "setUpClass skip, class cleanup error": (
+                "class Skipped(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
+                "        cls.addClassCleanup(int, 'x')\n        raise unittest.SkipTest('needs a service')\n"
+                "    def test_a(self): pass\n", 1, ["test_x.Skipped::setUpClass"], "failing_tests"),
+            "setUpClass error": ("class Broken(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
+                                 "        raise RuntimeError('down')\n    def test_a(self): pass\n",
+                                 1, ["test_x.Broken::setUpClass"], "failing_tests"),
+            "tearDownModule error": ("def tearDownModule():\n    raise RuntimeError('down')\n",
+                                     1, ["test_x::tearDownModule"], "failing_tests"),
+        }
+        beside = {"setUpModule skip in another module": "import unittest\ndef setUpModule():\n"
+                  "    raise unittest.SkipTest('needs a service')\n"
+                  "class Db(unittest.TestCase):\n    def test_a(self): pass\n"}
+        for name, (extra, exit_code, failed, health) in cases.items():
+            with self.subTest(name):
+                project.write({"test_x.py": "import unittest\n" + extra + classes,
+                               "test_y.py": beside.get(name, "")})
+                result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"),
+                                            command=command)
+                self.assertEqual((exit_code, ""), (result["exit_code"], result["error"]), result)
+                self.assertEqual(["test_x.Runs.test_one", "test_x.Runs.test_two"], result["results"]["passed"])
+                self.assertEqual((failed, []), (result["results"]["failed"], result["results"]["skipped"]))
+                self.assertTrue(schedule.complete_results(result), result)
+                self.assertEqual(health, verify.suite_health(result))
+        # Fixtures never stand in for tests: zero tests, or a missing test line, stays incomplete.
+        zero = {"module skip": ("def setUpModule():\n    raise unittest.SkipTest('no')\n" + classes, 0,
+                                "Test command reported zero tests or incomplete per-test results"),
+                "only a setUpClass error": (cases["setUpClass error"][0], 1, "")}
+        for name, (source, exit_code, error) in zero.items():
+            with self.subTest(name):
+                project.write({"test_x.py": "import unittest\n" + source})
+                result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"), command=command)
+                self.assertEqual((exit_code, error, 0), (result["exit_code"], result["error"],
+                                                         result["results"]["total"]), result)
+                self.assertFalse(schedule.complete_results(result))
+                self.assertEqual("broken", verify.suite_health(result))
+        log = project.evidence / "truncated.log"
+        log.write_text("setUpClass (m.S) ... skipped 'x'\ntest_a (m.C.test_a) ... ok\n"
+                       "tearDownClass (m.C) ... ERROR\n\nRan 2 tests in 0.1s\n\nFAILED (errors=1, skipped=1)\n")
+        framework = verify.Framework("unittest", command, python=sys.executable)
+        results = verify.per_test_results(framework, {"output": str(log)}, project.evidence / "none.xml")
+        self.assertEqual((["m.C.test_a"], ["m.C::tearDownClass"], [], 3, False),
+                         (results["passed"], results["failed"], results["skipped"], results["total"],
+                          results["complete"]))
+        self.assertFalse(schedule.complete_results({"results": results}))
+
+    def test_a_suite_of_only_fixture_errors_never_proves_existing_behavior_kept(self):
+        """Review of #416: "Ran 0 tests" and one setUpModule ERROR on base and candidate is not a PASS."""
+        project = self.project({"calc.py": "def add(a, b):\n    return a - b\n",
+                                "test_db.py": "import unittest\ndef setUpModule():\n"
+                                              "    raise RuntimeError('database is not reachable')\n"
+                                              "class Db(unittest.TestCase):\n    def test_query(self): pass\n"})
+        project.write({"calc.py": "def add(a, b):\n    return a + b\n",
+                       "test_calc.py": "import unittest\nfrom calc import add\nclass Add(unittest.TestCase):\n"
+                                       "    def test_add(self):\n        self.assertEqual(3, add(1, 2))\n"})
+        framework = verify.detect_framework(project.root)
+        suite = f"{sys.executable} -m unittest -v test_db"
+        base_suite = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                     suite_command=suite, timeout=120)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               base_suite=base_suite, suite_command=suite, timeout=120)
+        self.assertEqual((verify.UNVERIFIED, ["The project suite reported zero tests or incomplete per-test results"]),
+                         (result["verdict"], result["unverified"]), result)
+        self.assertEqual(["test_calc.Add.test_add"], result["fail_to_pass"], result)
+        self.assertEqual(("broken", ["test_db::setUpModule"], 0),
+                         (base_suite["health"], base_suite["receipt"]["results"]["failed"],
+                          base_suite["receipt"]["results"]["total"]))
+
+    def test_pytest_failure_then_teardown_error_is_one_complete_failed_test(self):
+        """pytest's JUnit XML reports a failing test whose teardown errors as two testcases of one id."""
+        with tempfile.TemporaryDirectory() as temp:
+            xml = Path(temp) / "out.junit.xml"
+            case = '<testcase classname="t" name="test_a"><{0} message="m">x</{0}></testcase>'
+            xml.write_text('<testsuites><testsuite tests="2">' + case.format("failure") + case.format("error")
+                           + '<testcase classname="t" name="test_b" /></testsuite></testsuites>')
+            framework = verify.Framework("pytest", "python -m pytest", python="python")
+            results = verify.per_test_results(framework, {}, xml)
+            self.assertEqual((["t::test_b"], ["t::test_a"], 2),
+                             (results["passed"], results["failed"], results["total"]))
+            receipt = {"exit_code": 1, "timed_out": False, "results_expected": True, "results": results}
+            self.assertTrue(schedule.complete_results(receipt))
+            self.assertEqual("failing_tests", verify.suite_health(receipt))
+            # One id reported with two outcomes is never a complete result.
+            xml.write_text('<testsuites><testsuite>' + case.format("failure")
+                           + '<testcase classname="t" name="test_a" /></testsuite></testsuites>')
+            self.assertFalse(schedule.complete_results({"results": verify.per_test_results(framework, {}, xml)}))
 
     def test_skipping_a_test_that_passed_on_base_is_a_regression(self):
         """Review r1: break greet(), skip the test that would catch it, add a real regression test."""
