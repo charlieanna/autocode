@@ -153,6 +153,9 @@ they never saw.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
+`TaskRun.accept_source_edit()` uses `--resume-paused --accept-source-edit` when
+a repair is paused at `PAUSED_STALE_HANDOFF` because a person edited the source.
+The approved contract, task, budget, proof and evidence pins stay.
 
 ## Reviewed Figma input changes
 
