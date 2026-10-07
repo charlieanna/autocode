@@ -25,6 +25,6 @@ per-test result stream is needed. Do not choose a test directory solely because
 it is called `tests`, discard unique tests, or replace the runner's proof with
 an exit-zero command. The current runner's parallel run prints each failed
 module's report when the module finishes and again before its summary; the
-verifier ends each traceback at its module's `Ran N tests` footer, so neither
-copy takes in later modules' output
+verifier ends each traceback at its module's `Ran N tests ... FAILED` footer,
+so neither copy takes in later modules' output
 ([run-suite-failure-output.md](run-suite-failure-output.md)).

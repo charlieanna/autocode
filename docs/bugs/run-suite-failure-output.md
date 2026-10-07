@@ -35,9 +35,21 @@ opens.
 
 ## Fix
 
-- `failure_details` ends a section at the next failure or at unittest's closing
-  `----` / `Ran N tests in` footer, whichever comes first. Stock unittest output
-  reads as before: the footer follows the last traceback.
+- `failure_details` ends a section at the next failure or at the footer that
+  closes a failed unittest report (`----`, `Ran N tests in ...`, `FAILED`),
+  whichever comes first. A footer that ends `OK` closes no failure, so a test
+  that quotes a passing run's output in its failure message keeps the rest of
+  its traceback. Ending at that quoted footer would drop the application frame
+  quoted after it and leave a quoted, caught import error: a real failure would
+  read as "could not import its dependency on base". A quoted failed run is
+  still split at its own `FAIL:`/`ERROR:` lines, as before.
+- Stock unittest output reads differently only where text follows the footer,
+  and then correctly. AutoCode captures a test command's stdout and stderr in
+  one file, so a test's `print()` to a block-buffered stdout (Python's default
+  when `PYTHONUNBUFFERED` is unset) lands after the footer. That text was read
+  as part of the last traceback: a printed, caught import error made a real
+  assertion failure "could not import its dependency on base", and a printed
+  application frame hid a missing mock, which then counted as a reproduction.
 - `run_parallel` still prints each failed module's output when it finishes, and
   after the last module it prints `The failures again:` and each failed module's
   unittest report again (from its first `FAIL`, `ERROR` or `UNEXPECTED SUCCESS`

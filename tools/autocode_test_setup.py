@@ -16,16 +16,18 @@ PYTHON_FRAME = re.compile(r'^\s*File "([^"\n]+)", line \d+, in ([^\n]+)$', re.M)
 PYTEST_FRAME = re.compile(r"^([^\n]+\.py):\d+:(?: in ([^\n]+))?[^\n]*$", re.M)
 MISSING_MOCK = re.compile(r"^(?:E\s+)?AttributeError: .* does not have the attribute ('[^'\n]+')\s*$", re.M)
 IMPORT_ERROR = re.compile(r"^(?:E\s+)?(?:ImportError|ModuleNotFoundError): ([^\n]+)$", re.M)
-# unittest's closing footer, written once after the last failure's traceback.
-UNITTEST_FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in ", re.M)
+# The closing footer of a unittest run that failed, written once after the last failure's traceback. A
+# passing run's footer ends "OK": quoted in a failure message, it closes no failure (#545).
+UNITTEST_FOOTER = re.compile(r"^-{70}\nRan \d+ tests? in [^\n]*\n\nFAILED\b", re.M)
 
 
 def failure_details(output):
     """Yield unittest failure owners and their separate traceback sections.
 
-    A section ends at the next failure or at unittest's closing "Ran N tests" footer. A runner that
-    prints several modules' reports (tools/run_suite.py) puts other modules' output after that footer,
-    and none of it belongs to the last traceback (#545)."""
+    A section ends at the next failure or at the closing "Ran N tests ... FAILED" footer of unittest's
+    report. A runner that prints several modules' reports (tools/run_suite.py) puts other modules' output
+    after that footer, and a test's print() to a block-buffered stdout reaches a shared log after it too;
+    none of it belongs to the last traceback (#545)."""
     headers = list(UNITTEST_FAILURE.finditer(output))
     for index, header in enumerate(headers):
         end = headers[index + 1].start() if index + 1 < len(headers) else len(output)
