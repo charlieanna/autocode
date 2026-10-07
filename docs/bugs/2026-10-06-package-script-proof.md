@@ -9,3 +9,7 @@ An exit code now proves preservation only when that script is unchanged. A
 redefined script is UNVERIFIED and the proof says so. A document-only base
 still has no old behavior to preserve, and a `package.json` edit that leaves
 `scripts` alone still compares the exit codes.
+
+Superseded: #625 replaced the script-string compare by running the base
+suite definition over the candidate's code, and #652 closed the gaps that run
+still had (2026-10-07-base-definition-gaps.md).

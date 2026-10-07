@@ -1243,14 +1243,17 @@ class VerifyCase(unittest.TestCase):
 
     def base_definition_fault(self, receipt):
         """verify() over the T1 fixture with run_suite patched to return ``receipt`` for the
-        base-definition run alone (the seam every suite run already goes through)."""
+        base-definition run alone (the seam every suite run already goes through). The trees
+        that run used are kept in ``self.base_definition_trees``."""
         seed, candidate = self._runner_suite_fixture()
         project = self.project(seed)
         project.write(candidate)
         real_run_suite = verify.run_suite
+        self.base_definition_trees = []
 
         def wrapped(framework, command, tree, evidence_dir, label, *, timeout):
             if Path(tree).name == 'base-definition' and Path(tree).is_dir():
+                self.base_definition_trees.append(Path(tree))
                 return receipt
             return real_run_suite(framework, command, tree, evidence_dir, label, timeout=timeout)
 
@@ -1262,6 +1265,14 @@ class VerifyCase(unittest.TestCase):
                                    suite_command='npm test --silent', base_suite=base_suite,
                                    timeout=120, new_behavior=True)
         return project, base_suite, result
+
+    def assert_base_definition_tree_removed(self, project):
+        """The run used one tree, outside the workspace (#652: parent-folder package configuration),
+        and removed it with its temporary folder."""
+        self.assertEqual(1, len(self.base_definition_trees), self.base_definition_trees)
+        tree = self.base_definition_trees[0]
+        self.assertFalse(tree.is_relative_to(project.root.resolve()), tree)
+        self.assertFalse(tree.parent.exists(), tree)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
     def test_t13_incomplete_base_definition_run_stays_unverified_and_cleans_up(self):
@@ -1275,6 +1286,7 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual([], result['failures'], result)
         self.assertTrue(any('base suite definition' in reason for reason in result['unverified']), result)
         self.assertFalse((project.evidence / 'scratch' / 'base-definition').exists())
+        self.assert_base_definition_tree_removed(project)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
     def test_t14_unstartable_base_definition_command_stays_unverified_and_cleans_up(self):
@@ -1288,6 +1300,7 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual([], result['failures'], result)
         self.assertTrue(any('base suite definition' in reason for reason in result['unverified']), result)
         self.assertFalse((project.evidence / 'scratch' / 'base-definition').exists())
+        self.assert_base_definition_tree_removed(project)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
     def test_t15_computed_selector_boundary_fails_closed_unverified(self):
