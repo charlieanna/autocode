@@ -113,7 +113,11 @@ bound to, so the request is asked again).
   asks the request again. An operator's own `pause-requested` file holds the run at
   its pause until removed. A request that input queued after its publication left
   stale is withdrawn first. Before, it could not be answered, and the input was never
-  applied, which was the "needs a recovery action to move" case.
+  applied. At an unanswered `PAUSED_TIMEOUT_RECOVERY` with a pause queued, a plain
+  invocation left no request to answer, and `--grant-recovery` was refused ("requires
+  a run paused for exhausted timeout recovery"). Only an unrelated settings write
+  moved the run. Now the plain invocation applies the pause, `--resume-paused` asks
+  the request again, and `--grant-recovery` releases it.
 - **`--joint-planning`.** `load_locked` set `RUNNING` and `requirements_gather`
   directly on an answered pause, so a plain invocation launched Requirements. That
   worked even through `autocode-unattended`, which refuses `--resume-paused` as an
