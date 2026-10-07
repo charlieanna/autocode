@@ -155,6 +155,51 @@ class AgreementTests(ProgramHarness):
         self.assertIn("a/service.py", self.integration_files(result))
         self.assertEqual(1, self.records(result)["a"]["approved_plan"]["revision"])
 
+    def test_a_run_approved_while_it_ran_merges_only_if_it_completes_showing_that_plan(self):
+        path = self.write_manifest(with_requirements(manifest()))
+        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
+        code, result = self.run_program(path)
+        self.assertEqual((2, "WAITING"), (code, result["status"]), result)
+        # The person approves a conforming plan; the program reads it from the running run before resuming it...
+        self.set_child(self.records(result)["a"], status="RUNNING",
+                       view={"approved_contract": {"token": "r1:a", "body": {"acceptance_criteria": [{"id": "C2"}]}}})
+        # ...but the run completes showing no plan in force, so that approval says nothing about what it delivered.
+        self.child_outcome["a"] = "TASK_COMPLETE"
+        self.child_view["a"] = {"approved_contract": None}
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]), result)
+        record = self.records(result)["a"]
+        self.assertEqual(("COMPLETE", True), (record["status"], self.launches_of("a")[-1]["resume"]))
+        self.assertNotIn("approved_plan", record)
+        self.assertNotIn("a/service.py", self.integration_files(result))
+
+    def test_a_conflict_resolved_by_hand_lands_only_under_a_checked_plan(self):
+        path = self.write_manifest(with_requirements(manifest()))
+        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
+        _, waiting = self.run_program(path)
+        integration = Path(waiting["integration_workspace"])
+        (integration / "a").mkdir()
+        (integration / "a/service.py").write_text("external repair\n")
+        git(integration, "add", "a/service.py")
+        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
+        self.set_child(self.records(waiting)["a"], status="RUNNING")
+        self.child_outcome["a"] = "TASK_COMPLETE"
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]), result)
+        record = self.records(result)["a"]
+        self.assertEqual("CONFLICT", record["status"])
+        # Meanwhile the person followed the run up by hand and it completed showing no plan in force; then they
+        # resolve the conflict as the pause asks.
+        self.set_child(record, view={"approved_contract": None})
+        merge = subprocess.run(["git", "-C", str(integration), "-c", "user.name=H", "-c", "user.email=h@example.test",
+                                "merge", "--no-ff", "-X", "theirs", "--no-edit", record["branch"]],
+                               capture_output=True, text=True)
+        self.assertEqual(0, merge.returncode, merge.stdout + merge.stderr)
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]), result)
+        self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
+        self.assertIn(f"Workstream a completed (run {record['run_dir']}) without showing an approved plan", result["next"])
+
     def test_the_final_check_and_a_deployment_merge_only_under_an_approved_plan(self):
         path = self.write_manifest(manifest(deploy=True))
         self.child_view["integration"] = {"approved_contract": None}

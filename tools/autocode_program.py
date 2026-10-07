@@ -669,6 +669,8 @@ def inspect(manifest, state, wid, record, view):
         criteria, plan = None, None
     if plan is not None:
         missing = agreement.dropped(manifest, wid, criteria)
+        if approved and missing:
+            record.pop("approved_plan", None)  # the plan the run now holds is not one the program accepted
         check = record.get("plan_check") or {}
         if not missing:
             record["plan_check"] = {"token": plan["token"], "dropped": [], "approved": bool(approved)}
@@ -705,6 +707,8 @@ def inspect(manifest, state, wid, record, view):
         # inherited id.
         record["plan_check"]["replanning"] = True
     if view.get("status") in children.TERMINAL_CODE:
+        if not approved:
+            record.pop("approved_plan", None)  # a run that completes showing no plan in force merges under none
         replay = (view.get("evidence") or {}).get("check_replay") or {}
         commands = [row["command"] for row in replay.get("checks") or []
                     if isinstance(row, dict) and isinstance(row.get("command"), str) and row.get("exit_code") == 0]
@@ -965,17 +969,22 @@ def _repeat_failure(manifest, state, wid, record, branch_head):
         raise util.Paused(check.get("status", "PAUSED_INTEGRATION_CHECK"), check.get("message", "Integration check failed"))
 
 
-def integrate(manifest, state, workstream, record, program_dir, options):
-    """Merge one completed workstream onto the integration branch, verify it, or pause."""
+def require_checked_plan(workstream, record):
+    """Fail closed: a workstream of any kind merges only under its current run's approved plan, which inspect()
+    recorded from the run's status view once it kept every inherited id, and drops when the completed run shows no
+    plan in force or one that drops an id (abandon() drops it with the run). A run whose view never showed one, such
+    as a run completed by hand, is not merged on its status alone; nor is a conflict a person resolved by hand."""
     if not record.get("approved_plan"):
-        # Fail closed: a workstream of any kind merges only under its current run's approved plan, which inspect()
-        # recorded from the run's status view once it kept every inherited id (abandon() drops it with the run).
-        # A run whose view never showed one, such as a run completed by hand, is not merged on its status alone.
         raise util.Paused("PAUSED_INHERITANCE", (
             f"Workstream {workstream['id']} completed (run {record.get('run_dir')}) without showing an approved plan, "
             "so the program could not check that it keeps every inherited requirement, and it was not merged. "
             f"Follow up its run (autocode --workspace {record.get('workspace')} --run-dir {record.get('run_dir')} "
             "--follow-up \"...\") so it plans again, approve that plan when it asks, then rerun the program"))
+
+
+def integrate(manifest, state, workstream, record, program_dir, options):
+    """Merge one completed workstream onto the integration branch, verify it, or pause."""
+    require_checked_plan(workstream, record)
     integration = Path(state["integration"]["workspace"])
     if workspaces.git(integration, "rev-parse", "--abbrev-ref", "HEAD") != state["integration"]["branch"]:
         raise util.Paused("PAUSED_INTEGRATION_DIRTY", "Restore the integration worktree to its recorded branch before merging")
@@ -1076,6 +1085,12 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
     result = subprocess.run(["git", "-C", str(integration), "merge-base", "--is-ancestor", record["branch"], "HEAD"],
                             capture_output=True, text=True)
     if result.returncode == 0:
+        # The run may have changed since its conflict (a person followed it up): its plan is held as integrate() holds it.
+        reason = plan_blocked(record, merging=True)
+        if reason:
+            record["blocked_reason"] = reason
+            return False
+        require_checked_plan(workstream, record)
         branch_head = workspaces.git(record["workspace"], "rev-parse", "--verify", "HEAD")
         _repeat_failure(manifest, state, workstream["id"], record, branch_head)
         land(manifest, state, workstream, record, program_dir, options, before=None, branch_head=branch_head,
