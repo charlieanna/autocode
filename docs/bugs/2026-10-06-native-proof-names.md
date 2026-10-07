@@ -61,9 +61,11 @@ a refusal the planner could not satisfy:
 - The regression proof will run Go tests (an explicit `go test` command, else
   the framework `autocode_verify` detects, as `autocode_regression.prove`
   chooses). In Python or Java, `TestParser` is a class.
-- The project's Go files do not already contain it. A bug report's failing test,
-  "keep the test TestX passing" or a `TestServer` helper names existing code that
-  the suite comparison already protects.
+- The project's `*_test.go` files do not already declare it as a top-level
+  function taking one pointer to `T` or `qualifier.T`, with no return values.
+  Comments, string literals, references, methods and production helpers do not
+  establish an existing test. Compilation, build selection and execution stay
+  with Go; this is a declaration inventory.
 - The job is not design-only, and no reproduced diagnosis drives the proof.
 - The user has not settled it. The user's own `--edit-goal` is never refused by
   this check, and a name their latest edit leaves unaccounted for is no longer
@@ -100,6 +102,29 @@ next to a Validator criterion, and that one Validator criterion naming all the
 requested tests accounted for each of them, against the rule given to the
 planner; those have tests too.
 
+## Original-brief and declaration corrections
+
+Fresh native run `20261007-094618-fix-fixed-in-product-go-to-return-2-instead-of-0-6ac76357`
+on combined source `ba8b9ffc` reached current `TASK_COMPLETE` with GLM 5.3 and
+GPT-6 Sol through OpenCode. Independent Go replay confirmed the requested
+fail-to-pass and both preservation proofs, six passing suite cases and unchanged
+protected files. All captured native streams and owned cleanup passed inspection.
+This verified the delivered task and guidance; its guard activation preflight failed.
+
+The exact original brief starts "Add TestFixedReturnsTwo, a real regression ...
+plus TestFixedPreservesExisting and TestFixedPreservesCrash". The guard extracted
+no names, while the existing unit fixture rewrote it with "Add native Go tests".
+Two other controlled defects remained: comment/string mentions suppressed required
+names, and `func TestConnection() error` was treated as a test request.
+
+The correction recognizes that explicit name-first regression request and its
+`plus` list, requires test-shaped signatures for `func` requests, and inventories
+real top-level declarations in test files instead of arbitrary Go mentions. It
+preserves negations, examples, alternatives, user edits and default criterion-ID
+proof. Eight added regression methods fail against the unchanged guard; all 47
+focused tests, including real Go proof, pass with the correction. Fresh live
+verification of this corrected guard remains required.
+
 ## Limits
 
 - Phrasings outside that grammar are not detected ("TestA must check X", "add
@@ -128,5 +153,6 @@ planner; those have tests too.
 - A bug fix proven by its Investigator's cases names tests after the case IDs
   (`test_t1_...`); a brief asking for native names there is not covered.
 - Python `test_` names asked for in a brief get no equivalent check.
-- No fresh live run is claimed here. The issue asks for one that reaches matched
-  fail-to-pass and preservation proof.
+- The diagnostic above does not qualify the corrected guard. A fresh live run
+  must activate it on the exact original brief and reach matched fail-to-pass
+  and preservation proof before that qualification is claimed.

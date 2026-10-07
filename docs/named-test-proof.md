@@ -52,9 +52,13 @@ respelling of it (`test_fixed_returns_two`), or declares another identifier (or
 none it can read, as in `test: TestFixedReturnsTwo.`) while its method or
 criterion text names the requested one, as in prose saying it "resolves to" it
 (#498). A name counts as requested when the user wrote it right after "test",
-"tests" or "func" (or in a list introduced as tests, each name with or without
-a description), not negated or offered as an example, the proof will run Go
-tests, and the project's Go files do not already contain it.
+"tests" or a Go test-shaped "func" signature (or in a list introduced as tests,
+each name with or without a description). Name-first requests such as
+"Add TestA, a real regression ... plus TestB and TestC" also count. Negations,
+examples and alternatives do not. The proof must run Go tests, and the project
+must not already declare the name as a top-level test in a `*_test.go` file.
+Comments, strings and callable production APIs do not make a test existing or
+requested. This inventory does not replace Go compilation or execution proof.
 The user's own `--edit-goal` is never refused by this check and settles which
 requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
 frameworks, and bug fixes proven by their diagnosis's cases, keep the

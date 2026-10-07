@@ -23,6 +23,18 @@ from tests.test_verify import Project
 NAMES = ["TestFixedReturnsTwo", "TestFixedPreservesExisting", "TestFixedPreservesCrash"]
 BRIEF = ("Fix Fixed in product.go to return 2 instead of 0. Add native Go tests TestFixedReturnsTwo, "
          "TestFixedPreservesExisting and TestFixedPreservesCrash in product_test.go.")
+# Verbatim completed #498 case brief, including its final newline.
+ORIGINAL_BRIEF = (
+    "Fix Fixed() in product.go to return 2 instead of 0. Preserve Existing()==1 and Crash()==false. "
+    "Only product.go and a new fixed_test.go may change. Preserve product_test.go, go.mod, README.md "
+    "and .gitignore byte-for-byte. Add TestFixedReturnsTwo, a real regression that fails on original "
+    "Fixed()==0 and passes after the fix, plus TestFixedPreservesExisting and TestFixedPreservesCrash "
+    "guarding the unchanged public functions. Use those exact native Go function names in the plan "
+    "and tests. Full suite: go test -json . ; targeted regression: go test -json -run ^TestFixed . . "
+    "No dependencies, network, generated files, human acceptance criteria or external services are "
+    "needed. The existing parallel diagnostics must remain untouched and must not execute their "
+    "abrupt-exit path while Crash()==false.\n"
+)
 GO_SEED = {"go.mod": "module product\n\ngo 1.16\n",
            "product.go": "package product\n\nfunc Fixed() int { return 0 }\n\nfunc Existing() int { return 7 }\n",
            "existing_test.go": 'package product\n\nimport "testing"\n\nfunc TestExistingIsSeven(t *testing.T) '
@@ -57,10 +69,31 @@ class NamedTests(unittest.TestCase):
     def test_the_issue_brief_names_its_three_tests(self):
         self.assertEqual(NAMES, native.named([BRIEF]))
 
+    def test_name_first_regression_requests_include_the_original_literal(self):
+        for text, names in [(ORIGINAL_BRIEF, NAMES),
+                            ("Add TestA, a real regression that fails before the fix and passes after it, plus "
+                             "TestB and TestC guarding existing behavior.", ["TestA", "TestB", "TestC"]),
+                            ("Add TestA, a regression test for empty input, plus TestB and TestC.",
+                             ["TestA", "TestB", "TestC"]),
+                            ("Add TestA, a regression that rejects HTTP or another protocol.", ["TestA"])]:
+            with self.subTest(text=text):
+                self.assertEqual(names, native.named([text]))
+
+    def test_name_first_negations_examples_alternatives_and_helpers_ask_for_nothing(self):
+        for text in ["Do not add TestA, a real regression, plus TestB and TestC.",
+                     "For example, add TestA, a real regression, plus TestB and TestC.",
+                     "Add TestA, a regression test, or similar.",
+                     "Add TestA, a regression test, plus TestB or TestC.",
+                     "Add TestCase struct fields to the configuration.",
+                     "Add TestConnection, a callable production helper for connection setup."]:
+            with self.subTest(text=text):
+                self.assertEqual([], native.named([text]))
+
     def test_a_list_after_a_lead_in_counts_and_test_main_does_not(self):
         text = "Add these Go tests:\n\n- `TestParsesEmpty`\n- `TestParsesOne`\n\nKeep TestMain as it is."
         self.assertEqual(["TestParsesEmpty", "TestParsesOne"], native.named([text]))
         self.assertEqual(["TestA"], native.named(["Write func TestA(t *testing.T) and keep TestMain."]))
+        self.assertEqual(["TestA"], native.named(["Write func TestA(t *testing.T) () and keep TestMain."]))
 
     def test_a_test_prefixed_word_not_introduced_as_a_test_asks_for_nothing(self):
         self.assertEqual([], native.named(["Deploy the release to TestNet once it builds."]))
@@ -138,6 +171,48 @@ class NamedTests(unittest.TestCase):
         self.assertEqual(NAMES[1:], native.named([BRIEF, retract]))
         self.assertEqual(NAMES, native.named([BRIEF, retract, "Please keep the test TestFixedReturnsTwo after all."]))
         self.assertEqual(NAMES, native.named([BRIEF, "Do not rename the test TestFixedReturnsTwo."]))
+
+
+class ExistingGoTests(unittest.TestCase):
+    """Only lexical native test declarations exempt a requested name; no Go compiler is needed."""
+
+    def inventory(self, files):
+        found = project({"go.mod": GO_SEED["go.mod"], "product.go": "package product\n", **files})
+        self.addCleanup(found.close)
+        return native.go_identifiers(found.root)
+
+    def test_comments_strings_and_references_are_not_existing_tests(self):
+        for content in ["// func TestRequested(t *testing.T) {}\n",
+                        "/* func TestRequested(t *testing.T) {} */\n",
+                        'const example = "func TestRequested(t *testing.T) {}"\n',
+                        'const example = `func TestRequested(t *testing.T) {}`\n',
+                        "const TestRequested = 1\nvar _ = TestRequested\n"]:
+            with self.subTest(content=content):
+                self.assertEqual(set(), self.inventory({"mentions_test.go": "package product\n" + content}))
+
+    def test_only_top_level_native_test_signatures_in_test_files_count(self):
+        forms = [("product.go", "func TestConnection() error { return nil }\n"),
+                 ("product.go", "func TestRequested(t *testing.T) {}\n")]
+        forms += [("helpers_test.go", declaration) for declaration in [
+            "func TestRequested() {}\n", "func TestRequested(t testing.T) {}\n",
+            "func TestRequested(t *testing.T) error { return nil }\n",
+            "func TestRequested(t *testing.T, extra int) {}\n", "func TestRequested(t *testing.B) {}\n",
+            "func (suite *Suite) TestRequested(t *testing.T) {}\n"]]
+        for path, declaration in forms:
+            with self.subTest(path=path, declaration=declaration):
+                source = 'package product\nimport "testing"\ntype Suite struct{}\n' + declaration
+                self.assertEqual(set(), self.inventory({path: source}))
+
+    def test_real_declarations_survive_comments_strings_and_unnamed_parameters(self):
+        for declaration in ["func TestRequested(t *testing.T) {}\n",
+                            "func /* name */ TestRequested(\n"
+                            "    t /* argument */ * /* pointer */ testing /* package */ . T,\n) {}\n",
+                            "func TestRequested(*testing.T) {}\n"]:
+            with self.subTest(declaration=declaration):
+                source = ('package product\nimport "testing"\n'
+                          'const quoted = "/* func TestQuoted(t *testing.T) {} //"\n'
+                          'const raw = `func TestRaw(t *testing.T) {} */`\n' + declaration)
+                self.assertEqual({"TestRequested"}, self.inventory({"real_test.go": source}))
 
 
 class ProblemsTests(unittest.TestCase):
@@ -302,6 +377,33 @@ class DraftValidationTests(unittest.TestCase):
 
     def test_the_corrected_draft_is_accepted(self):
         lifecycle.validate_body(self.state(), plan(CORRECTED), ready=True)
+
+    def test_the_original_literal_requests_all_three_and_refuses_the_aliased_draft(self):
+        state = self.state(task=ORIGINAL_BRIEF.strip(), task_id="task-1", version=3, status="RUNNING")
+        self.assertEqual(NAMES, native.requested(state))
+        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
+            lifecycle.install_draft(state, plan(ALIASED), origin="astra_finalize")
+        self.assertNotIn("goal_contract", state)
+        lifecycle.validate_body(state, plan(CORRECTED), ready=True)
+
+    def test_a_callable_production_api_is_not_a_requested_test(self):
+        found = project({**GO_SEED, "product.go": "package product\nfunc TestConnection() error { return nil }\n"})
+        self.addCleanup(found.close)
+        task = "implement func TestConnection() error in product.go; this is a callable production API"
+        state = self.state(found.root, task=task)
+        self.assertEqual([], native.named([task]))
+        self.assertEqual([], native.requested(state))
+        lifecycle.validate_body(state, plan(CONVENTION), ready=True)
+
+    def test_a_separate_native_test_is_requested_until_a_genuine_declaration_exists(self):
+        found = project({**GO_SEED, "product.go": "package product\nfunc TestConnection() error { return nil }\n"})
+        self.addCleanup(found.close)
+        task = "Add a regression test TestConnectionBehavior for the callable production API."
+        state = self.state(found.root, task=task)
+        self.assertEqual(["TestConnectionBehavior"], native.requested(state))
+        found.write({"connection_test.go": 'package product\nimport "testing"\n'
+                                          'func TestConnectionBehavior(t *testing.T) {}\n'})
+        self.assertEqual([], native.requested(state))
 
     def test_a_brief_without_native_names_keeps_the_lowercase_convention(self):
         task = "Fix Fixed in product.go to return 2 instead of 0, with regression tests."
