@@ -23,6 +23,7 @@ import uuid
 from contextlib import ExitStack
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
+    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
@@ -30,6 +31,7 @@ try:
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
+    import autocode_launch_inputs as launch_inputs
     import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
@@ -1082,13 +1084,14 @@ def check_joint_transports(state, workspace):
         raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")
 
 
-def accept_completion(state: dict[str, Any], workspace: Path) -> None:
+def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -> None:
     """Operator closes a run whose gates all verify independently but whose
     completion report the model cannot produce in the required echo format."""
     if state.get("status") == "TASK_COMPLETE":
         raise ValueError("Run is already complete")
     if not goals.approved(state):
         raise ValueError("Completion acceptance requires an approved goal")
+    launch_inputs.guard(state, workspace, run_dir)
     current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     contract = state["goal_contract"]
     # The probe must carry the current task identity: execution_guard rejects a
@@ -1118,10 +1121,15 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
                  completion_actor="user_cli", next_stage=None, phase="COMPLETE")
 
 
-def recheck_completion(state, workspace):
+def recheck_completion(state, workspace, *, run_dir=None):
     if state.get("status") != "TASK_COMPLETE":
         return
-    if completion_gate.completion_ready(state, state.get("final_decision", {}), source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)):
+    changed_inputs = None
+    try:
+        launch_inputs.guard(state, workspace, run_dir)
+    except ValueError as error:
+        changed_inputs = str(error)
+    if not changed_inputs and completion_gate.completion_ready(state, state.get("final_decision", {}), source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)):
         return
     state.setdefault("completion_archive", []).append({"completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)})
     state.pop("completion_actor", None)
@@ -1130,7 +1138,8 @@ def recheck_completion(state, workspace):
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
     state.update(status="PAUSED_STALE_VALIDATION", phase="PAUSED_OR_BLOCKED", next_stage=workflow.review_stage(state),
-        stop_reason="Completion is no longer current. Use autocode resume for fresh independent validation.")
+        stop_reason=("Completion is no longer current. " + changed_inputs if changed_inputs else
+                     "Completion is no longer current. Use autocode resume for fresh independent validation."))
 
 
 def intervention_metadata(workspace, run_dir, state):
@@ -1143,13 +1152,18 @@ def consume_interventions(state, run_dir, workspace, *, lock_held=False):
     return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, lock_held=lock_held)
 
 
-def commit_user_action(state, candidate, run_dir):
+def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False):
     """Commit a prepared answer/approval without accepting earlier queued input."""
     if run_dir is None:  # Pure in-memory callers have no concurrent inbox.
         state.clear()
         state.update(candidate)
         return
     with interventions.admission(run_dir):
+        if require_current_inputs:
+            try:
+                launch_inputs.guard(candidate, Path(candidate['workspace']), run_dir)
+            except ValueError as error:
+                raise support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
         planning_artifacts.commit_pending(candidate, run_dir,
             lambda value: write_json(run_dir / 'state.json', value))
         state.clear()
@@ -1200,7 +1214,8 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
         if published:
             finish_human_action(candidate, published)
         normalize_human_boundary(candidate, run_dir)
-        commit_user_action(state, candidate, run_dir)
+        commit_user_action(state, candidate, run_dir,
+                           require_current_inputs=bool(published and published['scope'] == 'human_review'))
 
     if state.get("discovery_summary") and state.get("phase") == "DISCOVERING":
         print(f"\n{speaker}: " + state["discovery_summary"])

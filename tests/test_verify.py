@@ -864,6 +864,13 @@ class VerifyCase(unittest.TestCase):
         project = self.project(seed)
         record = verify.generated_source_record(project.root)
         self.assertEqual({}, record)
+        # Capture before the Builder edits, through the launch-input policy.
+        import autocode_launch_inputs as launch_inputs
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix"}}}
+        project.evidence = project.evidence.resolve()
+        project.evidence.mkdir()
+        launch_inputs.record(state, project.root, project.evidence)
         project.write({
             "calc.py": "def add(a, b):\n    return a * b\n\ndef sub(a, b):\n    return a - b\n",
             "test_feature.py": "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n"
@@ -876,13 +883,10 @@ class VerifyCase(unittest.TestCase):
         exclude = project.root / ".git" / "info" / "exclude"
         exclude.write_text(exclude.read_text().rstrip() + "\ntest_aaa_env.py\n")
         self.assertEqual(["test_aaa_env.py"], sorted(verify.generated_source_record(project.root)))
-        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
-                 "goal_contract": {"body": {"task_kind": "bugfix"}},
-                 "generated_sources_at_start": record}
         proof = regression.prove(state, project.root, project.evidence)
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertTrue(any("test_calc.Add.test_add" in reason for reason in proof["failures"]), proof)
-        self.assertTrue(any("test_aaa_env.py" in note and "added during the run" in note
+        self.assertTrue(any("test_aaa_env.py" in note and "added since" in note
                             for note in proof["notes"]), proof)
         direct = subprocess.run([sys.executable, "-m", "unittest", "test_calc"], cwd=project.root,
                                 capture_output=True, text=True)
@@ -891,9 +895,9 @@ class VerifyCase(unittest.TestCase):
         old = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
                "goal_contract": {"body": {"task_kind": "bugfix"}}}
         missing = regression.prove(old, project.root, project.evidence / "unrecorded")
-        self.assertEqual(verify.FAIL, missing["verdict"], missing)
-        self.assertTrue(any("no record" in note and "test_aaa_env.py" in note
-                            for note in missing["notes"]), missing)
+        self.assertEqual(verify.UNVERIFIED, missing["verdict"], missing)
+        self.assertTrue(any("record" in reason and "test_aaa_env.py" in reason
+                            for reason in missing["unverified"]), missing)
 
     def test_a_recorded_generated_file_is_copied_until_its_bytes_change(self):
         project = self.project({

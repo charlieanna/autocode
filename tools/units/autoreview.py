@@ -7,9 +7,10 @@ from copy import deepcopy
 
 try:
     from .. import autocode_design_job as design_job, autocode_goals as goals, autocode_review_job as review_job
-    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_design_intake as design_intake, autocode_recovery_novelty as novelty
+    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_design_intake as design_intake, autocode_recovery_novelty as novelty
 except ImportError:
     import autocode_verify as verify
+    import autocode_launch_inputs as launch_inputs
     import autocode_design_intake as design_intake
     import autocode_design_check_job as design_check_job
     import autocode_design_job as design_job
@@ -108,19 +109,20 @@ def job_request(state, job, role, route):
     return ModelRequest(role, route, prompt, metrics, schema, True)
 
 
-def apply_job(stage, state, value, record, workspace):
+def apply_job(stage, state, value, record, workspace, *, run_dir=None):
     """Autopilot hands a job stage's validated report here; the job decides how the run continues."""
     evidence_dir = Path(record.get("output") or workspace).parent
     if stage == design_intake.STAGE:
         design_intake.apply(state, value, record, workspace)
         return
+    clean_run, _ = launch_inputs.runners(state, workspace, run_dir or Path(record.get("output") or workspace).parent.parent, verify.scratch_run)
     if stage == review_job.STAGE:
         # The runner, not the Reviewer, shows each blocking finding: its test must fail on the change.
-        review_job.apply(state, value, record, workspace, run_tests=lambda tests, patch: verify.scratch_run(
+        review_job.apply(state, value, record, workspace, run_tests=lambda tests, patch: clean_run(
             workspace, evidence_dir / "review-proof", patch=patch, tests=tests, timeout=verify.DEFAULT_TIMEOUT))
         return
     # The Architect's concerns and conflicts about today's code carry probes the runner runs itself.
-    JOBS[stage].apply(state, value, record, workspace, run_probe=lambda command: verify.scratch_run(
+    JOBS[stage].apply(state, value, record, workspace, run_probe=lambda command: clean_run(
         workspace, evidence_dir / "design-probes", command=command, timeout=PROBE_TIMEOUT))
 
 
