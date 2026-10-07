@@ -100,5 +100,8 @@ request is asked again without the question or its advice.
   `load_locked` from the withdrawn request's own cause, and `run_actions` asks from
   `pause_authority.held_cause`, which also strips appended advice. Both reach
   `record_operational_exhaustion`, where the payload rule restores the member's question;
-  the cause rule then has nothing to do. That branch alone drops the question in the same
-  way, so either merge order works, and the two merge without conflicts.
+  the cause rule then has nothing to do. Either merge order works: the two merge without
+  conflicts, and on the combination (2026-10-07) the seven tests here, that branch's
+  `tests.test_operational_pause_authority` and `tests.test_architecture` pass. That branch
+  alone still drops the member's question and hits the guard: six of the seven tests here
+  fail on it, all but the failed member's advice, which its `held_cause` already gives once.
