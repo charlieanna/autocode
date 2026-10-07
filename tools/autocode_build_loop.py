@@ -209,6 +209,11 @@ def run(runner, args, state, state_path, run_dir, workspace):
             raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
         with checkout_lock.exclusive(workspace, run_dir, busy=runner.orchestrator.LoopExit(2)):
+            if "base_commit" in state and not state["base_commit"] and not any(
+                    not row.get("runner_owned") for row in state.get("stages") or []):
+                # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.
+                state["base_commit"] = regression.launch_base(workspace, run_dir)
+                runner.write_json(state_path, state)
             runner.orchestrator.drive(state, dispatch_code_stage, before=before_code_stage,
                                persist=lambda current: (autopilot.publish_handoffs(current, run_dir), runner.write_json(state_path, current)),
                                after=after_code_stage, investigate=not args.unit)

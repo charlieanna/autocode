@@ -141,6 +141,21 @@ def next_command(state, issued, run_dir, workspace):
     return f'Next command: autocode --resume-paused {where}'
 
 
+def resume_dispatch_requested(args, state):
+    """True when this invocation should dispatch after committing a user action (#509).
+
+    Only an explicit --resume-paused continues in-process, and only when the
+    committed answer or approval actually cleared the human gate: the run is
+    RUNNING with a concrete next stage (or a ready-to-execute plan) and no
+    pending question or active stage. Anything else keeps the saved-hint exit.
+    """
+    if not args.resume_paused or state.get("status") != "RUNNING":
+        return False
+    if state.get("active_stage") or state.get("user_request") or state.get("pending_questions"):
+        return False
+    return bool(state.get("next_stage")) or state.get("phase") == "READY_TO_EXECUTE"
+
+
 def stale_result(state, result, revision):
     """True when a recovered result is bound to another contract, task or tree (#302)."""
     contract = state.get('goal_contract') or {}
@@ -666,6 +681,12 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         runner.commit_user_action(state, candidate, run_dir,
                                  require_current_inputs=require_current_inputs)
         print(rendered)
+        if resume_dispatch_requested(args, state):
+            # --resume-paused asked this invocation to continue: the answer or
+            # approval cleared the human gate and the frontier is dispatchable,
+            # so fall through to the build loop instead of exiting (#509).
+            print("Resumed: dispatching the next stage.", flush=True)
+            return None
         print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
         return 0
     if state["status"] == "TASK_COMPLETE":

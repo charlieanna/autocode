@@ -109,7 +109,8 @@ def results(path):
                 return None
             counts["tests"] += 1
             category = ("skipped" if row.get("skip") else "todo" if row.get("todo") else
-                        "cancelled" if row.get("failure_type") == "cancelledByParent" else
+                        "cancelled" if row.get("failure_type") in
+                        ("cancelledByParent", "testAborted", "testTimeoutFailure") else
                         "passed" if kind == "pass" else "failed")
             counts[category] += 1
             # Node reports an empty file as one passing test, or an import failure as one
