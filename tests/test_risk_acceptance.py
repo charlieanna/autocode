@@ -209,6 +209,29 @@ class RiskAcceptanceTests(unittest.TestCase):
         self.assertEqual([('LeaseQueue', True, text)], [(row['class_name'], row['supported'], row['source_quote'])
                                                         for row in rows])
 
+    def test_a_renamed_storage_argument_declares_only_a_full_lifecycle_api(self):
+        # #451 accepts LeaseQueue(db_path), but a storage-like argument other than `path` must not pull
+        # an ordinary task into a lifecycle proof it can never satisfy: it declares a family only when
+        # the API names that family's core methods (enqueue, claim and ack; create_order and publish).
+        ordinary = ['Write TodoList(filename) with add(item) and claim(item); the list must survive restart.',
+                    'Make TaskBoard(data_dir) where users claim(task) tasks; durable storage please.',
+                    'Build Blog(db_path) with publish(post) and drafts(). Reopening the app keeps drafts.',
+                    'Write Client(base_url) with publish(message) to our outbox endpoint.']
+        for text in ordinary:
+            with self.subTest(text=text):
+                self.assertEqual([], risk.inventory([source(text)], TARGETS))
+                self.assertEqual([], risk.bind([source(text)], [], public_targets=TARGETS)['observations'])
+        # `Name(path)` keeps its earlier recognition: the same weak text stays explicitly unsupported.
+        legacy = 'Build Blog(path) with publish(post) and drafts(). Reopening the app keeps drafts.'
+        self.assertEqual([False], [row['supported'] for row in risk.inventory([source(legacy)], TARGETS)])
+        # A renamed argument with the family's core API is still a declaration, gaps included.
+        gap = QUEUE.replace('LeaseQueue(path)', 'LeaseQueue(db_path)').replace(
+            'token is fresh and opaque on every claim', 'tokens identify claims')
+        self.assertEqual([(False, ['fresh_opaque_token'])],
+                         [(row['supported'], row['missing']) for row in risk.inventory([source(gap)], TARGETS)])
+        outbox = OUTBOX.replace('Store(path)', 'Store(db_file)')
+        self.assertEqual([True], [row['supported'] for row in risk.inventory([source(outbox)], TARGETS)])
+
     def test_module_binding_requires_original_target_and_human_import(self):
         text = 'from leasequeue import LeaseQueue\n' + QUEUE
         declarations = risk.inventory([source(text)], TARGETS)

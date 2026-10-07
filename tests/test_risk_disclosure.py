@@ -42,6 +42,11 @@ class RiskDisclosureTests(unittest.TestCase):
         self.assertEqual([], acceptance.inventory([{"id": "task:0", "kind": "task", "text": (
             CATALOG / "ladder-21-event-replay-snapshots" / "brief.md").read_text()}], []))
 
+    def test_a_storage_class_outside_both_families_is_disclosed_not_required(self):
+        text = "Write TodoList(filename) with add(item) and claim(item). The list must survive restart."
+        self.assertEqual([], acceptance.inventory([{"id": "task:0", "kind": "task", "text": text}], []))
+        self.assertEqual(["durability"], [row["kind"] for row in claims(text)])
+
     def test_an_unsupported_declaration_does_not_count_as_proven(self):
         reworded = QUEUE.replace("token is fresh and opaque on every claim", "tokens identify claims")
         self.assertIn("durability", {row["kind"] for row in claims(reworded)})

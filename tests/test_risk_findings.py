@@ -92,6 +92,30 @@ class RiskFindingTests(unittest.TestCase):
         self.assertIn("PASS on source rev-three", row["resolution_evidence"])
         self.assertEqual([], findings_ledger.blocking_entries(current))
 
+    def test_a_pass_on_a_source_that_failed_never_closes_the_finding(self):
+        # #451: a race can be missed, so a later PASS on a source the runner saw fail (the same candidate
+        # validated again, or after --resume-paused, or a Builder reverting to it) is not a correction.
+        current = state()
+        row = risk_findings.reconcile(current, replay(REASON, revision="rev-one"), {})[0]
+        risk_findings.reconcile(current, replay(REASON, revision="rev-two"), {})
+        for revision in ("rev-one", "rev-two"):
+            risk_findings.reconcile(current, replay("", revision=revision), {})
+            self.assertEqual("open", row["status"], revision)
+        self.assertEqual([row], findings_ledger.blocking_entries(current))
+        self.assertIn("passes on a new source", risk_findings.blocking_summary(current))
+        risk_findings.reconcile(current, replay("", revision="rev-three"), {})
+        self.assertEqual("resolved", row["status"])
+
+    def test_a_contract_without_the_observation_retires_its_finding_even_without_a_lifecycle_replay(self):
+        # An approved amendment that removes the promise leaves no observation to replay; the runner's
+        # finding must not then block completion forever. Completion still needs every current one.
+        current = state()
+        row = risk_findings.reconcile(current, replay(REASON), {})[0]
+        del current["goal_contract"]["body"]["risk_acceptance"]
+        self.assertEqual([], risk_findings.reconcile(current, {"verdict": "PASS", "risk_acceptance": None}, {}))
+        self.assertEqual("retracted", row["status"])
+        self.assertEqual([], findings_ledger.blocking_entries(current))
+
     def test_an_amended_observation_retires_its_finding_while_the_replacement_is_checked(self):
         current = state()
         row = risk_findings.reconcile(current, replay(REASON), {})[0]

@@ -29,6 +29,13 @@ _MODULE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*\Z')
 # such as `ValueError(message)` are not constructors and never split a declaration.
 _CONSTRUCTOR = re.compile(r'\b(?P<name>[A-Z][A-Za-z0-9_]*)\s*\(\s*(?P<argument>[a-z_]*'
                           r'(?:path|file|db|database|location|dsn|uri|url|dir|directory|sqlite)[a-z0-9_]*)\s*\)')
+# A renamed argument declares a family only with that family's core methods, so `TodoList(filename)`
+# with `claim(item)` and "must survive restart" stays an ordinary task whose promise is only disclosed
+# (autocode_risk_disclosure). `Name(path)` keeps the recognition it always had.
+_CORE_METHODS = {
+    'lease_queue_lifecycle_v1': (r'\benqueue\s*\(', r'\bclaim\s*\(', r'\back\s*\('),
+    'transactional_outbox_lifecycle_v1': (r'\bcreate_order\s*\(', r'\bpublish\s*\('),
+}
 _IMPORT = re.compile(r'\bfrom\s+(?P<module>[A-Za-z][A-Za-z0-9_.]*)\s+import\s+'
                      r'(?P<name>[A-Za-z][A-Za-z0-9_]*)(?:\s+as\s+(?P<alias>[A-Za-z][A-Za-z0-9_]*))?')
 _METHODS = {
@@ -301,6 +308,8 @@ def inventory(sources, public_targets):
             elif _has(api, r'\b(?:create_order|publish)\s*\(') and _has(quote, r'\b(?:outbox|durable\s+event|Reopening)\b'):
                 protocol = 'transactional_outbox_lifecycle_v1'
             else:
+                continue
+            if constructor['argument'] != 'path' and not all(_has(api, core) for core in _CORE_METHODS[protocol]):
                 continue
             imported_module, class_name = _constructor_import(text, constructor['name'])
             allowed = modules if imported_module is None else [name for name in modules if name == imported_module]

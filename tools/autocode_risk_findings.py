@@ -11,11 +11,14 @@ carries it: the completion gate refuses while it is open, the Completion Reviewe
 it in ``open_findings``, and a correction task assigns it to the Builder (``actionable_findings``).
 
 Only this module writes or closes ``runner`` findings, and only from the runner's own replay: a
-later replay that passes that observation on the current source closes it. No model report can
-resolve or retract one (autocode_findings applies a reviewer's dispositions to its own source).
+later replay that passes that observation on a source it has not failed on closes it. A race can be
+missed, so a PASS on a source listed in the row's ``failed_revisions`` closes nothing. An approved
+contract that no longer holds the observation retracts it. No model report can resolve or retract
+one (autocode_findings applies a reviewer's dispositions to its own source).
 Imports nothing above the findings ledger; the caller passes the replay result it just verified.
-State: findings_ledger rows with source ``runner`` and an ``observation_hash``; appends the opened
-rows to ``unresolved_findings`` when the validation they refute is the saved one.
+State: findings_ledger rows with source ``runner``, an ``observation_hash`` and ``failed_revisions``
+(every source revision the observation failed on; read only here); appends the opened rows to
+``unresolved_findings`` when the validation they refute is the saved one.
 """
 from __future__ import annotations
 
@@ -62,18 +65,21 @@ def reconcile(state, replay, record, *, saved=True):
     one, whose findings the Builder acts on.
     """
     result = (replay or {}).get("risk_acceptance") if isinstance(replay, dict) else None
-    if not isinstance(result, dict) or result.get("verdict") not in (PASS, FAIL):
-        return []
-    revision = result.get("source_revision") or record.get("source_revision")
+    result = result if isinstance(result, dict) and result.get("verdict") in (PASS, FAIL) else None
+    body = (state.get("goal_contract") or {}).get("body")
     known = _observations(state)
-    rows = findings_ledger.ledger(state)
     at, reported = util.now(), []
     for row in open_rows(state):
-        if known and row["observation_hash"] not in known:
-            # An approved amendment replaced the observation; completion still needs its replacement to pass.
-            row.update(status="retracted", resolved_at=at, resolved_in=result.get("summary"),
+        if isinstance(body, dict) and body and row["observation_hash"] not in known:
+            # An approved amendment replaced or removed the observation, with or without a lifecycle
+            # replay now; completion still needs every current one to pass (autocode_risk_evidence.ready).
+            row.update(status="retracted", resolved_at=at, resolved_in=(result or {}).get("summary"),
                        resolution_evidence="The approved contract no longer contains this lifecycle observation; "
                                            "completion requires every current one to pass")
+    if result is None:
+        return []
+    revision = result.get("source_revision") or record.get("source_revision")
+    rows = findings_ledger.ledger(state)
     current = {row["observation_hash"]: row for row in open_rows(state)}
     for check in result.get("checks") or []:
         observation = known.get(check.get("observation_hash"))
@@ -81,7 +87,9 @@ def reconcile(state, replay, record, *, saved=True):
             continue
         row = current.get(observation["hash"])
         if not check.get("error"):
-            if row is not None:
+            # A race can be missed: a PASS on a source this observation already failed on (validated
+            # again, after --resume-paused, or reverted to) is not a correction and closes nothing.
+            if row is not None and revision not in (row.get("failed_revisions") or []):
                 row.update(status="resolved", resolved_at=at, resolved_in=result.get("summary"),
                            resolution_evidence=f"Runner lifecycle replay PASS on source {str(revision)[:12]}: "
                                                f"{result.get('summary')}")
@@ -102,6 +110,8 @@ def reconcile(state, replay, record, *, saved=True):
         else:
             row.update(finding=text, evidence=evidence, times_reported=row.get("times_reported", 1) + 1,
                        last_reported_at=at, last_reported_in=result.get("summary"))
+        if revision not in row.setdefault("failed_revisions", []):
+            row["failed_revisions"].append(revision)
         reported.append(row)
     if reported and saved:
         brief = [{key: row[key] for key in ("id", "source", "severity", "finding", "evidence", "blocking")}
