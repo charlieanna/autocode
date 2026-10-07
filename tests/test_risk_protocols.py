@@ -50,12 +50,20 @@ def encoded(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
 
 
+def owned_temp_dirs():
+    return set(Path(tempfile.gettempdir()).glob('autocode-risk-protocol-*'))
+
+
 def execute(protocol, variant='reference', extra_files=None, timeout=30, *, layout='root', original_inventory=False,
-            contention=False):
+            contention=False, depth=0):
     scenario, module, _, _, _ = FIXTURES[protocol]
     case = observation(protocol, contention)
     with tempfile.TemporaryDirectory(prefix='risk-protocol-test-') as directory:
         root = Path(directory)
+        while len(str(root)) < depth:  # a replay root nested this deep (the runner's scratch tree adds ~200)
+            root = root / ('d' * min(60, depth - len(str(root))))
+        root.mkdir(parents=True, exist_ok=True)
+        temporary = owned_temp_dirs()
         base = root if layout == 'root' else root / 'src'
         base.mkdir(exist_ok=True)
         if original_inventory:
@@ -102,8 +110,8 @@ def execute(protocol, variant='reference', extra_files=None, timeout=30, *, layo
                  for path in root.rglob('*.py')}
         if before != after:
             raise AssertionError('Protocol modified the source-hashed candidate fixture')
-        if list(root.glob('.risk-protocol-*')):
-            raise AssertionError('Protocol left owned runtime data in the candidate')
+        if list(root.glob('.risk-protocol-*')) or owned_temp_dirs() - temporary:
+            raise AssertionError('Protocol left owned runtime data in the candidate or the temporary directory')
         return process.returncode, stdout, stderr, case
 
 
@@ -188,6 +196,20 @@ class ActualRiskProtocolTests(unittest.TestCase):
                         forged = {**actual, 'verdict': 'PASS', 'error': ''}
                         with self.assertRaisesRegex(ValueError, reason[:30]):
                             protocols.validate_transcript(encoded(forged), case)
+
+    def test_a_deep_replay_root_neither_fails_an_honest_product_nor_hides_a_defect(self):
+        # SQLite refuses a database path over 512 bytes. A project path of about 260 characters puts the
+        # runner's scratch tree there, and both references failed with "unable to open database file",
+        # which the runner then handed to the Builder as a product defect (#451).
+        for protocol in FIXTURES:
+            with self.subTest(protocol=protocol):
+                code, raw, stderr, case = execute(protocol, contention=True, depth=480)
+                self.assertEqual(b'', stderr)
+                self.assertEqual(0, code, json.loads(raw)['error'])
+                self.assertEqual(6, len(protocols.validate_transcript(raw, case)['owned_workers']))
+        code, raw, _, _ = execute('transactional_outbox_lifecycle_v1', 'broken/ack-with-exception-rollback', depth=480)
+        self.assertEqual(1, code)
+        self.assertIn('unacknowledged event', json.loads(raw)['error'])
 
     def test_lifecycle_defects_keep_their_reason_when_contention_is_also_promised(self):
         code, raw, stderr, _ = execute('lease_queue_lifecycle_v1', 'broken/process-local-tokens', contention=True)

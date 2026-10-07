@@ -591,7 +591,12 @@ data=dict(version=2,protocol=observation['protocol'],observation_hash=observatio
           deadline_seconds=timeout,elapsed_seconds=None,phases=[],contention=None,owned_workers=[],sink=None,
           verdict='PASS',error='')
 try:
-    with tempfile.TemporaryDirectory(prefix='.risk-protocol-',dir=root) as directory:
+    # SQLite refuses a database path over 512 bytes, journal suffix included. A replay root that deep
+    # (a long project path plus the runner's scratch tree) is no product defect: use a short owned
+    # directory in the system temporary directory instead, removed the same way.
+    deep=len(os.fsencode(str(root)))>440
+    with tempfile.TemporaryDirectory(prefix='autocode-risk-protocol-' if deep else '.risk-protocol-',
+                                     dir=None if deep else root) as directory:
         folder=Path(directory); database=folder/'product.sqlite'; journal=folder/'sink.jsonl'
         def delivered(worker,value):
             global journal_bytes
