@@ -248,6 +248,21 @@ def context_packet(state, stage, state_path):
             base['consultation_reports']=state.get('consultation_reports',[])[-1:]
             if stage=='astra_checkpoint':
                 instruction+=workflow.FINAL_CHECKPOINT
+    if stage in ("sol", "astra_checkpoint", "astra_review"):
+        try:
+            from . import autocode_bug_job as bug_job
+        except ImportError:
+            import autocode_bug_job as bug_job
+        artifact = bug_job.diagnosis_artifact(state, state["workspace"])
+        if artifact:
+            base["runner_artifacts"] = [artifact]
+            instruction += ("\nRUNNER-WRITTEN DIAGNOSIS: runner_artifacts identifies the exact unchanged note "
+                "the runner wrote from the accepted investigation before the Builder task. It remains in the "
+                "raw source diff and regression proof, but is investigation evidence, not an out-of-scope "
+                "Builder edit. Do not demand its deletion, a scope expansion or rework solely because its "
+                "path is outside current_task.affected_paths. This classification grants no write permission "
+                "and does not apply to modified notes or other files under docs/bugs/. A diagnosis note is "
+                "not a product-code fix or proof that the bug is fixed.\n")
     try:
         from . import autocode_context
     except ImportError:

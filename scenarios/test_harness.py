@@ -2254,6 +2254,17 @@ class FakeRunTests(unittest.TestCase):
                                      result["metrics"]["model_stage_names"])
                 self.assertGreater(result["wall_seconds"], 0)
 
+    def test_bugfix_completes_with_runner_diagnosis_outside_builder_scope(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out),
+                                      autocode=None, max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("bugfix-trivial"), args,
+                extra_env={"SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE": "1"})
+            self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+            self.assertIn("investigate_bug", result["metrics"]["model_stage_names"])
+            self.assertIn("astra_review", result["metrics"]["model_stage_names"])
+            self.assertEqual(0, result["metrics"]["report_repairs"])
+
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
         result = self.run_fake("reference", "review-then-fix")
         self.assertEqual(2, len(result["turns"]), result["summary"])

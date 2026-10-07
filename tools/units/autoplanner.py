@@ -16,6 +16,7 @@ try:
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
     from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from .. import autocode_outcome_questions as outcome_questions
+    from .. import autocode_native_test_names as native_test_names
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_design_plan as design_plan
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     import autocode_outcome_questions as outcome_questions
+    import autocode_native_test_names as native_test_names
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -89,8 +91,9 @@ TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one
 check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
 then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Work each
 literal result out from the criterion's own rule (count the items, do the arithmetic), never estimate it. Set its
-verification_method to "test: test_<criterion id in lowercase>_<what it checks>" (C2 -> test_c2_...). The
-Builder writes that test; the runner itself checks that it passes with the change and did not pass before the
+verification_method to "test: <exact supported test name>" when the request already names the test.
+Preserve that name, including a native Go name; do not substitute a criterion-ID alias. Otherwise use
+"test: test_<criterion id in lowercase>_<what it checks>" (C2 -> test_c2_...). The Builder writes that test; the runner itself checks that it passes with the change and did not pass before the
 run began, and refuses the milestone and completion otherwise. With several milestones, list each test
 criterion under the milestone that delivers it: the runner checks a milestone's tests, and those of milestones
 already accepted, at that milestone's checkpoint, so a test must not depend on a later milestone. Keep criteria
@@ -111,8 +114,9 @@ verification_method does name such a command, end it with "and assert exit N" ri
 one status per command for several), because the runner replays every command a method names as a check that
 must exit 0 unless that declaration says otherwise.
 Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
-same kind of example, with verification_method "guard: test_<criterion id in lowercase>_<what it checks>". The
-runner checks that its test passes both before and after the change. Coverage of behavior the product already
+same kind of example, with verification_method "guard: <exact supported test name>" when the request
+already names the test; otherwise use "guard: test_<criterion id in lowercase>_<what it checks>".
+The runner checks that its test passes both before and after the change. Coverage of behavior the product already
 implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
 such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;
 something trivially true (a package that imports, a file that exists) gets an ordinary verification_method.
@@ -1205,6 +1209,9 @@ def context(state, stage, state_path):
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
+        # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
+        native = native_test_names.requested(state)
+        design_rule += native_test_names.rule(native) if native else ""
         design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += NO_TIMING_RULE
