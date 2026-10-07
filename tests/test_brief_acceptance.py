@@ -49,6 +49,17 @@ def listing_proposal(records):
                          {'placeholder': 'ID', 'step': 2, 'argument': 1}]}
 
 
+def launcher_listing_proposal(records):
+    """The observation the 2026-10-07 openai-only live Plan Reviewer proposed (run 77h2r5vz)."""
+    return {'declaration_id': brief.inventory(records)[0]['id'], 'criterion_ids': ['AC1'],
+            'steps': [{'argv': ['python3', 'todo.py', 'add', 'buy milk']},
+                      {'argv': ['python3', 'todo.py', 'add', 'walk dog']},
+                      {'argv': ['python3', 'todo.py', 'complete', '1']},
+                      {'argv': ['python3', 'todo.py', 'list']}], 'observe_step': 3,
+            'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 3},
+                         {'placeholder': 'ID', 'step': 2, 'argument': 3}]}
+
+
 # A correct multi-item to-do list, independent of the catalog reference and oracle.
 LIST_PRODUCT = """import json
 from pathlib import Path
@@ -81,6 +92,7 @@ LISTINGS = [
     (b'1 buy milk [done]\n2 walk dog [open]\n', True, True),  # live run ewqn70hi
     (b'1 buy milk [done]\n2 walk dog [open]', True, False),
     (b'1 buy milk [done]\r\n2 walk dog [open]\r\n', True, True),
+    (b'1 buy milk [done]\r\n2 walk dog [open]', True, True),  # CRLF lines, no final line ending
     (b'2 walk dog [open]\n1 buy milk [done]\n', True, False),  # order is not part of the format
     (b'1 buy milk done\n2 walk dog open\n', False, False),  # the unbracketed mutant
     (b'1 buy milk [done]\n2 walk dog open\n', False, True),  # only the observed line is formatted
@@ -92,6 +104,8 @@ LISTINGS = [
     (b'1 buy milk [done]\n2 walk dog [open]\n\n', False, False),
     (b'1 buy milk [done] \n2 walk dog [open]\n', False, False),
     (b'1 buy milk [done]\r\n2 walk dog [open]\n', False, True),  # mixed line endings
+    (b'1 buy milk [done]\n2 walk dog [open]\r\n', False, False),
+    (b'1 buy milk [done]\r\n2 walk dog [open]\n1 buy milk [done]', False, True),
     (b'1 buy milk [done]\n2 walk dog [open]\n3 eggs [open]\n', False, False),  # nobody added eggs
     (b'', False, False),
     (b'1 buy milk [done]\n\xff\n', False, True),
@@ -395,6 +409,45 @@ class BriefAcceptanceTests(unittest.TestCase):
         self.assertEqual(1, code, observation)
         self.assertEqual([0, 0, 0, 0], [step['exit_code'] for step in observation['steps']])
         self.assertIn('original brief format', observation['reason'])
+
+    def test_launcher_prefixed_argv_is_stripped_and_the_same_listing_passes(self):
+        # Run 77h2r5vz's Plan Reviewer submitted the full `python3 todo.py …` command
+        # line as argv; the runner invokes the program itself. Strip the launcher and
+        # realign bindings rather than refusing a valid observation.
+        plain = brief.bind(self.sources, [listing_proposal(self.sources)])
+        launched = brief.bind(self.sources, [launcher_listing_proposal(self.sources)])
+        self.assertEqual(plain, launched)
+        self.assertEqual([{'argv': ['add', 'buy milk']}, {'argv': ['add', 'walk dog']},
+                          {'argv': ['complete', '1']}, {'argv': ['list']}],
+                         launched['observations'][0]['proposal']['steps'])
+        self.assertEqual([{'placeholder': 'TEXT', 'step': 0, 'argument': 1},
+                          {'placeholder': 'ID', 'step': 2, 'argument': 1}],
+                         launched['observations'][0]['proposal']['bindings'])
+        code, observation, _ = self.run_candidate(LIST_PRODUCT, manifest=launched)
+        self.assertEqual(0, code, observation)
+
+    def test_absolute_program_path_and_repeated_text_bindings_are_accepted(self):
+        # Run jbs2l7la's Plan Reviewer used an absolute todo.py path and bound TEXT
+        # on every add. Keep the first TEXT for the bound item; line_pattern already
+        # admits every value the steps supplied.
+        absolute = '/tmp/fixture/project/todo.py'
+        proposal = {'declaration_id': brief.inventory(self.sources)[0]['id'], 'criterion_ids': ['AC1'],
+                    'steps': [{'argv': ['python3', absolute, 'add', 'buy milk']},
+                              {'argv': ['python3', absolute, 'add', 'walk dog']},
+                              {'argv': ['python3', absolute, 'complete', '1']},
+                              {'argv': ['python3', absolute, 'list']}], 'observe_step': 3,
+                    'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 3},
+                                 {'placeholder': 'TEXT', 'step': 1, 'argument': 3},
+                                 {'placeholder': 'ID', 'step': 2, 'argument': 3}]}
+        manifest = brief.bind(self.sources, [proposal])
+        sealed = manifest['observations'][0]['proposal']
+        self.assertEqual([{'argv': ['add', 'buy milk']}, {'argv': ['add', 'walk dog']},
+                          {'argv': ['complete', '1']}, {'argv': ['list']}], sealed['steps'])
+        self.assertEqual([{'placeholder': 'TEXT', 'step': 0, 'argument': 1},
+                          {'placeholder': 'TEXT', 'step': 1, 'argument': 1},
+                          {'placeholder': 'ID', 'step': 2, 'argument': 1}], sealed['bindings'])
+        code, observation, _ = self.run_candidate(LIST_PRODUCT, manifest=manifest)
+        self.assertEqual(0, code, observation)
 
     def test_every_listed_line_must_have_the_declared_format(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
