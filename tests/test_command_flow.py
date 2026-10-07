@@ -133,6 +133,31 @@ class ConfigToolFlow(unittest.TestCase):
         terra = next(record for record in state["stages"] if record["stage"] == "terra")
         self.assertEqual("workspace-write", terra["command"][terra["command"].index("--sandbox") + 1])
 
+    def test_a_builder_that_changes_nothing_escalates_to_the_tools_stronger_model_and_the_validator_moves(self):
+        self.configure_fixture()
+        provider = self.root / "config" / "autocode" / "providers" / "fixturetool.toml"
+        provider.write_text(provider.read_text() + textwrap.dedent("""
+            [builder_retry]
+            strong_model = "fixture-validator"
+            checker_model = "fixture-completion"
+        """))
+        self.env["AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS"] = "fixture-builder"
+        result = self.launch("--chat", "Build a greeting tool")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        state = json.loads((next((self.project / ".autocode/runs").iterdir()) / "state.json").read_text())
+        self.assertEqual("TASK_COMPLETE", state["status"])
+
+        def models(stage):
+            return [(record["command"][record["command"].index("--model") + 1],
+                     record["command"][record["command"].index("--role") + 1])
+                    for record in state["stages"] if record["stage"] == stage]
+        # Two ordinary attempts, then the tool's stronger model, spelled as the tool spells it.
+        self.assertEqual([("fixture-builder", "terra")] * 2 + [("fixture-validator", "terra")], models("terra"))
+        # The Validator's model built the change, so a different model the tool serves checked it.
+        self.assertEqual([("fixture-completion", "sol")], models("sol"))
+        self.assertEqual(["retry", "escalate"], [d["action"] for d in state["builder_retry_decisions"]])
+        self.assertEqual({"sol": "fixture-completion"}, state["builder_retry_decisions"][-1]["checker_models"])
+
     def test_report_file_missing_exit_uses_receipt_without_tool_events_or_repair(self):
         self.env['AUTOCODE_FIXTURE_MISSING_CHECK_EXIT'] = '1'
         _, state = self.complete_run()

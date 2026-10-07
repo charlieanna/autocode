@@ -57,6 +57,8 @@ class CommandProvider:
             self.DEFAULT_REASONING_EFFORTS["requirements"] = self.DEFAULT_REASONING_EFFORTS["glm"]
         # The models the config lists, or None when it lists them with models_command or not at all.
         self.LISTED_MODELS = config.get("models")
+        # The tool's own stronger Builder and the model its checkers move to ([builder_retry]), or None.
+        self.BUILDER_RETRY = config.get("builder_retry")
 
     def local_settings(self, workspace=None, *, env=None):
         effective = env_prep.snapshot_environment(env)
@@ -356,6 +358,34 @@ def _validate(name: str, config: dict) -> None:
     codex_sandbox.validate(config)
     if "auth" in config:
         _validate_auth(config["auth"])
+    if "builder_retry" in config:
+        _validate_builder_retry(config)
+
+
+BUILDER_RETRY_KEYS = ("strong_model", "checker_model", "strong_effort")
+
+
+def _validate_builder_retry(config) -> None:
+    """The Builder's stronger attempt must be another model the tool serves, and checking it must not be."""
+    table = config["builder_retry"]
+    if not isinstance(table, dict):
+        raise ValueError("[builder_retry] must be a table")
+    unknown = sorted(set(table) - set(BUILDER_RETRY_KEYS))
+    if unknown:
+        raise ValueError("[builder_retry] accepts only " + ", ".join(BUILDER_RETRY_KEYS) + "; not " + ", ".join(unknown))
+    for key in ("strong_model", "checker_model"):
+        value = table.get(key)
+        if not isinstance(value, str) or not value.strip() or any(char.isspace() for char in value):
+            raise ValueError(f"[builder_retry] {key} needs a model name")
+        if "models" in config and value not in config["models"]:
+            raise ValueError(f"[builder_retry] {key} {value} is not in models")
+    if "strong_effort" in table and (not isinstance(table["strong_effort"], str) or not table["strong_effort"].strip()):
+        raise ValueError("[builder_retry] strong_effort must be a non-empty string")
+    if table["strong_model"] == config["roles"]["terra"]["model"]:
+        raise ValueError("[builder_retry] strong_model is the Builder's own model; name a stronger one")
+    if table["checker_model"] == table["strong_model"]:
+        raise ValueError("[builder_retry] checker_model is strong_model, so the stronger attempt "
+                         "would be checked by its own model")
 
 
 def _validate_auth(auth) -> None:

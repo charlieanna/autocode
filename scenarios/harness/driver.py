@@ -118,6 +118,22 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                         "SCENARIO_FAKE_CONFIG": str(config)}
 
 
+# Flags only a new run takes (docs/cli.md): the public CLI refuses each on a saved run, even when it names the
+# saved value, so the driver passes them on the first call only. A profile may pass --builder-strong-model.
+NEW_RUN_FLAGS = ("--workflow", "--builder-strong-model")
+
+
+def saved_run_flags(flags: list[str]) -> list[str]:
+    """``flags`` without the new-run-only ones and their values (``--flag value`` or ``--flag=value``)."""
+    kept: list[str] = []
+    for index, arg in enumerate(flags):
+        if arg in NEW_RUN_FLAGS or arg.startswith(tuple(flag + "=" for flag in NEW_RUN_FLAGS)) \
+                or (index and flags[index - 1] in NEW_RUN_FLAGS):
+            continue
+        kept.append(arg)
+    return kept
+
+
 def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str], dict]:
     return profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)), {}
 
@@ -164,13 +180,7 @@ class Driver:
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
-        flags = self.flags
-        if self.run_dir:
-            # Workflow selection is a new-run action; repeating it after recognition
-            # is refused by the public CLI even when it names the saved workflow.
-            flags = [arg for index, arg in enumerate(flags)
-                     if arg != "--workflow" and not arg.startswith("--workflow=")
-                     and not (index and flags[index - 1] == "--workflow")]
+        flags = saved_run_flags(self.flags) if self.run_dir else self.flags
         cmd = [*self.autocode, *([task] if task else []), "--workspace", str(self.project),
                *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
                *([] if action else ["--no-chat", *flags]), *extra]
