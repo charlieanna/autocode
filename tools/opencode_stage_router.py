@@ -207,6 +207,20 @@ def _receipt(path: Path, value: dict) -> None:
                 pass
 
 
+def recorded_variant(argv: list[str]) -> str | None:
+    """1.x passes ``--variant``. 2.x puts the same effort in ``provider/model#effort``."""
+    explicit = _option(argv, "--variant", required=False)
+    if explicit is not None:
+        return explicit
+    model = _option(argv, "--model", required=False)
+    if not model or "#" not in model:
+        return None
+    variant = model.rsplit("#", 1)[1]
+    if not variant or any(character.isspace() for character in variant):
+        raise Denied("invalid model variant")
+    return variant
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
@@ -216,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         if not argv or argv[0] != "run":
             return subprocess.run([str(real), *argv]).returncode
         model = _option(argv, "--model", required=True)
-        variant = _option(argv, "--variant", required=False)
+        variant = recorded_variant(argv)
         if not model or any(c.isspace() for c in model):
             raise Denied("invalid model identifier")
         _deny_billing_override(dict(os.environ))

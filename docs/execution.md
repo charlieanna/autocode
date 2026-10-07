@@ -186,6 +186,19 @@ Changing files, renaming task IDs, or oscillating between previously passing che
 does not reset progress. The runner compares task fields; the Plan Reviewer remains responsible
 for judging whether the changed approach is substantively useful.
 
+The Plan Reviewer's prompt states this gate from the same check the runner applies
+(`tools/autocode_milestone_replan.py`), with the milestone's current counts. While a
+replan is required it reads `MILESTONE REPLAN REQUIRED`: only that `REWORK` is accepted,
+a `CONTINUE` (including a `kind=validate` revalidation) is refused, and revalidation-only
+work is a `REWORK` with `next_task.kind=validate`. Once the replans are spent and the
+milestone stalls again it reads `MILESTONE REPLANS SPENT`: any further task on that
+milestone pauses the run `PAUSED_MILESTONE_STALLED`. It also says which decisions call the
+Resolver before that pause: a `REWORK`, and a `BLOCKED` whose `user_request.kind` is not
+`permission` or `goal_change`. A `CONTINUE` pauses without it. In both states the general
+rule to answer `CONTINUE` with a validate task is replaced for that milestone (#459). For an
+integrated batch, both statements name the member milestones. A task is on the batch when its
+`next_task.milestone_id` is a member, and the batch's own `batch:<digest>` id is never one.
+
 Milestones have a 5,400-second active-time budget by default. This includes writer,
 reviewer and report-repair attempts after the milestone is assigned (or after an
 existing run adopts checkpoints). The budget is checked at stage boundaries and
