@@ -261,6 +261,17 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         self.assert_held(self.invoke('--resume-paused', process=True))
         self.answer(self.saved(), process=True)
 
+    def test_a_pause_queued_over_an_unanswered_request_leaves_its_own_recovery_usable(self):
+        # Before, the plain invocation left no request to answer and --grant-recovery was refused
+        # ("requires a run paused for exhausted timeout recovery"); only an unrelated settings write moved it.
+        self.checkpoint('PAUSED_TIMEOUT_RECOVERY', lambda state: state.update(SPENT_TIMEOUT_RECOVERIES))
+        self.submit_pause()
+        self.assert_held(self.invoke(), 'PAUSED_TIMEOUT_RECOVERY', settled=False)
+        self.assertEqual('PAUSED_INTERVENTION', self.saved()['status'], 'the queued pause is applied')
+        self.assert_held(self.invoke('--resume-paused'), 'PAUSED_TIMEOUT_RECOVERY')
+        self.assertIsNotNone(human.current(self.saved()), 'its request is asked again')
+        self.assert_resumes(self.invoke('--resume-paused', '--grant-recovery', '1', env=STOP_AT_TESTER))
+
     # Every pause status, in-process.
     def test_no_unrelated_limit_releases_any_operational_pause(self):
         for status, answered in itertools.product(STATUSES, (False, True)):

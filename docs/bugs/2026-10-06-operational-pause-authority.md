@@ -118,7 +118,9 @@ bound to, so the request is asked again).
   invocation left no request to answer, and `--grant-recovery` was refused ("requires
   a run paused for exhausted timeout recovery"). Only an unrelated settings write
   moved the run. Now the plain invocation applies the pause, `--resume-paused` asks
-  the request again, and `--grant-recovery` releases it.
+  the request again, and `--grant-recovery` releases it
+  (`test_a_pause_queued_over_an_unanswered_request_leaves_its_own_recovery_usable`,
+  which fails on master: the queued pause is never applied).
 - **`--joint-planning`.** `load_locked` set `RUNNING` and `requirements_gather`
   directly on an answered pause, so a plain invocation launched Requirements. That
   worked even through `autocode-unattended`, which refuses `--resume-paused` as an
