@@ -482,7 +482,27 @@ virtualenv interpreter even though the task worktree has none. Build-generated
 source files that git ignores but that sit next to tracked code (such as a
 setuptools-scm or hatch-vcs `_version.py`) are copied from the project into every
 scratch tree, base and fix alike, so the package imports there. Ignored build
-output directories are not copied.
+output directories are not copied. Ignored files under `vendor/` are copied the
+same way. An `--in-place` run's Builder edits that same checkout, so the run saves
+these files before any prerequisite or provider starts, and clean checks use
+only inputs that still match the launch bytes and modes (#529). Added ignored
+files are left out of test copies and noted. A captured generated or vendored
+file changed or removed since launch makes the proof `UNVERIFIED`; restore it,
+or start a new run after preparing the intended inputs. Missing, damaged or
+incompletely captured launch records also block proof. Older runs without a
+record copy none of these files and remain `UNVERIFIED` if the checkout has
+eligible ignored inputs. The older generated-only byte-hash record cannot
+authenticate the complete launch inventory and requires a new run. Planning prerequisites apply the same policy before
+provider dispatch, including on resume. Saved evidence is checked again before
+stage results advance the run, artifact reviews are accepted, or completion is
+accepted or reused. Status also marks completed evidence stale after a captured
+input changes. Separate task worktrees retain their
+project checkout dependency policy; shared virtualenvs and `node_modules` are
+outside this ignored-source inventory.
+In-place capture requires readable regular files with no symlink in their paths.
+Materialize ignored vendor file links before starting, including links to tracked
+files in the same checkout. An incomplete capture stays unverified after the
+files are changed or removed; correct the inputs and start a new run.
 
 Planning reports that omit only a provenance list (such as `code_refs` or
 `source_refs`) now get an empty list instead of a report-repair model call; the

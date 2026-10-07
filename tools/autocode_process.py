@@ -323,21 +323,96 @@ class ProcessTree:
             self.signal(list(frozen.values()), signal.SIGCONT)
 
 
+# A stage's cleanup defers every signal interruption_handler turns into an interrupt.
+INTERRUPTS = tuple(getattr(signal, name) for name in ('SIGINT', 'SIGTERM', 'SIGHUP') if hasattr(signal, name))
+# The open interrupts_held scope, if any: the dispositions an interrupted stage replaced,
+# and the signals absorbed after its interrupt.
+_held = []
+# The open interruption_handler scope, if any. A scope nested in it shares its one interrupt.
+_handling = []
+
+
+def _callers_own(handler):
+    """A handler the caller installed, as opposed to a default or ignored disposition."""
+    return callable(handler) and handler is not signal.default_int_handler
+
+
 @contextmanager
-def interruption_handler():
-    signals = [signal.SIGTERM]
-    # A terminal hangup follows the same retained interrupt path. Respect nohup
-    # and callers that explicitly inherited SIGHUP ignored.
-    if hasattr(signal, 'SIGHUP') and signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:
-        signals.append(signal.SIGHUP)
-    def interrupt(signum, frame):
-        raise KeyboardInterrupt
-    previous = {sig: signal.signal(sig, interrupt) for sig in signals}
+def interrupts_held(*, until_exit=False):
+    """Keep an interrupted stage's later signals absorbed until this scope ends.
+
+    The stage's handler scope closes before its caller saves the pause and the CLI
+    exits. A second signal there escaped as a bare KeyboardInterrupt or killed the
+    controller by default, often leaving the run RUNNING (#454). Wrap one CLI
+    invocation in it; a scope nested in another defers to that one. When it ends a
+    caller's own handler comes back and receives each signal absorbed meanwhile, once.
+    A default disposition comes back too, except with until_exit, for the CLI process
+    that ends with this scope: the signal then stays ignored, so a late Ctrl-C or
+    hangup cannot turn the saved pause into a death by signal.
+    """
+    if _held:
+        yield
+        return
+    held = {'replaced': {}, 'absorbed': []}
+    _held.append(held)
     try:
         yield
     finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
+        _held.pop()
+        for sig, handler in held['replaced'].items():
+            signal.signal(sig, handler if _callers_own(handler) or not until_exit else signal.SIG_IGN)
+        for sig in dict.fromkeys(held['absorbed']):
+            if _callers_own(held['replaced'].get(sig)):
+                signal.raise_signal(sig)
+
+
+@contextmanager
+def interruption_handler():
+    """Turn SIGTERM, SIGHUP and Ctrl-C into one KeyboardInterrupt naming the signal.
+
+    Only the first raises. A closed terminal sends SIGHUP twice (the kernel and the
+    shell) and people press Ctrl-C again; a second raise while the first unwound
+    skipped cleanup, misreported the pause or hung the controller in a leaked
+    threading lock (#454). Inside interrupts_held, later signals stay absorbed
+    after this scope too, until the held scope ends. A scope opened inside another
+    on the main thread changes nothing: the enclosing one raises the one interrupt.
+    """
+    if _handling and threading.current_thread() is threading.main_thread():
+        yield
+        return
+    held = _held[-1] if _held else None
+
+    def before(sig):  # the disposition before a stage of this invocation was interrupted
+        return (held['replaced'] if held else {}).get(sig, signal.getsignal(sig))
+    signals = [signal.SIGTERM]
+    # A terminal hangup follows the same retained interrupt path. Respect nohup
+    # and callers that explicitly inherited SIGHUP ignored.
+    if hasattr(signal, 'SIGHUP') and before(signal.SIGHUP) != signal.SIG_IGN:
+        signals.append(signal.SIGHUP)
+    # Likewise leave an ignored (background job) or caller-installed SIGINT alone.
+    if before(signal.SIGINT) is signal.default_int_handler:
+        signals.append(signal.SIGINT)
+    raised = []
+
+    def interrupt(signum, frame):
+        if raised:
+            if held is not None:
+                held['absorbed'].append(signum)
+            return  # the first interrupt's cleanup is under way
+        raised.append(signum)
+        raise KeyboardInterrupt(signal.Signals(signum).name)
+    previous = {sig: signal.signal(sig, interrupt) for sig in signals}
+    _handling.append(raised)
+    try:
+        yield
+    finally:
+        _handling.pop()
+        if raised and held is not None:
+            for sig, handler in previous.items():
+                held['replaced'].setdefault(sig, handler)  # this scope's handler goes on absorbing
+        else:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
 
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,
@@ -510,8 +585,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
         publish_activity(force=True)
     finally:
         # Interruption or a failed save must not let the process worker escape
-        # this call. Callbacks stay serialized on the controller thread.
-        handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
+        # this call. Callbacks stay serialized on the controller thread. A signal
+        # meanwhile is deferred, not ignored: ignoring lost the hangup that came
+        # as a provider ended, and the run went on (#454).
+        deferred = []
+        handlers = {sig: signal.signal(sig, lambda signum, frame: deferred.append(signum)) for sig in INTERRUPTS}
         try:
             receipts.cancel.set()
             if receipts.started:
@@ -539,4 +617,10 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 signal.signal(sig, handler)
     if watchdog_errors:
         raise ProcessError("Activity supervision failed; tracked workers have been stopped") from watchdog_errors[0]
-    return child.wait(timeout=1), watchdog_fired.is_set()
+    result = child.wait(timeout=1), watchdog_fired.is_set()
+    # Only now, with the provider collected, does a deferred signal reach the caller's
+    # own handler (the stage's interrupt, or an ignore under nohup). Behind an error
+    # already propagating it is dropped: that error ends the stage.
+    for sig in dict.fromkeys(deferred):
+        signal.raise_signal(sig)
+    return result
