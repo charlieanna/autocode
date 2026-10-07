@@ -350,6 +350,11 @@ before a PASS is accepted, the runner requires its own current execution of each
   slice's check, a user's `--edit-goal`. The Planner, Plan Reviewer, Completion
   Reviewer or Resolver gets its report back for repair, with every such row named.
   A contract approved before this rule is not checked again ([bug note](bugs/2026-10-07-plan-names-git-status.md)).
+  A new plan with a command that `/bin/sh` cannot parse is refused at the same
+  points, in the same repair. The replay runs each planned command with
+  `/bin/sh -c`, so the runner asks that shell to read the command with `sh -n`,
+  which runs nothing. A live step with backticks inside double quotes could
+  never run ([bug note](bugs/2026-10-07-plan-check-shell-syntax.md)).
 - **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite

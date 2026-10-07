@@ -771,7 +771,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
         # A report for another contract or task pauses first, as it does below, instead of going back for repair.
         if state.get("version", 2) >= 3:
             goals.execution_guard(state, value)
-        verification_plan.refuse_git_status(verification_plan.task_rows(value.get("next_task"), "next_task"))
+        verification_plan.refuse_new_plan(*verification_plan.task_rows(value.get("next_task"), "next_task"))
     if stage == "astra_diagnose":
         # A bounded diagnosis+recommendation object, not a reviewer decision:
         # it carries no acceptance_criteria/status and must never reach the
