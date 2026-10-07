@@ -124,7 +124,7 @@ Evidence is in the session scratchpad only.
 | `scenarios/run.py check ladder-18-durable-lease-queue ladder-19-transactional-outbox` | All 15 lines `ok`. Both seeds fail, both references pass 5/5, and all 11 broken variants fail `hidden_tests_pass` |
 | `tests.test_outbox_oracle`, `tests.test_lease_queue_oracle`, `tests.test_risk_runtime`, `tests.test_risk_targets` | 46 tests OK. Every ladder-19 variant fails exactly its pinned hidden tests. `racy-create-order` fails only `test_concurrent_creation_once`, and `non-atomic-claim` only `test_concurrent_claims_are_unique` |
 | `tests.test_risk_cli` (10 public CLI tests) | OK in 120 s |
-| Architecture and unit modules (`test_architecture`, `test_risk_acceptance`, `_disclosure`, `_findings`, `_protocols`, `_evidence`, `_obligations`, `test_taskrun`, `test_progressive_run_view`) | 146 tests OK before the review fixes; 62 OK after them (architecture and the risk unit modules) |
+| Architecture and unit modules (`test_architecture`, `test_risk_acceptance`, `_disclosure`, `_findings`, `_protocols`, `_evidence`, `_obligations`, `test_taskrun`, `test_progressive_run_view`) | 150 tests OK |
 | Supervisor alone, contention promised, ten runs each (on `6b6ff2f`, load average 29) | Both references PASS 10/10. `non-atomic-claim` and `racy-create-order` are refused 10/10. The slowest supervisor took 3.3 s of its 30 s cap |
 | `scenarios/run.py run --fake` (whole catalog) | 64 entries: 62 PASS, including both references at 6/6. `feature-refund-window` is NOT_EXERCISED (oracle 5/5, but the Resolver never ran; reported the same on master `4b58ebe`). `stuck-planner-citation` is SKIPPED: its Investigator is a live model |
 | `tools/run_suite.py --changed --all-fast --jobs 2` | Pending |
