@@ -1,9 +1,10 @@
 """Runner-owned retry decisions. Models diagnose; configuration selects routes."""
 import copy
 try:
-    from . import autocode_util as s
+    from . import autocode_util as s, autocode_route_ladder as route_ladder
 except ImportError:
     import autocode_util as s
+    import autocode_route_ladder as route_ladder
 
 # The stronger attempt is GPT-6 Sol at xhigh: Astra is too expensive and only for the
 # Resolver (user 2026-09-28). The default checkers also run GPT-6 Sol, so for the rest of
@@ -37,7 +38,7 @@ def configured(strong_model=None, provider=None):
     """
     config = {**DEFAULTS, 'strong_model': strong_model or DEFAULTS['strong_model']}
     offered = getattr(provider, 'LISTED_MODELS', None)
-    if offered is not None and config['strong_model'] not in offered:
+    if route_ladder.unserved(config['strong_model'], offered):
         if strong_model:
             raise ValueError(f'--builder-strong-model {strong_model} is not a {provider.NAME} model: {", ".join(offered)}')
         config['strong_model'] = None
@@ -158,14 +159,10 @@ def swap_checkers(state, current, config, model):
 
 def _escalate(state, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
-    model = config['strong_model']
-    if not model:
+    if not config.get('strong_model'):
         return 'pause', {}, NO_STRONG_MODEL
     engine = route.get('engine', state['settings'].get('engine'))
-    if engine == 'opencode' and '/' not in model:
-        model = 'openai/' + model
-    elif engine == 'codex':
-        model = _bare(model)
+    model = route_ladder.format_model(route_ladder.normalize_model(config['strong_model']), engine)
     # Never undo explicit pins or silently change provider/transport.
     if route.get('model_pinned') or route.get('provider') not in (None, 'openai'):
         return 'pause', {}, EXHAUSTED
@@ -188,6 +185,7 @@ def _decide(state, current, action, evidence, reason, checkers, stop_reason):
         'selected_model': route['model'], 'selected_effort': route.get('reasoning_effort'),
         **({'checker_models': checkers} if checkers else {})})
     if action == 'pause':
+        route_ladder.record_outcome(state, 'paused')
         state.update(status='PAUSED_BUILDER_RETRY_LIMIT', phase='PAUSED_OR_BLOCKED', stop_reason=stop_reason)
     elif action == 'defer':
         state.update(status=SERIAL, stop_reason=stop_reason)
