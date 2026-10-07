@@ -17,8 +17,8 @@ fault = "outcome_questions"
 # The person's own answers (by the scripted questions' ids): the alert rules, the channel with no
 # integration preference or restriction, the privacy rule, then the two reliability decisions. They are
 # given only under --fake: a live run answers every question with the model's own proposed default (a live
-# model's question ids need not be these), so the person's premise is not set up and the oracle's "no
-# preference" check fails unless a default happens to say so.
+# model's question ids need not be these), so the person's premise is not set up; the oracle's re-ask check then
+# fails only on a question that puts a mechanism to the person.
 [fake.answers]
 Q1 = "Alert when any message has waited in the dead-letter queue for 5 minutes or longer. One alert per incident, not one per message, and never a repeated alert for the same incident. The on-call team should hear about it within 10 minutes."
 Q2 = "#orders-oncall. We have no existing Slack integration and no restriction on which services we use, so no preference for how alerts reach Slack."

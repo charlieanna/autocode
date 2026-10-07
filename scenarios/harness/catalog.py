@@ -9,6 +9,7 @@
     <id>/reference/      overlay that makes a correct solution (optional)
     <id>/broken/<name>/  overlays that look plausible but are wrong (optional)
     <id>/hidden/         files only the oracle sees (optional)
+    <id>/tests/          fixtures for scenarios/test_harness.py, such as a live run's record (optional)
 
 A scenario.toml may also declare a ``[hybrid]`` route (harness/hybrid.py): the stages a hybrid run scripts with
 the fake provider and its fault while every other stage runs live.

@@ -1,0 +1,327 @@
+{
+  "about": "A live run of this scenario on 2026-10-07 (AutoCode b15c7c8; every stage on a live model, the driver answering each question with the model's own proposed default). Its planning followed the outcome-question rules, yet the oracle of that commit scored it FALSE_COMPLETE 15/19 through four false negatives (docs/bugs/2026-10-07-outcome-questions.md). Kept: the run record's fields the oracle reads (the approved plan's fields only) and the delivered design/alerting.json, verbatim.",
+  "record": {
+    "status": "TASK_COMPLETE",
+    "view": {
+      "workflow": "design",
+      "approved_contract": {
+        "body": {
+          "technical_approach": [
+            "Write design/alerting.json by hand as a single JSON file; no code, scripts or tests added.",
+            "Mechanism options to document with tradeoffs, recommended agent_proposed: metric/detection (CloudWatch alarms on ApproximateNumberOfMessagesVisible and ApproximateAgeOfOldestMessage [recommended] vs polling Lambda vs EventBridge Pipes); routing (SNS -> Lambda [recommended] vs AWS Chatbot direct); Slack delivery (Lambda posting via Slack webhook/API with retry and dedupe key [recommended] vs fire-once); escalation (two alarm tiers: notify on >0, escalate on depth/age thresholds [recommended] vs single alarm).",
+            "Dedupe key suggestion: alarm name + state-change timestamp, so retries of the same alert are recognisable and collapsed.",
+            "Latency stated as a healthy-path target tied to alarm evaluation period, never a guarantee."
+          ],
+          "accepted_assumptions": [
+            {
+              "answer_id": "Q1",
+              "basis": "user_answer",
+              "text": "Alert when any message is present in the DLQ and escalate if depth or oldest-message age exceeds configurable thresholds. (User-stated rules; may be source 'user' in outcome_rules.)"
+            },
+            {
+              "answer_id": "Q2",
+              "basis": "user_answer",
+              "text": "Slack channel is a configuration parameter; no existing integration constraint; alerts contain queue name and counts only, no order payloads."
+            },
+            {
+              "answer_id": "Q3",
+              "basis": "user_answer",
+              "text": "On uncertain Slack delivery, retry with an idempotent dedupe key, accepting rare duplicates; latency is a healthy-path target, not a guarantee."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "The DLQ is an AWS SQS dead-letter queue; name/ARN, account and region are configuration parameters."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "Recommended mechanism (agent-proposed, not a user decision): CloudWatch alarms on the DLQ's ApproximateNumberOfMessagesVisible and ApproximateAgeOfOldestMessage -> SNS -> Lambda that posts to Slack with a dedupe key; AWS Chatbot and a polling Lambda are listed as alternatives."
+            },
+            {
+              "answer_id": "",
+              "basis": "agent_proposed",
+              "text": "The design is documentation only; deployment is not authorized."
+            }
+          ],
+          "delegated_decisions": [],
+          "constraints": [
+            "Deliver only design/alerting.json; work only inside the workspace.",
+            "No deployment or AWS/Slack side effects.",
+            "Do not present agent recommendations as user decisions.",
+            "Do not ask the user to pick an AWS/Slack mechanism unless a binding constraint exists.",
+            "Approving this plan deploys nothing and calls no AWS or Slack service."
+          ],
+          "permission_boundaries": [
+            "Write only design/alerting.json inside the workspace; no deployment, no AWS or Slack calls, no network."
+          ]
+        }
+      }
+    },
+    "stages": [
+      "recognize_workflow",
+      "review_design",
+      "requirements_gather",
+      "astra_discovery",
+      "astra_discovery",
+      "astra_challenge",
+      "orchestrator",
+      "terra",
+      "sol",
+      "astra_review"
+    ],
+    "answers": [
+      {
+        "id": "Q1",
+        "question": "What counts as 'something goes wrong' for the DLQ (e.g. any message arriving, depth above a threshold, oldest-message age, no consumption), and are there order-specific severities or conditions that must page versus just notify?",
+        "why": "Defines the alert rules, which are the core outcome; the user has stated none, so none may be marked source 'user'.",
+        "options": [],
+        "answer": "Alert when any message is present in the DLQ and escalate if depth or oldest-message age exceeds configurable thresholds."
+      },
+      {
+        "id": "Q2",
+        "question": "Which Slack channel/workspace should receive alerts, and must an existing integration or approved service be used (any restrictions on regions, accounts or data in alerts, e.g. customer/order data)?",
+        "why": "Destination and data-handling limits could be binding constraints on the design; the identity itself stays a parameter.",
+        "options": [],
+        "answer": "Channel is a configuration parameter; no existing integration constraint; alerts contain queue name and counts only, no order payloads."
+      },
+      {
+        "id": "Q3",
+        "question": "When it is uncertain whether a Slack alert was delivered, should the system prefer retrying (risking a duplicate) or not retrying (risking a missed alert), and is any latency expectation a healthy-path target or an unconditional guarantee?",
+        "why": "Reliability semantics are the user's tradeoff; a guarantee cannot be supported without the user's decision.",
+        "options": [
+          "Retry (possible duplicates)",
+          "No retry (possible miss)"
+        ],
+        "answer": "Retry with idempotent dedupe key, accepting rare duplicates; latency is a healthy-path target."
+      }
+    ],
+    "cli_calls": [
+      "start",
+      "answer",
+      "resume",
+      "approve-plan",
+      "resume"
+    ],
+    "steps": [
+      {
+        "kind": "start",
+        "exit": 2
+      },
+      {
+        "kind": "answer",
+        "exit": 0
+      },
+      {
+        "kind": "resume",
+        "exit": 2
+      },
+      {
+        "kind": "approve-plan",
+        "exit": 0
+      },
+      {
+        "kind": "resume",
+        "exit": 0
+      }
+    ]
+  },
+  "design": {
+    "outcome_rules": [
+      {
+        "rule": "Alert when any message is present in the dead-letter queue",
+        "source": "user"
+      },
+      {
+        "rule": "Escalate alert when queue depth exceeds a configurable threshold",
+        "source": "user"
+      },
+      {
+        "rule": "Escalate alert when the oldest message age exceeds a configurable threshold",
+        "source": "user"
+      },
+      {
+        "rule": "Alerts must contain queue name and message counts only; no order payloads or customer data",
+        "source": "user"
+      },
+      {
+        "rule": "Retry failed Slack deliveries with an idempotent dedupe key, accepting rare duplicates over missed alerts",
+        "source": "user"
+      },
+      {
+        "rule": "Send a resolved/recovery notice when the queue returns to empty state",
+        "source": "agent_proposed"
+      }
+    ],
+    "mechanisms": [
+      {
+        "choice": "DLQ metric source and detection method",
+        "options": [
+          {
+            "name": "CloudWatch native alarms",
+            "tradeoffs": "Native AWS integration, low latency (metric data points every ~1 min), no custom polling logic; limited to CloudWatch metrics only (ApproximateNumberOfMessagesVisible, ApproximateAgeOfOldestMessage)."
+          },
+          {
+            "name": "Polling Lambda on schedule",
+            "tradeoffs": "Full control over detection logic, can implement custom thresholds and complex rules; adds latency (polling interval typically 1-5 min), requires Lambda invocation scheduling and cost for repeated polling."
+          },
+          {
+            "name": "EventBridge Pipes with DLQ as source",
+            "tradeoffs": "Event-driven, lower latency than polling; requires infrastructure setup, may miss some edge cases if event source is not 100% reliable."
+          }
+        ],
+        "recommended": "CloudWatch native alarms",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Alert routing from metric detection to Slack",
+        "options": [
+          {
+            "name": "CloudWatch Alarm → SNS → Lambda → Slack",
+            "tradeoffs": "Decoupled architecture, Lambda provides flexibility for formatting, deduplication, and complex logic; adds one hop (Lambda invocation); simple to implement with standard AWS services."
+          },
+          {
+            "name": "CloudWatch Alarm → AWS Chatbot → Slack directly",
+            "tradeoffs": "Fewer hops, lower latency; limited customization of message format and routing logic; Chatbot templates are fixed, harder to add dedupe logic."
+          },
+          {
+            "name": "CloudWatch Alarm → EventBridge → Lambda → Slack",
+            "tradeoffs": "EventBridge provides richer filtering and transformation; adds complexity; better for multi-destination scenarios."
+          }
+        ],
+        "recommended": "CloudWatch Alarm → SNS → Lambda → Slack",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Slack message delivery mechanism and retry strategy",
+        "options": [
+          {
+            "name": "Lambda posts to Slack Webhook API with retry and idempotent dedupe key",
+            "tradeoffs": "Full control over retry logic, dedupe key (e.g., alarm name + state-change timestamp), and message formatting; requires handling Slack API throttling and managing dedupe state; accepts rare duplicates to avoid missed alerts."
+          },
+          {
+            "name": "Fire-once delivery without retry",
+            "tradeoffs": "Simple, no retry logic needed; acceptable for non-critical alerts; risks missing alerts on temporary network/API outages."
+          },
+          {
+            "name": "Lambda with SQS queue for guaranteed delivery",
+            "tradeoffs": "Guarantees eventual delivery via persistent queue; adds complexity and latency; useful for critical alerts but overkill for queue depth monitoring."
+          }
+        ],
+        "recommended": "Lambda posts to Slack Webhook API with retry and idempotent dedupe key",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      },
+      {
+        "choice": "Escalation threshold evaluation and notification tiers",
+        "options": [
+          {
+            "name": "Two-tier alarm approach: notify on any message, escalate on depth/age thresholds",
+            "tradeoffs": "Clear separation of concern (any activity vs. severity); two alarms may fire independently; easier to tune severity; requires two CloudWatch alarms and two SNS topics."
+          },
+          {
+            "name": "Single alarm with combined threshold logic",
+            "tradeoffs": "Simpler architecture (one alarm); harder to distinguish transient messages from real problems; less granular escalation control."
+          },
+          {
+            "name": "Custom Lambda evaluating multiple metrics and rules",
+            "tradeoffs": "Maximum flexibility for complex escalation logic; requires custom code, testing, and maintenance; adds latency and failure points."
+          }
+        ],
+        "recommended": "Two-tier alarm approach: notify on any message, escalate on depth/age thresholds",
+        "basis": "agent_proposed",
+        "binding_constraint": false
+      }
+    ],
+    "parameters": [
+      {
+        "name": "Slack workspace ID",
+        "description": "The Slack workspace to which alerts will be posted. Example format: workspace URL or workspace token identifier."
+      },
+      {
+        "name": "Slack channel name",
+        "description": "The Slack channel (e.g., #alerts, #order-pipeline-alerts) or user ID to receive DLQ alerts. Configuration parameter; concrete value to be determined during deployment."
+      },
+      {
+        "name": "DLQ queue name or ARN",
+        "description": "Full ARN or queue name of the AWS SQS dead-letter queue being monitored. Example: arn:aws:sqs:us-east-1:123456789012:order-pipeline-dlq"
+      },
+      {
+        "name": "AWS region",
+        "description": "AWS region where the DLQ is located. Example: us-east-1, eu-west-1."
+      },
+      {
+        "name": "AWS account ID",
+        "description": "AWS account ID hosting the DLQ (for IAM role policies and resource ARNs)."
+      },
+      {
+        "name": "Queue depth threshold",
+        "description": "Numeric threshold for message count at which escalation alert is triggered. Example: 100 messages. Configuration parameter; specific value to be determined based on expected queue behavior."
+      },
+      {
+        "name": "Oldest message age threshold",
+        "description": "Time duration (in seconds or minutes) defining the maximum acceptable age of the oldest message. Example: 3600 (1 hour), 1800 (30 minutes). Configuration parameter; specific value depends on SLA requirements."
+      },
+      {
+        "name": "Alarm evaluation period",
+        "description": "CloudWatch alarm evaluation period (e.g., 60 seconds, 300 seconds). Determines how often the metric is checked and how fresh the data is. Typical values: 60-300 seconds. Configuration parameter."
+      }
+    ],
+    "open_blockers": [
+      "Concrete AWS account ID and region for the DLQ",
+      "Exact DLQ queue name or ARN",
+      "Slack workspace ID and channel name/ID where alerts will be posted",
+      "Specific threshold values: queue depth limit and oldest-message-age limit",
+      "Slack credential storage strategy (webhook URL or bot token management; secrets manager, parameter store, or environment variable)",
+      "Identity of the source queue(s) that produce the DLQ messages and confirmation of who owns/controls message redrive policies",
+      "Confirmation that Lambda execution role has SQS permissions to read queue attributes and CloudWatch permissions to put metric data"
+    ],
+    "reliability": {
+      "delivery": "When it is uncertain whether a Slack alert was delivered (e.g., API timeout, network error), the system applies a retry strategy with an idempotent dedupe key (e.g., based on alarm name and state-change timestamp). This retry approach accepts the risk of rare duplicate alerts over the risk of missed alerts. Duplicates are recognisable by dedupe key and may be collapsed by Slack or the receiving team if needed.",
+      "latency": {
+        "target": "Alert delivery within the CloudWatch alarm evaluation period plus Lambda invocation and Slack API post time, typically 1-3 minutes from when a message arrives in the DLQ.",
+        "kind": "healthy_path_target"
+      }
+    },
+    "assumptions": [
+      {
+        "text": "Alert when any message is present in the DLQ and escalate if depth or oldest-message age exceeds configurable thresholds",
+        "basis": "user_answer"
+      },
+      {
+        "text": "Slack channel is a configuration parameter; no existing integration constraint; alerts contain queue name and counts only, no order payloads",
+        "basis": "user_answer"
+      },
+      {
+        "text": "On uncertain Slack delivery, retry with an idempotent dedupe key, accepting rare duplicates; latency is a healthy-path target, not a guarantee",
+        "basis": "user_answer"
+      },
+      {
+        "text": "The DLQ is an AWS SQS queue; queue name/ARN, account, and region are configuration parameters to be provided during deployment",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "CloudWatch native alarms on ApproximateNumberOfMessagesVisible and ApproximateAgeOfOldestMessage are the recommended detection mechanism",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "SNS and Lambda are used for alert routing and Slack message delivery with retry/dedupe logic",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "Two separate CloudWatch alarms (one for any message, one for escalation thresholds) provide the recommended notification tier approach",
+        "basis": "agent_proposed"
+      },
+      {
+        "text": "The design is documentation only; no infrastructure is deployed, no AWS resources are created, and no Slack workspace is configured as part of this design deliverable",
+        "basis": "agent_proposed"
+      }
+    ],
+    "deployment": {
+      "authorized": false,
+      "note": "This design document is for planning and documentation purposes only. No AWS infrastructure, Lambda functions, CloudWatch alarms, SNS topics, or Slack integrations have been deployed. No AWS API calls or Slack service calls were made in the creation of this design. Deployment of this design requires separate authorization and implementation work."
+    }
+  }
+}

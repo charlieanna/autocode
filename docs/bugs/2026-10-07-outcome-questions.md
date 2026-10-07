@@ -47,8 +47,28 @@ whether it names one ("through AWS Chatbot?") or only asks for one ("which Slack
 whether an existing integration or a restriction binds may name mechanisms as examples. Seven broken designs
 and `OutcomeQuestionsOracleTests` hold these cases.
 
-**Not covered:** whether real models follow the rules (no live run was authorized). A live run of the
-scenario cannot set up its premise: the person's answers are `[fake] answers`, so live the driver answers with
-the model's own defaults, and the "no preference" check fails unless a default says so. The checks read
-wording, not meaning. The Designer
-(`review_design`) prompt is unchanged: a request for a new design goes on to this pipeline, which has the rules.
+**Live run (2026-10-07):** with every stage on a live model, Requirements asked only about outcomes, the
+destination and reliability (no mechanism question), and the approved plan recorded its CloudWatch, SNS and
+Lambda recommendation as `agent_proposed` with "Approving this plan deploys nothing". The oracle still scored it
+`FALSE_COMPLETE` 15/19 through four false negatives: the trigger question asked what counts as "something goes
+wrong" without the word "alert"; no answer said "no preference" (live, each answer is the model's own default),
+which the re-ask check required; the Builder listed the account, region, queue ARN and channel in
+`open_blockers` while declaring each a parameter, as the approved plan asked, both reading the brief's
+`open_blockers` (facts missing before deployment) literally; and the assumptions restated each recommendation
+in other words than the option's name. Now
+the trigger question may name a condition, a threshold or something going wrong; without a "no preference"
+answer only a question that puts a mechanism to the person counts as re-asked; the brief defines `open_blockers`
+as missing facts "that no parameter can stand in for", and the oracle holds an identity in `open_blockers`
+against the design only when no parameter declares it (so a run under the old wording is judged on whether the
+identity was taken as configuration, not on how it read a field name); and a recommendation counts as stated
+when a proposed assumption quotes it or names one of its mechanisms that not every option of that choice
+names. The run's questions, answers, approved plan and design are kept in the scenario's
+`tests/live-2026-10-07.json`; `OutcomeQuestionsOracleTests` scores them (all 19 checks pass) and, for each of the
+four checks, a copy with the failure that check exists to catch. The seven broken designs fail the same checks
+as before.
+
+**Not covered:** the person's premise live: the person's answers are `[fake] answers`, so live the driver
+answers with the model's own defaults, and the "no preference" order rule applies only when a default says so.
+The checks read wording, not meaning; a recommended option that names no listed mechanism needs only some
+proposed assumption. The Designer (`review_design`) prompt is unchanged: a request for a new design goes on to
+this pipeline, which has the rules.

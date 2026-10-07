@@ -1208,6 +1208,61 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         self.assertEqual([], failing(once, keep))
         self.assertEqual(["reliability_promises_follow_the_persons_decisions"], failing(design, keep))
 
+    # A live run (2026-10-07) whose planning followed the rules, kept in the scenario's tests/: its questions and
+    # answers, the plan the person approved and the design it delivered. The first oracle failed it on four checks
+    # that read its words too narrowly; each test below also keeps the failure that check exists to catch.
+    def live(self):
+        return json.loads((self.scenario.dir / "tests" / "live-2026-10-07.json").read_text())
+
+    def failing_live(self, record, design):
+        oracle_module = self.scenario._oracle_module()
+        checks = (oracle_module.document_checks(design, oracle_module.person_words(self.scenario, record))
+                  + oracle_module.process_checks(record))
+        return [check.name for check in checks if not check.ok]
+
+    def test_the_live_run_that_followed_the_rules_passes(self):
+        live = self.live()
+        self.assertEqual([], self.failing_live(live["record"], live["design"]))
+
+    def test_the_question_about_what_triggers_an_alert_need_not_say_alert(self):
+        # "What counts as 'something goes wrong' for the DLQ (e.g. any message arriving, depth above a threshold,
+        # oldest-message age ...)" asks what triggers an alert; a batch with no such question still fails.
+        live = self.live()
+        self.assertNotIn("requirements_asked_about_outcomes_and_constraints",
+                         self.failing_live(live["record"], live["design"]))
+        live["record"]["answers"] = [row for row in live["record"]["answers"] if row["id"] != "Q1"]
+        self.assertIn("requirements_asked_about_outcomes_and_constraints",
+                      self.failing_live(live["record"], live["design"]))
+
+    def test_without_a_no_preference_answer_only_a_mechanism_question_is_reasked(self):
+        # Live, every answer is the model's own default and none says "no preference". Nothing was re-asked when no
+        # question puts a mechanism to the person; one that does still fails, wherever it comes.
+        live = self.live()
+        self.assertNotIn("no_mechanism_reasked_after_no_preference", self.failing_live(live["record"], live["design"]))
+        live["record"]["answers"].append({
+            "id": "Q4", "question": "Which integration should post the alerts to Slack: an incoming webhook or AWS "
+                                    "Chatbot?", "why": "Delivery.", "options": [], "answer": "AWS Chatbot"})
+        self.assertEqual(["no_mechanism_put_to_the_person", "no_mechanism_reasked_after_no_preference"],
+                         self.failing_live(live["record"], live["design"]))
+
+    def test_an_identity_in_open_blockers_passes_only_as_a_declared_parameter(self):
+        # The live Builder listed the account, region, queue ARN and channel as missing before deployment while
+        # declaring each a parameter. An identity that no parameter stands for is still held as a blocker.
+        live = self.live()
+        self.assertNotIn("identities_are_parameters_not_blockers", self.failing_live(live["record"], live["design"]))
+        live["design"]["parameters"] = [row for row in live["design"]["parameters"] if row["name"] != "AWS region"]
+        self.assertEqual(["identities_are_parameters_not_blockers"], self.failing_live(live["record"], live["design"]))
+
+    def test_recommendations_are_explicit_when_an_assumption_names_their_mechanisms(self):
+        # The live assumptions restate the recommended options in other words ("SNS and Lambda are used for alert
+        # routing and Slack message delivery"). Dropping that row leaves the routing and the delivery unstated,
+        # since CloudWatch, named in every routing option, does not say which one was recommended.
+        live = self.live()
+        self.assertNotIn("assumptions_are_explicit", self.failing_live(live["record"], live["design"]))
+        live["design"]["assumptions"] = [row for row in live["design"]["assumptions"]
+                                         if not row["text"].startswith("SNS and Lambda")]
+        self.assertEqual(["assumptions_are_explicit"], self.failing_live(live["record"], live["design"]))
+
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
     def setUp(self):
