@@ -5,7 +5,8 @@ given, when, then) in its diagnosis (autocode_bug_job). A small feature's
 Planner writes acceptance criteria as concrete examples and marks the ones a
 test proves with a verification_method of ``test: test_<id>_...``, or of
 ``guard: test_<id>_...`` for behavior that already works and must keep working
-(``contract_cases``; a guard is a preserve case, as in a bug diagnosis). Either way a person approves English, the Builder writes
+(``contract_cases``; a guard is a preserve case, as in a bug diagnosis), or of the
+Go test name the user asked for (autocode_native_test_names). Either way a person approves English, the Builder writes
 one test per case named after its id, and the runner's proof
 (autocode_regression) checks by name, with no model, that each case has a
 test that passes with the change and did not before (``match_cases``).
@@ -248,7 +249,13 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
 
 NAMED_PROOF_NOTE = """
 NAMED TEST PROOF: the runner attributes cases with Python unittest/pytest, Go tests, Node's built-in
-node:test, and native Vitest 4. In a Vitest project keep cases in Vitest and run
+node:test, and native Vitest 4. The identifier immediately after test:/guard: names the required test;
+an explanation after it does not define an alias. Preserve an explicitly requested supported native name.
+For example, Go TestCacheExpiry uses "test: TestCacheExpiry", and TestCacheRetainsFresh uses
+"guard: TestCacheRetainsFresh". Preserve case and the complete native subtest path. Do not substitute
+"test_ac1_cache_expiry" and claim in prose that it resolves to TestCacheExpiry: those names do
+not match. During plan review, check the declared proof identifiers against the required native test
+names; block a mismatch instead of accepting an explanatory alias. The criterion ID remains unchanged. In a Vitest project keep cases in Vitest and run
 `npx --no-install vitest run <test files>` or an npm test script that is a single `vitest run` command.
 The runner owns the reporter and checks actual named outcomes; missing, skipped and ambiguous cases
 never pass. Do not create node:test wrappers just to relabel existing Vitest cases.
@@ -266,11 +273,16 @@ avoid proof. If no supported runner fits the project, raise the compatibility bl
 
 BUILDER_NOTE = """
 TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose verification_method starts with
-"test:" is a concrete example you must write as its own test, named with that criterion's id (C2 ->
-test_c2_<what it checks>) and asserting exactly the criterion's example. Before the Validator runs, the runner
+"test:" is a concrete example you must write as its own test, using the supported test identifier declared
+immediately after the marker and asserting exactly the criterion's example. Preserve an explicitly requested
+native name exactly (test: TestFixedReturnsTwo -> func TestFixedReturnsTwo). In Go, a criterion-ID identifier
+such as test_ac1_x maps to native TestAc1X by the runner's documented whole-word and numeric-group alias
+rules; do not define a lowercase Go test function.
+If no name is declared, use that criterion's id (C2 -> test_c2_<what it checks>). Before the Validator runs, the runner
 runs these tests itself, with those of milestones already accepted: each must pass with the change and must
 not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
-that already works and must keep working: write its test the same way (C4 -> test_c4_...); it must pass both
+that already works and must keep working: preserve its declared test name too (otherwise C4 -> test_c4_...);
+it must pass both
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
 existing test to make its name match a planned case id. The regression proof rejects removed test names.

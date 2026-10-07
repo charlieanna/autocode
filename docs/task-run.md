@@ -98,6 +98,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
+| Adopt an inspected interrupted Investigator report | `autocode --recover-job-report TOKEN [options]` | 0 applied, 2 rejected; no model launched |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
@@ -483,6 +484,27 @@ run. A failed/incomplete producer cannot release the consumer.
 `TaskRun.grant_recovery(N)` explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. `resume_paused()` and operational guidance do not grant an allowance.
 
 ### Failed workflow jobs
+
+When a sessionless `report_file` bug Investigator lost its controller after
+writing a report but before the exit/result checkpoint, `status()` may expose
+`job_report_recovery`: the exact owned `report` path, its `sha256`, `attempt_id`,
+original `source_identity`, and a bound `token`. Read the report and inspect the
+attempt before calling `run.recover_job_report(token)` (CLI:
+`--recover-job-report TOKEN`). This is explicit adoption of those exact bytes,
+not a claim that the provider completed successfully. The raw exit remains
+unknown and stage history records operator recovery provenance. The action
+loads and applies the report normally, including the reproduction probe, and
+launches no model; continue separately afterwards.
+
+The offer is read-only and disappears if the report, source capture, original
+source, configuration, or cleanup evidence is invalid or changed. All recorded
+workers and the independent keeper must be conclusively dead, with an authenticated
+owner-loss receipt proving cleanup. Timeouts, uncertain cleanup, rejected or
+malformed output, foreign/symlink paths, session/event reports, writers and
+report-repair attempts are not eligible. There is no durable provider report
+finalization seal, so presence/schema validity alone never authorizes automatic
+adoption. Plain attach/resume retains a valid offered attempt without applying
+or replaying it. No offer is inferred for an already archived job failure.
 
 A stopped Reviewer, Architect, Analyst or Investigator publishes
 `needs.kind = "retry_job"`, retaining its owning stage and archived transcript.

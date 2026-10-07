@@ -12,6 +12,7 @@ from pathlib import Path
 try:
     from .. import autocode_util as util, autocode_source_scope as source_scope, autocode_goals as goals, autocode_bug_job as bug_job
     from .. import autocode_goal_lifecycle as lifecycle
+    from .. import autocode_job_report_recovery as job_report_recovery
     from .. import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
     from .. import autocode_providers, autocode_verify as verify, autocode_verification_plan as verification_plan, autocode_launch_inputs as launch_inputs
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_goals as goals
     import autocode_goal_lifecycle as lifecycle
+    import autocode_job_report_recovery as job_report_recovery
     import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     import autocode_bug_job as bug_job
     import autocode_discuss_job as discuss_job
@@ -85,9 +87,16 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
             workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
             files=files, timeout=PROBE_TIMEOUT))
     # The runner, not the Investigator, shows the bug: its probe must exit 0 on the code as it is.
-    bug_job.apply(state, value, record, workspace, run_probe=lambda command: clean_run(
-        workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
-        timeout=PROBE_TIMEOUT))
+    guard = job_report_recovery.BEFORE_WRITE.get()
+    if guard:
+        guard()
+    def run_probe(command):
+        result = clean_run(workspace, Path(record.get("output") or workspace).parent / "investigation-probe",
+                           command=command, timeout=PROBE_TIMEOUT)
+        if guard:
+            guard()  # No note or result is published if inspected bytes/source changed during the probe.
+        return result
+    bug_job.apply(state, value, record, workspace, run_probe=run_probe)
     if bug_questions.has_questions(state):
         human.queue(state, 'clarification', {'stage': bug_job.STAGE, 'output': record.get('output'),
                     'source_revision': record.get('source_revision')}, questions=bug_questions.questions(state),
@@ -343,7 +352,12 @@ def validate_diagnosis(state, value, record, workspace):
 
 
 def preserve_review_criteria(state, value):
-    """A focused diagnosis may omit criteria, but cannot redefine or verify them."""
+    """A focused diagnosis may omit or restate criteria, but cannot add or verify them.
+
+    The approved wording stays. A one-character restatement used to reject the
+    whole report, so a BLOCKED question about the proof environment never
+    reached the operator (issue 624).
+    """
     authoritative = state['acceptance_criteria']
     by_id = {row['id']: row for row in authoritative}
     seen = set()
@@ -352,7 +366,7 @@ def preserve_review_criteria(state, value):
         if cid in seen:
             raise util.Paused('PAUSED_INVALID_OUTPUT', 'Duplicate acceptance IDs')
         seen.add(cid)
-        if cid not in by_id or row['criterion'] != by_id[cid]['criterion']:
+        if cid not in by_id:
             raise util.Paused('PAUSED_CRITERIA_CHANGE', 'Repair cannot change approved acceptance criteria')
     # Preserve the last review's order, statuses and evidence, including omitted
     # criteria. Diagnosis supplies repair instructions, not a new review verdict.

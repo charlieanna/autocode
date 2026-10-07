@@ -38,6 +38,7 @@ routing and the next Investigator handoff read its questions and prior diagnosis
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -265,7 +266,39 @@ def note(value: dict) -> dict:
             "affected_paths": value["affected_paths"], "test_paths": value["test_paths"], "invariant": value["invariant"],
             "test_cases": list(value.get("test_cases") or []), "conclusion": value["conclusion"], "fix_size": value["fix_size"], "fix_plan": value["fix_plan"],
             "questions": value["questions"], "tests_run": value["tests_run"], "changed": [],
-            "probe": value.get("probe", ""), "untestable": value.get("untestable", "")}
+             "probe": value.get("probe", ""), "untestable": value.get("untestable", "")}
+
+
+def diagnosis_artifact(state: dict, workspace) -> dict | None:
+    """Identify only the unchanged runner note reconstructed from its pinned, applied report."""
+    found = state.get("investigation") or {}
+    if found.get("outcome") != "reproduced" or not found.get("output_hash"):
+        return None
+    try:
+        output = Path(found["output"])
+        if output.is_symlink():
+            return None
+        raw = output.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != found["output_hash"]:
+            return None
+        report = json.loads(raw)
+        if report != {key: found.get(key) for key in SCHEMA["properties"]}:
+            return None
+        check(report, [])
+        root = Path(workspace).resolve()
+        target = root / report["note_path"]
+        if any(path.is_symlink() for path in (target, *target.parents) if path != root and root in path.parents):
+            return None
+        probe = report.get("probe", "").strip()
+        if probe and not found.get("probe_result"):
+            return None
+        expected = (json.dumps({**note(report), "proven_by": probe}, indent=2) + "\n").encode()
+        if target.stat().st_mode & 0o111 or target.read_bytes() != expected:
+            return None
+        return {"path": report["note_path"], "sha256": hashlib.sha256(expected).hexdigest(),
+                "kind": "runner_written_diagnosis", "output": str(output), "output_hash": found["output_hash"]}
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
 
 
 def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:

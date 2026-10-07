@@ -36,6 +36,35 @@ An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, and Vitest 4.
 
+The identifier right after `test:` or `guard:` is the one the runner proves; an
+explanation may follow after ` — ` or in parentheses. Without one, the test is
+named after the criterion ID (`test_c1_...`; Go's `TestC1...` matches it).
+
+When the user's brief asks for Go tests by name ("add Go tests
+`TestFixedReturnsTwo` and `TestFixedPreservesCrash`"), the plan declares those
+exact names, in the user's spelling: `test: TestFixedReturnsTwo`, `guard:
+TestFixedPreservesCrash`, one criterion each. A requested test the runner cannot
+run to a pass (one that skips without a database) may instead be named by an
+ordinary criterion, and no other test with it, for the Validator. Planning
+stages are told the names, and the runner refuses a draft, before it is
+installed or approved, that leaves a requested name unaccounted for, declares a
+respelling of it (`test_fixed_returns_two`), or declares another identifier (or
+none it can read, as in `test: TestFixedReturnsTwo.`) while its method or
+criterion text names the requested one, as in prose saying it "resolves to" it
+(#498). A name counts as requested when the user wrote it right after "test",
+"tests" or a Go test-shaped "func" signature (or in a list introduced as tests,
+each name with or without a description). Name-first requests such as
+"Add TestA, a real regression ... plus TestB and TestC" also count. Negations,
+examples and alternatives do not. The proof must run Go tests, and the project
+must not already declare the name as a top-level test in a `*_test.go` file.
+Comments, strings and callable production APIs do not make a test existing or
+requested. This inventory does not replace Go compilation or execution proof.
+The user's own `--edit-goal` is never refused by this check and settles which
+requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
+frameworks, and bug fixes proven by their diagnosis's cases, keep the
+criterion-ID convention. The details and limits are in
+`docs/bugs/2026-10-06-native-proof-names.md`.
+
 For Node, register each case as a real test, keeping its existing assertions
 and fixture helpers:
 
