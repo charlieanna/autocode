@@ -18,12 +18,24 @@ work from before the follow-up. The program never commits the worktree, so the
 follow-up's edits are not merged. The record is `MERGED`, and its `approved_plan` is the
 follow-up's plan.
 
-## Why it stays open
+## Fixed (#626)
 
-What should land here is not settled. Two options:
+When the person's merge brought the branch tip in, `adopt_manual_merge` now first
+checks the workstream's worktree for work the branch does not have. It checks with
+`_uncommitted`, the changes `_commit_all` would commit.
 
-- commit the worktree and ask for a fresh merge, as `integrate()` does;
-- refuse to adopt a branch whose worktree has changes since the conflict.
+If it finds any, the program does not land the tip on its own. The workstream goes
+back to `COMPLETE`, and the same pass's `integrate()` commits that work and merges it
+on top, the hand-merged tip being already there. That is an ordinary merge, with
+every check a merge has:
 
-Until one is chosen, merge a follow-up's work by rerunning the program before resolving
-the conflict by hand.
+- ownership and interfaces;
+- the run's checked plan;
+- the cumulative checks.
+
+A second conflict pauses again.
+
+`tests/test_program_agreement_runs.py`
+(`test_a_conflict_resolved_by_hand_still_merges_what_the_run_delivered_after_it`)
+drives this scenario. On master the follow-up's file never reaches the integration
+branch.

@@ -173,6 +173,33 @@ class AgreementTests(ProgramHarness):
         self.assertNotIn("approved_plan", record)
         self.assertNotIn("a/service.py", self.integration_files(result))
 
+    def test_a_conflict_resolved_by_hand_still_merges_what_the_run_delivered_after_it(self):
+        # #626: while a's merge conflicted, a person followed up a's run outside the program, then merged a's branch
+        # by hand as the pause asks. The follow-up's work was never on that branch.
+        path = self.write_manifest(with_requirements(manifest()))
+        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
+        _, waiting = self.run_program(path)
+        integration = Path(waiting["integration_workspace"])
+        (integration / "a").mkdir()
+        (integration / "a/service.py").write_text("external repair\n")
+        git(integration, "add", "a/service.py")
+        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
+        self.set_child(self.records(waiting)["a"], status="RUNNING")
+        self.child_outcome["a"] = "TASK_COMPLETE"
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]), result)
+        record = self.records(result)["a"]
+        (Path(record["workspace"]) / "a/retry.py").write_text("retry\n")  # the follow-up's work; the run completed
+        merge = subprocess.run(["git", "-C", str(integration), "-c", "user.name=H", "-c", "user.email=h@example.test",
+                                "merge", "--no-ff", "-X", "theirs", "--no-edit", record["branch"]],
+                               capture_output=True, text=True)
+        self.assertEqual(0, merge.returncode, merge.stdout + merge.stderr)
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        self.assertEqual("MERGED", self.records(result)["a"]["status"])
+        self.assertIn("a/retry.py", self.integration_files(result))
+        self.assertEqual("", git(Path(record["workspace"]), "status", "--porcelain", "--", "a"))  # committed, nothing left
+
     def test_a_conflict_resolved_by_hand_lands_only_under_a_checked_plan(self):
         path = self.write_manifest(with_requirements(manifest()))
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"

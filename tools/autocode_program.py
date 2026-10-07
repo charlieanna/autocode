@@ -840,6 +840,12 @@ def _commit_all(workspace, message):
     return workspaces.git(workspace, "rev-parse", "--verify", "HEAD")
 
 
+def _uncommitted(workspace):
+    """The changes _commit_all would commit: anything but runner metadata and bytecode caches."""
+    return workspaces.git(workspace, "status", "--porcelain", "--untracked-files=all", "--", ".", ":!.autocode",
+                          ":(exclude)*__pycache__*", ":(exclude)*.pyc")
+
+
 def _owned_checks(manifest, state, wid):
     """(owner, command) for every cumulative check: owner None for a program check, else the workstream."""
     integration = state["integration"]["workspace"]
@@ -1085,6 +1091,13 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
     result = subprocess.run(["git", "-C", str(integration), "merge-base", "--is-ancestor", record["branch"], "HEAD"],
                             capture_output=True, text=True)
     if result.returncode == 0:
+        if _uncommitted(record["workspace"]):
+            # Its run delivered more since the conflict (a person followed it up): that work is not on the branch
+            # the person merged. The merge path commits it and merges it on top, with every check a merge has (#626).
+            record["status"] = "COMPLETE"
+            record.pop("conflict", None)
+            note(state, "manual_merge_with_later_work", workstream=workstream["id"])
+            return False
         # The run may have changed since its conflict (a person followed it up): its plan is held as integrate() holds it.
         # A resolved conflict is no longer what holds it, so the pause names what does.
         reason = plan_blocked(record, merging=True)
