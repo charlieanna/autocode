@@ -13,9 +13,11 @@ import shlex
 
 try:
     from . import autocode_verification_expectations as expectations
+    from . import autocode_toolchain_requirements as toolchain_requirements
     from . import autocode_verification_schedule as schedule, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
     import autocode_verification_expectations as expectations
+    import autocode_toolchain_requirements as toolchain_requirements
     import autocode_verification_schedule as schedule, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
@@ -102,6 +104,7 @@ def approved_commands(state, *, progressive_context=None):
             methods.append(check["method"])
         methods += [check["method"] for check in product_checks(body, required)]
         return list(dict.fromkeys(command for method in methods for command in commands(method)))
+    methods += toolchain_requirements.initial_validation(state)
     methods += [row.get("verification_method", "") for row in body.get("acceptance_criteria") or []
                 if not row.get("human_review") and (not ids or row.get("id") in ids)]
     return list(dict.fromkeys(command for method in methods for command in commands(method)))
@@ -188,6 +191,8 @@ def repetitions(state, *, progressive_context=None):
         if not row.get("human_review") and (not selected or row.get("id") in selected)]
     if progressive_context:
         methods += [row["method"] for row in progressive_context.get("required_checks", [])]
+    else:
+        methods += toolchain_requirements.initial_validation(state)
     result = {}
     for method in methods:
         extracted = commands(method)
