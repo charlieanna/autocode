@@ -41,8 +41,9 @@ def event_thread_id(jsonl: Path) -> str | None:
     return None
 
 
-def session_for(state, pending) -> str | None:
-    """The original attempt's session thread, when a format-only correction applies."""
+def session_for(state, pending, route_role=None) -> str | None:
+    """The original attempt's session thread, when a format-only correction run on ``route_role``
+    (the route the correction launches on; the original's own when not given) applies."""
     original = pending.get("original") or {}
     error = pending.get("error") or original.get("rejection_reason") or ""
     if pending.get("attempts") or pending.get("correction_attempted"):
@@ -52,18 +53,20 @@ def session_for(state, pending) -> str | None:
             return None
     elif original.get("engine") != "opencode" or not error.startswith(FORMAT_ERROR) or original.get("planning"):
         return None
-    if not stage_supports_sessions(state, original) or not same_route(state, original):
+    if not stage_supports_sessions(state, original) or not same_route(state, original, route_role):
         return None
     return event_thread_id(Path(original["events"]))
 
 
-def same_route(state, original) -> bool:
-    """Whether the correction would run on the route (engine, provider, model, effort) that started
-    the session; a record saved before routes were recorded is taken as unchanged."""
+def same_route(state, original, route_role=None) -> bool:
+    """Whether the correction, run on ``route_role``'s saved route, would use the route (engine,
+    provider, model, effort) that started the session. A Plan Reviewer attempt that ran on its one-use
+    fallback (autocode_reviewer_fallback) recorded another role's route, which the correction never
+    runs on. A record saved before routes were recorded is taken as unchanged."""
     launched = original.get("launch_route")
     if not isinstance(launched, dict):
         return True
-    role = original.get("route_role") or original["role"]
+    role = route_role or original.get("route_role") or original["role"]
     route = (state.get("settings", {}).get("roles") or {}).get(role)
     return isinstance(route, dict) and launched == {key: route.get(key) for key in launched}
 
@@ -81,15 +84,16 @@ def prompt(error: str) -> str:
 def execute(runtime, state, run_dir, workspace) -> bool:
     """Run the one correction turn; True when it ran at all. Any failure falls back to the full repair."""
     pending = state.get("pending_report_repair") or {}
-    thread = session_for(state, pending)
+    original = pending.get("original") or {}
+    role = original.get("role")
+    # The route this correction launches on, which must be the one that started the session.
+    route_role = runtime.planning.route_for(state, original["stage"], role) if role and original.get("stage") else None
+    thread = session_for(state, pending, route_role)
     if not thread:
         return False
-    original = pending["original"]
     pending["correction_attempted"] = True  # one shot per rejection, surviving restarts
     state.update(phase="REPORT_REPAIR")
     runtime.write_json(run_dir / "state.json", state)
-    role = original["role"]
-    route_role = runtime.planning.route_for(state, original["stage"], role)
     value, record = runtime.run_role(role=role, prompt=prompt(pending.get("error") or ""),
         sandbox="read-only", workspace=workspace, run_dir=run_dir, state=state, schema=Path(original["schema"]),
         model=state["settings"]["roles"][route_role]["model"], allow_write=False, dry_run=False,
