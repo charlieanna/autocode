@@ -67,9 +67,9 @@ of", "rather than" or "not" right before the path withdraws that path; before
 the function, the function and its paths. The user's own `--edit-goal` is never
 refused by this check and settles which requested names stay; an edit of a
 design job's plan, which "Build it." archives when it plans the build afresh,
-settles nothing for the build. `TestMain` and `TestXxx` are never tests to write. Other
-frameworks, and bug fixes proven by their diagnosis's cases, keep the
-criterion-ID convention. The details and limits are in
+settles nothing for the build. `TestMain` and `TestXxx` are never tests to
+write. Other frameworks, and bug fixes proven by their diagnosis's cases, keep
+the criterion-ID convention. The details and limits are in
 `docs/bugs/2026-10-06-native-proof-names.md`.
 
 For Node, register each case as a real test, keeping its existing assertions
