@@ -12,8 +12,9 @@ import threading
 import time
 
 try:
-    from . import autocode_process as processes, autocode_util as util
+    from . import autocode_command_receipt as receipts, autocode_process as processes, autocode_util as util
 except ImportError:
+    import autocode_command_receipt as receipts
     import autocode_process as processes
     import autocode_util as util
 
@@ -127,6 +128,9 @@ def main(control, acknowledgement, external=None):
             with reason_lock:
                 snapshot = {**value, 'processes': [dict(row) for row in tree.inventory()],
                             'observed_at': util.now()}
+            # Never replace a readable receipt with bytes this process's reader rejects.
+            if not receipts.within_reader_limit(snapshot):
+                raise OSError("supervision receipt exceeds the reader limit")
             util.atomic_json(metadata['receipt'], snapshot)
     try:
         save()  # durable ownership is required before the provider can exec

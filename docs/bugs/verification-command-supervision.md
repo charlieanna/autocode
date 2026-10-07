@@ -17,8 +17,13 @@ keep their previous behavior; a partial or malformed new extension fails closed.
 
 Authenticated keeper cleanup and fresh native absence allow retirement of the
 command ownership hold. They do not recover a lost exit status or reconcile a
-scheduled pending obligation. Uncertain cleanup retains runner activity and the
-clean-replay pending launch.
+scheduled pending obligation. A stopped or uncertain receipt the reader can load,
+whose owner, keeper, provider and recorded processes are all confirmed gone, is
+retired on the next resume so the check runs again. That retirement is an audit
+event (`runner_check_retired`), not a passing result. An armed receipt, a live
+process, unreadable bytes or denied inspection keeps the hold. The keeper will
+not publish a receipt larger than the reader accepts (4 MiB, enough for the
+20,000-process inventory).
 Caught exceptions with confirmed cleanup still produce #414's failed attempt and
 allow a fresh retry. Result application publishes command ownership from the
 original controller state before exec; speculative result copies cannot erase
