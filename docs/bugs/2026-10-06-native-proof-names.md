@@ -74,6 +74,9 @@ a refusal the planner could not satisfy:
 - The user has not settled it. The user's own `--edit-goal` is never refused by
   this check, and a name their latest edit leaves unaccounted for is no longer
   required of the planners' later drafts (joint planning reviews an edit again).
+  When "Build it." follows a proposed design, the design job's contracts are
+  archived and the build is planned afresh (#614); an edit of the design plan
+  settles nothing for the build's tests.
 
 A requested name is accounted for when one `test:` or `guard:` criterion
 declares exactly that identifier, in the user's spelling (a subtest

@@ -430,6 +430,19 @@ class DraftValidationTests(unittest.TestCase):
         kept = self.state(goal_contract={"origin": "user_cli_edit", "body": plan(CORRECTED[:1] + CONVENTION[1:])})
         self.assertEqual(["TestFixedReturnsTwo"], native.requested(kept))
 
+    def test_an_edit_of_an_earlier_design_jobs_plan_settles_nothing_for_the_build(self):
+        # autocode_follow_up.plan_afresh archives the design job's contracts when "Build it." follows a proposed
+        # design; the user's edit of that design plan is not their word on the build's tests.
+        design_edit = {"origin": "user_cli_edit", "revision": 2, "hash": "abc", "body": plan(CONVENTION)}
+        state = self.state(contract_history=[design_edit], turns=[{"fresh_plan": {"contract": "r2:abc"}}])
+        self.assertEqual(NAMES, native.requested(state))
+        state["goal_contract"] = {"origin": "astra_finalize", "revision": 3, "hash": "def", "body": plan(CONVENTION)}
+        self.assertEqual(NAMES, native.requested(state))
+        build_edit = {"origin": "user_cli_edit", "revision": 4, "hash": "ghi", "body": plan(CONVENTION)}
+        state["contract_history"].append(state["goal_contract"])
+        state["goal_contract"] = build_edit
+        self.assertEqual([], native.requested(state))
+
     def presented(self, body, origin):
         state = self.state(task_id="task-1", version=3, status="RUNNING")
         lifecycle.migrate(state)

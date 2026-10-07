@@ -38,7 +38,8 @@ A name is requested (``requested``) when all of these hold:
   not code: it declares no test, so a name in it is still requested.
 - The user has not settled it otherwise. The user's own edit of the plan (``USER_EDIT``) is never refused
   here, and the names the latest such edit leaves unaccounted for are no longer requested of the
-  planners' later drafts.
+  planners' later drafts. An edit of a design job's plan, which a follow-up building that design archives,
+  settles nothing for the build.
 
 Nothing is requested in a design-only job, or when a reproduced bug's diagnosis drives the proof (its
 cases are named after their own ids, autocode_test_cases.diagnosis_cases).
@@ -65,10 +66,12 @@ import re
 
 try:
     from . import autocode_requirement_cues as cues, autocode_test_cases as test_cases, autocode_verify as verify
+    from . import autocode_contract_identity as identity
 except ImportError:
     import autocode_requirement_cues as cues
     import autocode_test_cases as test_cases
     import autocode_verify as verify
+    import autocode_contract_identity as identity
 
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 # A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).
@@ -360,9 +363,16 @@ def proof_framework(state) -> str | None:
 
 
 def _user_edit(state) -> dict | None:
-    """The body of the user's latest own edit of the plan, or None."""
+    """The body of the user's latest own edit of this job's plan, or None. A follow-up that builds a proposed
+    design plans afresh (autocode_follow_up.plan_afresh) and archives the design job's contracts; an edit of
+    those was not about this build's tests."""
     contracts = [*(state.get("contract_history") or []), state.get("goal_contract") or {}]
-    edits = [contract for contract in contracts if isinstance(contract, dict) and contract.get("origin") == USER_EDIT]
+    contracts = [contract for contract in contracts if isinstance(contract, dict)]
+    archived = {((turn.get("fresh_plan") or {}).get("contract")) for turn in state.get("turns") or []
+                if isinstance(turn, dict)} - {None}
+    ends = [index for index, contract in enumerate(contracts)
+            if contract.get("revision") is not None and contract.get("hash") and identity.token(contract) in archived]
+    edits = [contract for contract in contracts[max(ends, default=-1) + 1:] if contract.get("origin") == USER_EDIT]
     return edits[-1].get("body") if edits else None
 
 
