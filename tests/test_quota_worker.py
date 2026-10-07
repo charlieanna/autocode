@@ -430,6 +430,24 @@ class ParallelQuotaTests(unittest.TestCase):
         self.refusal_asked(state, "M1")
         self.assertEqual([GLM], self.attempts(self.workers(state)["M1"]))
 
+    def test_a_spent_recovery_allowance_still_advises_the_member_one_control(self):
+        # With the run's automatic-recovery allowance spent the request also offers --grant-recovery N. Its advice
+        # on corrective information still names the member's one control, the command needs.action names after it.
+        run, _ = self.paused(error=REFUSAL)
+        self.inform(run)
+        path = run / "state.json"
+        parent = json.loads(path.read_text())
+        parent["automatic_recoveries_since_resume"] = 3
+        path.write_text(json.dumps(parent))
+        self.launch(["--run-dir", str(run), "--resume-paused", "--retry-builder", "M1", "--no-chat"], 2)
+        state = self.saved()[1]
+        self.refusal_asked(state, "M1")
+        self.assertIn("--grant-recovery N", state["stop_reason"])
+        self.assertIn("--resume-paused --retry-builder M1 asks this question again", state["stop_reason"])
+        self.assertNotIn("then autocode resume", state["stop_reason"])
+        self.inform(run)
+        self.one_way_forward(self.saved()[1], "M1")
+
     def two_stopped_members(self, error, status):
         """M1 and M2 stop on their model; M1's answer moves the Builder route to MiMo before M2 is asked.
 

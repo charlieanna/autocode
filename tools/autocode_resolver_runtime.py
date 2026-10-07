@@ -432,9 +432,9 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     if allow_grant:
         decision += ' ' + recovery_limits.GRANT_ADVICE
         options.append('Authorize more recoveries with --grant-recovery N')
-    elif parallel:  # A batch member's stop is continued by its own control, never a plain resume (#541).
+    if parallel:  # After information a batch member's stop continues by its own control, never a plain resume (#541).
         decision += ' ' + member_stop.advice(parallel)
-    else:
+    elif not allow_grant:
         active = state.get('active_stage') or {}
         attempt = (f"{active['iteration']:03d}/{Path(active['output']).stem}"
                    if active.get('output') and isinstance(active.get('iteration'), int) else None)
