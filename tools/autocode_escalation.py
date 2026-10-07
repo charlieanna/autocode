@@ -1,50 +1,27 @@
-"""Durable, evidence-triggered model/reasoning escalation for workflow roles."""
+"""Durable, evidence-triggered model/reasoning escalation for workflow roles.
+
+The route tables and rung matching live in autocode_route_ladder (shared with
+the Builder's strong-retry policy); this module owns the state change: the
+guards, the one-rung advance, the session rotation and the escalation event.
+"""
 from __future__ import annotations
 
 import datetime as dt
 
+try:
+    from . import autocode_route_ladder as route_ladder
+except ImportError:
+    import autocode_route_ladder as route_ladder
 
-LADDERS = {
-    # Only the Resolver (astra) climbs GPT-6 Astra: it is too expensive for any other role
-    # (user 2026-09-28). A role whose model is on no ladder (the default GLM Builder, a GLM
-    # Validator or Completion Owner, the Plan Reviewer) keeps its route and never escalates;
-    # the Builder's stronger attempt comes from autocode_builder_policy instead.
-    "astra": (
-        ("openai/gpt-6-astra", "high", "GPT-6 Astra High"),
-        ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
-        ("openai/gpt-6-astra", "max", "GPT-6 Astra Max"),
-    ),
-    "terra": (
-        ("openai/gpt-6-sol", "medium", "GPT-6 Sol Medium"),
-        ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
-        ("openai/gpt-6-sol", "xhigh", "GPT-6 Sol XHigh"),
-        ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
-    ),
-    "sol": (
-        ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
-        ("openai/gpt-6-sol", "xhigh", "GPT-6 Sol XHigh"),
-        ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
-    ),
-    "completion": (
-        ("openai/gpt-6-sol", "medium", "GPT-6 Sol Medium"),
-        ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
-        ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
-    ),
-}
-
-
-def _normalized_model(model):
-    if not isinstance(model, str):
-        return model
-    return model if "/" in model else f"openai/{model}"
+# Historical name for the static effort tables; a new run persists its
+# serveability-filtered ladders under settings["route_ladders"] instead.
+LADDERS = route_ladder.EFFORT_LADDERS
 
 
 def rung(role, config):
     """Return the exact configured rung, or None for an explicit custom route."""
-    model = _normalized_model(config.get("model"))
-    effort = config.get("reasoning_effort")
-    return next((index for index, (candidate, reasoning, _label) in enumerate(LADDERS.get(role, ()))
-                 if candidate == model and reasoning == effort), None)
+    return route_ladder.rung_index(LADDERS.get(role, ()), config.get("model"),
+                                   config.get("reasoning_effort"))
 
 
 def profile(role, config):
@@ -73,16 +50,18 @@ def advance(state, role, *, trigger, detail="", struggle_id=None):
     if (not isinstance(config, dict) or config.get("model_pinned")
             or config.get("provider") not in (None, "openai")):
         return None
-    index = rung(role, config)
-    ladder = LADDERS.get(role, ())
-    if index is None or index + 1 >= len(ladder):
+    ladder = route_ladder.ladders(settings).get(role, ())
+    index = route_ladder.rung_index(ladder, config.get("model"), config.get("reasoning_effort"))
+    if index is None:
         return None
-    model, effort, label = ladder[index + 1]
+    rung = route_ladder.next_rung(ladder, config.get("model"), config.get("reasoning_effort"))
+    if rung is None:
+        return None
+    model, effort, label = rung
     previous = {"model": config.get("model"), "reasoning_effort": config.get("reasoning_effort"),
                 "profile": ladder[index][2]}
-    engine = config.get("engine", state.get("settings", {}).get("engine", "codex"))
-    config.update(model=model if engine == "opencode" else model.split("/", 1)[1],
-                  reasoning_effort=effort)
+    engine = config.get("engine", settings.get("engine", "codex"))
+    config.update(model=route_ladder.format_model(model, engine), reasoning_effort=effort)
     old_session = state.setdefault("sessions", {}).pop(role, None)
     event = {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "role": role,
              "trigger": trigger, "detail": str(detail), "previous": previous,

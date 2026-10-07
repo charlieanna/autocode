@@ -104,24 +104,42 @@ class ControllerFindingsTests(unittest.TestCase):
     def test_focused_resolver_preserves_complete_review_and_dispatches_subset(self):
         diagnosis, record = self.resolver_fixture()
         saved = copy.deepcopy(self.state["acceptance_criteria"])
-        diagnosis["acceptance_criteria"][0].update(status="verified", evidence="resolver claim")
+        saved_contract = copy.deepcopy(self.state["goal_contract"])
+        saved_blocking = copy.deepcopy(findings.blocking_entries(self.state))
+        diagnosis["acceptance_criteria"][0].update(criterion="Weaker requirement",
+                                                   verification_method="Glance at the output",
+                                                   human_review=True, status="verified",
+                                                   evidence="resolver claim")
         original = copy.deepcopy(diagnosis)
         runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
         self.assertEqual(saved, self.state["acceptance_criteria"])
+        self.assertEqual(saved, self.state["last_decision"]["report"]["acceptance_criteria"])
         self.assertEqual(original, diagnosis)
+        self.assertEqual(saved_contract, self.state["goal_contract"])
+        self.assertEqual(saved_contract["hash"], self.state["goal_contract"]["hash"])
+        self.assertEqual(saved_contract["revision"], self.state["goal_contract"]["revision"])
         self.assertEqual("terra", self.state["next_stage"])
         self.assertEqual(["C1"], self.state["current_task"]["acceptance_criteria"])
-        self.assertEqual(saved, self.state["last_decision"]["report"]["acceptance_criteria"])
         self.assertTrue(findings.blocking_entries(self.state))
         self.assertIn("repair_plan", self.state)
+        rows = findings.blocking_entries(self.state)
+        self.assertEqual(["Empty names are accepted"], [row["finding"] for row in rows])
+        row = rows[0]
+        saved_row = saved_blocking[0]
+        dispatch_fields = ("assigned_task", "assigned_history")
+        self.assertEqual({key: value for key, value in row.items() if key not in dispatch_fields},
+                         {key: value for key, value in saved_row.items() if key not in dispatch_fields})
+        self.assertEqual(self.state["current_task"]["id"], row["assigned_task"])
+        prior_history = saved_row.get("assigned_history", [])
+        self.assertEqual(prior_history, row["assigned_history"][:-1])
+        self.assertEqual(len(prior_history) + 1, len(row["assigned_history"]))
+        self.assertEqual(self.state["current_task"]["id"], row["assigned_history"][-1]["task_id"])
 
-    def test_resolver_cannot_redefine_add_or_duplicate_criteria(self):
+    def test_resolver_cannot_add_or_duplicate_criteria(self):
         diagnosis, record = self.resolver_fixture()
-        for change in ("rewrite", "unknown", "duplicate"):
+        for change in ("unknown", "duplicate"):
             value = copy.deepcopy(diagnosis)
-            if change == "rewrite":
-                value["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
-            elif change == "unknown":
+            if change == "unknown":
                 value["acceptance_criteria"][0]["id"] = "C999"
             else:
                 value["acceptance_criteria"] *= 2
@@ -129,6 +147,15 @@ class ControllerFindingsTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(support.Paused):
                 runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
             self.assertEqual(before, self.state)
+
+    def test_a_resolver_that_restates_a_criterion_keeps_the_approved_wording(self):
+        # Since #627 (issue 624) a restatement no longer rejects the report; it cannot redefine the criterion.
+        diagnosis, record = self.resolver_fixture()
+        approved = copy.deepcopy(self.state["acceptance_criteria"])
+        diagnosis["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
+        runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
+        self.assertEqual(approved, self.state["acceptance_criteria"])
+        self.assertEqual(approved, self.state["last_decision"]["report"]["acceptance_criteria"])
 
     def test_blocked_user_request_records_the_finding_before_pausing(self):
         decision = self.astra_decision("BLOCKED", "Missing authorization check", output="blocked.json")

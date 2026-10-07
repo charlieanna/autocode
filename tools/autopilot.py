@@ -17,6 +17,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
+    from . import autocode_route_ladder as route_ladder
     from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
     from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
     from . import autocode_planning_clarification as clarification
@@ -25,10 +26,12 @@ try:
     from . import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     from . import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_verification_plan as verification_plan
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
@@ -37,6 +40,7 @@ except ImportError:
     import autocode_escalation as escalation
     import autocode_findings as findings_ledger
     import autocode_builder_policy as builder_policy
+    import autocode_route_ladder as route_ladder
     import autocode_resolver_human as human
     import autocode_failures as failures, autocode_assignment as assignment, autocode_status
     import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
@@ -727,6 +731,12 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
     if stage == "astra_resolve":
         unit_module(stage).validate(state, value, record, workspace)
         value = unit_module(stage).preserve_review_criteria(state, value)
+    if stage in ("astra_review", "astra_resolve") and value.get("status") in ("CONTINUE", "REWORK"):
+        # The task its author writes now, before a REWORK is routed on (#185); an assigned task is not checked again.
+        # A report for another contract or task pauses first, as it does below, instead of going back for repair.
+        if state.get("version", 2) >= 3:
+            goals.execution_guard(state, value)
+        verification_plan.refuse_git_status(verification_plan.task_rows(value.get("next_task"), "next_task"))
     if stage == "astra_diagnose":
         # A bounded diagnosis+recommendation object, not a reviewer decision:
         # it carries no acceptance_criteria/status and must never reach the
@@ -912,6 +922,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                                    trigger="validation_rework",
                                    detail=f"{validation_verdict}: {value['next_objective']}",
                                    struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
+            elif validation_verdict == "PASS":
+                route_ladder.record_outcome(state, "passed")
             state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else
                          "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
             if stage == "astra_resolve":

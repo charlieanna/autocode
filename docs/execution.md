@@ -344,7 +344,12 @@ before a PASS is accepted, the runner requires its own current execution of each
 - **What is refused.** A check that runs `git status` is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)).
+  ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
+  that names `git status` is refused when its author hands it in: a criterion's
+  verification method, a task's validation plan or requirements, a progressive
+  slice's check, a user's `--edit-goal`. The Planner, Plan Reviewer, Completion
+  Reviewer or Resolver gets its report back for repair, with every such row named.
+  A contract approved before this rule is not checked again ([bug note](bugs/2026-10-07-plan-names-git-status.md)).
 - **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -778,7 +783,11 @@ work is not a stale handoff. The next Builder attempt is bound as at the packet'
 source when each file, checked one by one, holds either that source's content or
 what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
 other content, such as a person's new edit while the run is paused, still pauses as
-`PAUSED_STALE_HANDOFF`. Because the check is per file, a file restored to its
+`PAUSED_STALE_HANDOFF`. `--resume-paused --accept-source-edit` hands that edit to the
+pending repair: its source revision becomes the current snapshot, and the packet bound
+to the replaced source stays on disk but is no longer what admission compares. The
+approved contract, task, budget, proof and evidence pins stay, and the command refuses
+when those changed or when the Resolver wrote the source. Because the check is per file, a file restored to its
 bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
 a mix of the two states across files is admitted. That is safe: each file holds
 the packet's own source or AutoCode's own output, the assignment scope check still
