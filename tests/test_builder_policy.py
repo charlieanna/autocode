@@ -27,8 +27,80 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
         self.assertEqual('gpt-6-sol', state['settings']['roles']['terra']['model'])
         self.assertEqual('pause', policy.failure(state, 'e3', 'failure'))
+        self.assertIn('Execution failure:', state['stop_reason'])
+        self.assertIn('human decision or replanning required', state['stop_reason'])
         with self.assertRaises(policy.s.Paused): policy.guard(state)
         self.assertEqual(3, len(state['builder_retry_decisions']))
+
+    def test_nonexecution_classes_never_spend_or_mutate_the_builder_route(self):
+        for kind, action in (('plan', 'replan'), ('operational', 'recover'), ('unknown', 'investigate')):
+            with self.subTest(kind=kind):
+                state = self.state()
+                state['sessions'] = {'terra': 'retained-session'}
+                original = copy.deepcopy(state)
+                self.assertEqual(action, policy.failure(state, 'e1', 'observed failure', classification=kind))
+                self.assertEqual(action, policy.failure(state, 'e2', 'observed failure', classification=kind))
+                self.assertEqual(original['settings'], state['settings'])
+                self.assertEqual(original['sessions'], state['sessions'])
+                self.assertNotIn('builder_retries', state)
+                self.assertEqual([kind, kind], [row['failure_class'] for row in state['builder_retry_decisions']])
+                state = json.loads(json.dumps(state))
+                self.assertEqual(action, policy.failure(state, 'e1', 'observed failure', classification=kind))
+                self.assertEqual(2, len(state['builder_retry_decisions']))
+
+    def test_classification_observations_do_not_reset_or_exhaust_execution_allowance(self):
+        state = self.state()
+        self.assertEqual('investigate', policy.failure(state, 'e1', 'ambiguous', classification='unknown'))
+        self.assertEqual('retry', policy.failure(state, 'e1', 'verified code failure', classification='execution'))
+        self.assertEqual('recover', policy.failure(state, 'e2', 'permission denied', classification='operational'))
+        self.assertEqual('gpt-6-luna', state['settings']['roles']['terra']['model'])
+        self.assertEqual('escalate', policy.failure(state, 'e3', 'verified code failure', classification='execution'))
+        self.assertEqual(['e1', 'e3'], policy.lane(state)['failures'])
+        state = json.loads(json.dumps(state))
+        self.assertEqual('escalate', policy.failure(state, 'e3', 'verified code failure', classification='execution'))
+        self.assertEqual(4, len(state['builder_retry_decisions']))
+
+    def test_operational_classification_cannot_clear_existing_exhaustion(self):
+        state = self.state()
+        for evidence in ('e1', 'e2', 'e3'):
+            policy.failure(state, evidence, 'execution failure')
+        original = copy.deepcopy(state['builder_retries'])
+        self.assertEqual('recover', policy.failure(state, 'e4', 'cleanup uncertain', classification='operational'))
+        self.assertEqual(original, state['builder_retries'])
+        with self.assertRaises(policy.s.Paused):
+            policy.guard(state)
+
+    def test_execution_replay_observes_current_gate_without_charging_again(self):
+        state = self.state()
+        self.assertEqual('retry', policy.failure(state, 'e1', 'code failure'))
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'code failure'))
+        state = json.loads(json.dumps(state))
+        self.assertEqual('escalate', policy.failure(state, 'e1', 'code failure'))
+        self.assertEqual(2, len(state['builder_retry_decisions']))
+        self.assertEqual('pause', policy.failure(state, 'e3', 'code failure'))
+        self.assertEqual('pause', policy.failure(state, 'e1', 'code failure'))
+        self.assertEqual(['e1', 'e2', 'e3'], policy.lane(state)['failures'])
+        self.assertEqual(3, len(state['builder_retry_decisions']))
+
+    def test_replayed_uncertainty_cannot_restore_any_execution_allowance(self):
+        state = self.state()
+        policy.failure(state, 'e1', 'ambiguous', classification='unknown')
+        policy.failure(state, 'e1', 'verified code failure', classification='execution')
+        policy.failure(state, 'e2', 'verified code failure', classification='execution')
+        policy.failure(state, 'e3', 'verified code failure', classification='execution')
+        state = json.loads(json.dumps(state))
+        original = copy.deepcopy(state)
+        self.assertEqual('investigate', policy.failure(state, 'e1', 'ambiguous', classification='unknown'))
+        self.assertEqual(original, state)
+        with self.assertRaises(policy.s.Paused):
+            policy.guard(state)
+
+    def test_unknown_class_name_cannot_mutate_authority(self):
+        state = self.state()
+        original = copy.deepcopy(state)
+        with self.assertRaises(ValueError):
+            policy.failure(state, 'e1', 'failure', classification='escalate')
+        self.assertEqual(original, state)
 
     def test_pins_and_custom_providers_are_not_overridden(self):
         for engine in ('codex', 'opencode'):

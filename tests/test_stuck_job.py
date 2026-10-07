@@ -2,12 +2,18 @@
 import copy
 import tempfile
 import unittest
+import subprocess
+import shlex
+import sys
+from unittest.mock import patch
 from pathlib import Path
 
 import autocode_jobs as jobs
 import autocode_stuck_job as stuck
 import autopilot
 from units import autoresolver, common
+import autocode_builder_failure as builder_failure
+import autocode_util as util
 
 
 class Paused(Exception):
@@ -94,6 +100,166 @@ class InterceptTests(unittest.TestCase):
             self.assertTrue(stuck.intercept(state, "PAUSED_INVALID_OUTPUT", "x"))
         state["next_stage"] = "astra_challenge"
         self.assertFalse(stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "x"), "three per run by default")
+
+
+class BuilderFailureClassificationTests(unittest.TestCase):
+    def fixture(self, root):
+        workspace = Path(root) / 'workspace'
+        workspace.mkdir()
+        output = Path(root) / 'builder.json'
+        output.write_text('{}\n')
+        state = state_for(str(workspace), current_task={'id': 'T1'},
+                          goal_contract={'hash': 'C1', 'revision': 1},
+                          builder_retries={'existing': {'failures': ['earlier']}}, no_progress_batches=2)
+        snapshot = patch('autocode_builder_failure.source_scope.snapshot', return_value={'revision': 'source-1'})
+        snapshot.start()
+        self.addCleanup(snapshot.stop)
+        record = {'output': str(output), 'source_revision': 'source-1'}
+        return state, builder_failure.evidence(state, record)
+
+    def test_pre_escalation_report_is_mode_specific_and_bound_to_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            self.assertTrue(builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3))
+            request = autoresolver.prepare_stuck(state, Path(root) / 'state.json')
+            self.assertFalse(request.allow_write)
+            self.assertIn('failure_class', request.schema['required'])
+            self.assertNotIn('failure_class', stuck.SCHEMA['properties'])
+            value = report(failure_class='execution', failure_id=evidence['failure_id'],
+                           evidence_refs=evidence['evidence_refs'])
+            result = stuck.apply(state, value, {'output': str(Path(root) / 'diagnosis.json')}, state['workspace'])
+            self.assertEqual(evidence['failure_id'], result['diagnosis']['failure_id'])
+            self.assertEqual(2, state['no_progress_batches'])
+            self.assertEqual(['earlier'], state['builder_retries']['existing']['failures'])
+            self.assertNotIn('in_force', state.get('stuck_investigation', {}))
+            self.assertFalse(builder_failure.queue(state, evidence, 'Same failure', enabled=True, max_calls=3))
+
+    def test_stale_identity_and_uncited_evidence_cannot_grant_continuation(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            for failure_id, refs in [('other', evidence['evidence_refs']), (evidence['failure_id'], ['other'])]:
+                with self.assertRaises(ValueError):
+                    stuck.apply(state, report(failure_class='execution', failure_id=failure_id, evidence_refs=refs),
+                                {}, state['workspace'])
+            Path(evidence['record']['output']).write_text('{"changed": true}\n')
+            with self.assertRaises(util.Paused):
+                autoresolver.prepare_stuck(state, Path(root) / 'state.json')
+
+    def test_existing_call_limit_refuses_a_new_failure_without_resetting_any_lane(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            self.assertFalse(builder_failure.queue(state, evidence, 'Unknown', enabled=True, max_calls=0))
+            self.assertEqual('PAUSED_BUILDER_CLASSIFICATION', state['status'])
+            self.assertEqual(['earlier'], state['builder_retries']['existing']['failures'])
+
+    def test_typed_operational_cause_retains_its_pause_without_retry_or_reassignment(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            evidence['error_class'] = 'PAUSED_PROVIDER_TIMEOUT'
+            evidence['diagnosis'] = {'failure_id': evidence['failure_id'], 'failure_class': 'execution',
+                                     'evidence_refs': evidence['evidence_refs']}
+            before = copy.deepcopy(state['settings']['roles'])
+            reassess = []
+            action = builder_failure.route(state, evidence, 'Provider timed out', enabled=True, max_calls=3,
+                                           reassess=lambda *args: reassess.append(args))
+            self.assertEqual('recover', action)
+            self.assertEqual('PAUSED_PROVIDER_TIMEOUT', state['status'])
+            self.assertEqual(before, state['settings']['roles'])
+            self.assertEqual([], reassess)
+            self.assertNotIn('stuck_investigation', state)
+            self.assertEqual(['earlier'], state['builder_retries']['existing']['failures'])
+
+    def test_valid_execution_diagnosis_needing_user_is_an_operator_hold_not_a_retry(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            value = report('pause', failure_class='execution', failure_id=evidence['failure_id'],
+                           evidence_refs=evidence['evidence_refs'], example='The assigned approach needs a scope decision',
+                           untestable='Only the operator can approve the requested scope', user_question='May this change scope?')
+            result = stuck.apply(state, value, {'output': str(Path(root) / 'diagnosis.json')}, state['workspace'])
+            self.assertIsNone(result)
+            self.assertEqual('PAUSED_BUILDER_CLASSIFICATION', state['status'])
+            self.assertIn('May this change scope?', state['stop_reason'])
+            self.assertEqual(['earlier'], state['builder_retries']['existing']['failures'])
+
+    def test_reconstructing_evidence_through_a_file_alias_cannot_create_a_new_incident(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            alias = Path(root) / 'alias.json'
+            alias.symlink_to(evidence['record']['output'])
+            rebuilt = builder_failure.evidence(state, {**evidence['record'], 'output': str(alias)})
+            self.assertEqual(evidence['failure_id'], rebuilt['failure_id'])
+            self.assertEqual(evidence['evidence_refs'], rebuilt['evidence_refs'])
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            self.assertFalse(builder_failure.queue(state, rebuilt, 'Alias replay', enabled=True, max_calls=3))
+
+    def test_accepting_current_completed_attempt_defers_admission_until_normal_save(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            completed = {**evidence['record'], 'stage': 'terra', 'exit_code': 0}
+            state['active_stage'] = completed
+            self.assertFalse(builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3,
+                                                   completed_record=completed))
+            self.assertNotIn('stuck_investigations', state)
+            self.assertIs(completed, state['active_stage'])
+            with self.assertRaises(util.Paused):
+                builder_failure.finalize(state, completed, enabled=True, max_calls=3)
+
+    def test_foreign_active_attempt_and_uncertain_ownership_cannot_defer_or_spend_a_call(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            for extra in ({'active_stage': {'output': 'foreign.json', 'stage': 'terra', 'exit_code': 0}},
+                          {'active_stage': evidence['record'], 'uncertain_artifacts': ['uncollected']}):
+                held = {**copy.deepcopy(state), **extra}
+                self.assertFalse(builder_failure.queue(held, evidence, 'Empty diff', enabled=True, max_calls=3,
+                                                       completed_record={**evidence['record'], 'stage': 'terra', 'exit_code': 0}))
+                self.assertNotIn('pending_builder_failure', held)
+                self.assertNotIn('stuck_investigations', held)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'native read-only classification probe sandbox')
+    def test_classification_probe_cannot_overwrite_read_and_restore_cited_evidence(self):
+        with tempfile.TemporaryDirectory() as root:
+            cited = Path(root) / 'builder.json'
+            cited.write_text('original')
+            scripts = ("from pathlib import Path; assert Path('builder.json').read_text() == 'original'",
+                       "from pathlib import Path; p=Path('builder.json'); old=p.read_text(); "
+                       "p.write_text('invented'); assert p.read_text() == 'invented'; p.write_text(old)")
+            for index, script in enumerate(scripts):
+                command = builder_failure.readonly_probe(shlex.join([sys.executable, '-c', script]))
+                receipt = subprocess.run(command, shell=True, cwd=root, capture_output=True, text=True, timeout=10)
+                self.assertEqual(index == 0, receipt.returncode == 0, receipt.stderr)
+                self.assertEqual('original', cited.read_text())
+
+    def test_probe_without_enforceable_read_only_boundary_fails_closed(self):
+        with patch.object(builder_failure.sys, 'platform', 'unsupported'):
+            with self.assertRaisesRegex(ValueError, 'containment is unavailable'):
+                builder_failure.readonly_probe('true')
+
+    def test_unchanged_held_binding_refuses_writer_and_diagnostician_without_renewing_authority(self):
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            builder_failure.hold(state, evidence, 'PAUSED_BUILDER_CLASSIFICATION', 'May this change scope?')
+            before = copy.deepcopy(state['builder_retries'])
+            for stage in ('terra', 'orchestrator', 'astra_resolve', 'investigate_stuck'):
+                with self.assertRaisesRegex(util.Paused, 'May this change scope'):
+                    builder_failure.dispatch_guard(state, stage, state['workspace'])
+            self.assertEqual(before, state['builder_retries'])
+            self.assertIn('builder_failure_hold', state)
+            state['current_task'] = {**state['current_task'], 'id': 'genuinely-new-assignment'}
+            builder_failure.dispatch_guard(state, 'terra', state['workspace'])
+            self.assertNotIn('builder_failure_hold', state)
+            self.assertEqual(before, state['builder_retries'])
+
+    def test_check_classification_uses_executed_facts_not_model_authored_operational_labels(self):
+        checks = [{'command': 'check', 'exit_code': 1, 'evidence_ref': 'event:C1', 'timed_out': True}]
+        event = {'type': 'item.completed', 'item': {'id': 'C1', 'type': 'command_execution', 'exit_code': 1}}
+        facts = builder_failure.check_facts(checks, {'events': 'executed.jsonl'}, '.', read_events=lambda _: [event])
+        self.assertNotIn('timed_out', facts[0])
+        event['item']['timed_out'] = True
+        facts = builder_failure.check_facts([{key: value for key, value in checks[0].items() if key != 'timed_out'}],
+                                           {'events': 'executed.jsonl'}, '.', read_events=lambda _: [event])
+        self.assertTrue(facts[0]['timed_out'])
 
 
 class ApplyTests(unittest.TestCase):
