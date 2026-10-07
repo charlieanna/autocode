@@ -421,6 +421,41 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(1, broken["checks"]["regression_on_candidate"]["exit_code"])
         self.assertFalse(regression.complete(state, broken["source_revision"]))
 
+    @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
+    def test_env_pytest_proof_preserves_bootstrap_and_collection_config(self):
+        python = self.proof_python(pytest=True)
+        project = self.project({"app.py": "VALUE = 1\n", "pytest.ini": "[pytest]\nminversion = 999\n",
+                                "tests/test_existing.py": "def test_existing():\n    assert 2 + 2 == 4\n"})
+        support = Path(project.temp.name) / 'support with spaces'
+        support.mkdir()
+        (support / 'bootstrap.py').write_text(
+            "import os\nimport pytest\n"
+            "@pytest.fixture\ndef bootstrapped():\n    return os.environ['PROOF_MODE']\n")
+        project.write({"app.py": "VALUE = 2\n", "tests/test_fix.py":
+                       "from app import VALUE\ndef test_t1_fix(bootstrapped):\n"
+                       "    assert bootstrapped == 'ready'\n    assert VALUE == 2\n"})
+        suite = shlex.join(['env', f'PYTHONPATH={support}', 'PROOF_MODE=ready',
+                            'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1', python, '-m', 'pytest', '-q',
+                            '-o', 'minversion=', '-p', 'bootstrap', '-p', 'no:cacheprovider', 'tests/'])
+        state = {"goal_contract": {"body": {"task_kind": "bugfix"}}, "base_commit": project.base,
+                 "settings": {"regression": {"test_command": suite, "test_timeout": 30,
+                                              "python": "/missing/detected-python"}}}
+        identity = verify.execution_identity(project.root, command=suite)
+        self.assertEqual(str(Path(python).resolve()), identity['interpreter']['path'])
+        self.assertFalse(identity['reuse_supported'])
+        changed_env = verify.execution_identity(project.root, command=suite.replace('PROOF_MODE=ready', 'PROOF_MODE=other'))
+        self.assertNotEqual(identity['environment_hash'], changed_env['environment_hash'])
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.PASS, proof['verdict'], proof)
+        self.assertEqual(python, proof['framework']['python'])
+        self.assertEqual(['tests.test_fix::test_t1_fix'], proof['fail_to_pass'])
+        self.assertEqual(1, proof['checks']['regression_on_base']['exit_code'])
+        self.assertEqual(0, proof['checks']['regression_on_candidate']['exit_code'])
+        project.write({'app.py': 'VALUE = 1  # still broken\n'})
+        broken = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.FAIL, broken['verdict'], broken)
+        self.assertFalse(regression.complete(state, broken['source_revision']))
+
     def test_proof_framework_detection_survives_absent_or_unknown_explicit_command(self):
         import autocode_regression as regression
 
@@ -1094,15 +1129,16 @@ class VerifyCase(unittest.TestCase):
                 self.assertTrue(schedule.complete_results(result), result)
                 self.assertEqual(health, verify.suite_health(result))
         # Fixtures never stand in for tests: zero tests, or a missing test line, stays incomplete.
-        zero = {"module skip": ("def setUpModule():\n    raise unittest.SkipTest('no')\n" + classes, 0,
+        zero = {"module skip": ("def setUpModule():\n    raise unittest.SkipTest('no')\n" + classes, (0,),
                                 "Test command reported zero tests or incomplete per-test results"),
-                "only a setUpClass error": (cases["setUpClass error"][0], 1, "")}
-        for name, (source, exit_code, error) in zero.items():
+                # Newer Python releases use NO_TESTS (5) even when a class fixture failed.
+                "only a setUpClass error": (cases["setUpClass error"][0], (1, 5), "")}
+        for name, (source, exit_codes, error) in zero.items():
             with self.subTest(name):
                 project.write({"test_x.py": "import unittest\n" + source})
                 result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"), command=command)
-                self.assertEqual((exit_code, error, 0), (result["exit_code"], result["error"],
-                                                         result["results"]["total"]), result)
+                self.assertIn(result["exit_code"], exit_codes, result)
+                self.assertEqual((error, 0), (result["error"], result["results"]["total"]), result)
                 self.assertFalse(schedule.complete_results(result))
                 self.assertEqual("broken", verify.suite_health(result))
         log = project.evidence / "truncated.log"
