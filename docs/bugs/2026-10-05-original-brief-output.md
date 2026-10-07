@@ -39,7 +39,9 @@ declared successful invocations and finite literal alternatives. Every printed
 line must have the declared format, and one line must be exactly the bound
 observed item. Opaque IDs remain opaque. A TEXT placeholder must match an input
 that the observation's steps actually supplied. One optional LF/CRLF printing
-terminator is allowed. The check does not prove that every item is listed.
+terminator is allowed. The check does not prove that every item is listed,
+listed once, or that a removed item is gone; only the bound item's ID is
+checked.
 Other API shapes, negative exits, no-write-on-failure, durability and
 concurrency claims still need separate verification. Supported briefs require
 an independent planning review; a legacy single-stage plan cannot supply that

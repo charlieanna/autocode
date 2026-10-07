@@ -80,6 +80,13 @@ class BriefObligationsTests(unittest.TestCase):
                 'steps': [{'argv': ['add', probe]}, {'argv': ['list']}], 'observe_step': 1,
                 'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}]}
 
+    def launcher_proposal(self, declaration, *, criterion='C1', probe='brief-probe'):
+        # The 2026-10-07 live Plan Reviewers submitted full command lines as argv.
+        return {'declaration_id': declaration['id'], 'criterion_ids': [criterion],
+                'steps': [{'argv': ['python3', 'todo.py', 'add', probe]},
+                          {'argv': ['python3', 'todo.py', 'list']}], 'observe_step': 1,
+                'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 3}]}
+
     def reviewer_record(self, state, report, *, stage='astra_finalize'):
         """Persist the raw fixture report first; policy derives every evidence hash itself."""
         self.record_count += 1
@@ -137,6 +144,19 @@ class BriefObligationsTests(unittest.TestCase):
         self.assertEqual('task:0', declaration['source_id'])
         self.assertEqual('ID TEXT [open|done]', declaration['literal'])
         self.assertEqual(TASK[slice(*declaration['span'])], declaration['quote'])
+
+    def test_launcher_prefixed_reviewer_proposal_seals_and_stays_resolvable(self):
+        # Provenance hashes the sealed argv form, so the raw reviewer output and the
+        # stored proposal must normalize the same way or approval refuses the contract.
+        state = self.state()
+        declaration = brief.inventory(state)[0]
+        reviewed, record = self.reviewed(state, proposals=[self.launcher_proposal(declaration)])
+        sealed = reviewed['brief_acceptance']['manifest']['observations'][0]['proposal']
+        self.assertEqual([{'argv': ['add', 'brief-probe']}, {'argv': ['list']}], sealed['steps'])
+        self.assertEqual([{'placeholder': 'TEXT', 'step': 0, 'argument': 1}], sealed['bindings'])
+        brief.validate_body(state, reviewed, ready=True)
+        again = brief.prepare_body(state, reviewed, origin=record['stage'], record=record)
+        self.assertEqual(reviewed, again)
         unrelated = self.state(task='Build a useful CLI')
         draft = self.contract_body()
         self.assertEqual(draft, brief.reviewed_body(unrelated, draft, [], {}))
