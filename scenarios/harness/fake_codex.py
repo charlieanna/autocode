@@ -1065,6 +1065,17 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "investigate_bug":
         return investigate()
     task = data.get("current_task") or {}
+    if (stage in ("sol", "astra_checkpoint", "astra_review")
+            and os.environ.get("SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE")):
+        artifacts = data.get("runner_artifacts") or []
+        note_path = "docs/bugs/scripted-diagnosis.json"
+        note = Path(data["workspace"]) / note_path
+        if (len(artifacts) != 1 or artifacts[0].get("path") != note_path
+                or artifacts[0].get("kind") != "runner_written_diagnosis"
+                or artifacts[0].get("sha256") != hashlib.sha256(note.read_bytes()).hexdigest()
+                or note_path in task.get("affected_paths", [])
+                or note_path not in (data.get("regression_proof") or {}).get("source_files", [])):
+            raise SystemExit("Scripted reviewer: diagnosis ownership is not authenticated or raw proof was hidden")
     common = {
         **report_identity(data), "deferred_backlog": [],
         "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
