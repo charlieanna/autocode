@@ -226,6 +226,9 @@ This PR should reference #451, not close it.
   API and a durability word is still an unsupported declaration, as before this
   branch; a renamed argument is not. Any other `Name(path)` call between the
   constructor and its methods (`Logger(path)`) still takes them, as on master.
-- **Live work.** Live qualification of the proof (#524) is owed. Diagnosis
+- **Live work.** Live qualification of the proof (#524) is owed. The Completion
+  Reviewer's prompt does not mention runner findings yet: a live reviewer learns
+  of one from `open_findings` and from the completion refusal, which asks for
+  REWORK. A live run should show whether that is enough. Diagnosis
   quality cannot be measured by fake runs, because the fake Investigator cannot
   diagnose; it stays live-only work in #59.
