@@ -35,8 +35,13 @@ except ImportError:
     from autocode_oracle_process import run as run_oracle
 
 
-def git(repo: Path, *args: str) -> str:
-    proc = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, timeout=60)
+# Archiving or staging a large upstream tree is bounded separately from metadata
+# queries. TypeScript's 61,000-file tree exceeded the metadata deadline (#619).
+BULK_GIT_TIMEOUT = 600
+
+
+def git(repo: Path, *args: str, timeout: int = 60) -> str:
+    proc = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True, timeout=timeout)
     if proc.returncode:
         raise ArenaError(proc.stderr.strip())
     return proc.stdout.strip()
@@ -45,16 +50,16 @@ def git(repo: Path, *args: str) -> str:
 def checkout(repo: Path, commit: str, workspace: Path) -> None:
     """Archive only the frozen tree, without later commits, remotes or hooks."""
     data = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", commit],
-                          capture_output=True, check=True, timeout=60).stdout
+                          capture_output=True, check=True, timeout=BULK_GIT_TIMEOUT).stdout
     workspace.mkdir(parents=True)
     if git(repo, "ls-tree", "-r", "--name-only", commit):
         with tarfile.open(fileobj=io.BytesIO(data)) as archive:
             # Reject links outside the tree and special files even on Python 3.11.
             archive.extractall(workspace, filter="data")
     git(workspace, "init", "-q")
-    git(workspace, "add", ".")
+    git(workspace, "add", ".", timeout=BULK_GIT_TIMEOUT)
     git(workspace, "-c", "user.name=AutoCode Arena", "-c", "user.email=arena@example.invalid",
-        "commit", "-q", "--allow-empty", "-m", f"Frozen benchmark {commit}")
+        "commit", "-q", "--allow-empty", "-m", f"Frozen benchmark {commit}", timeout=BULK_GIT_TIMEOUT)
 
 
 def snapshot(workspace: Path) -> str:
@@ -209,8 +214,8 @@ def attempt(args, store: Store):
             raise ArenaError("runner completion is not currently accepted by its public status view")
         # Include newly created files in the retained patch; bookkeeping is excluded.
         excludes = (":(exclude).autocode", ":(exclude).venv", ":(exclude)**/__pycache__/**")
-        git(workspace, "add", "-N", "--", ".", *excludes)
-        patch = git(workspace, "diff", "--binary", "HEAD", "--", ".", *excludes)
+        git(workspace, "add", "-N", "--", ".", *excludes, timeout=BULK_GIT_TIMEOUT)
+        patch = git(workspace, "diff", "--binary", "HEAD", "--", ".", *excludes, timeout=BULK_GIT_TIMEOUT)
         patch_path = directory / "candidate.patch"
         patch_path.write_text(patch + "\n" if patch else "")
         row.update(patch_path=str(patch_path), patch_sha256=digest(patch_path.read_bytes()))
