@@ -639,6 +639,39 @@ class RecoveryPacketTests(unittest.TestCase):
                     recovery.admit_dispatch(state, {"stage": "terra", "output": str(self.run / "again.json")},
                                             self.root, self.run)
 
+    def test_a_repair_may_keep_a_criterion_the_reviewed_decision_assigned(self):
+        # Live run 1y_2l0cv (#185): an earlier repair kept 6 of M1's 11 criteria; the Completion Reviewer's
+        # REWORK named a dropped one again, as its prompt allows, and the Resolver's repair that followed
+        # it paused as a stale handoff. Here the failed task owns C1 and C2 of M1 (C1-C3).
+        cases = {"the decision's criteria": (["C2", "C3"], "M1", ["C2", "C3"], None),
+                 "one the decision did not name": (["C2"], "M1", ["C2", "C3"], "changed before admission"),
+                 "the decision is another milestone's": (["C2", "C3"], "M2", ["C2", "C3"], "changed before admission"),
+                 "outside the milestone": (["C2", "C4"], "M1", ["C2", "C4"], "changed before admission")}
+        for name, (decided, milestone, repair, refused) in cases.items():
+            with self.subTest(name):
+                state = copy.deepcopy(self.state)
+                body = state["goal_contract"]["body"]
+                body["acceptance_criteria"] += [{"id": cid, "criterion": f"Criterion {cid}"} for cid in ("C2", "C3", "C4")]
+                body["milestones"] = [{"id": "M1", "acceptance_criteria": ["C1", "C2", "C3"]},
+                                      {"id": "M2", "acceptance_criteria": ["C4"]}]
+                state["current_task"]["acceptance_criteria"] = ["C1", "C2"]
+                state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
+                record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+                recovery.prepare_resolution(state, {"status": "REWORK", "summary": "Open question missing", "next_task": {
+                    "milestone_id": milestone, "acceptance_criteria": decided}}, record)
+                state["current_task"].update(id="T2", acceptance_criteria=repair)
+                plan = {"tasks": [copy.deepcopy(state["current_task"])]}
+                recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+                state.update(repair_plan=plan, next_stage="terra")
+                attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+                if refused:
+                    with self.assertRaisesRegex(util.Paused, refused) as caught:
+                        recovery.admit_dispatch(state, attempt, self.root, self.run)
+                    self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+                    continue
+                recovery.admit_dispatch(state, attempt, self.root, self.run)
+                self.assertEqual("repair", attempt["recovery_novelty"]["action"])
+
     def test_execution_timeout_model_and_permission_changes_still_invalidate_binding(self):
         for settings in ({"limits": {"stage_timeout_seconds": 0}}, {"allow_no_changes": True},
                          {"transport_identities": {"opencode": {"base_url": "different-endpoint"}}},
