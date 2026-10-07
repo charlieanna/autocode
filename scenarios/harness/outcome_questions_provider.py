@@ -93,8 +93,8 @@ RECOMMENDATIONS = [
     {"text": "Recommendation, not a user decision: deliver alerts to Slack through AWS Chatbot.",
      "basis": "agent_proposed", "answer_id": ""},
 ]
-NO_DEPLOYMENT = ("No deployment: no AWS or Slack calls and no infrastructure created or changed; approving this "
-                 "plan authorizes only writing the design document")
+NO_DEPLOYMENT = ("Approving this plan deploys nothing: no AWS or Slack calls and no infrastructure created or "
+                 "changed; it authorizes only writing the design document")
 
 
 def answered(data) -> set:
@@ -146,7 +146,7 @@ def report_for(stage: str, data: dict, prompt: str, report: dict) -> dict:
     if PLANNER_HEADING in prompt:
         body["technical_approach"] = list(RECOMMENDED_APPROACH)
         body["accepted_assumptions"] = [*copy.deepcopy(RECOMMENDATIONS), *users]
-        body["permission_boundaries"] = [*body.get("permission_boundaries", []), NO_DEPLOYMENT]
+        body["constraints"] = [*body.get("constraints", []), NO_DEPLOYMENT]
     else:
         # Without the rule the re-asked mechanism stands as the person's decision, and nothing says that the
         # plan deploys nothing.

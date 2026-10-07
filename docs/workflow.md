@@ -274,8 +274,8 @@ or a guarantee that holds through an outage. A guarantee the design cannot suppo
 blocking question until you accept a weaker one. The Planner recommends the mechanisms, naming
 the options and their tradeoffs, and records its choice as an `agent_proposed` assumption: a
 recommendation is never your decision and never permission to deploy, and approving a plan or
-a design document authorizes no deployment and no call to an outside service. The Plan Reviewer
-checks both. The rules are in `tools/autocode_outcome_questions.py`; the Builder, Tester and
+a design document authorizes no deployment and no call to an outside service (the plan's
+constraints say so whenever it names outside systems). The Plan Reviewer checks both. The rules are in `tools/autocode_outcome_questions.py`; the Builder, Tester and
 completion stages do not get them. The `design-alerting-outcomes` scenario covers them.
 
 Whenever planning stops for your answers, the displayed brief starts with a **Plan Preview**
