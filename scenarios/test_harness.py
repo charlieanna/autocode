@@ -1896,6 +1896,19 @@ class TurnTests(unittest.TestCase):
             self.assertFalse(missing.ok, "a public callable the design names must still exist")
             self.assertIn("missing from app/: ['evict']", missing.detail)
 
+    def test_a_formula_in_the_design_does_not_bind_the_build(self):
+        """A live design bounded fetches with `ceil(3600 / TTL_seconds) × N <= 60`; its build computed it
+        without importing math, and build_follows_design failed on `ceil`."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            design.write_text(design.read_text().replace(
+                "## Rejected", "Attempts per hour stay at most `ceil(3600 / ttl_seconds)` per key.\n\n## Rejected"))
+            follows = next(check for check in scenario.oracle()(project, scenario) if check.name == "build_follows_design")
+            self.assertTrue(follows.ok, follows.detail)
+
     def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
         """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
         memo when it is missing, and the hidden tests failed it for not creating the directory."""

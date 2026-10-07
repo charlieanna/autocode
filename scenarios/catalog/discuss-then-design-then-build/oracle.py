@@ -12,6 +12,7 @@ underscore is a private helper, which the build may split or name differently.
 import ast
 import builtins
 import importlib
+import math
 import re
 import sys
 
@@ -112,8 +113,10 @@ def named_interface(text):
 
 def definitions(project):
     """Names the code can call (app/ definitions, builtins, its standard-library imports), and the
-    positional parameters of each app/ function or class (its __init__), self and cls left out."""
-    names, params = set(dir(builtins)), {}
+    positional parameters of each app/ function or class (its __init__), self and cls left out.
+    The math module's names count too: a design's formula (`ceil(3600 / TTL_seconds)`) is
+    arithmetic, not interface, and a live build that computed it another way failed on it."""
+    names, params = set(dir(builtins)) | set(dir(math)), {}
     for path in (project / "app").rglob("*.py") if (project / "app").is_dir() else []:
         try:
             tree = ast.parse(path.read_text())
