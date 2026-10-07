@@ -247,6 +247,13 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
             result["acceptance_criteria"][0]["evidence"] = ""
         result["next_task"].update(kind="validate", milestone_id="M1", requirements=["Obtain human acceptance"],
             acceptance_criteria=["C1"], validation_plan=["Ask the user to accept the current artifact"])
+    redundant = os.environ.get('AUTOCODE_FIXTURE_REDUNDANT_COMPLETION')
+    if stage == 'astra_review' and complete and redundant and (
+            redundant == 'always' or not data.get('checkpoint_reason')):
+        result.update(status='CONTINUE', next_objective='Re-run the already passing validation')
+        result['next_task'].update(kind='validate', milestone_id='M1',
+            requirements=['Validate the greeting CLI'], acceptance_criteria=['C1'],
+            validation_plan=['Run greet.py with Ada and an empty name'])
     if stage == 'astra_resolve':
         result['diagnosis'] = 'Empty names are accepted by the CLI; add input validation and retest both cases.'
     if stage == 'astra_review' and rework and os.environ.get('AUTOCODE_FIXTURE_INCOMPLETE_REWORK'):

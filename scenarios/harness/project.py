@@ -43,4 +43,4 @@ def materialize(seed: Path, project: Path, *overlays: Path) -> Path:
 
 def overlay_paths(overlay: Path) -> list[str]:
     return sorted(str(path.relative_to(overlay)) for path in overlay.rglob("*")
-                  if path.is_file() and "__pycache__" not in path.parts)
+                  if path.is_file() and "__pycache__" not in path.parts and ".fake-turns" not in path.parts)

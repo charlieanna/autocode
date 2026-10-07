@@ -135,7 +135,11 @@ class NoProgressBoundTests(unittest.TestCase):
         held, request = self.hold()
         answered = self.inform(request)
         self.assertEqual('PAUSED_NO_PROGRESS', answered['status'])
-        # Information alone is not an allowance: a plain resume holds and writes nothing.
+        # Information alone is not an allowance: AutoResolver re-evaluates it once (#486) and holds,
+        # naming the bound; a further plain resume repeats that decision and writes nothing.
+        result = self.launch([*self.args, '--resume-paused'], 2)
+        self.assertIn('--resume-paused --no-progress-limit N', result.stdout)
+        self.assertEqual('--resume-paused --no-progress-limit N', self.view()['needs']['action'])
         before = (self.run / 'state.json').read_bytes()
         self.launch([*self.args, '--resume-paused'], 2)
         self.assertEqual(before, (self.run / 'state.json').read_bytes())

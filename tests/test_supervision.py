@@ -643,6 +643,8 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json
         class Tree:
             def __init__(self,*args,**kwargs):
                 self.known={}
+            def inventory(self):
+                return list(self.known.values())
             def sample(self,**kwargs):
                 self.known[worker['pid']]=worker
                 return list(self.known.values()) if alive[0] else []

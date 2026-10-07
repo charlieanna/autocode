@@ -29,8 +29,12 @@ def environment(directory, env, fault=None):
 
 def main(provider):
     args = sys.argv[1:]
+    opencode_2 = provider == "opencode" and os.environ.get("AUTOCODE_CONFORMANCE_OPENCODE_GENERATION") == "2"
     if args == ["--version"]:
-        print("1.18.31" if provider == "opencode" else "conformance-fixture-1")
+        if opencode_2:
+            print("opencode v2.0.20")
+        else:
+            print("1.18.31" if provider == "opencode" else "conformance-fixture-1")
         return
     if args == ["models"]:
         print("test/probe")
@@ -44,8 +48,13 @@ def main(provider):
     prompt = sys.stdin.read()
     data = json.loads(prompt.rsplit("\nCURRENT HANDOFF DATA\n", 1)[1])
     workspace = Path(data["workspace"])
-    directory_flag = "-C" if provider == "codex" else "--dir"
-    assert Path(args[args.index(directory_flag) + 1]) == workspace == Path.cwd()
+    if opencode_2:
+        assert "--dir" not in args and "--variant" not in args and "--standalone" in args
+        assert "#" in args[args.index("--model") + 1]
+        assert Path.cwd() == workspace
+    else:
+        directory_flag = "-C" if provider == "codex" else "--dir"
+        assert Path(args[args.index(directory_flag) + 1]) == workspace == Path.cwd()
     resume_flag = "resume" if provider == "codex" else "--session"
     session = args[args.index(resume_flag) + 1] if resume_flag in args else "session_" + secrets.token_hex(8)
     fault = os.environ.get("AUTOCODE_CONFORMANCE_FAULT", "")
@@ -78,6 +87,12 @@ def main(provider):
         if native:
             emit({"type": "item.completed", "item": {"type": "command_execution", "id": f"cmd_{index}",
                   "command": command, "exit_code": code, "aggregated_output": actual.stdout + actual.stderr}})
+        elif opencode_2:
+            # OpenCode 2 nests the shell exit under the tool metadata object.
+            part("tool_use", f"cmd_{index}", tool="shell", state={"status": "completed",
+                 "input": {"command": command},
+                 "metadata": {"metadata": {"exit": code, "truncated": False}},
+                 "output": actual.stdout + actual.stderr})
         else:
             part("tool_use", f"cmd_{index}", tool="bash", state={"status": "completed",
                  "input": {"command": command}, "metadata": {"exit": code},

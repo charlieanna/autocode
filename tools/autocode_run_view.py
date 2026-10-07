@@ -24,6 +24,7 @@ try:
     from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_liveness as liveness_policy
+    from . import autocode_operational_information as operational_information
     from . import autocode_containment_policy as containment_policy
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
     import autocode_recovery_limits as recovery_limits
     import autocode_liveness as liveness_policy
+    import autocode_operational_information as operational_information
     import autocode_containment_policy as containment_policy
 
 SCHEMA = 2
@@ -92,6 +94,11 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
         "routes": quota_route.routes(state),
         "route_assignments": quota_route.assignments(state),
+        # AutoResolver's one re-evaluation of corrective information sent to an operational request
+        # (autocode_operational_information, #486): status pending, held, admitted, stale or superseded
+        # (the run left the pause unevaluated); the decision, its reason and, when held, the exact next
+        # action. None when no response is current.
+        "information_review": operational_information.projection(state),
         # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
         # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
         "tool_containment": containment_policy.mode(state.get("settings")),
@@ -114,6 +121,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
+        approved = approved_contract(state)
+        if approved is not None:
+            result["approved_contract"] = approved
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
@@ -125,6 +135,30 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
     if projection is not None:
         result["progressive"] = projection
     return result
+
+
+def approved_contract(state: dict) -> dict | None:
+    """The plan in force: the approved contract, as long as that approval still holds.
+
+    Approved by the user, or, for a bug fix's small correction, under the workflow policy
+    the user agreed to (autocode_workflows.POLICY_ORIGINS); the view does not say which.
+    None while there is no approval, after a new draft revision replaces the approved one,
+    and while the contract itself records an open blocking question (approval refuses one);
+    a question the run asks after approval does not remove it (the runner's own approval
+    check, contract_identity.approved). Until a --follow-up drafts its own plan, and for a
+    follow-up answered by a review, design or discussion, it is the earlier request's plan.
+    A program coordinating several runs reads the child's approved criteria here, never
+    state.json.
+    """
+    contract = state.get("goal_contract") or {}
+    try:
+        if not contract_identity.approved(state):
+            return None
+        return {"revision": contract["revision"], "hash": contract["hash"], "token": contract_identity.token(contract),
+                "task_id": contract.get("task_id"), "approved_at": (contract.get("approval_event") or {}).get("at"),
+                "body": deepcopy(contract["body"])}
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return None
 
 
 def progressive(state: dict) -> dict | None:
@@ -302,7 +336,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      when the view carries one); with `route` set, a
                                                      role's quota ran out: --answer route-ROLE=MODEL
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
-    planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
+    planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N;
+                                                     after AutoResolver held corrective information,
+                                                     `action` is the control it requires
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
@@ -310,7 +346,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      continues (a PAUSED_NO_PROGRESS its unchanged-
                                                      batch limit caused: --resume-paused --no-progress-
                                                      limit N, N above `no_progress_batches`, the
-                                                     retained count, or 0)
+                                                     retained count, or 0; after AutoResolver held
+                                                     corrective information, the control it requires,
+                                                     view.information_review)
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -324,7 +362,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     if status in COMPLETE:
         return None
     failure = state.get('job_failure') or {}
-    if status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') and failure:
+    if quota_route.job_pause_current(state) and failure:
         known_source = bool(failure.get('source_identity'))
         need = {'kind': 'retry_job' if known_source else 'recover_source',
                 'reason': failure['reason'], 'stage': failure['stage'],
@@ -397,7 +435,12 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return {"kind": "approve_plan", "token": state["displayed_goal"]} if state.get("displayed_goal") else {"kind": "continue"}
     if status == "PAUSED_PLANNING_BUDGET":
-        return {"kind": "planning_budget", "reason": state.get("stop_reason")}
+        need = {"kind": "planning_budget", "reason": state.get("stop_reason")}
+        # AutoResolver evaluated corrective information and held: name the control it requires (#486).
+        review = operational_information.projection(state) or {}
+        if review.get("status") == "held" and review.get("action"):
+            need["action"] = review["action"]
+        return need
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
         # An uncertain attempt must be set aside before a resume can continue (#340).
@@ -409,6 +452,17 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         if stale_report_repair:
             need["action"] = "--resume-paused"
             return need
+        if (status == "PAUSED_NO_PROGRESS" and "action" not in need
+                and recovery_limits.no_progress_bound_holds(state)):
+            # A plain resume holds here, also after a consumed response; only a bound
+            # that admits the retained count acknowledges it (#448). Information pending
+            # review cannot release this bound either, so this command comes first (#486).
+            need["action"] = "--resume-paused --no-progress-limit N"
+            need["no_progress_batches"] = state.get("no_progress_batches", 0)
+        # AutoResolver evaluated corrective information and held: name the control it requires (#486).
+        review = operational_information.projection(state) or {}
+        if review.get("action") and (review["status"] == "held" or "action" not in need):
+            need["action"] = review["action"]
         pending = state.get("pending_report_repair") or {}
         rejected = report_retry.rejected_attempt(state) or {}
         if (status == "PAUSED_REPEATED_FAILURE"
@@ -419,11 +473,5 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                 and isinstance(rejected.get("iteration"), int) and rejected.get("output")):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
-        if (status == "PAUSED_NO_PROGRESS" and "action" not in need
-                and recovery_limits.no_progress_bound_holds(state)):
-            # A plain resume holds here, also after a consumed response; only a bound
-            # that admits the retained count acknowledges it (#448).
-            need["action"] = "--resume-paused --no-progress-limit N"
-            need["no_progress_batches"] = state.get("no_progress_batches", 0)
         return need
     return {"kind": "continue"}

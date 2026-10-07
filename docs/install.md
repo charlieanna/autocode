@@ -89,7 +89,7 @@ command.
 
 - **Python 3.11+**
 - **Git**
-- **OpenCode 1.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**; OpenCode 2.x is not supported.
+- **OpenCode 1.x or 2.x** connected to ChatGPT and Z.ai (the default engine). Live-checked with OpenCode **1.18.31**. OpenCode 2.x uses `--standalone` and a `provider/model#effort` model id. Strict tool containment and verified visual delivery stay qualified only for OpenCode **1.18.33**.
 - **macOS or Linux**. Windows needs WSL because the inherited process and lock mechanisms use POSIX APIs.
 - Optional: Codex CLI for `--engine codex` (one ChatGPT login) and the Figma path. Installation does not change Codex or OpenCode settings.
 

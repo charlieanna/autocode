@@ -212,6 +212,22 @@ class NamedProofTests(unittest.TestCase):
         # A node:test case that runs the product's own CLI through child_process still proves its case.
         self.assertEqual(["tests/cli.test.cjs::test_c1_adds"], proof["case_tests"]["C1"])
 
+    def test_a_wrapper_the_change_leaves_alone_does_not_prove_a_guard_either(self):
+        # The guard is matched against the whole suite's pass-to-pass, so the refusal must read that file too.
+        project = Project({**SEED, "frontend/__tests__/named-proof.cjs": NAMED_WRAPPER})
+        self.addCleanup(project.close)
+        project.write({path: text for path, text in FIX.items() if path != "frontend/__tests__/named-proof.cjs"})
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [C1, C4],
+                                            "milestones": [{"id": "M1"}]}}}
+        run_dir = Path(tempfile.mkdtemp(prefix="wrapped-proof-"))
+        self.addCleanup(shutil.rmtree, run_dir, ignore_errors=True)
+        proof = regression.prove(state, project.root, run_dir)
+        self.assertEqual("FAIL", proof["verdict"], proof)
+        self.assertEqual([], proof["case_tests"]["C4"])
+        self.assertIn("npm --prefix frontend test", " ".join(proof["failures"]))
+        self.assertEqual(["tests/cli.test.cjs::test_c1_adds"], proof["case_tests"]["C1"])
+
 
 if __name__ == "__main__":
     unittest.main()

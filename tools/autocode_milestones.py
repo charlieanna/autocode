@@ -68,7 +68,8 @@ Carried milestones are scheduling checkpoints with recorded prior-revision
 provenance. Select unfinished work or final integration validation instead of
 reimplementing them. Their old evidence never satisfies final completion of the
 new contract; validate every criterion and the full flow before COMPLETE.
-The runner allows one such automatic replan before pausing persistent failure.
+milestone_checkpoint.limits.max_replans bounds such replans (null: unbounded); once they are
+spent, a milestone that stalls again pauses the run (PAUSED_MILESTONE_STALLED).
 Budget exhaustion stops additional writing at a saved boundary; the Validator and Plan Reviewer may
 still verify finished work. File edits and reworded reports alone are not progress.
 If only a declared human artifact review remains, report the verified findings in
@@ -340,7 +341,7 @@ def before_assignment(state, decision, current):
     row = progress(state)
     if row is None:
         return
-    if spec["milestone_id"] not in row.get("milestone_ids", [row["id"]]):
+    if spec["milestone_id"] not in replan.members(row):  # the members the replan text names
         if not evidence_ready(state, current):
             try:
                 from . import autocode_findings as findings_ledger

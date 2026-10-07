@@ -1,4 +1,5 @@
 """The task-run interface: the status view and the CLI client. See docs/task-run.md."""
+import copy
 import os
 import json
 import signal
@@ -19,6 +20,8 @@ import autocode_run_actions as run_actions
 import autocode_util as util
 import autocode_captured_process as captured_process
 import autocode_process as processes
+import autocode_goal_lifecycle as lifecycle
+import goal_fixtures
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -41,7 +44,7 @@ class RunViewTests(unittest.TestCase):
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
                           "efficiency", "recovery", "verification", "code_checkpoints", "routes",
-                          "route_assignments", "liveness", "tool_containment"},
+                          "route_assignments", "liveness", "information_review", "tool_containment"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
@@ -83,6 +86,78 @@ class RunViewTests(unittest.TestCase):
         self.assertNotIn("displayed_plan", run_view.view(state))
         state["goal_contract"] = {"body": {}}
         self.assertNotIn("displayed_plan", run_view.view(state))
+
+    def approved_greeting(self):
+        """A goal the real lifecycle drafted, showed and approved, so the projection follows what
+        approval saves; and the status view of the draft as it was shown for approval."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        subprocess.run(["git", "init", "-q", temp.name], check=True)  # the lifecycle snapshots the workspace
+        subprocess.run(["git", "-C", temp.name, "-c", "user.name=T", "-c", "user.email=t@example.test",
+                        "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+        state = {"workspace": temp.name, "task": "Build greeting", "task_id": "greet-task", "status": "RUNNING",
+                 "settings": {}}
+        lifecycle.migrate(state)
+        lifecycle.install_draft(state, goal_fixtures.body(), origin="test")
+        lifecycle.human.evaluate(state)
+        lifecycle.present(state)
+        draft = run_view.view(state)
+        lifecycle.approve(state, draft["needs"]["token"])
+        return state, draft
+
+    def test_approved_contract_is_an_additive_copy_of_the_approved_plan(self):
+        state, draft = self.approved_greeting()
+        self.assertNotIn("approved_contract", draft)
+        approved = run_view.view(state)
+        shown = approved["approved_contract"]
+        self.assertEqual({"revision", "hash", "token", "task_id", "approved_at", "body"}, set(shown))
+        # Expected values are public and independent of the saved contract: what the draft view
+        # showed for approval, the token it asked for, and the inputs the run was given.
+        self.assertEqual((draft["displayed_plan"]["revision"], draft["displayed_plan"]["hash"], draft["needs"]["token"]),
+                         (shown["revision"], shown["hash"], shown["token"]))
+        self.assertEqual("greet-task", shown["task_id"])
+        self.assertEqual(goal_fixtures.body(), shown["body"])
+        self.assertIsInstance(shown["approved_at"], str)
+        self.assertTrue(shown["approved_at"])
+        self.assertEqual({"approved_contract"}, set(approved) - set(draft))
+        shown["body"]["acceptance_criteria"].append({"id": "changed"})
+        shown["body"]["acceptance_criteria"][0]["criterion"] = "changed"
+        self.assertEqual(goal_fixtures.body(), run_view.view(state)["approved_contract"]["body"])
+
+    def test_approved_contract_appears_only_for_an_authenticated_current_approval(self):
+        approved, _ = self.approved_greeting()
+        token = run_view.view(approved)["approved_contract"]["token"]
+        newer = goal_fixtures.body()
+        newer["constraints"].append("Keep the greeting on one line")
+
+        def approval(state, **fields):
+            # approval_event is the very record in user_events (deepcopy keeps that), so changing it
+            # in place breaks only the condition named, never the user-event check as well.
+            state["goal_contract"]["approval_event"].update(fields)
+
+        refused = {
+            "approval of an older token": lambda state: approval(state, token="r1:old"),
+            "approval not among the user's events": lambda state: state.update(user_events=[]),
+            "approved by the model": lambda state: approval(state, actor="model"),
+            "workflow policy outside a policy origin": lambda state: (
+                approval(state, actor="workflow_policy"), state["goal_contract"].update(origin="test")),
+            "body edited after approval": lambda state: state["goal_contract"]["body"]["acceptance_criteria"].append(
+                {"id": "C9", "criterion": "Also greets twice", "verification_method": "python -m unittest",
+                 "human_review": False}),
+            "newer draft installed after approval": lambda state: lifecycle.install_draft(state, newer, origin="test"),
+        }
+        for name, change in refused.items():
+            with self.subTest(name):
+                state = copy.deepcopy(approved)
+                change(state)
+                self.assertNotIn("approved_contract", run_view.view(state))
+                self.assertIsNone(run_view.approved_contract(state))
+        # A bug fix's small correction approved under the workflow policy the user agreed to.
+        state = copy.deepcopy(approved)
+        approval(state, actor="workflow_policy")
+        state["goal_contract"]["origin"] = "bugfix_small_correction"  # autocode_workflows.POLICY_ORIGINS
+        self.assertEqual(token, run_view.view(state)["approved_contract"]["token"])
+        self.assertEqual(token, run_view.approved_contract(state)["token"])
 
     def test_direct_rework_provenance_is_not_completion_proof_and_is_copied(self):
         receipt = {"source_task_id": "task-old", "assigned_task_id": "task-repair",
@@ -273,11 +348,14 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
         self.assertEqual("plan approval needed", view["progress"]["needs_you"])
+        self.assertNotIn("approved_contract", view)  # shown for approval, not yet the plan in force
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
             run.approve_plan("not-the-displayed-token")
-        run.approve_plan(view["needs"]["token"])
+        token = view["needs"]["token"]
+        run.approve_plan(token)
         view = run.advance_until_input()
         self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        self.assertEqual(token, view["approved_contract"]["token"])  # a completed run keeps the plan it approved
         self.assertEqual(0, view["efficiency"]["by_category"].get("report_repair", {}).get("attempts", 0))
         self.assertTrue((self.workspace / "greet.py").is_file())
         progress = view["progress"]
@@ -295,6 +373,43 @@ class TaskRunTests(unittest.TestCase):
         stale = again.status()
         self.assertEqual(0, stale["efficiency"]["delivery"]["verified_deliveries"])
         self.assertIsNone(stale["efficiency"]["unit_metrics"]["wall_seconds"]["value"])
+        self.assert_no_project_level_files(run, stale)
+
+    def assert_no_project_level_files(self, run, view):
+        """#22: a normal single job creates no project-level files.
+
+        Programs, task flows and component builds coordinate several runs of one project and keep
+        their records at the project level. A job started through the task-run interface writes its
+        own run under .autocode/runs (beside the usage log, locks and .gitignore) and nothing else.
+        """
+        workspace = self.workspace.resolve()
+        # Positive control: this is the project the run saved itself in.
+        self.assertTrue((run.run_dir / "state.json").is_file(), run.run_dir)
+        self.assertEqual(workspace / ".autocode" / "runs", run.run_dir.parent)
+        # Exactly the run and the runner's housekeeping beside it. A new runner file belongs in this set
+        # only if it is per-run housekeeping (a log, a lock); a record that coordinates runs does not.
+        self.assertEqual({".gitignore", "runs", "usage.jsonl", "usage.lock", "writer.lock"},
+                         {entry.name for entry in (workspace / ".autocode").iterdir()})
+        self.assertEqual([run.run_dir.name], [entry.name for entry in (workspace / ".autocode" / "runs").iterdir()])
+        # The paths the coordinating layers write, named so a failure says which layer leaked.
+        for relative in (".autocode/programs",    # `autocode program approve|run|request-change|resolve-change`
+                         ".autocode/task-flows",  # `autocode tasks MANIFEST`: one directory per task flow
+                         ".autocode-components"):  # `autocode components ARCH`: component worktrees and manifest
+            self.assertFalse((workspace / relative).exists(), relative)
+        # The progressive record is written only when the Planner proposes progressive delivery,
+        # which the fixture provider never does: this guards against writing it unconditionally.
+        self.assertFalse((run.run_dir / "progressive").exists())
+        self.assertNotIn("progressive", view)
+        # The task-run interface works in place (--in-place), so the project is the only worktree.
+        # Programs, task-flow lanes and component builds each add worktrees on branches of their own:
+        # autocode/program-<key>/... for a program, components/<id>-<hex> for a component build.
+        worktrees = subprocess.run(["git", "-C", str(workspace), "worktree", "list", "--porcelain"],
+                                   capture_output=True, text=True, check=True).stdout
+        self.assertEqual(1, sum(line.startswith("worktree ") for line in worktrees.splitlines()), worktrees)
+        branches = subprocess.run(["git", "-C", str(workspace), "for-each-ref", "--format=%(refname:short)",
+                                   "refs/heads/"], capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual([], [name for name in branches if name.startswith(("autocode/program-", "components/"))],
+                         branches)
 
     def use_question_preserving_planner(self, *, genuine_questions=0):
         # Reproduce the live Planner faithfully carrying a question from its handoff.
