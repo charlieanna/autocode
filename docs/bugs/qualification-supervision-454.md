@@ -107,11 +107,11 @@ harness and Linux CI results belong to the pull request's exact source revision.
 This crash path uses the repository's fault-injection exception to live-model
 qualification; no paid calls or larger allowances are involved.
 
-This fixes provider-stage and scenario-harness ownership. Independent parallel
-build workers and runner-owned verification commands need their own lifelines;
-this change does not claim those launch paths are covered. Portable ancestry
-sampling also cannot recover an arbitrary child that detaches and reparents
-before any observer discovers it. Those limits keep #454 open for the remaining
+This fixes provider-stage and scenario-harness ownership. Runner-owned
+verification commands (`verification-command-supervision.md`) and parallel
+Builder workers (below) have their own lifelines now. Portable ancestry
+sampling still cannot recover an arbitrary child that detaches and reparents
+before any observer discovers it. That limit keeps #454 open for the remaining
 ownership work rather than equating these passing controls with universal
 process containment.
 
@@ -136,3 +136,83 @@ child and the CLI. The call ends with exit -9, and the keeper receipt that the
 call record names under `receipt` is `uncertain`, with cleanup error `CLI
 discharged with live child processes`. A direct child still running at discharge
 already ended this way; a reparented one used to escape and leak.
+
+## Parallel Builder workers
+
+A parallel Builder worker used to outlive the Orchestrator that started it. It
+runs in its own session, and its stage keeper watches the worker, not the
+Orchestrator. After a controller SIGKILL (or a kill of its process group) the
+worker, its stage keeper and its provider ran on, and a later resume adopted
+whatever BUILT result they wrote. A controller SIGTERM froze and killed each
+worker together with its stage keeper while the worker was still cleaning up:
+its result was `PAUSED_PROCESS_CLEANUP`, its stage receipt stayed `armed`, and
+resume asked for `--abandon-stage`. A worker launched just before an interrupt
+reached the list the cleanup used was never stopped at all.
+
+Each worker now guards itself the way a CLI under the scenario harness does.
+Before launch, the Orchestrator saves the worker row's `supervision` record and
+writes a lifeline declaration into a pipe; the worker inherits the read end
+(`--owner-lifeline-fd`, appended after its usual arguments) and the Orchestrator
+holds the only writer for as long as the worker lives
+(`autocode_worker_lifeline`). The worker's keeper (`supervision_cli.guard`,
+`protect_owner`) reads that pipe. The declaration names no deadline: both
+`deadline` and `timeout_seconds` are null, so each provider attempt keeps its
+own stage limit, as before. The worker's stage keepers and providers are
+admitted to its keeper before they exec.
+
+- Controller SIGKILL or process-group kill: the pipe reaches EOF, the keeper
+  sends the worker SIGTERM, the worker saves `PAUSED_INTERRUPTED` and stops its
+  provider through its stage keeper, and 2 s later the keeper kills anything it
+  recorded. Its receipt ends `stopped`, cause `owner_lost`.
+- Controller SIGTERM, SIGHUP or Ctrl-C: the Orchestrator sends each live worker
+  SIGTERM, waits up to 8 s for them to exit, closes their pipes, and waits up to
+  3 s for their keepers before falling back to freezing what is left. The worker
+  saves `PAUSED_INTERRUPTED` with its stage receipt `stopped`, and
+  `--retry-builder` resumes it without `--abandon-stage`.
+- A crash right after launch: the writer dies with the Orchestrator, so the
+  worker refuses its lifeline (`Builder lifeline: ...` in its `worker.log`) and
+  does no work. Resume then launches the member once, as if it never started.
+  Only the lifeline's own failures carry that label; a failure in the worker's
+  own work keeps its traceback in `worker.log`.
+- A normal exit discharges the keeper (`discharged`, `controller_finished`).
+
+The row's `supervision` record has one writer, `run_workers`; `collect`, the
+retry and supersede checks and the raw batch in `--status` read it. A BUILT
+result is adopted only when its receipt is `discharged` or `stopped` with no
+cleanup error, or when no receipt exists because the worker never armed.
+Otherwise the batch pauses as `PAUSED_ORCHESTRATOR_WORKER` naming the receipt,
+for a person to inspect, and the member is marked stopped. A plain resume holds
+it again. Once nothing it recorded is alive, `--retry-builder <id>` (also
+offered as "Retry Builder task") archives the held result and relaunches the
+member under a new lifeline: the worker rechecks its saved implementation
+against its worktree and reports BUILT again, or pauses on any drift. The held
+result is archived first so that a relaunch that dies before arming cannot leave
+it looking adoptable. Every check that refuses to launch or collect while a
+saved worker runs also counts that worker's keeper. Batches saved before this
+change have no record and keep their previous behavior.
+
+Not covered:
+
+- The keeper allows 2 s between its SIGTERM and SIGKILL. A provider that takes
+  longer to stop (a stage's own teardown allows about 4 s) is killed with its
+  worker mid-cleanup, and that stage then needs inspection.
+- The parent checkout lock is released when the Orchestrator dies, before the
+  keepers finish stopping workers. Resume still refuses while a recorded worker
+  or keeper is alive.
+- Under the scenario harness two keepers cover a worker: the CLI's (by sampling)
+  and the worker's own, which cannot be admitted to the CLI's because it is not
+  the CLI's direct child. The CLI keeper's 2 s kill can reach a worker's keeper
+  before it finishes; a BUILT result is then held as unverified until
+  `--retry-builder` reruns it. So does a host crash between a worker's BUILT
+  and its keeper's discharge (a few milliseconds).
+- A worker killed before it arms (it imports the runner first) leaves no result
+  and no receipt; resume treats it as never launched.
+
+`tests/test_builder_worker_lifeline.py` kills or interrupts the real controller
+at an event barrier (M1's provider held and retained by its keeper, M2 and M3
+built) and requires no survivor within 12 s, M1's own `PAUSED_INTERRUPTED`
+result and an untouched sentinel.
+`tests/test_build_recovery_blackbox.py` covers a crash right after launch and a
+live guarded worker (its keeper frozen) blocking a second writer.
+`tests/test_dispatch.py` holds a BUILT result whose keeper never discharged,
+resumes twice without adopting it, and reruns it with an explicit retry.
