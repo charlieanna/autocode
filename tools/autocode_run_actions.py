@@ -84,16 +84,18 @@ except ImportError:
     import autocode_worktrees as worktrees
 
 
-def explicit_recovery_requested(args, state):
+def explicit_recovery_requested(args, state, *, checked=False):
     """Whether this invocation carries a scoped operator recovery action for the pause holding ``state``.
 
     An explicit change to the bound that pause exhausted is one (#301): it must not be held behind an
     unchanged operational frontier. A budget flag for any other bound is only a settings write, never
     authority to release the pause (#379, #486). ``state`` is required so that no caller counts a
-    budget flag without naming the pause; None counts none.
+    budget flag without naming the pause; None counts none. ``checked``: only the actions handle()
+    checks before it applies queued input. --retry-builder is checked after that input
+    (dispatch.try_request_retry), so until then a milestone it would refuse is no authority.
     """
     budget_flags = getattr(args, '_explicit_budget_flags', None) or set()
-    return any((getattr(args, 'retry_builder', None),
+    return any((getattr(args, 'retry_builder', None) and not checked,
                 getattr(args, 'retry_failed_stage', False),
                 getattr(args, 'retry_report', None),
                 getattr(args, 'abandon_stage', None),
@@ -101,6 +103,19 @@ def explicit_recovery_requested(args, state):
                 getattr(args, 'grant_recovery', None) is not None,
                 bool(budget_flags) and state is not None
                 and pause_authority.changes_held_bound(budget_flags, pause_authority.held_origin(state))))
+
+
+def apply_queued_input(runner, state, run_dir, workspace):
+    """Apply queued interventions under the pause holding the run; 2 when that stopped this invocation, else None."""
+    pause = state['status']
+    try:
+        if runner.consume_interventions(state, run_dir, workspace):
+            print(f"{state['status']}: {state['stop_reason']}")
+            return 2
+    except interventions.InterventionError as error:
+        print(f'{pause}: queued input could not be applied ({error}); the pause stays in force.')
+        return 2
+    return None
 
 
 def hold_for_input(runner, state, state_path, run_dir, workspace):
@@ -114,12 +129,7 @@ def hold_for_input(runner, state, state_path, run_dir, workspace):
     at its pause, unasked, until it is removed.
     """
     pause = state['status']
-    try:
-        if runner.consume_interventions(state, run_dir, workspace):
-            print(f"{state['status']}: {state['stop_reason']}")
-            return 2
-    except interventions.InterventionError as error:
-        print(f'{pause}: queued input could not be applied ({error}); the pause stays in force.')
+    if apply_queued_input(runner, state, run_dir, workspace) is not None:
         return 2
     try:
         if milestones.apply_queued_activation(state, run_dir):
@@ -388,6 +398,12 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     review = None
     if (not decision_action and not specific_recovery and not acknowledged_bound_change
             and not explicit_recovery_requested(args, state)):
+        # Queued interventions are bound into the frontier the information was sent for: apply them under
+        # the pause first (they are held, autocode_stop), never retire the information for them (#486 review).
+        if (args.resume_paused and (operational_information.projection(state) or {}).get('status') == 'pending'
+                and resolver_human.pending_interruptions(run_dir)['pending']
+                and apply_queued_input(runner, state, run_dir, workspace) is not None):
+            return 2
         review = operational_information.reevaluate(runner, state, run_dir, workspace, resume=args.resume_paused)
         if review is not None:
             print(review.message, flush=True)
@@ -421,9 +437,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    # The pause holding the run's own authority, given by this invocation (reconsideration adds one below).
-    acknowledged = (specific_recovery or information_admitted or explicit_recovery_requested(args, state)
-                    or acknowledged_planning_extension or acknowledged_bound_change)
+    # The pause holding the run's own authority, given by this invocation (reconsideration adds one below):
+    # what is checked before queued input is applied, and --retry-builder, which is checked after it.
+    checked_authority = (specific_recovery or information_admitted or acknowledged_planning_extension
+                         or acknowledged_bound_change or explicit_recovery_requested(args, state, checked=True))
+    acknowledged = checked_authority or explicit_recovery_requested(args, state)
     unacknowledged = not decision_action and not acknowledged
     # Input queued after an operational request was shown leaves that request unanswerable (its
     # binding names the inbox): withdraw it so the input is applied under the pause, then ask again.
@@ -498,8 +516,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             return 2
         reconsidered = True
     # Authority this invocation gave for the pause holding the run: a pause or feedback applied
-    # below then pauses a released run and holds nothing (autocode_stop, #486 review).
-    released = bool(args.resume_paused and (acknowledged or reconsidered))
+    # below then pauses a released run and holds nothing (autocode_stop, #486 review). Not an
+    # unchecked --retry-builder: input applied below ends this invocation before it is checked.
+    released = bool(args.resume_paused and (checked_authority or reconsidered))
     if (not decision_action and args.grant_recovery is None and not information_admitted
             and state.get('status') in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY')
             and planning.is_planning(state, state.get('next_stage'))):
@@ -642,6 +661,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     try:
         if runner.consume_interventions(state, run_dir, workspace, released=released):
             print(f"{state['status']}: {state['stop_reason']}")
+            if args.retry_builder:
+                print('--retry-builder was not applied: queued input was applied first, so it was not checked.',
+                      file=sys.stderr)
             return 2
     except interventions.InterventionError as error:
         raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error

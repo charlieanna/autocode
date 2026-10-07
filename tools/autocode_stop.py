@@ -180,8 +180,11 @@ def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now:
         state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED",
                      stop_reason="Queued pause was applied; explicitly resume when ready.")
     if held:
-        state["stop_reason"] = (f"{state.get('stop_reason', '')} {held['status']} still holds the run: "
-                                "--resume-paused returns to it, and only its own authority releases it.").strip()
+        # Any pause is returned to; only an operational one then waits for its own authority.
+        returned = (f"{held['status']} still holds the run: --resume-paused returns to it, and only its own "
+                    "authority releases it." if pause_authority.operational(held["status"]) else
+                    f"--resume-paused returns to {held['status']} first, and its own resume rules apply.")
+        state["stop_reason"] = f"{state.get('stop_reason', '')} {returned}".strip()
     # A completion proposal is retained in its report, but cannot commit while
     # an earlier accepted pause is still awaiting explicit continuation.
     if state.get("next_stage") is None:

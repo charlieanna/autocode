@@ -55,17 +55,23 @@ blocks goal approval, artifact approval and completion until the owner consumes 
 A pause-only request preserves the selected next stage and any valid goal approval. It
 pauses at the next safe boundary with a `pause_intent`; `--resume-paused` records its
 acknowledgement and resumes that selected stage. If the run was already held at another
-pause (an operational pause, with or without its AutoResolver request), the intent
-records that pause as `held_pause`, also when the same batch carries feedback. A second
-pause keeps the `held_pause` of the first. Feedback applied on its own records one too
-when the held pause is operational, unless that pause offers feedback (an exhausted
-plan-review budget, or a validation-only stop whose request names `--feedback`).
-`--resume-paused` then acknowledges the intervention and returns the run to that pause,
-which is released only by its own authority. That includes the one re-evaluation of
-corrective information already sent for its request, when the intervention left the
-run as that information found it. An invocation that acknowledged that pause itself (for
-example with the exhausted bound's flag or `--grant-recovery`) releases it before
-applying the batch, so nothing is held then. `--pause-after-stage` and the existing
+pause (any `PAUSED_*` status, or an operational pause's AutoResolver request, answered
+or not), the intent records that pause as `held_pause`, also when the same batch
+carries feedback. A second pause keeps the `held_pause` of the first. Feedback applied
+on its own records one too when the held pause is operational, unless that pause offers
+feedback (an exhausted plan-review budget, or a validation-only stop whose request names
+`--feedback`). `--resume-paused` then acknowledges the intervention and returns the run
+to that pause, whose own resume rules apply in the same command: an operational pause is
+released only by its own authority, and the stop reason says so. That authority includes
+the one re-evaluation of corrective information already sent for its request, when the
+intervention left the run as that information found it; a `--resume-paused` that finds
+the pause still queued applies it under the held pause before that re-evaluation, so the
+order of the two commands does not matter. An invocation that acknowledged that pause
+itself (for example with the exhausted bound's flag or `--grant-recovery`) releases it
+before applying the batch, so nothing is held then. `--retry-builder` is not such an
+acknowledgement here: it is checked only after the batch is applied, so the batch is
+applied under the held pause, the retry is not applied, and you send it again with
+`--resume-paused`. `--pause-after-stage` and the existing
 run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
