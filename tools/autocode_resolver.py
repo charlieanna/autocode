@@ -23,14 +23,13 @@ RISK_FLAGS = frozenset({"permission", "external-system", "destructive", "securit
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 _REQUIRED = frozenset({"intended_outcome", "intended_user", "deliverables", "required_behaviors", "important_failure_cases", "scope_exclusions", "constraints", "permission_boundaries", "accepted_assumptions", "delegated_decisions", "acceptance_criteria", "open_blocking_questions", "end_to_end_flow", "technical_approach", "milestones"})
-# Runner-sealed acceptance evidence lives in the approved body (autocode_goals'
-# schema names both); a body carrying it must still evaluate. Found live when
-# every AutoResolver evaluation on a #522-sealed contract was refused.
-# Known-but-optional body keys. Runner-sealed acceptance evidence (autocode_goals'
-# schema names both) lives in the approved body; a body carrying it must still
-# evaluate. Found live when every AutoResolver evaluation on a #522-sealed
-# contract was refused.
-_KNOWN = _REQUIRED | {"initial_task", "brief_acceptance", "risk_acceptance"}
+# Runner-owned proof records in the approved body (autocode_goals.BODY_SCHEMA): sealed by
+# the contract hash and validated by their own policies (autocode_brief_obligations,
+# autocode_risk_obligations). A body carrying one must still evaluate (#571, #452), but
+# each must be an object, and they are never ALLOWED_FIELDS, so a replan cannot change one.
+_RUNNER_OWNED = frozenset({"brief_acceptance", "risk_acceptance"})
+# Known-but-optional body keys combine freely; unknown keys still fail closed.
+_KNOWN = _REQUIRED | {"initial_task"} | _RUNNER_OWNED
 _FORBIDDEN_PAYLOAD_KEYS = frozenset({"body", "contract", "contract_body", "contract_delta", "delta", "lineage", "prior_lineage", "new_lineage", "next_task", "contract_revision", "revision", "hash", "task_id", "approval_status", "approval_event", "role_output"})
 
 
@@ -177,6 +176,8 @@ def _validate_body(body: Any) -> bool:
         return False
     keys = set(body) - {"task_kind"}
     if not _REQUIRED <= keys or keys - _KNOWN:
+        return False
+    if any(not isinstance(body[key], Mapping) for key in _RUNNER_OWNED & keys):
         return False
     if body.get("task_kind", "build") not in ("build", "bugfix"):  # optional job type (autocode_goals.TASK_KINDS)
         return False

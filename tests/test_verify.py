@@ -20,6 +20,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import autocode_launch_inputs as launch_inputs  # noqa: E402
 import autocode_regression as regression  # noqa: E402
 import autocode_verification_schedule as schedule  # noqa: E402
 import autocode_verify as verify  # noqa: E402
@@ -360,6 +361,103 @@ class PreservationEvidenceCase(unittest.TestCase):
         project = Project({"README.md": "A project.\n", ".gitignore": "legacy.py\n"})
         (project.root / "legacy.py").write_text(LEGACY_PROGRAM)
         self.check_first_suite(project, run="no_dependencies", verdict=verify.UNVERIFIED)
+
+    # A build of an approved design: the design workflow's docs/design/ document and an empty
+    # package, the base of implement-locked-design (five live runs stopped UNVERIFIED on it,
+    # 2026-10-07). docs/bugs/2026-10-07-regression-proof-design-document-base.md
+    DESIGNED = {"README.md": "A new project.\n", "tests/__init__.py": "",
+                "docs/design/feature.md": "# Feature\n\ncalc.VALUE becomes 'new'.\n"}
+
+    def test_a_design_document_and_an_empty_package_can_prove_a_first_feature(self):
+        self.check_first_suite(Project(self.DESIGNED), test_path="tests/test_feature.py")
+
+    def test_an_executable_design_document_is_not_a_first_suite_base(self):
+        project = Project(self.DESIGNED)
+        (project.root / "docs" / "design" / "feature.md").chmod(0o755)
+        self.recommit(project)
+        self.check_first_suite(project, test_path="tests/test_feature.py", verdict=verify.UNVERIFIED)
+
+    def test_a_document_that_is_not_markdown_is_not_a_first_suite_base(self):
+        project = Project({**self.DESIGNED, "docs/design/feature.rst": "Feature\n=======\n"})
+        self.check_first_suite(project, test_path="tests/test_feature.py", verdict=verify.UNVERIFIED)
+
+    def test_in_place_without_a_launch_record_a_design_document_is_not_a_first_suite_base(self):
+        # Nothing recorded the ignored code the checkout held before the candidate edited it.
+        project = Project({"README.md": "A new project.\n", "docs/design/feature.md": "# Feature\n"})
+        self.check_first_suite(project, run="in_place", verdict=verify.UNVERIFIED)
+
+    def test_a_launch_record_taken_before_its_base_was_pinned_does_not_bind_it(self):
+        # The checkout was busy at launch: the record was taken first and the base pinned later, so
+        # ignored code left in between is in neither (review of this fix, 2026-10-07).
+        project = Project(self.DESIGNED)
+        self.addCleanup(project.close)
+        run_dir = Path(project.temp.name) / "run"
+        run_dir.mkdir()
+        state = {"base_commit": None, "goal_contract": {"body": {"task_kind": "build"}},
+                 "settings": {"regression": {"python": sys.executable, "test_timeout": 60}}}
+        launch_inputs.record(state, project.root, run_dir)
+        state["base_commit"] = project.base
+        self.assertFalse(launch_inputs.supply(state, project.root, run_dir).recorded)
+        references.write({"calc.py": "VALUE = 'new'\n",
+                          "tests/test_feature.py": "import unittest\nfrom calc import VALUE\n\n"
+                          "class Feature(unittest.TestCase):\n"
+                          "    def test_new_value(self):\n"
+                          "        self.assertEqual('new', VALUE)\n"}, project.root)
+        self.assertEqual(verify.UNVERIFIED, regression.prove(state, project.root, run_dir)["verdict"])
+
+    def prove_in_place(self, project, change=None, *, record=True):
+        """autocode_regression.prove for an --in-place run whose ignored inputs were recorded at launch
+        (autocode_launch_inputs.record, before any provider), as autocode_run_setup records them.
+        ``record=False``: a run saved before launch records existed."""
+        self.addCleanup(project.close)
+        run_dir = Path(project.temp.name) / "run"
+        run_dir.mkdir()
+        state = {"base_commit": project.base, "goal_contract": {"body": {"task_kind": "build"}},
+                 "settings": {"regression": {"python": sys.executable, "test_timeout": 60}}}
+        if record:
+            launch_inputs.record(state, project.root, run_dir)
+        if change:
+            change(project.root)  # the candidate, after launch
+        references.write({"calc.py": "VALUE = 'new'\n",
+                          "tests/test_feature.py": "import unittest\nfrom calc import VALUE\n\n"
+                          "class Feature(unittest.TestCase):\n"
+                          "    def test_new_value(self):\n"
+                          "        self.assertEqual('new', VALUE)\n"}, project.root)
+        return regression.prove(state, project.root, run_dir)
+
+    def test_in_place_with_a_launch_record_a_design_document_and_an_empty_package_can_prove_a_first_feature(self):
+        proof = self.prove_in_place(Project(self.DESIGNED))
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["tests.test_feature.Feature.test_new_value"], proof["fail_to_pass"], proof)
+
+    def test_in_place_without_a_launch_record_prove_does_not_admit_a_design_document(self):
+        proof = self.prove_in_place(Project(self.DESIGNED), record=False)
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+
+    def test_in_place_ignored_code_the_launch_record_holds_is_existing_behavior(self):
+        # The user's program, ignored beside the design: kept, un-ignored as it was, deleted, or
+        # un-ignored and broken by the candidate. The launch record still lists it, or supply refuses.
+        def keep(root):
+            pass
+
+        def stop_ignoring(root):
+            (root / ".gitignore").write_text("__pycache__/\n")
+
+        def delete(root):
+            (root / "docs" / "design" / "legacy.py").unlink()
+
+        def stop_ignoring_and_break(root):
+            stop_ignoring(root)
+            (root / "docs" / "design" / "legacy.py").write_text("def answer():\n    raise SystemExit('broken')\n")
+
+        for change in (keep, stop_ignoring, delete, stop_ignoring_and_break):
+            with self.subTest(change.__name__):
+                project = Project({**self.DESIGNED, ".gitignore": "legacy.py\n"})
+                (project.root / "docs" / "design" / "legacy.py").write_text(LEGACY_PROGRAM)
+                self.assertIn("docs/design/legacy.py", verify.generated_sources(project.root))
+                proof = self.prove_in_place(project, change)
+                self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+                self.assertEqual([], proof["failures"], proof)
 
     def check_existing_program(self, path, *, executable=False):
         legacy = ("#!/usr/bin/env python3\nimport unittest\nVALUE = 'old'\n"
@@ -1601,6 +1699,32 @@ class VerifyCase(unittest.TestCase):
             env = verify.test_environment(tree, {"PYTHONPATH": "/elsewhere"})
             self.assertEqual([str(tree / "src"), str(tree), "/elsewhere"], env["PYTHONPATH"].split(os.pathsep))
             self.assertEqual("1", env["CI"])
+
+    def test_a_parent_tests_package_cannot_shadow_the_fixture_tests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tree = root / "tree"
+            parent = root / "checkout"
+            (tree / "tests").mkdir(parents=True)
+            (parent / "tests").mkdir(parents=True)
+            (parent / "tests" / "__init__.py").write_text("")
+            other = root / "libs"
+            other.mkdir()
+            inherited = os.pathsep.join([str(parent), str(other)])
+            env = verify.test_environment(tree, {"PYTHONPATH": inherited})
+            self.assertEqual([str(tree), str(other)], env["PYTHONPATH"].split(os.pathsep))
+            bare = root / "bare"
+            bare.mkdir()
+            env = verify.test_environment(bare, {"PYTHONPATH": inherited})
+            self.assertEqual([str(bare), str(parent), str(other)], env["PYTHONPATH"].split(os.pathsep))
+            (tree / "tests" / "test_local.py").write_text(
+                "import unittest\n\nclass T(unittest.TestCase):\n"
+                "    def test_here(self):\n        self.assertIn('tree', __file__)\n")
+            (parent / "tests" / "test_local.py").write_text("raise SystemExit('parent package')\n")
+            log = root / "suite.log"
+            receipt = verify.run_command(f"{sys.executable} -m unittest tests.test_local -q", tree, log,
+                                          env={"PYTHONPATH": inherited})
+            self.assertEqual(0, receipt["exit_code"], log.read_text()[-500:])
 
     @mock.patch.dict(os.environ, {"PYTHONPATH": ""})
     def test_generated_version_file_reaches_the_scratch_trees(self):

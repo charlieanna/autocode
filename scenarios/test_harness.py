@@ -1405,7 +1405,9 @@ class ProgramChecksTests(unittest.TestCase):
                  "approved_plan": {"token": "r2:i"}, "merged_under": {"revision": 1}}]
         record = {"program": {"workstreams": rows, "change_requests": [],
                               "agreement": {"revision": 1, "approved": True, "token": "a1:x", "pending": None},
-                              "journeys": [{"id": "J1", "status": "verified", "verified_by": "integration"}]},
+                              "journeys": [{"id": "J1", "status": "verified", "verified_by": "integration"}],
+                              "final_check": {"workstream": "integration", "journeys": ["J1 Main user journey"],
+                                              "not_proven": []}},
                   "agreement": {"shown": ["a1:x"], "approved": ["a1:x"]},
                   "verifications": [{"workstream": "S", "verdict": "PASS", "at": "2026-10-05T10:00:00", "commands": ["s"]},
                                     {"workstream": "T", "verdict": "PASS", "at": "2026-10-05T10:01:00",
@@ -1442,6 +1444,24 @@ class ProgramChecksTests(unittest.TestCase):
         record = self.record()
         record["program"]["journeys"][0]["status"] = "failed"
         self.assertEqual(["journey_verified_by_name[J1]"], self.failing(record))
+
+    def test_a_journey_counts_only_under_the_name_the_final_check_gives_it(self):
+        # The final check names each journey "id name": derive's J1 is "Main user journey".
+        for final in ({"journeys": ["J1 Order history"]}, None):
+            with self.subTest(final=final):
+                record = self.record()
+                record["program"]["final_check"] = final
+                self.assertEqual(["journey_verified_by_name[J1]"], self.failing(record))
+        # A scenario that names its own journeys ([program] revise) is judged by those names.
+        scenario = program_scenario("/nowhere", revise={"journeys": [{"id": "find", "name": "Find a note",
+                                                                      "steps": ["search"]}]})
+        record = self.record()
+        record["program"]["journeys"][0]["id"] = "find"
+        record["program"]["final_check"]["journeys"] = ["find Find a note"]
+        self.assertEqual([], [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
+        record["program"]["final_check"]["journeys"] = ["find Main user journey"]
+        self.assertEqual(["journey_verified_by_name[find]"],
+                         [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
 
     def retired_record(self):
         """S and T merged; an accepted change then retired T before U merged; T merged again with a new check."""
@@ -1876,6 +1896,37 @@ class TurnTests(unittest.TestCase):
             self.assertFalse(missing.ok, "a public callable the design names must still exist")
             self.assertIn("missing from app/: ['evict']", missing.detail)
 
+    def test_a_formula_in_the_design_does_not_bind_the_build(self):
+        """A live design bounded fetches with `ceil(3600 / TTL_seconds) × N <= 60`; its build computed it
+        without importing math, and build_follows_design failed on `ceil`."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            design.write_text(design.read_text().replace(
+                "## Rejected", "Attempts per hour stay at most `ceil(3600 / ttl_seconds)` per key.\n\n## Rejected"))
+            follows = next(check for check in scenario.oracle()(project, scenario) if check.name == "build_follows_design")
+            self.assertTrue(follows.ok, follows.detail)
+
+    def test_a_design_that_removes_the_seed_s_cache_in_its_own_words_follows_the_decision(self):
+        """Live designs said "a shared, host-local file-backed cache" without the token shared-file, and
+        named the seed's cache they remove (`functools.lru_cache(maxsize=256)`, "`cache_clear()`: Removed");
+        their builds removed it, and the oracle judged them FALSE_COMPLETE."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            reworded = design.read_text().replace("docs/decisions/metadata-cache.json (recommendation: shared-file)",
+                                                  "the decision record: a shared, host-local file-backed cache")
+            self.assertNotIn("shared-file", reworded.split("## Rejected")[0])
+            design.write_text(reworded.replace("## Rejected", "The seed's `functools.lru_cache(maxsize=256)` goes, "
+                                               "and with it `cache_clear()` and `cache_info()`.\n\n## Rejected"))
+            checks = {check.name: check for check in scenario.oracle()(project, scenario)}
+            self.assertTrue(checks["design_follows_decision"].ok, checks["design_follows_decision"].detail)
+            self.assertTrue(checks["build_follows_design"].ok, checks["build_follows_design"].detail)
+
     def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
         """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
         memo when it is missing, and the hidden tests failed it for not creating the directory."""
@@ -2149,13 +2200,19 @@ class FakeRunTests(unittest.TestCase):
         # "Build it." named the design turn 2 wrote: it was checked as approved, and no Requirements ran.
         self.assertEqual(["recognize_workflow", "check_design"], result["turns"][2]["model_stage_names"][:2])
         self.assertNotIn("requirements_gather", result["turns"][2]["model_stage_names"])
-        # The Planner replaced the design turn's docs-only boundary in one row backed by "Build it."'s receipt,
-        # and the guard accepted it the first time (live runs were refused, then asked the user).
+        # The build was planned afresh from the approved design, not as a revision of the design turn's
+        # docs-only contract (live Planners were refused there, then repaired or asked the user): that
+        # contract moved to contract_history, and every contract since declares no change against it.
         self.assertNotIn("astra_discovery_report_repair", result["turns"][2]["model_stage_names"])
-        rows = [row for revision in state.get("contract_history") or []
-                for row in revision.get("declared_changes") or [] if row.get("change") == "permission_changed"]
-        self.assertEqual([(state["turns"][-1]["event_id"], "Edit only app/, tests/ in this scenario workspace")],
-                         [(row["answer_id"], row["replacement"]) for row in rows])
+        archived = state["turns"][-1]["fresh_plan"]["contract"]
+        contracts = [*state["contract_history"], state["goal_contract"]]
+        design = next(row for row in contracts if f"r{row['revision']}:{row['hash']}" == archived)
+        self.assertEqual(["Edit only docs/design/ in this scenario workspace"], design["body"]["permission_boundaries"])
+        built = [row for row in contracts if row["revision"] > design["revision"]]
+        self.assertEqual(state["goal_contract"], built[-1])
+        self.assertEqual([[]] * len(built), [row.get("declared_changes") for row in built])
+        self.assertEqual(["Edit only app/, tests/ in this scenario workspace"],
+                         state["goal_contract"]["body"]["permission_boundaries"])
 
     def test_a_design_turn_that_also_writes_code_is_judged_false_complete(self):
         # Nothing in the product limits a new design's Builder to documents; the per-turn check does.

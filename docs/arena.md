@@ -88,7 +88,16 @@ AutoCode may produce a different correct implementation.
 | --- | --- | --- | --- | --- |
 | `sympy-matrix-derivatives` | [SymPy #25150](https://github.com/sympy/sympy/pull/25150) and linked reports | Matrix gradients and Hessians, rectangular coordinates, noncommuting powers and tensor axes | 11 | development |
 | `django-filteredrelation-join-lifecycle` | [Django #33766](https://code.djangoproject.com/ticket/33766), [PR #16786](https://github.com/django/django/pull/16786) | Conditions that spawn joins, filtered aliases, cloning and nested subqueries | 3 | regression |
-| `pytest-stop-fixture-teardown` | [pytest #11706](https://github.com/pytest-dev/pytest/issues/11706), [PR #11721](https://github.com/pytest-dev/pytest/pull/11721) | Teardown and plugin reports after max-failure and stepwise stops | 2 | holdout |
+| `pytest-stop-fixture-teardown` | [pytest #11706](https://github.com/pytest-dev/pytest/issues/11706), [PR #11721](https://github.com/pytest-dev/pytest/pull/11721) and [PR #12048](https://github.com/pytest-dev/pytest/pull/12048) | Teardown and plugin reports after early stops, including multiple failing callbacks on one fixture | 3 | holdout |
+
+The pytest case combines early-stop routing with same-fixture exception aggregation.
+Its reference is pinned to the [early-stop reapplication](https://github.com/pytest-dev/pytest/pull/12279),
+after both upstream fixes; the early-stop change was temporarily reverted between them. Three additional oracle checks
+cover same-fixture callbacks under maxfail, stepwise and setup failure, including
+callback counts and every plugin-visible exception. Earlier 9-check passes do not
+establish this stronger 12-check result: prepare a fresh Arena and cohort; never
+rescore or overwrite an existing attempt. The three-module count covers the two
+relevant fixes, not all intervening upstream changes.
 
 These are public historical exercises. The holdout split controls which evidence
 an improvement proposal exposes; it does not make a public fix private. Fresh

@@ -211,15 +211,19 @@ Each invocation does one pass:
    [Inherited requirements](#inherited-requirements)). From a completed child it keeps
    the checks its run replayed and passed and, for the final check, its journey results.
 6. Merges, one at a time, each completed workstream that nothing holds (step 7), unless
-   the last plan the program saw from its run drops an inherited requirement. For a
+   the last plan the program saw from its run drops an inherited requirement. A
+   workstream of any kind merges only under its current run's approved plan, read from
+   the run's status view and checked (`approved_plan`): a run that completes without
+   showing one pauses at `PAUSED_INHERITANCE`, naming the run, with nothing merged. For a
    non-integration workstream it first checks the delivered changes against `owns`,
    including committed changes, deletions, rename source/destination paths and new
    files; out-of-scope changes pause without merging. Runner metadata under
    `.autocode/` is excluded; pre-staged metadata must be unstaged. A delivery that
    changes a shared interface without an approved change pauses too. Then it commits,
    merges (`--no-ff`) and re-runs the cumulative checks, undoing its merge when they
-   fail. Any pause raised while merging (failing cumulative checks, ownership, metadata,
-   an interface change, a conflict, a dirty integration worktree, an unverified journey)
+   fail. Any pause raised while merging (no checked plan, failing cumulative checks,
+   ownership, metadata, an interface change, a conflict, a dirty integration worktree, an
+   unverified journey)
    ends the whole pass: no later workstream is merged and nothing starts. A delivery
    that fails again unchanged raises the same pause on every rerun, before any
    workstream after it is merged and before anything starts, so one such workstream
@@ -296,12 +300,12 @@ point, the pass pauses at `PAUSED_INTEGRATION_DIRTY` instead.
 | `WAITING_CHANGE_REQUEST` | An interface change request is open, even if every workstream is merged. The workstreams the agreement binds to its interface (its producer and consumers, every workstream when it has no producer) and the final check neither start, resume nor merge; other workstreams go on | Accept it (publish the interface's next version and approve that revision), reject it with `program resolve-change`, or approve a revision that removes the interface, which withdraws it; serve any listed child runs; rerun |
 | `AUTHORIZATION_REQUIRED` | Everything else is merged; deployment workstreams need authorization to start or resume | Rerun with `--authorize-deployment` after deciding deployment is wanted |
 | `BLOCKED` | A child invocation failed, with or without a saved checkpoint | Inspect its logs, then use `--retry-workstream ID`; missing checkpoints must be restored |
-| `PAUSED_MERGE_CONFLICT` | A completed workstream conflicts with the integration branch; the merge was aborted, both branches are intact. That pass ends; later passes merge and start the other workstreams | Merge it by hand in the integration worktree, commit, rerun (the program adopts the manual merge once the cumulative checks pass) |
+| `PAUSED_MERGE_CONFLICT` | A completed workstream conflicts with the integration branch; the merge was aborted, both branches are intact. That pass ends; later passes merge and start the other workstreams | Merge it by hand in the integration worktree, commit, rerun (the program adopts the manual merge once the cumulative checks pass, and only under the run's checked plan, as any merge) |
 | `PAUSED_INTEGRATION_DIRTY` | The integration worktree has uncommitted tracked changes, such as a retired final check run's edits ([open bug](bugs/2026-10-06-program-integration-retired-leftovers.md)), or is not on its recorded branch. Raised before a merge or an adopted conflict resolution, before the final check starts and before an [interrupted merge](#run-it) is taken back, and repeated there on every rerun until it is cleared | Commit or discard (`git restore`) the changes, or restore the branch, then rerun |
 | `PAUSED_OWNERSHIP` | A completed workstream changed files outside `owns`, or switched branches. Nothing was merged; every rerun repeats it, and nothing starts until it is fixed | Correct the workstream delivery or restore its recorded branch, then rerun |
 | `PAUSED_METADATA` | Runner metadata was staged or committed. Every rerun repeats it, and nothing starts until it is fixed | Unstage `.autocode` without deleting it, or remove the metadata diff, then rerun |
 | `PAUSED_INTERFACE_CHANGE` | A delivery changes a shared interface without an approved change. Nothing was merged; every rerun repeats it, and nothing starts until it is fixed | Remove that change, or raise it with `program request-change` and approve the new interface version |
-| `PAUSED_INHERITANCE` | A workstream's plan still drops an inherited requirement after the automatic rejections, or its run refused the program's feedback (`plan_check.feedback_error`) | Give its run feedback yourself (the next rerun resumes it to plan again, and checks that plan), or revise the agreement, then rerun |
+| `PAUSED_INHERITANCE` | A workstream's plan still drops an inherited requirement after the automatic rejections, or its run refused the program's feedback (`plan_check.feedback_error`), or its run completed without showing an approved plan the program could check (nothing was merged; every rerun repeats it) | Give its run feedback yourself (the next rerun resumes it to plan again, and checks that plan), or revise the agreement, then rerun. For a run completed without an approved plan, follow it up so it plans again and approve that plan, then rerun |
 | `PAUSED_SKELETON_UNVERIFIED` | The walking skeleton has no runnable check on the integration branch. The program undid its own merge of it (a merge you made by hand stays, but is not accepted), and nothing else starts | Add program checks that walk the journey, approve that revision, rerun |
 | `PAUSED_INTEGRATION_CHECK` | After a merge, the integrated product fails its cumulative checks. The program undid its own merge of a code workstream; the final check's own commits stay, and so does a conflict resolution you merged by hand (the message says it is still on the integration branch). An unchanged rerun repeats it, and nothing starts until it is fixed | The message names who left the failing check. Its own check: fix the workstream (for example `--follow-up` on its run). An earlier workstream's (or the program's) check: fix the merging workstream if it broke that behavior, or, if the check held only for the product before this merge, revise the agreement so that workstream is re-checked (its checks are replaced) or change the program checks. Or undo or repair your own merge. Then rerun; the receipts are listed |
 | `PAUSED_JOURNEY_UNVERIFIED` | The final check completed without verifying every user journey, and was not merged. Every rerun repeats it until the run is followed up | Follow up its run so each journey is verified, then rerun |
@@ -393,8 +397,9 @@ it is built from (`pin`). After a revision is approved, the next `program run` m
 or waiting at plan approval included:
 
 - its run is retired: it is listed in `retired_runs` (with its run directory, status,
-  worktree, branch, merged commit and pin), and its plan's approval no longer counts.
-  The retired run and its worktree stay on disk;
+  worktree, branch, merged commit, pin and `approved_plan`), and its plan's approval no
+  longer counts: the workstream has no `approved_plan` until its fresh run's plan is
+  approved. The retired run and its worktree stay on disk;
 - `stale_reason` names the revision;
 - a fresh run starts when its dependencies are merged and nothing holds it. Its brief
   carries a `RE-CHECK:` line that asks it to plan against the agreement, keep what
@@ -459,7 +464,22 @@ reads each child's plan from its status view: the draft shown for approval
 
 `plan_check` records the plan token checked, the ids it dropped and whether it was
 approved. A plan that keeps every inherited id is recorded in `approved_plan` once it
-is approved. Ids are compared exactly: a renamed criterion counts as dropped.
+is approved, and nothing merges without it, a conflict resolved by hand included. It
+follows the plan in force: it is dropped when the completed run shows no approved plan,
+or an approved plan that drops an inherited id; a retired run takes its `approved_plan`
+into its `retired_runs` entry, so a fresh run merges only under its own. Ids are
+compared exactly: a renamed criterion counts as dropped.
+
+The program checks ids, not wording: a plan that keeps an inherited id but rewrites its
+criterion into something weaker passes this check. A child is expected to reword its
+criteria into a testable form (worked examples, `test:` or `guard:` proof), and no
+comparison of the text tells that apart from a weakening, so what a kept criterion says
+is left to the child run, as in any run. Its brief states each inherited requirement as
+the agreement words it, and its runner sends back a draft that drops a backticked
+literal from one; its Plan Reviewer compares the plan with that brief and flags a
+weakened guarantee; and you approve its plan by exact token. Its Validator then checks
+the criteria of that approved plan, not the agreement's wording, so a weakening that
+plan review and your approval let through is built and verified as written.
 
 ## Interfaces and change requests
 
@@ -635,7 +655,8 @@ The composed brief contains, in order:
   check only what the finished product keeps, never that something a later workstream
   adds is missing, unknown or refused;
 - the workstream's own objective and its acceptance criteria, with their full
-  definitions when the agreement has requirements;
+  definitions when the agreement has requirements; the final check's list also holds
+  every requirement it inherits, whether or not its own row lists it;
 - for the final check, each user journey's steps (and what a simulated journey does not
   prove);
 - the inherited requirement ids it must keep; for the final check, that the merged

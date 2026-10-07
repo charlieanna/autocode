@@ -111,6 +111,61 @@ class ApplyTests(unittest.TestCase):
                           "constraints": ["Bucket lives in ratelimit/bucket.py"]}, state["design_constraint"])
         self.assertIsNone(jobs.ended_in(state))
 
+    def test_a_build_of_the_earlier_turn_s_design_is_planned_afresh(self):
+        # Live runs of discuss-then-design-then-build (#185): "Build it." revised the design turn's contract
+        # ("no code is written") and had to carry or drop 27-28 design-only items, one row each.
+        contract = {"task_id": "t", "revision": 4, "hash": "h4", "approval_status": "approved",
+                    "body": {"required_behaviors": ["Analysis/design only: no code is written"]}}
+        nit = {"id": "F-1", "status": "open", "blocking": False, "finding": "Line 119 miscounts fetches"}
+        blocker = {"id": "F-2", "status": "open", "blocking": True, "finding": "Never left open by a finished turn"}
+        settled = {"id": "F-3", "status": "resolved", "blocking": True, "finding": "Lock rule"}
+
+        def checked(conflicts, turns):
+            with tempfile.TemporaryDirectory() as root:
+                state = {**state_for(workspace_with_design(root)), "turns": turns, "goal_contract": dict(contract),
+                         "requirements_handoff": {"report": {"requirements": [{"id": "R2"}]}},
+                         "planning": {"astra_calls": 2, "reports": {"astra_challenge": {}}}, "current_task": {"id": "T9"},
+                         "findings_ledger": [dict(nit), dict(blocker), dict(settled)],
+                         "acceptance_criteria": [{"id": "AC1", "status": "verified"}], "criteria_revision": "c4",
+                         "validation": {"verdict": "PASS"}, "unresolved_findings": [dict(nit), dict(blocker)]}
+                autoreview.apply_job(check_job.STAGE, state, report(conflicts, constraints=() if conflicts else
+                                     ("Bucket lives in ratelimit/bucket.py",)), {"output": "o"}, root)
+            return state
+
+        follow_up = lambda: [{"say": "Build it.", "event_id": "feedback-1",
+                              "previous": {"workflow": "design", "design": {"mode": "propose", "documents": [DESIGN]}}}]
+        state = checked((), follow_up())
+        self.assertEqual("astra_discovery", state["next_stage"])
+        for key, history, kept in (("goal_contract", "contract_history", contract),
+                                   ("requirements_handoff", "requirements_history", {"report": {"requirements": [{"id": "R2"}]}}),
+                                   ("planning", "planning_history", {"astra_calls": 2, "reports": {"astra_challenge": {}}}),
+                                   ("current_task", "task_archive", {"id": "T9"})):
+            self.assertNotIn(key, state)
+            self.assertEqual([kept], state[history])
+        # The design turn's open nit moves with its contract, unresolved; nothing else leaves the ledger.
+        self.assertEqual([blocker, settled], state["findings_ledger"])
+        self.assertEqual([blocker], state["unresolved_findings"])
+        self.assertEqual({"archived": ["goal_contract", "requirements_handoff", "planning", "current_task"],
+                          "contract": "r4:h4", "findings": [nit]}, state["turns"][-1]["fresh_plan"])
+        # The archived contract's checklist and its last validation go too: the new plan defines its own.
+        self.assertEqual(([], None), (state["acceptance_criteria"], state["criteria_revision"]))
+        self.assertNotIn("validation", state)
+        self.assertEqual({"verdict": "PASS"}, state["validation_archive"][-1]["validation"])
+        # The check runs once per turn.
+        turns = state["turns"]
+        state = checked((), turns)
+        self.assertEqual(contract, state["goal_contract"])
+        # A design review installs no contract: a build of the design it approved revises the one in force.
+        reviewed = [{"say": "Build it.", "event_id": "feedback-2", "previous": {"workflow": "design", "design": {
+            "mode": "review", "verdict": "approve", "design_under_review": DESIGN}}}]
+        for name, conflicts, turns in (("conflicts stop the run", [CONFLICT], follow_up()), ("a first request", (), []),
+                                       ("after a design review", (), reviewed)):
+            with self.subTest(name):
+                state = checked(conflicts, turns)
+                self.assertEqual(contract, state["goal_contract"])
+                self.assertEqual(3, len(state["findings_ledger"]))
+                self.assertNotIn("contract_history", state)
+
     def test_the_runner_rejects_reports_it_cannot_act_on(self):
         cases = {
             "changed the workspace": (report(), ["ratelimit/bucket.py"]),
