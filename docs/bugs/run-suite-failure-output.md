@@ -46,10 +46,11 @@ opens.
 - Stock unittest output reads differently only where text follows the footer,
   and then correctly. AutoCode captures a test command's stdout and stderr in
   one file, so a test's `print()` to a block-buffered stdout (Python's default
-  when `PYTHONUNBUFFERED` is unset) lands after the footer. That text was read
-  as part of the last traceback: a printed, caught import error made a real
-  assertion failure "could not import its dependency on base", and a printed
-  application frame hid a missing mock, which then counted as a reproduction.
+  when `PYTHONUNBUFFERED` is unset) lands after the footer. Before this fix,
+  and before #596, that text was read as part of the last traceback: a
+  printed, caught import error made a real assertion failure "could not import
+  its dependency on base", and a printed application frame hid a missing mock,
+  which then counted as a reproduction.
 - `run_parallel` still prints each failed module's output when it finishes, and
   after the last module it prints `The failures again:` and each failed module's
   unittest report again (from its first `FAIL`, `ERROR` or `UNEXPECTED SUCCESS`
@@ -64,4 +65,6 @@ opens.
 `--jobs 1` was never changed and still prints unittest's own report.
 `tests/test_run_suite_output.py` runs real modules through `run_parallel`, with
 the test choosing the order they finish in, and checks that the verifier reads the
-same results as from one stock unittest run.
+same results as from one stock unittest run. `tests/test_test_setup.py` reads
+real stock unittest output with buffered stdout after the footer, and a test
+that quotes a passing run in its failure message.
