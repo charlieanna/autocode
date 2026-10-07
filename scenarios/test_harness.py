@@ -1909,6 +1909,24 @@ class TurnTests(unittest.TestCase):
             follows = next(check for check in scenario.oracle()(project, scenario) if check.name == "build_follows_design")
             self.assertTrue(follows.ok, follows.detail)
 
+    def test_a_design_that_removes_the_seed_s_cache_in_its_own_words_follows_the_decision(self):
+        """Live designs said "a shared, host-local file-backed cache" without the token shared-file, and
+        named the seed's cache they remove (`functools.lru_cache(maxsize=256)`, "`cache_clear()`: Removed");
+        their builds removed it, and the oracle judged them FALSE_COMPLETE."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            reworded = design.read_text().replace("docs/decisions/metadata-cache.json (recommendation: shared-file)",
+                                                  "the decision record: a shared, host-local file-backed cache")
+            self.assertNotIn("shared-file", reworded.split("## Rejected")[0])
+            design.write_text(reworded.replace("## Rejected", "The seed's `functools.lru_cache(maxsize=256)` goes, "
+                                               "and with it `cache_clear()` and `cache_info()`.\n\n## Rejected"))
+            checks = {check.name: check for check in scenario.oracle()(project, scenario)}
+            self.assertTrue(checks["design_follows_decision"].ok, checks["design_follows_decision"].detail)
+            self.assertTrue(checks["build_follows_design"].ok, checks["build_follows_design"].detail)
+
     def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
         """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
         memo when it is missing, and the hidden tests failed it for not creating the directory."""
