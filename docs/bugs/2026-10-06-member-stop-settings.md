@@ -1,7 +1,8 @@
 # A settings flag at a parallel Builder member's stop (#542, #543)
 
-Reproduced on master `ddc940f` through the real CLI and worker processes (offline
-fixtures). **Fixed** 2026-10-06; regression in `tests/test_member_stop_settings.py`.
+Reproduced on master `ddc940f`, and again on `d0919ad`, through the real CLI and
+worker processes (offline fixtures). **Fixed** 2026-10-06; regression in
+`tests/test_member_stop_settings.py`.
 
 ## Reproduced behavior
 
@@ -54,6 +55,10 @@ MODEL` exited 2 with `autocode: Role result belongs to another implementation ta
     request's origin while that member is still the batch's current stop
     (`worker_quota.current`). The `route-terra` question for that milestone is asked
     again, and the answer it advises is accepted.
+  - Both rules sit in `record_operational_exhaustion`, so they apply wherever the pause
+    is asked again: `run_actions` after the settings write, or the run setup itself if
+    it asks again for every withdrawn pause. A caller that already passes the request's
+    own cause leaves the first rule nothing to do; the second still applies.
 - **No legacy decision from a member's record.** `normalize_human_boundary` does not
   rebuild a legacy decision at a batch checkpoint (`worker_quota.at_checkpoint`) while the
   published request is still pending in the ledger (`resolver_human.pending_issued`),
