@@ -1,8 +1,8 @@
 # A settings flag at a parallel Builder member's stop (#542, #543)
 
-Reproduced on master `ddc940f`, and again on `d0919ad`, through the real CLI and
-worker processes (offline fixtures). **Fixed** 2026-10-06; regression in
-`tests/test_member_stop_settings.py`.
+Reproduced on master `ddc940f`, again on `d0919ad`, and on `87d8db3` (2026-10-07),
+through the real CLI and worker processes (offline fixtures). **Fixed** 2026-10-06;
+regression in `tests/test_member_stop_settings.py`.
 
 ## Reproduced behavior
 
@@ -23,6 +23,8 @@ openai/gpt-6-luna`:
 4. `--answer route-terra=MODEL`, the command it advised, was refused: "route-terra is
    not the model question of the current request".
 
+A generic Builder failure (`AUTOCODE_BUILDER_FAIL=M1`) asks no model question, but step 3
+applied to it too: after the settings flag its stop reason gave AutoResolver's advice twice.
 A budget flag (`--max-iterations N`) did not reproduce it: that path collects the batch
 again and keeps the question.
 
@@ -30,7 +32,8 @@ again and keeps the question.
 stop (quota, refusal, or a generic Builder failure, `AUTOCODE_BUILDER_FAIL=M1`),
 `--resume-paused --retry-builder M1` with `--max-parallel-builders 3` or `--sol-model
 MODEL` exited 2 with `autocode: Role result belongs to another implementation task`.
-`state.json` was unchanged.
+`state.json` was unchanged. Naming a member whose Builder had already completed
+(`--retry-builder M2 --sol-model MODEL`) hit the same guard instead of its refusal.
 
 1. `--retry-builder` is a recovery action that checks the request itself, so
    `load_locked` kept the request. The settings write made it stale: the settings digest
@@ -68,11 +71,34 @@ MODEL` exited 2 with `autocode: Role result belongs to another implementation ta
 - **A member retry with settings.** `dispatch.member_retry_refusal` holds the checks
   `request_retry` made. `load_locked` now asks it before saving a settings change that
   comes with `--retry-builder`. A refused retry, such as a member its provider's
-  content filter refused, saves nothing and says so. An accepted retry runs under the
-  new settings: a quota member reruns its model, and a failed member gets its second
-  attempt.
+  content filter refused or one that already completed, saves nothing and says so in a
+  sentence after the refusal ("... Nothing was saved, including this invocation's
+  settings; they are saved by the same command without --retry-builder."). An accepted
+  retry runs under the new settings: a quota member reruns its model, and a failed
+  member gets its second attempt.
 
-The tests cover each member cause through the CLI: quota and refusal for the settings
-flag alone, and quota, refusal and a generic failure with `--retry-builder`. A unit test
-covers a member that is no longer the batch's current stop: its request is asked again
-without the question or its advice.
+The tests cover each member cause through the CLI: quota, refusal and a generic failure,
+both for the settings flag alone and with `--retry-builder` (and a completed member's
+refusal). A unit test covers a member that is no longer the batch's current stop: its
+request is asked again without the question or its advice.
+
+## Composition with neighbouring changes
+
+- **Master's #586** (`--resume-paused` with `--answer` dispatches the next stage) acts
+  after a committed requirements answer or goal approval. A member's `route-terra`
+  answer goes through `run_actions.answer_quota_question`, which saves the route and
+  exits before that path, so the two do not meet. A route answer that comes with
+  another role's settings flag behaves as before: the settings write withdraws the
+  request, the settings are saved, and the answer is refused as out of date, naming the
+  `--no-chat` run that publishes a fresh request. That fresh request now asks the
+  member's question again, so the answer it advises is accepted.
+- **Master's #581** (corrective information is re-evaluated at a resume) skips an
+  invocation carrying `--retry-builder`. `resolver_human.withdrawn` names only a
+  superseded request, never one consumed by a response, so the information path's own
+  ask-again (`operational_information.retired`) is unchanged here.
+- **`claude/operational-pause-fail-opens`** asks a withdrawn pause again inside
+  `load_locked` from the withdrawn request's own cause, and `run_actions` asks from
+  `pause_authority.held_cause`, which also strips appended advice. Both reach
+  `record_operational_exhaustion`, where the payload rule restores the member's question;
+  the cause rule then has nothing to do. That branch alone drops the question in the same
+  way, so either merge order works, and the two merge without conflicts.
