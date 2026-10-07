@@ -479,6 +479,16 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 if answered:
                     self.assertEqual(self.after_answer(status)[1], self.information_review())
 
+    def test_the_information_review_still_decides_every_answered_pause_as_581_does(self):
+        # The baseline every input above is compared with: --resume-paused after the answered request alone.
+        # #581's one re-evaluation continues a stop caused outside the run (INFORMATION_CAUSES) and holds
+        # one only an operator control releases, at every pause; holding inputs never changes that.
+        for status in STATUSES:
+            with self.subTest(status=status):
+                expected = ((['sol'], ('admitted', 'continue')) if status in operational_information.INFORMATION_CAUSES
+                            else ([], ('held', 'hold')))
+                self.assertEqual(expected, self.after_answer(status))
+
     def test_an_edited_goal_never_releases_an_operational_pause(self):
         # The edit installed a draft for approval in place of the pause, and --approve-goal TOKEN
         # --resume-paused then dispatched the Planner, Builder and Tester in one invocation.
