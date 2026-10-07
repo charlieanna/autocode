@@ -269,7 +269,8 @@ existing integration that must be used, accounts). It does not ask you to pick a
 or integration mechanism unless one of your constraints makes that choice yours; it asks
 whether such a constraint exists ("Which channel should receive alerts, and must we use an
 existing integration?"). A channel, account or resource name that a provisional design can take
-as configuration is a parameter, not a blocking question. Reliability promises come up early,
+as configuration is a parameter: it is asked, with a proposed default, only alongside a question
+that does block, never as a blocking question on its own. Reliability promises come up early,
 as your decisions: whether an alert whose delivery is uncertain is sent again (you may see it
 twice) or not (you may miss it), and whether a deadline is a target while everything is healthy
 or a guarantee that holds through an outage. A guarantee the design cannot support stays a
