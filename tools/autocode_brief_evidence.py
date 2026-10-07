@@ -95,15 +95,21 @@ def _runner_reason(row, case):
     """
     try:
         observed = json.loads(_pinned_bytes(row['output'], row['output_sha256']).decode('utf-8'))
-        reason, steps = observed['reason'], observed['steps']
-        if not isinstance(reason, str) or not reason or not isinstance(steps, list):
+        reason, steps, planned = observed['reason'], observed.get('steps'), case['proposal']['steps']
+        if not isinstance(reason, str) or not reason:
             return ''
-        if not steps:
-            return reason
-        # Every step ran unless one exited nonzero; then the last one is that step.
-        step = steps[case['proposal']['observe_step']] if len(steps) == len(case['proposal']['steps']) else steps[-1]
-        printed = _decode(step['stdout_base64'])
-        return f"{reason}; `{shlex.join(step['argv'])}` printed {printed[:400]!r}"
+        if not isinstance(steps, list):
+            return reason  # refused before any step ran (the entrypoint check)
+        # The runner stops at a step that exits nonzero or times out (a timed-out step
+        # records nothing), and checks the listing only once every step has run.
+        if steps and steps[-1]['exit_code'] != 0:
+            step = steps[-1]
+            stderr = _decode(step['stderr_base64'])
+            return f"{reason}; `{shlex.join(step['argv'])}` exited {step['exit_code']} and wrote {stderr[-400:]!r} to stderr"
+        if len(steps) < len(planned):
+            return f"{reason}; `{shlex.join(planned[len(steps)]['argv'])}` did not finish"
+        step = steps[case['proposal']['observe_step']]
+        return f"{reason}; `{shlex.join(step['argv'])}` printed {_decode(step['stdout_base64'])[:400]!r}"
     except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
         return ''
 

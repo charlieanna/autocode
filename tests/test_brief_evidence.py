@@ -199,6 +199,39 @@ class BriefEvidenceTests(unittest.TestCase):
                 self.rewrite_summary(result)
                 self.assertFalse(evidence.ready(self.state, 'current'))
 
+    def test_a_failed_replay_names_the_step_that_failed(self):
+        # The rejection the Tester and Builder read (#452 review): the runner's own reason and
+        # the step it concerns, never another step's output.
+        self.state = build_state(self.root, setup=('brief-probe', 'brief-probe-2'))
+        def failing(reason, steps):
+            def runner(workspace, out, *, command, timeout):
+                case = json.loads(shlex.split(command)[-1])
+                rows = [{'argv': argv, 'exit_code': code, 'stdout_base64': encoded(stdout), 'stderr_base64': encoded(stderr)}
+                        for argv, code, stdout, stderr in steps]
+                out = Path(out)
+                out.mkdir(parents=True)
+                output = out / 'scratch-command.log'
+                output.write_text(json.dumps({'verdict': 'FAIL', 'observation_hash': case['hash'],
+                                              'steps': rows, 'reason': reason}) + '\n')
+                return {'exit_code': 1, 'timed_out': False, 'error': '', 'output': str(output),
+                        'output_sha256': util.file_hash(output)}
+            return runner
+        add, add2, listing = ['add', 'brief-probe'], ['add', 'brief-probe-2'], ['list']
+        for reason, steps, expected in [
+                ('CLI output differs from the original brief format',
+                 [(add, 0, '1\n', ''), (add2, 0, '2\n', ''), (listing, 0, 'x\n', '')],
+                 "original brief format; `list` printed b'x\\n'"),
+                ('CLI invocation timed out', [(add, 0, '1\n', ''), (add2, 0, '2\n', '')],
+                 'CLI invocation timed out; `list` did not finish'),
+                ('source-declared successful CLI invocation exited nonzero',
+                 [(add, 0, '1\n', ''), (add2, 2, '', 'Traceback: boom\n')],
+                 "exited nonzero; `add brief-probe-2` exited 2 and wrote b'Traceback: boom\\n' to stderr")]:
+            with self.subTest(reason=reason):
+                with self.assertRaises(ValueError) as caught:
+                    evidence.replay(self.state, '/candidate', self.root / 'failed', failing(reason, steps),
+                                    timeout=30, source_revision='current')
+                self.assertIn(expected + '. Receipt: ', str(caught.exception))
+
     def test_full_output_cannot_be_replaced_by_a_passing_tail_or_partial_json(self):
         original = self.runner
         def misleading(workspace, out, **kwargs):

@@ -300,9 +300,10 @@ def line_pattern(observation):
 def output_reason(output, pattern, line):
     """'' when stdout bytes are the declared `one per line` listing, else why not.
 
-    One optional final LF or CRLF; every line fullmatches `line` with one kind of
-    line ending; at least one line is exactly the observed item `pattern`. No
-    other normalization. _RUNNER repeats this rule inside the clean replay.
+    One optional final LF or CRLF; one kind of line ending; every line fullmatches
+    `line` or is the observed item `pattern`, and at least one line is that item. The
+    item alone is always a valid listing, as before the per-line rule. No other
+    normalization. _RUNNER repeats this rule inside the clean replay.
     """
     crlf = output.endswith(b'\r\n')
     body = output[:-2] if crlf else output[:-1] if output.endswith(b'\n') else output
@@ -311,8 +312,9 @@ def output_reason(output, pattern, line):
     except UnicodeDecodeError:
         return 'CLI output is not UTF-8 text in this bounded slice'
     rows = text.split('\r\n' if crlf else '\n')
-    if (any('\r' in row or '\n' in row or re.fullmatch(line, row) is None for row in rows)
-            or not any(re.fullmatch(pattern, row) for row in rows)):
+    items = [re.fullmatch(pattern, row) is not None for row in rows]
+    if (any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items))
+            or not any(items)):
         return 'CLI output differs from the original brief format'
     return ''
 
@@ -433,7 +435,7 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
         output=base64.b64decode(rows[case['observe_step']]['stdout_base64'])
         # output_reason(): one optional final line ending is a printing convention,
         # not permission to strip spaces, extra lines, brackets or other source
-        # literal bytes. Every listed line has the declared format; one is the item.
+        # literal bytes. Every listed line has the declared format or is the item; one is the item.
         crlf=output.endswith(b'\r\n')
         body=output[:-2] if crlf else output[:-1] if output.endswith(b'\n') else output
         try:
@@ -442,7 +444,8 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
             reason='CLI output is not UTF-8 text in this bounded slice'
         else:
             lines=text.split('\r\n' if crlf else '\n')
-            if any('\r' in line or '\n' in line or re.fullmatch(case['line_pattern'],line) is None for line in lines) or not any(re.fullmatch(case['pattern'],line) for line in lines):
+            items=[re.fullmatch(case['pattern'],line) is not None for line in lines]
+            if any('\r' in line or '\n' in line or not (item or re.fullmatch(case['line_pattern'],line)) for line,item in zip(lines,items)) or not any(items):
                 reason='CLI output differs from the original brief format'
 print(json.dumps({'verdict':'FAIL' if reason else 'PASS','observation_hash':case['hash'],'steps':rows,'reason':reason},sort_keys=True))
 sys.exit(1 if reason else 0)

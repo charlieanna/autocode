@@ -2,10 +2,8 @@
 
 #522 added the original-brief output check and noted that live qualification
 was still owed. The first two live runs were both on master `d6aded9`, with
-scenario `greenfield-todo-cli` and profile `claude-tiers` (Claude Sonnet
-Requirements and Planner, Opus Plan Reviewer, Resolver and Completion Reviewer,
-Haiku Builder, Sonnet Tester). Both delivered correct code: the scenario oracle
-passed 10/10. Both ended `HONEST_BLOCKER`, waiting for the user with
+scenario `greenfield-todo-cli` and profile `claude-tiers`. Both delivered
+correct code: the scenario oracle passed 10/10. Both ended `HONEST_BLOCKER`, waiting for the user with
 `stop_reason` "invalid contract or declarative input". There were two
 independent causes. The evidence below comes from ignored local run
 directories, so the numbers are copied here.
@@ -39,17 +37,24 @@ The fix applies the declared format to every line of a `one per line` listing:
 - `output_reason` is the rule completion rechecks with. The contained runner
   repeats it, since the runner cannot import AutoCode, and a test checks
   that both give the same verdict. Output may have one optional final LF or
-  CRLF. Every line must fullmatch the line pattern, at least one line must be
-  the bound item exactly, and line endings may not be mixed. Headers, blank
+  CRLF. Every line must fullmatch the line pattern or be the bound item, at
+  least one line must be the bound item exactly, and line endings may not be
+  mixed. The bound item alone therefore still passes whatever its ID looks
+  like (an ID argument with a space is not one opaque word). Headers, blank
   lines, extra terminators, trailing spaces, unbracketed or misspelled
   statuses, changed IDs and items nobody added all still fail.
 - The runner's command now carries the line pattern, so receipts recorded
   under the old rule no longer match `ready()`. A fresh replay is required.
-- A failed replay now reports the runner's own reason and the observed
-  stdout instead of "failed or timed out".
+- A failed replay now reports the runner's own reason and the step it
+  concerns instead of "failed or timed out": what the listing printed, the
+  exit code and stderr tail of a step that exited nonzero, or the step that
+  did not finish.
 
-This check still does not prove that every item appears. A listing that
-leaves out other to-dos passes if the bound item is present.
+This check still does not prove that every item appears, or appears once. A
+listing that leaves out or repeats other to-dos passes if the bound item is
+present. A TEXT line must carry a value that a step passed for TEXT itself, so
+a value passed under another placeholder name (say a `rename ID NEW_TEXT`
+command) is refused, as it already was for the bound item.
 
 ## B. Every Resolver request on a brief-bearing contract escalated
 
@@ -69,7 +74,7 @@ after its false Tester rejection. The fake `broken/unbracketed-status` control
 also reached `HONEST_BLOCKER` through this fallback, not through a designed
 refusal.
 
-#571 (merged after `d6aded9`, found by a separate `glm53-mimo` run; see
+#571 (merged after `d6aded9`, found by a separate live run; see
 `2026-10-06-resolver-rejected-brief-acceptance.md`) made both keys known, so
 master no longer escalates this. On top of it, the Resolver now treats both
 records as runner-owned (`_RUNNER_OWNED`): allowed in the body, but each must
@@ -86,9 +91,10 @@ replays run B's shape end to end.
 - `tests.test_brief_acceptance` runs the live multi-item observation against
   an independent correct product (PASS) and its unbracketed mutant (FAIL).
   It checks 17 listings through `output_reason`, and runs one of each kind
-  through the contained runner to confirm both give the same verdict.
-- `tests.test_brief_evidence` checks a multi-item receipt and four forged
-  listings after rehashing.
+  through the contained runner to confirm both give the same verdict, and
+  keeps a bound item alone valid when its ID has a space.
+- `tests.test_brief_evidence` checks a multi-item receipt, four forged
+  listings after rehashing, and which step a failed replay names.
 - `tests.test_resolver_unit` covers the runner-owned records.
 - The fake Plan Reviewer now adds a second item before listing, as the live
   reviewers did. `tests.test_brief_cli` asserts the two-line listing, and its

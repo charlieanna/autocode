@@ -412,6 +412,23 @@ class BriefAcceptanceTests(unittest.TestCase):
                 self.assertEqual(0 if accepted else 1, code, observed)
                 self.assertEqual(reason, observed['reason'])
 
+    def test_the_bound_item_is_always_a_valid_listed_line(self):
+        # An ID argument is any string, but the line pattern's opaque ID is one word. The
+        # bound item alone passed before the per-line rule and must still pass (#452 review).
+        steps = [{'argv': ['add', 'buy milk']}, {'argv': ['complete', 'a b']}, {'argv': ['list']}]
+        bindings = [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}, {'placeholder': 'ID', 'step': 1, 'argument': 1}]
+        manifest = brief.bind(self.sources, [{**listing_proposal(self.sources), 'steps': steps, 'observe_step': 2,
+                                              'bindings': bindings}])
+        observation = manifest['observations'][0]
+        line = brief.line_pattern(observation)
+        for listing, accepted in [(b'a b buy milk [done]\n', True), (b'a b buy milk [done]\nc buy milk [open]\n', True),
+                                  (b'a b buy milk done\n', False), (b'c d buy milk [done]\n', False)]:
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(listing, observation['pattern'], line)
+                self.assertEqual(accepted, reason == '', reason)
+                code, observed, _ = self.run_candidate(printing(listing), manifest=manifest)
+                self.assertEqual((0 if accepted else 1, reason), (code, observed['reason']), observed)
+
     def test_listed_text_is_limited_to_values_supplied_before_the_listing(self):
         records = sources(TASK.split('; `todo.py complete ID`')[0])
         later = {'steps': [{'argv': ['add', 'brief-probe']}, {'argv': ['list']}, {'argv': ['add', 'later']}]}
