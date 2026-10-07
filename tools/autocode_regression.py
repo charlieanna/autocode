@@ -52,6 +52,7 @@ try:
     from . import autocode_runner_check as runner_check, autocode_status as status
     from . import autocode_verification_schedule as schedule
     from . import autocode_wrapped_runner as wrapped_runner
+    from . import autocode_launch_inputs as launch_inputs
 except ImportError:
     import autocode_follow_up as follow_up
     import autocode_test_cases as test_cases
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_status as status
     import autocode_verification_schedule as schedule
     import autocode_wrapped_runner as wrapped_runner
+    import autocode_launch_inputs as launch_inputs
 
 STAGE = "regression_proof"
 SUMMARY_KEYS = ("framework", "verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
@@ -241,32 +243,16 @@ def reviewed_patch(state, workspace):
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
-def _generated_admission(state, workspace, dependencies):
-    """Which ignored generated sources this proof may copy (#529).
-
-    A task worktree copies the project checkout's current generated sources.
-    An in-place run, whose dependency checkout is the candidate itself, copies
-    only ``generated_sources_at_start`` (written once in autocode_run_setup).
-    A saved run without that key copies none.
-    """
-    if Path(dependencies).resolve() != Path(workspace).resolve():
-        return {}
-    if "generated_sources_at_start" not in state:
-        return {"generated_unrecorded": True}
-    record = state.get("generated_sources_at_start")
-    return {"generated_record": record if isinstance(record, dict) else {}}
-
-
-def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None):
+def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None,
+              inputs=None):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
-    admission = _generated_admission(state, workspace, dependencies)
     binding = {"base": base, "command": suite,
                "framework": framework.to_dict() if framework else None,
                "base_patch": schedule.tree_identity(base_patch) if base_patch else None,
                "timeout": suite_timeout(state),
                "runtime": verify.baseline_identity(workspace, command=suite, dependencies_from=dependencies,
-                                                   **admission)}
+                                                   ignored_inputs=inputs)}
     if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
         try:
             result = util.read(cached["path"])
@@ -284,7 +270,7 @@ def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, b
                  output=directory / "baseline" / "suite-on-base.log")
     result = verify.baseline(workspace, base, directory, framework=framework,
                              suite_command=suite, dependencies_from=dependencies, timeout=suite_timeout(state),
-                             base_patch=base_patch, **admission)
+                             base_patch=base_patch, ignored_inputs=inputs)
     path = directory / "baseline.json"
     util.atomic_json(path, result)
     state["regression_baseline"] = {"base": base, "command": suite, "path": str(path), "health": result["health"],
@@ -300,8 +286,6 @@ def prove(state, workspace, run_dir):
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state))
     options = settings(state)
-    dependencies = state.get("project_workspace") or str(workspace)
-    admission = _generated_admission(state, workspace, dependencies)
     command = options.get("test_command")
     # A trusted explicit collector chooses the result parser and targeted tests.
     framework = verify.command_framework(command) if command else None
@@ -310,6 +294,8 @@ def prove(state, workspace, run_dir):
     framework = framework or verify.detect_framework(workspace, python=python)
     base = base_commit(state, workspace)
     operator = operator_patch.pinned(state)
+    # The ignored files an in-place run's scratch trees receive: those it started with (#529).
+    inputs = launch_inputs.supply(state, workspace, run_dir) if base else None
     # Stored only in regression_proof; prove reads it before reusing evidence.
     # A repaired test environment must invalidate a prior failure (or PASS)
     # even when the source and acceptance criteria have not changed.
@@ -322,7 +308,8 @@ def prove(state, workspace, run_dir):
         "identity": verify.execution_identity(workspace, command=options.get("test_command") or
                                                (framework.suite if framework else None),
                                                dependencies_from=state.get("project_workspace"),
-                                               source_paths=source_scope.paths(state), **admission) if base else
+                                               source_paths=source_scope.paths(state),
+                                               ignored_inputs=inputs) if base else
                     {"source_revision": current, "reuse_supported": False},
         "base": base,
         "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
@@ -332,7 +319,7 @@ def prove(state, workspace, run_dir):
     }
     if (saved.get("source_revision") == current and saved.get("case_scope", scope) == scope
             and saved.get("execution_context") == execution_context and saved.get("verdict") == verify.PASS
-            and execution_context["identity"]["reuse_supported"]):
+            and execution_context["identity"]["reuse_supported"] and not (inputs and inputs.unverified)):
         try:
             result = util.read(saved["path"])
             if (util.file_hash(saved["path"]) == saved.get("receipt_sha256")
@@ -343,14 +330,14 @@ def prove(state, workspace, run_dir):
         except (OSError, ValueError, TypeError, KeyError):
             pass
     with runner_check.track(state, run_dir, STAGE, "Preparing regression checks", status.persist) as progress:
-        proof = _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context)
+        proof = _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs)
         proof["execution_context"] = execution_context
         if proof.get("path"):
             proof["receipt_sha256"] = util.file_hash(proof["path"])
         return proof
 
 
-def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context):
+def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context, inputs):
     started = time.monotonic()
     base = base_commit(state, workspace)
     options = settings(state)
@@ -366,21 +353,24 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
             refused = problem and f"The original code cannot be prepared: {problem}"
     unappliable = base and base_patch and not refused and (
         "it is missing" if not base_patch.is_file() else verify.patch_applies(workspace, base, base_patch))
-    if not base or unappliable or refused:
+    # Trees that cannot hold the ignored files the run started with prove nothing either way.
+    withheld = list(inputs.unverified) if inputs else []
+    if not base or unappliable or refused or withheld:
         why = refused or ("No base commit is recorded for this run, so the fix cannot be compared with the original code"
                if not base else f"The reviewed change {base_patch.name} cannot be applied to the base revision "
-               f"({unappliable}), so the fix cannot be compared with the change the review judged")
-        proof = {"verdict": verify.UNVERIFIED, "failures": [], "notes": [], "review_reasons": [],
-                 "unverified": [why], "fail_to_pass": None, "commands": {},
+               f"({unappliable}), so the fix cannot be compared with the change the review judged" if unappliable
+               else None)
+        proof = {"verdict": verify.UNVERIFIED, "failures": [], "notes": list(inputs.notes) if inputs else [],
+                 "review_reasons": [], "unverified": ([why] if why else []) + withheld, "fail_to_pass": None,
+                 "commands": {},
                  "base": base, "base_patch": str(base_patch) if base_patch and not refused else None,
                  "source_revision": current, "test_files": [], "source_files": []}
         path = None
     else:
         dependencies = state.get("project_workspace") or str(workspace)
-        admission = _generated_admission(state, workspace, dependencies)
         suite = options.get("test_command") or (framework.suite if framework else None)
-        base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch, progress)
-                      if suite else None)
+        base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch, progress,
+                                inputs) if suite else None)
         number = len(state.get("regression_proofs", [])) + 1
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
@@ -401,9 +391,11 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
                                preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
-                               source_paths=source_scope.paths(state), **admission)
+                               source_paths=source_scope.paths(state), ignored_inputs=inputs)
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
+        if inputs:
+            proof["notes"] = [*(proof.get("notes") or []), *inputs.notes]
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
         if ((coverage or (test_only and not result.get("source_files")))
@@ -417,7 +409,9 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
     after = verify.execution_identity(workspace, command=options.get("test_command") or
                                        (framework.suite if framework else None),
                                        dependencies_from=state.get("project_workspace"),
-                                       source_paths=source_scope.paths(state), **admission) if path else execution_context["identity"]
+                                       source_paths=source_scope.paths(state),
+                                       ignored_inputs=launch_inputs.supply(state, workspace, run_dir) if inputs
+                                       else None) if path else execution_context["identity"]
     if after != execution_context["identity"]:
         proof["verdict"] = verify.UNVERIFIED
         proof.setdefault("unverified", []).append("Execution context changed while proving the candidate")

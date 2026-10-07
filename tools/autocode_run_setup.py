@@ -32,6 +32,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_registry as registry
     from . import autocode_regression as regression, autocode_verify as verify
+    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
     from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_registry as registry
     import autocode_regression as regression, autocode_verify as verify
+    import autocode_launch_inputs as launch_inputs
     import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
     import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
@@ -164,10 +166,6 @@ def resolve(runner, args, parser):
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
         else:
             state["base_commit"] = launch_base(workspace, run_dir, parser)
-        if not state.get("project_workspace"):
-            # In-place proofs copy only these ignored generated sources. Read by
-            # autocode_regression._generated_admission. A later file is left out (#529).
-            state["generated_sources_at_start"] = verify.generated_source_record(workspace)
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None and args.max_iterations is not None:
@@ -234,6 +232,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     containment_policy.configure(state, settings, allow=bool(getattr(args, "allow_uncontained_tools", False)),
                                  configured_tool=getattr(runner.opencode, "CONFIGURED", False),
                                  workspace=workspace, now=runner.now)
+    if not args.run_dir and not state.get("project_workspace"):
+        launch_inputs.record(state, workspace, run_dir)
     settings = protected_oracles.reconcile(state, settings, args, workspace, run_dir,
         is_test_path=verify.is_test_path,
         discover_command=lambda: (verify.detect_framework(workspace,

@@ -19,6 +19,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_progressive_state as progressive
     from . import autocode_regression as regression, autocode_provider_recovery as provider_recovery
+    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
     from .units import common
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_progressive_state as progressive
     import autocode_regression as regression, autocode_provider_recovery as provider_recovery
+    import autocode_launch_inputs as launch_inputs
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
     from units import common
@@ -51,6 +53,10 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
         regression.before_review(current, None, workspace, run_dir)
+        try:
+            launch_inputs.guard(current, workspace, run_dir)
+        except ValueError as error:
+            raise support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
         if args.unit and autopilot.pending_unit(current) != args.unit:
             autopilot.publish_handoffs(current, run_dir)
             runner.write_json(state_path, current)
@@ -126,6 +132,10 @@ def run(runner, args, state, state_path, run_dir, workspace):
             if not runner.recover_default_budget(current, run_dir, workspace, 'planning_review_call_limit'):
                 resolver_runtime.operational_boundary(runner, current, run_dir, workspace)
         regression.before_review(current, stage, workspace, run_dir)
+        try:
+            launch_inputs.guard(current, workspace, run_dir)
+        except ValueError as error:
+            raise support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
         if stage == "orchestrator":
             return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
         request = autopilot.prepare_request(current, stage, state_path, runner.SCHEMA_DIR)
