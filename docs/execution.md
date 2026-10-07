@@ -69,7 +69,9 @@ model instead, and the status view does not offer it a retry (see
 [A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
 `--retry-builder` refuses a refused Builder; for a quota stop it reruns the same model.
 Settings flags given with `--retry-builder` (for example `--max-parallel-builders 3`) are
-saved with an accepted retry, which runs under them; a refused retry saves nothing.
+saved with an accepted retry, and the run continues under them; a refused retry saves nothing.
+A parallel member reruns on the Builder route its batch started it with, so a Builder model,
+provider or reasoning effort is refused with `--retry-builder` for it.
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised

@@ -337,8 +337,10 @@ has reset).
 
 A settings flag on the resume, such as `--resume-paused --sol-model MODEL`, saves that setting
 and asks the member's question again, as long as that member is still the batch's stopped
-member. With `--retry-builder M1`, the retry runs under the new settings. A retry that is
-refused, such as one for a refused member, saves nothing, settings included: run the settings
-flag without `--retry-builder`, then answer the question.
+member. With `--retry-builder M1`, the run continues under the new settings, and M1 reruns on
+the model its batch started it with: only the answer to its question moves a member's model, so
+`--terra-model` (or another Builder model, provider or reasoning effort) is refused with
+`--retry-builder`. A retry that is refused, such as one for a refused member, saves nothing,
+settings included: run the settings flag without `--retry-builder`, then answer the question.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
