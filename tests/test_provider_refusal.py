@@ -201,7 +201,14 @@ class ContentFilterRouteTests(unittest.TestCase):
         again = retry("M1", None)
         self.assertEqual(("PAUSED_CONTENT_FILTER", "M1"), (again.status, again.quota_worker["milestone_id"]))
         self.assertIn("Milestone M1: Builder: the provider's content filter refused the response", str(again))
-        self.assertIn("asks about Builder M1 first: --resume-paused --retry-builder M1", str(retry("M2", None)))
+        first = "continues from Builder M1's stop first, with --resume-paused --retry-builder M1"
+        self.assertIn(first, str(retry("M2", None)))
+        # A quota-stopped answered member reruns rather than being asked about; the message says only what is true.
+        for record in (state, origin, origin["quota_worker"], state["resolver"]["human_response_frontier"]):
+            record["pause_status" if record is not state else "status"] = "PAUSED_BUDGET"
+        rows["M1"]["status"] = "PAUSED_BUDGET"
+        self.assertIn(first, str(retry("M2", None)))
+        self.assertNotIn("asks about Builder M1", str(retry("M2", None)))
 
     def test_a_batch_member_lists_and_accepts_only_models_its_answer_takes(self):
         # #465: Builder M2 of a parallel batch was refused on MiMo after a sibling's answer had moved the
