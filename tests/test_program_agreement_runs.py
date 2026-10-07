@@ -200,6 +200,38 @@ class AgreementTests(ProgramHarness):
         self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
         self.assertIn(f"Workstream a completed (run {record['run_dir']}) without showing an approved plan", result["next"])
 
+    def test_a_conflict_resolved_by_hand_after_a_follow_up_drops_a_requirement_names_it(self):
+        path = self.write_manifest(with_requirements(manifest()))
+        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
+        for number in range(1, 4):  # every automatic rejection is spent
+            self.child_view["a"] = {"displayed_plan": {"token": f"r{number}:draft", "acceptance_criteria": []}}
+            code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]))
+        integration = Path(result["integration_workspace"])
+        (integration / "a").mkdir()
+        (integration / "a/service.py").write_text("external repair\n")
+        git(integration, "add", "a/service.py")
+        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
+        # The person gives feedback; the run plans again, keeps C2, completes, and its merge conflicts.
+        self.set_child(self.records(result)["a"], status="RUNNING", view={})
+        self.child_outcome["a"] = "TASK_COMPLETE"
+        self.child_view["a"] = {}
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]), result)
+        record = self.records(result)["a"]
+        # A follow-up by hand completes under a plan that drops C2; then the person resolves the conflict.
+        self.set_child(record, view={"approved_contract": {"token": "r5:dropped", "body": {"acceptance_criteria": []}}})
+        merge = subprocess.run(["git", "-C", str(integration), "-c", "user.name=H", "-c", "user.email=h@example.test",
+                                "merge", "--no-ff", "-X", "theirs", "--no-edit", record["branch"]],
+                               capture_output=True, text=True)
+        self.assertEqual(0, merge.returncode, merge.stdout + merge.stderr)
+        for _ in range(2):  # the pause names what holds it, not the conflict the person already resolved
+            code, result = self.run_program(path)
+            self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]), result)
+            self.assertIn("The conflict of workstream a was resolved by hand, but its plan drops inherited "
+                          "requirement(s) C2", result["next"])
+            self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
+
     def test_the_final_check_and_a_deployment_merge_only_under_an_approved_plan(self):
         path = self.write_manifest(manifest(deploy=True))
         self.child_view["integration"] = {"approved_contract": None}

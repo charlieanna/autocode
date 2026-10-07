@@ -1086,10 +1086,14 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
                             capture_output=True, text=True)
     if result.returncode == 0:
         # The run may have changed since its conflict (a person followed it up): its plan is held as integrate() holds it.
+        # A resolved conflict is no longer what holds it, so the pause names what does.
         reason = plan_blocked(record, merging=True)
         if reason:
             record["blocked_reason"] = reason
-            return False
+            raise util.Paused("PAUSED_INHERITANCE", (
+                f"The conflict of workstream {workstream['id']} was resolved by hand, but {reason}, so it was not "
+                f"merged. Give its run (--run-dir {record.get('run_dir')}) feedback so it plans again, approve a plan "
+                "that keeps every inherited id, then rerun the program"))
         require_checked_plan(workstream, record)
         branch_head = workspaces.git(record["workspace"], "rev-parse", "--verify", "HEAD")
         _repeat_failure(manifest, state, workstream["id"], record, branch_head)
