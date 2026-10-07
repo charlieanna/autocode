@@ -41,6 +41,12 @@ family. GPT-6 Astra is the Resolver's default; explicit choices may use it in ot
 | Resolver (`--astra-model`) | `openai/gpt-6-astra` | high | Astra High → XHigh → Max |
 
 A role escalates only while its exact model and reasoning level are on its ladder.
+The ladders live in one place (`tools/autocode_route_ladder.py`, shared with the
+Builder retry policy); a new run persists them under `route_ladders` in its
+settings, with rungs removed that its provider publishes no model for. Each
+escalation later records how it ended — a validation PASS `passed`, a
+retry-limit pause `paused` — and `autocode --status` summarizes that as
+`escalation_outcomes`.
 The default GLM Builder, any GLM Tester or Completion Reviewer, and the Plan Reviewer
 are on no ladder: they keep their configured route, and a verifier that keeps
 struggling pauses the run instead. The Builder instead gets its

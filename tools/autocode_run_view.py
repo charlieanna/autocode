@@ -26,6 +26,7 @@ try:
     from . import autocode_liveness as liveness_policy
     from . import autocode_operational_information as operational_information
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_route_ladder as route_ladder
     from . import autocode_accepted_source as accepted_source
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_liveness as liveness_policy
     import autocode_operational_information as operational_information
     import autocode_containment_policy as containment_policy
+    import autocode_route_ladder as route_ladder
     import autocode_accepted_source as accepted_source
 
 SCHEMA = 2
@@ -88,6 +90,10 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         "evidence": evidence(state),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
+        # How the run's route escalations resolved (autocode_route_ladder): a
+        # validation PASS passed the retried work, a retry-limit pause ended it,
+        # and an open one is still unresolved.
+        "escalation_outcomes": route_ladder.outcome_summary(state),
         "request_context": request_usage.view(state),
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
