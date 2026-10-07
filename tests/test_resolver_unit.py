@@ -296,6 +296,52 @@ class ResolverTests(unittest.TestCase):
         unknown["role_output"] = "bad"
         self.assertEqual(r.resolve(request(contract=snapshot(unknown)))[0].action, "escalate")
 
+    def test_runner_owned_proof_records_keep_an_approved_contract_resolvable(self):
+        # Live #452 run jb1acns9 (master d6aded9, before #571): a body with brief_acceptance
+        # escalated every request as "invalid contract or declarative input", even the
+        # Builder's ordinary report repair. The records stay sealed while they are allowed.
+        owned = body()
+        owned["brief_acceptance"] = {"manifest": {"hash": "m"}, "review": {}, "amendments": []}
+        owned["risk_acceptance"] = {"manifest": {"hash": "r"}, "review": {}, "amendments": []}
+        repair = r.Proposal("retry", {"guidance": "Use only the existing bounded report-repair path."}, "report repair")
+        decision, receipt = r.resolve(request(contract=snapshot(owned), proposed_resolution=repair))
+        self.assertEqual(("retry", "proposal within boundaries"), (decision.action, receipt.in_scope_reason))
+        candidate = copy.deepcopy(owned)
+        candidate["technical_approach"] = ["New approach"]
+        replan = r.resolve(request(contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": candidate}, "plan")))
+        self.assertEqual(("replan", "allowed-field replan"), (replan[0].action, replan[1].in_scope_reason))
+        # Runner-owned and sealed: never an allowed field, never droppable, always an object.
+        for key in ("brief_acceptance", "risk_acceptance"):
+            weakened = copy.deepcopy(candidate)
+            weakened[key]["manifest"]["hash"] = "weakened"
+            dropped = copy.deepcopy(candidate)
+            dropped.pop(key)
+            retyped = copy.deepcopy(candidate)
+            retyped[key] = "accepted"
+            for changed, reason in ((weakened, "protected contract change"), (dropped, "invalid candidate body"),
+                                    (retyped, "invalid candidate body")):
+                with self.subTest(key=key, reason=reason, value=changed.get(key)):
+                    result = r.resolve(request(contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": changed}, "x")))
+                    self.assertEqual(("retry", reason), (result[0].action, result[1].rationale))
+            malformed = copy.deepcopy(owned)
+            malformed[key] = ["not", "a", "record"]
+            denied = request(contract=snapshot(malformed))
+            self.assertEqual("escalate", r.resolve(denied)[0].action)
+            self.assertFalse(denied.ledger.attempts)
+
+    def test_every_optional_goal_body_field_keeps_the_contract_resolvable(self):
+        # The next field autocode_goals adds to the body must not repeat #452's escalation.
+        import autocode_goals as goals
+        schema = goals.BODY_SCHEMA
+        self.assertEqual(r._REQUIRED, frozenset(schema["required"]))
+        optional = {}
+        for key in sorted(set(schema["properties"]) - set(schema["required"])):
+            spec = schema["properties"][key]
+            optional[key] = spec["enum"][0] if "enum" in spec else {"object": {}}[spec["type"]]
+            with self.subTest(key=key):
+                self.assertEqual("continue", r.resolve(request(contract=snapshot({**body(), key: optional[key]})))[0].action)
+        self.assertEqual("continue", r.resolve(request(contract=snapshot({**body(), **optional})))[0].action)
+
     def test_source_purity_and_constants(self):
         source = pathlib.Path(r.__file__).read_text()
         self.assertNotIn("import tools", source)
