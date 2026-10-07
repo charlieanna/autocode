@@ -907,6 +907,9 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
             stat = path.stat()
             source_metadata[name] = [stat.st_mode, stat.st_mtime_ns, stat.st_uid, stat.st_gid]
     environment = test_environment(workspace)
+    invocation = python_tests.parse(command)
+    if invocation and invocation.prefix:
+        environment.update(word.split('=', 1) for word in invocation.prefix[1:])
     relative_pythonpath = [p for p in environment.get("PYTHONPATH", "").split(os.pathsep)
                            if p and not Path(p).is_absolute()
                            and not (workspace / p).resolve().is_relative_to(workspace.resolve())]
@@ -916,7 +919,8 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
         words = []
     python_command = bool(words and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
                           and not re.search(r"[;&|<>`$\n]", command))
-    python = words[0] if python_command else python_for(dependencies_from or workspace)
+    python = (invocation.python if invocation else words[0] if python_command
+              else python_for(dependencies_from or workspace))
     executable = shutil.which(python, path=environment.get("PATH", ""))
     venv_config = Path(executable).parent.parent / "pyvenv.cfg" if executable else None
     try:

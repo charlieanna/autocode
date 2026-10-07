@@ -440,6 +440,11 @@ class VerifyCase(unittest.TestCase):
         state = {"goal_contract": {"body": {"task_kind": "bugfix"}}, "base_commit": project.base,
                  "settings": {"regression": {"test_command": suite, "test_timeout": 30,
                                               "python": "/missing/detected-python"}}}
+        identity = verify.execution_identity(project.root, command=suite)
+        self.assertEqual(str(Path(python).resolve()), identity['interpreter']['path'])
+        self.assertFalse(identity['reuse_supported'])
+        changed_env = verify.execution_identity(project.root, command=suite.replace('PROOF_MODE=ready', 'PROOF_MODE=other'))
+        self.assertNotEqual(identity['environment_hash'], changed_env['environment_hash'])
         proof = regression.prove(state, project.root, project.evidence)
         self.assertEqual(verify.PASS, proof['verdict'], proof)
         self.assertEqual(python, proof['framework']['python'])
