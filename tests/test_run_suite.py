@@ -281,18 +281,20 @@ class PromptFailureOutputTests(unittest.TestCase):
                 self.assertEqual(2, output.count(self.FAILURE))
                 self.assertEqual(1, output.count(self.RESULT_LINES[verbosity]))  # per-test results once
 
-    def test_each_failure_last_appears_with_only_its_own_traceback(self):
-        # AutoCode's verifier reads a unittest failure's traceback as the text up to the next FAIL:/ERROR:
-        # header (autocode_test_setup.failure_details), so the last copy must not run into later output.
+    def test_every_copy_of_a_failure_reads_as_only_its_own_traceback(self):
+        # AutoCode's verifier reads each unittest failure's traceback from this output to tell a test that
+        # could not prepare itself from a real failure (autocode_test_setup.failure_details). The copy
+        # printed when the module finished is followed by later modules' output; none of it is the traceback.
         for verbosity in (1, 2):
             with self.subTest(verbosity=verbosity):
                 _, _, output = self.run_parallel(verbosity)
                 found = list(test_setup.failure_details(output))
-                self.assertEqual({("test_x", "tests.test_bad.C.test_x")}, {(name, owner) for name, owner, _ in found})
-                details = [detail for _, _, detail in found]
-                self.assertIn(self.TRACEBACK, details[-1])
-                self.assertNotIn("later-545", details[-1])
-                self.assertNotIn("tests.test_slow", details[-1])
+                self.assertEqual([("test_x", "tests.test_bad.C.test_x")] * 2,
+                                 [(name, owner) for name, owner, _ in found])
+                for _, _, detail in found:
+                    self.assertIn(self.TRACEBACK, detail)
+                    self.assertNotIn("later-545", detail)
+                    self.assertNotIn("tests.test_slow", detail)
 
     def test_passing_modules_still_pass(self):
         for verbosity in (1, 2):

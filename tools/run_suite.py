@@ -274,9 +274,9 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
     as soon as it finishes, so a slow or hung module still running cannot hide it (#545), and its failure
     report again at the end, so the tracebacks sit above the summary rather than under every later module's
     output. The repeat holds no per-test result line and its own headers name modules, not tests, so a
-    reader of unittest's report finds the same tests; each traceback's last copy is followed only by its
-    module's footer and the next failure or the summary, which is how AutoCode's verifier bounds one
-    (``autocode_test_setup.failure_details``)."""
+    reader of unittest's report finds the same tests. AutoCode's verifier is one: it ends each traceback
+    at its module's "Ran N tests" footer (``autocode_test_setup.failure_details``), so the later output
+    that follows the first copy never reads as part of it."""
     started = time.monotonic()
     failed = []
     tests = 0
