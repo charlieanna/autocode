@@ -177,6 +177,23 @@ class ParallelOutputAsTheVerifierReadsItTests(unittest.TestCase):
         for key in ("passed", "failed", "skipped", "total", "complete", "setup_errors"):
             self.assertEqual(expected.get(key), results.get(key), key)
 
+    def test_the_failures_are_shown_again_beside_the_summary(self):
+        # A CI log opens at its end, and CI runs --verbosity 2: a failure that finished first must not
+        # end up above every later module's output with only its module's name beside the summary.
+        for verbosity, output in self.outputs.items():
+            with self.subTest(verbosity=verbosity):
+                after_the_last_module = output[output.index(f"s  {ORDER[-1]} ("):]
+                again = after_the_last_module[after_the_last_module.index("\nThe failures again:\n"):]
+                self.assertLess(again.index("does not have the attribute 'gone'"),
+                                again.index("AssertionError: 1 != 2"))
+                self.assertLess(again.index("AssertionError: 1 != 2"), again.index("\n\nRan 7 tests in 5 modules"))
+                self.assertEqual(2, output.count("AssertionError: 1 != 2"))
+                self.assertNotIn("optional_dep_545", again)
+                self.assertNotIn("handled in app", again)
+                # Per-test result lines are not repeated.
+                self.assertEqual(int(verbosity > 1), output.count("test_x (tests.test_a_fail.A.test_x) ... FAIL"))
+                self.assertEqual(int(verbosity > 1), output.count("test_x_ok (tests.test_a_fail.A.test_x_ok) ... ok"))
+
 
 if __name__ == "__main__":
     unittest.main()

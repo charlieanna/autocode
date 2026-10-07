@@ -236,8 +236,11 @@ class PromptFailureOutputTests(unittest.TestCase):
                 ok, seen_while_pending, output = self.run_with_pending_module(verbosity)
                 self.assertEqual([True], seen_while_pending)
                 self.assertFalse(ok)
-                self.assertEqual(1, output.count("Traceback: AssertionError in test_broken"))
-                self.assertLess(output.index("FAIL: tests.test_broken"), output.index("ok      0.0s  tests.test_slow"))
+                # Once when the module finishes, before the slow module's row, and once more beside the summary.
+                slow_row = output.index("ok      0.0s  tests.test_slow")
+                self.assertEqual(1, output[:slow_row].count("Traceback: AssertionError in test_broken"))
+                self.assertEqual(1, output[slow_row:].count("Traceback: AssertionError in test_broken"))
+                self.assertLess(output.index("FAIL: tests.test_broken"), slow_row)
                 self.assertIn("Ran 6 tests in 2 modules, 2 at a time", output)
                 self.assertTrue(output.rstrip().endswith("1 module(s) FAILED: tests.test_broken"))
                 self.assertEqual(verbosity > 1, "slow output" in output)
@@ -252,6 +255,28 @@ class PromptFailureOutputTests(unittest.TestCase):
         lines = out.getvalue().splitlines()
         self.assertIn("Ran 3 tests in 3 modules, 2 at a time, in 0s: 1 module(s) FAILED: tests.test_c", lines)
         self.assertIn("Ran 2 tests in 2 modules, 2 at a time, in 0s: OK", lines)
+
+
+class FailureReportTests(unittest.TestCase):
+    """What the end of a parallel run shows again for a failed module (#545)."""
+
+    REPORT = (f"{'=' * 70}\nFAIL: test_x (tests.test_a.A.test_x)\n{'-' * 70}\nTraceback (most recent call last):\n"
+              f"AssertionError: 1 != 2\n\n{'-' * 70}\nRan 2 tests in 0.001s\n\nFAILED (failures=1)\n")
+
+    def test_unittest_s_failure_report_without_the_per_test_results(self):
+        output = ("test_x (tests.test_a.A.test_x) ... FAIL\ntest_y (tests.test_a.A.test_y) ... ok\n\n"
+                  + self.REPORT)
+        self.assertEqual(self.REPORT, run_suite.failure_report(output))
+        self.assertEqual(self.REPORT, run_suite.failure_report("F.\n" + self.REPORT))
+
+    def test_an_unexpected_success_alone_is_a_report(self):
+        report = (f"{'=' * 70}\nUNEXPECTED SUCCESS: test_x (tests.test_a.A.test_x)\n\n{'-' * 70}\n"
+                  "Ran 1 test in 0.001s\n\nFAILED (unexpected successes=1)\n")
+        self.assertEqual(report, run_suite.failure_report("u\n" + report))
+
+    def test_output_with_no_report_is_shown_whole(self):
+        crashed = "test_x (tests.test_a.A.test_x) ... Fatal Python error: Segmentation fault\n"
+        self.assertEqual(crashed, run_suite.failure_report(crashed))
 
 
 if __name__ == "__main__":
