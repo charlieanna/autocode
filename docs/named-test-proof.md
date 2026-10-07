@@ -2,6 +2,36 @@
 
 A plan's `test: test_c1_example` criterion requires that named test to pass with
 the change and not before it. A `guard:` criterion must pass before and after.
+When every criterion the proof covers is a `guard:` and the change adds or edits no test
+(it may change nothing, as a validation-only re-check of a merged program workstream does),
+the guards rest on tests the project already has: the proof runs the suite on the base and
+the candidate, and each guard's named test must pass on both. A `test:` criterion still needs
+a change, unless the person granted the test-only regression-proof exception.
+
+A guard that names its test exactly (`guard: test_c4_adds`) may name a test the project
+already has in a file the change leaves alone, as a program's final check does for the
+criteria the merged workstreams proved. The targeted run covers only the changed test files,
+so the whole suite also runs on the original code with the change's test files (its tests,
+fixtures and goldens), and such a guard is matched against the tests that pass there and on
+the candidate, with these limits:
+
+- a test whose own name appears in any changed code file is left to the targeted run (a changed
+  test file) or not used (a changed product module that defines it); a document that mentions it
+  does not count;
+- if that suite run times out or does not report every test, a guard left without its test is
+  unverified rather than refuted;
+- with git-ignored test files that the proof copies into its trees, the whole suite is not
+  consulted, so a guard cannot rest on an ignored file, and the failure says so;
+- a case matched by its id alone (a diagnosis's T4) is never matched this way, since another
+  fix's `test_t4_...` is not its test;
+- one failing variant of a matched test breaks the guard, even when it failed before the change
+  too: the same function in the same file or module, with other parameters, as a Go subtest, or
+  run by another class. A failing test elsewhere that only shares the name does not;
+- a node:test file that spawns another test runner is refused here as everywhere.
+
+When the change edits no test file, the guards are matched against the base suite's own
+pass-to-pass, by the case id as well as by exact name, so a guard may name several tests; one
+of them failing beside a test it matched breaks the guard.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
 Node's built-in `node:test` runner, and Vitest 4.

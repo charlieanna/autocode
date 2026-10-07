@@ -338,6 +338,10 @@ before a PASS is accepted, the runner requires its own current execution of each
 - **What must hold.** Every check exits 0. There are no exceptions a model can
   claim: a check that needs a server or other setup starts and stops it itself,
   for example with a script in the repository.
+- **What is refused.** A check that runs `git status` is refused before anything
+  runs: it reads the working tree's state, not the product, and a program re-runs
+  checks after the work is committed and merged, where it lists nothing
+  ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)).
 - **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
@@ -804,6 +808,53 @@ Operational responses use `--resolver-request ID --resolver-token TOKEN
 to retry, increase limits, change scope or approve work. The response returns to
 Resolver, and an unchanged stopped condition is not repeatedly reissued as a
 new question. Explicit administrative actions remain separately validated.
+
+Corrective information is evaluated once. Accepting `provide_information` schedules
+one Resolver re-evaluation, bound to the request ID and token, the response, the
+pause, the source revision, the saved settings (including the saved transport
+identity), the task, the contract, the recovery accounting and the request's
+evidence pins. The next `autocode resume` (or `--resume-paused` without another
+recovery flag) consumes it, without a provider call:
+
+- If anything it is bound to changed, it is retired as stale, the run stays
+  paused and Resolver asks a fresh request for the current run. Information
+  an AutoCode release from before this re-evaluation accepted has no scheduled
+  evaluation; Resolver asks a fresh request for it the same way.
+- If the stop needs an operator control that information cannot supply (a spent
+  automatic-recovery allowance, a reached time, iteration, milestone or
+  no-progress bound, a repeated failure, a Builder retry limit, a stopped
+  parallel member, a stalled milestone, spent report-only repairs, an
+  unreconciled attempt), the run stays paused. Spent report-only repairs and
+  validation-only rounds that stalled on open blocking findings are held under
+  whichever pause carries them, `PAUSED_RESOLVER` included. Where the CLI
+  accepts a control at that stop, the stop reason and status name that exact
+  command; after a content-filter refusal the resume it names changes the
+  role's model (`--sol-model MODEL`, for example), since the same model would
+  likely refuse again. Later resumes repeat the decision without evaluating
+  again.
+- If the cause lies outside the run (`PAUSED_PROVIDER_CAPACITY`,
+  `PAUSED_RATE_LIMIT`, `PAUSED_BUDGET`, `PAUSED_CONTENT_FILTER`,
+  `PAUSED_PROVIDER_UNCERTAIN`, `PAUSED_UNCERTAIN_STAGE`, `PAUSED_WORKSPACE_BUSY`,
+  a Resolver stop (`PAUSED_RESOLVER_OPERATIONAL`, `PAUSED_RESOLVER`), or
+  `PAUSED_PLANNING_BUDGET` with reserved recovery left) and none of the bounds
+  above holds it, the request's own advice applies: the run continues through
+  the normal resume path, whose admission checks (limits, permissions,
+  transport, source, approval, interventions) still run before any provider
+  launches. The continuation does not renew the per-incident Resolver attempts
+  or the pending report-repair attempts that an explicit resume at other
+  pauses renews, so a stop found there, such as a live transport change,
+  Resolver's own per-incident limit or a parallel Builder member that still
+  needs a model only you can name, is a new stop or a new request. Any other
+  stop is held.
+
+A repeated resume never evaluates the same response twice, and the same response
+sent again changes nothing (the CLI says so, and names a newer request if one is
+waiting). A resume killed after writing its decision record but
+before saving the run state evaluates the response again, still without a
+provider call; the record the saved state names is the decision that took
+effect. `leave_paused` is final.
+Requirements answers, plan approval, `--retry-failed-stage` and `--grant-recovery`
+keep their own paths.
 
 Source/contract/evidence changes, stale tokens and queued interventions invalidate
 old requests. Real requirements questions, permission changes, plan approval and
