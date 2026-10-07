@@ -1095,6 +1095,32 @@ class VerifyCase(unittest.TestCase):
             self.assertEqual([str(tree / "src"), str(tree), "/elsewhere"], env["PYTHONPATH"].split(os.pathsep))
             self.assertEqual("1", env["CI"])
 
+    def test_a_parent_tests_package_cannot_shadow_the_fixture_tests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tree = root / "tree"
+            parent = root / "checkout"
+            (tree / "tests").mkdir(parents=True)
+            (parent / "tests").mkdir(parents=True)
+            (parent / "tests" / "__init__.py").write_text("")
+            other = root / "libs"
+            other.mkdir()
+            inherited = os.pathsep.join([str(parent), str(other)])
+            env = verify.test_environment(tree, {"PYTHONPATH": inherited})
+            self.assertEqual([str(tree), str(other)], env["PYTHONPATH"].split(os.pathsep))
+            bare = root / "bare"
+            bare.mkdir()
+            env = verify.test_environment(bare, {"PYTHONPATH": inherited})
+            self.assertEqual([str(bare), str(parent), str(other)], env["PYTHONPATH"].split(os.pathsep))
+            (tree / "tests" / "test_local.py").write_text(
+                "import unittest\n\nclass T(unittest.TestCase):\n"
+                "    def test_here(self):\n        self.assertIn('tree', __file__)\n")
+            (parent / "tests" / "test_local.py").write_text("raise SystemExit('parent package')\n")
+            log = root / "suite.log"
+            receipt = verify.run_command(f"{sys.executable} -m unittest tests.test_local -q", tree, log,
+                                          env={"PYTHONPATH": inherited})
+            self.assertEqual(0, receipt["exit_code"], log.read_text()[-500:])
+
     def test_generated_version_file_reaches_the_scratch_trees(self):
         """A setuptools-scm/hatch-vcs package imports a git-ignored _version.py that
         exists only where the project was installed. The fix is made in a separate task

@@ -343,7 +343,12 @@ def validate_diagnosis(state, value, record, workspace):
 
 
 def preserve_review_criteria(state, value):
-    """A focused diagnosis may omit criteria, but cannot redefine or verify them."""
+    """A focused diagnosis may omit or restate criteria, but cannot add or verify them.
+
+    The approved wording stays. A one-character restatement used to reject the
+    whole report, so a BLOCKED question about the proof environment never
+    reached the operator (issue 624).
+    """
     authoritative = state['acceptance_criteria']
     by_id = {row['id']: row for row in authoritative}
     seen = set()
@@ -352,7 +357,7 @@ def preserve_review_criteria(state, value):
         if cid in seen:
             raise util.Paused('PAUSED_INVALID_OUTPUT', 'Duplicate acceptance IDs')
         seen.add(cid)
-        if cid not in by_id or row['criterion'] != by_id[cid]['criterion']:
+        if cid not in by_id:
             raise util.Paused('PAUSED_CRITERIA_CHANGE', 'Repair cannot change approved acceptance criteria')
     # Preserve the last review's order, statuses and evidence, including omitted
     # criteria. Diagnosis supplies repair instructions, not a new review verdict.
