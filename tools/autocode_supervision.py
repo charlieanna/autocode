@@ -20,10 +20,11 @@ import time
 import uuid
 
 try:
-    from . import autocode_process as processes, autocode_util as util
+    from . import autocode_process as processes, autocode_util as util, autocode_supervision_handoff as handoff
 except ImportError:
     import autocode_process as processes
     import autocode_util as util
+    import autocode_supervision_handoff as handoff
 
 
 class SupervisionError(processes.ProcessError):
@@ -189,6 +190,8 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
                     return
         monitor = threading.Thread(target=watch_keeper, daemon=True)
         monitor.start()
+        # Transfer nested ownership before exec while the bootstrap is blocked.
+        handoff.admit(metadata, min(started + 15, started + timeout) if timeout else started + 15)
         if checkpoint is not None:
             checkpoint(dict(metadata))
         if (keeper.poll() is not None or child.poll() is not None
@@ -277,12 +280,12 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
         metadata = {'schema': 1, 'nonce': nonce, 'owner': dict(owner_identity),
                     'keeper': _identity(keeper.pid), 'provider': _identity(os.getpid()),
                     'receipt': str(path), 'started_at': util.now()}
-        _send(control_w, {'metadata': metadata, 'deadline': time.monotonic() + timeout,
+        owner_deadline = time.monotonic() + timeout
+        _send(control_w, {'metadata': metadata, 'deadline': owner_deadline,
                           'cleanup_policy': 'interrupt_root'})
         ack = _read_line(ack_r, time.monotonic() + min(15, timeout))
         if ack != {'armed': nonce} or keeper.poll() is not None or receipt(metadata) is None:
             raise SupervisionError('Harness keeper failed admission')
-        close(ack_r)
         if select.select([lifeline_fd], [], [], 0)[0]:
             raise SupervisionError('Harness lifeline closed before CLI admission')
         def watch():
@@ -299,8 +302,24 @@ def protect_owner(lifeline_fd, *, receipt_path, timeout, owner_identity, nonce, 
         watcher.start()
         if checkpoint is not None:
             checkpoint(dict(metadata))
+        channel_lock = threading.Lock()
+        def admit_nested(nested, deadline):
+            # Serialize framed requests and acknowledgements across launch threads.
+            with channel_lock:
+                if keeper.poll() is not None or stopped.is_set():
+                    raise SupervisionError('Enclosing keeper is unavailable')
+                _send(control_w, {'admit': nested, 'guard': nonce})
+                answer = _read_line(ack_r, min(deadline, owner_deadline))
+                current = receipt(metadata)
+                inventory = (current or {}).get('processes', [])
+                if (answer != {'admitted': nested['nonce']} or current is None
+                        or current.get('phase') != 'armed'
+                        or any(not any(processes.matches(nested[key], row) for row in inventory)
+                               for key in ('provider', 'keeper'))):
+                    raise SupervisionError('Enclosing keeper did not retain nested ownership')
         try:
-            yield metadata
+            with handoff.enclosing_guard(admit_nested):
+                yield metadata
         finally:
             current = receipt(metadata)
             # EOF cleanup must not wait for itself: the CLI has to return from
