@@ -64,7 +64,8 @@ class PlanningClarificationRecovery(AdversarialCase):
 class PlanningMetadataRecovery(AdversarialCase):
     def setUp(self):
         super().setUp()
-        self.driver.flags += ["--requirements-model", "gpt-6-luna"]
+        # These faults target metadata returned by the full revise/finalize pipeline.
+        self.driver.flags += ["--requirements-model", "gpt-6-luna", "--no-adaptive-planning"]
 
     def test_metadata_omission_and_mislabeled_addition_reach_approval_without_model_repair(self):
         self.set_fault("planning", "recover_planning_metadata")
