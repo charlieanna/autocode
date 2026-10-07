@@ -928,7 +928,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             unit_for(stage)
         apply_review_result(runtime, state, stage, value, record, workspace, run_dir)
     save_record(state, record)
-    state.pop("stop_reason", None) if state["status"] == "RUNNING" else None
+    state.pop("stop_reason", None) if state["status"] in ("RUNNING", "TASK_COMPLETE") else None
 
 
 def run(runtime, state, workspace, run_dir, args):
