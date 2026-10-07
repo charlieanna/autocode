@@ -147,6 +147,8 @@ class EvidenceBoundaryTests(AdversarialCase):
         rejections = self.trace("evidence_rejection_observed", stage="sol")
         self.assertTrue(any("runner re-ran" in row["error"] for row in rejections),
                         "The independent replay must expose the forged result")
+        self.assertIn("runner re-ran", rejections[0]["error"],
+                      "The first refusal must reach replay, not an unrelated fixture rejection")
 
 
 if __name__ == "__main__":
