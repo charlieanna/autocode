@@ -5,8 +5,9 @@ provider. **Fixed** 2026-10-06; regression in `tests/test_operational_pause_auth
 The rule (#379, #486): a protected operational pause is released, and a provider
 admitted, only by the operator's authority for that pause. A settings write is not
 that authority, and neither is a pause intervention, queued feedback, a requested
-pause or enabling joint planning. A review of the first fix found more paths; they
-are in "Review follow-ups" below.
+pause, enabling joint planning or an edited goal. A review of the first fix found more
+paths; they are in "Review follow-ups" below. "Composition with #509 and #581" covers
+the merge with those changes.
 
 ## Reproduced behavior
 
@@ -141,6 +142,34 @@ continues, as on master.
 A pause asked again after `resume_interrupted` no longer repeats the earlier
 request's advice in its cause (`pause_authority.held_cause`).
 
+## Composition with #509 and #581
+
+Master `87d8db3` has #586 (#509): `--answer` or `--approve-goal` given with
+`--resume-paused` dispatches the next stage in the same invocation once the action
+clears a human gate (`run_actions.resume_dispatch_requested`). It also has #581: the
+first explicit resume after a `provide_information` answer re-evaluates that
+information once (`resolver.information_reviews`, the `information_review` view field).
+
+- **An answer or approval at an operational pause.** Neither is accepted there. The
+  operational request takes only `--resolver-response`, so `--answer` is refused, and
+  `--approve-goal` finds no plan request to approve. The tests send both with
+  `--resume-paused` at every pause after an answered request, and at a sample of
+  unanswered ones. Nothing launches. The next `--resume-paused` then admits exactly
+  what the answered request alone admits, and #581 records the same decision (held or
+  admitted), so neither input uses up or stands in for that one re-evaluation.
+- **An edited goal put a human gate in place of the pause.** `--edit-goal` was
+  accepted at any operational pause, answered or not, on master too. It installed a
+  draft and asked for its approval (`AWAITING_GOAL_APPROVAL`), and
+  `--approve-goal TOKEN --resume-paused` then launched the Planner, Builder and Tester
+  in that one invocation. Before #586 the approval saved, and the next invocation
+  launched them. Now `pause_authority.correction_refusal` refuses an edited goal
+  wherever brief feedback is refused, including at a pause that a pause intervention
+  interrupted (`pause_authority.interrupted`, which `autocode_stop.interrupted_pause`
+  now reads too). At an ordinary pause and at an exhausted plan-review budget an edited
+  goal is still accepted, and approving it with `--resume-paused` still dispatches the
+  Planner. A new run's answer and approval gates still dispatch the same way, tested
+  as real processes.
+
 ## Not changed
 
 - **`autopilot.dispatch_unit`.** It has the same save-then-launch shape as the build
@@ -148,3 +177,8 @@ request's advice in its cause (`pause_authority.held_cause`).
   not grown here.
 - **`--joint-planning` on an unanswered request** stops in `configure` with an
   uncaught `ValueError`. That fails closed, but it is not a clean refusal.
+- **`--revise-figma-manifest`** (a design reference revision) is accepted at any
+  `PAUSED_*` status. It saves brief feedback and replaces the status with
+  `PAUSED_DESIGN_INPUT_CHANGED`, which a plain `--resume-paused` continues into
+  Requirements. Found by reading the code, not reproduced: no CLI fixture builds a
+  verified design manifest. It is the same kind of correction that is refused above.

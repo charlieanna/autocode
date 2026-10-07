@@ -5,16 +5,19 @@ A protected operational pause is released only by the operator's authority for t
 request itself (--grant-recovery, --retry-failed-stage, --abandon-stage, a route answer, a
 resolver response). A budget flag for any other bound is a settings write, not that authority,
 and neither is a pause intervention, queued feedback, a requested pause or enabling joint
-planning (autocode_stop records the pause an intervention interrupted). Brief feedback is a
-pause's own authority only where that pause offers it (feedback_acknowledges): the exhausted
-plan-review budget, and the validation-only stop, whose request names --feedback.
+planning (autocode_stop records the pause an intervention interrupted). A correction (brief
+feedback, an edited goal) is a pause's own authority only where that pause offers feedback
+(feedback_acknowledges): the exhausted plan-review budget, and the validation-only stop, whose
+request names --feedback. Elsewhere it would put a human gate in place of the pause, which an
+answer or approval with --resume-paused then dispatches past at once (#509).
 
 held_origin() names the pause from the run's own records: its live or queued operational
-request, the request its answer consumed, else its saved status. held_cause() is the saved stop
-reason without the advice an operational request appended to it. changes_held_bound() says
-whether explicit budget flags change that pause's bound. operational() says whether a pause is
-one AutoResolver asks an operational request for (OPERATIONAL_PAUSES); feedback_refusal() says
-why brief feedback may not restart planning past the pause holding the run.
+request, the request its answer consumed, else its saved status. interrupted() is the pause an
+unresumed pause intervention interrupted. held_cause() is the saved stop reason without the advice
+an operational request appended to it. changes_held_bound() says whether explicit budget flags
+change that pause's bound. operational() says whether a pause is one AutoResolver asks an
+operational request for (OPERATIONAL_PAUSES); correction_refusal() and feedback_refusal() say
+why a correction may not restart planning past the pause holding the run.
 
 Domain layer: it reads saved state only and imports nothing but autocode_goals (the request
 keys) and autocode_provider_refusal (its status name); never the runner, autopilot or a module
@@ -38,6 +41,8 @@ OPERATIONAL_PAUSES = (
     'PAUSED_ORCHESTRATOR_WORKER', 'PAUSED_BUILDER_RETRY_LIMIT', 'PAUSED_MILESTONE_STALLED',
     'PAUSED_MILESTONE_BUDGET', 'PAUSED_MILESTONE_TIME_LIMIT', 'PAUSED_PROVIDER_UNCERTAIN',
     'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY', 'PAUSED_NO_PROGRESS', provider_refusal.STATUS)
+# The status a pause intervention applies (autocode_stop.STOP_STATUS; that module imports this one).
+INTERVENTION_STATUS = 'PAUSED_INTERVENTION'
 # The operational pauses whose own authority includes brief feedback: an exhausted plan-review
 # budget is answered with plan feedback or a new review-call limit (docs/task-run.md). A request
 # can offer it too (feedback_acknowledges).
@@ -92,6 +97,18 @@ def held_origin(state):
     return _held_proposal(state).get('origin') or {'pause_status': state.get('status')}
 
 
+def interrupted(state):
+    """The pause an applied pause intervention interrupted, until --resume-paused acknowledges it; else None.
+
+    autocode_stop records it as ``pause_intent.held_pause``; a later intervention keeps it.
+    """
+    intent = state.get('pause_intent') or {}
+    held = intent.get('held_pause') or {}
+    if state.get('status') == INTERVENTION_STATUS and not intent.get('acknowledged_at') and held.get('status'):
+        return dict(held)
+    return None
+
+
 def feedback_acknowledges(state, pause_status):
     """Whether brief feedback is ``pause_status``'s own authority.
 
@@ -138,13 +155,24 @@ def operational(status):
     return status in OPERATIONAL_PAUSES
 
 
+def correction_refusal(state, correction):
+    """Why ``correction`` (brief feedback, an edited goal) may not restart planning past the pause holding ``state``.
+
+    None when it may. A correction asks for a fresh approval in place of the pause, and an approval
+    with --resume-paused dispatches the Planner at once (#509), so it is refused at an operational
+    pause that does not offer feedback, including one a pause intervention interrupted.
+    """
+    pause = (interrupted(state) or {}).get('status') or held_origin(state).get('pause_status')
+    if operational(pause) and not feedback_acknowledges(state, pause):
+        return (f'{correction} does not acknowledge {pause}; resolve that pause first '
+                '(AutoResolver\'s request names how).')
+    return None
+
+
 def feedback_refusal(state):
     """Why brief feedback may not restart planning past the pause holding ``state``; None when it may."""
-    pause = held_origin(state).get('pause_status')
-    if operational(pause) and not feedback_acknowledges(state, pause):
-        return (f'Brief feedback does not acknowledge {pause}; resolve that pause first '
-                '(AutoResolver\'s request names how). Queued feedback is applied under the pause.')
-    return None
+    refusal = correction_refusal(state, 'Brief feedback')
+    return refusal and refusal + ' Queued feedback is applied under the pause.'
 
 
 def changes_held_bound(explicit_flags, origin):

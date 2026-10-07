@@ -613,13 +613,20 @@ re-evaluation of corrective information already sent for its request (see below)
 applies only while the run is as that information found it; applied feedback changes the
 run, so the request is asked again instead. Feedback acknowledges only a pause that
 offers it: an exhausted plan-review budget, or a validation-only stop whose request
-names `--feedback`. `--feedback` is refused at any other operational pause. Queued
-milestone checkpoints are enabled. A run-local `pause-requested` file keeps the run at
+names `--feedback`. `--feedback` and `--edit-goal` are refused at any other operational
+pause, including one a pause intervention interrupted: either would put a plan to approve
+in place of the pause. Queued milestone checkpoints are enabled. A run-local `pause-requested` file keeps the run at
 its pause until you remove it. Once the input is applied, an unanswered operational
 request is asked again. If the same command also acknowledges the pause (the exhausted
 bound's flag, `--grant-recovery`), the pause is released first, and a queued pause
-intervention then pauses the released run. See
-`docs/bugs/2026-10-06-operational-pause-authority.md`.
+intervention then pauses the released run.
+
+An `--answer` or `--approve-goal` given with `--resume-paused` dispatches the next stage
+in the same command once it clears a human gate (#509). At an operational pause there is
+no such gate to clear: the operational request takes only `--resolver-response`, and
+neither input releases the pause or uses up the re-evaluation of corrective information
+described below, which then holds or continues the run exactly as it would without them.
+See `docs/bugs/2026-10-06-operational-pause-authority.md`.
 
 Provider stages track their subprocesses, including detached tool processes. On normal
 exit, timeout or interruption, Autocode stops tracked workers before taking the final

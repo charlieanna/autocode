@@ -144,10 +144,7 @@ def interrupted_pause(state: dict[str, Any]) -> dict[str, Any] | None:
     An earlier pause intervention not yet resumed already names the pause it interrupted: a
     second one keeps that pause, never its own (#486 review).
     """
-    intent = state.get("pause_intent") or {}
-    if state.get("status") == STOP_STATUS and not intent.get("acknowledged_at") and intent.get("held_pause"):
-        return dict(intent["held_pause"])
-    return pause_authority.held_pause(state, own_status=STOP_STATUS)
+    return pause_authority.interrupted(state) or pause_authority.held_pause(state, own_status=STOP_STATUS)
 
 
 def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now: Callable[[], str],

@@ -1,12 +1,15 @@
 """A protected operational pause is released only by the operator's authority for that pause.
 
-A settings write that does not change the exhausted bound, and a pause intervention, are not
-that authority (#379, #486; docs/bugs/2026-10-06-operational-pause-authority.md). One fixture run
-stops on quota at the Completion Reviewer and is copied back before each case; every case then
+A settings write that does not change the exhausted bound, a pause intervention and an edited goal
+are not that authority (#379, #486; docs/bugs/2026-10-06-operational-pause-authority.md). One fixture
+run stops on quota at the Completion Reviewer and is copied back before each case; every case then
 publishes AutoResolver's operational request for one pause and drives the CLI with the fake
 provider, as real processes for the reported sequences and in-process for every pause status.
-No sleeps, no live models.
+An answer or approval with --resume-paused, which dispatches the next stage once it clears a human
+gate (#509), clears none at an operational pause, and AutoResolver's one re-evaluation of corrective
+information (#486) decides afterwards exactly as it would without it. No sleeps, no live models.
 """
+import copy
 import io
 import itertools
 import json
@@ -22,6 +25,8 @@ from unittest.mock import patch
 
 from . import test_subprocess
 import autocode as runner
+import autocode_goals as goals
+import autocode_operational_information as operational_information
 import autocode_pause_authority as pause_authority
 import autocode_resolver_human as human
 import autocode_resolver_runtime as resolver_runtime
@@ -209,9 +214,19 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         AutoResolver re-evaluates the corrective information once at that resume (#486, #581): a stop
         caused outside the run continues, and one only an operator control releases is held.
         """
+        return self.after_answer(status)[0]
+
+    def after_answer(self, status):
+        """(stages admitted, information review decided) by --resume-paused after the answered request alone."""
         if status not in self._after_answer:
-            self._after_answer[status] = self.resume_after_answer(status, pause=False)[1]
+            stages = self.resume_after_answer(status, pause=False)[1]
+            self._after_answer[status] = (stages, self.information_review())
         return self._after_answer[status]
+
+    def information_review(self):
+        """The status view's information review (#581): what it decided, without its timestamps."""
+        review = operational_information.projection(self.saved()) or {}
+        return review.get('status'), review.get('decision')
 
     def assert_adds_nothing(self, result, status, *, answered=True):
         """``result`` admitted no more than the answered pause alone does (nothing, when unanswered)."""
@@ -413,6 +428,78 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                 self.assertNotIn('held_pause', self.saved()['pause_intent'])
                 self.assert_resumes(self.invoke('--resume-paused', env=STOP_AT_TESTER))
 
+    # Composition with #509 (#586): --resume-paused with an answer or approval dispatches the next stage
+    # in the same invocation once it clears a human gate. At an operational pause none clears it.
+    def approval_token(self, state):
+        return state.get('displayed_goal') or goals.token(state['goal_contract'])
+
+    def edited_goal(self, state):
+        body = copy.deepcopy(state['goal_contract']['body'])
+        body['constraints'] = [*body.get('constraints', []), 'Keep the greeting on one line']
+        path = self.flow.root / 'edited-goal.json'
+        path.write_text(json.dumps(body))
+        return str(path)
+
+    def test_an_answer_or_approval_with_resume_dispatches_nothing_at_an_operational_pause(self):
+        cases = [*((status, True) for status in STATUSES), *((status, False) for status in SAMPLE)]
+        for status, answered in cases:
+            with self.subTest(status=status, answered=answered):
+                state = self.checkpoint(status)
+                if answered:
+                    self.answer(state)
+                    state = self.saved()
+                token = (human.current(state) or {}).get('request_token') or 'no-request-shown'
+                for command in (('--answer', 'Q1=CLI', '--resolver-token', token),
+                                ('--approve-goal', self.approval_token(state))):
+                    self.assert_held(self.invoke(*command, '--resume-paused', env=STOP_AT_TESTER), status)
+                # Neither input used up the pause's own rule: AutoResolver's one re-evaluation of the
+                # answered request's information then holds or continues exactly as it does without them.
+                self.assert_adds_nothing(self.invoke('--resume-paused', env=STOP_AT_TESTER), status, answered=answered)
+                if answered:
+                    self.assertEqual(self.after_answer(status)[1], self.information_review())
+
+    def test_an_edited_goal_never_releases_an_operational_pause(self):
+        # The edit installed a draft for approval in place of the pause, and --approve-goal TOKEN
+        # --resume-paused then dispatched the Planner, Builder and Tester in one invocation.
+        def edit_then_approve(status, variant, process=False):
+            state = self.checkpoint(status)
+            if variant != 'unanswered':
+                self.answer(state, process=process)
+            if variant == 'paused':
+                self.submit_pause(process=process)
+                self.assert_held(self.invoke(process=process), status, settled=False)
+            code, stages, output = self.invoke('--edit-goal', self.edited_goal(state), process=process)
+            if status == 'PAUSED_PLANNING_BUDGET':  # a correction is that pause's own authority, like plan feedback
+                self.assertEqual((0, 'AWAITING_GOAL_APPROVAL'), (code, self.saved()['status']), output)
+                return
+            self.assertEqual((2, []), (code, stages), output)
+            self.assertIn('does not acknowledge', output)
+            self.assertEqual(state['goal_contract'], self.saved()['goal_contract'], 'the goal is unchanged')
+            self.assert_held(self.invoke('--approve-goal', self.approval_token(self.saved()), '--resume-paused',
+                                         process=process, env=STOP_AT_TESTER), status)
+        with self.subTest(status='PAUSED_RESOLVER_OPERATIONAL', variant='answered', process=True):
+            edit_then_approve('PAUSED_RESOLVER_OPERATIONAL', 'answered', process=True)
+        cases = [*((status, 'answered') for status in STATUSES), *((status, 'unanswered') for status in SAMPLE),
+                 ('PAUSED_RATE_LIMIT', 'paused')]
+        for status, variant in cases:
+            with self.subTest(status=status, variant=variant):
+                edit_then_approve(status, variant)
+
+    def test_an_approval_with_resume_still_dispatches_past_an_ordinary_pause(self):
+        # #509 where no operational pause holds the run: the edited goal is asked for approval, and
+        # approving it with --resume-paused dispatches the Planner in the same invocation.
+        for status in ('PAUSED_STAGE_ABANDONED', 'PAUSED_PLANNING_BUDGET'):
+            with self.subTest(status=status):
+                state = self.checkpoint(status) if status == 'PAUSED_PLANNING_BUDGET' else self.stopped(status)
+                runner.write_json(self.run_dir / 'state.json', state)
+                code, _, output = self.invoke('--edit-goal', self.edited_goal(state))
+                self.assertEqual((0, 'AWAITING_GOAL_APPROVAL'), (code, self.saved()['status']), output)
+                self.invoke('--show-goal')
+                code, stages, output = self.invoke('--approve-goal', self.approval_token(self.saved()),
+                                                   '--resume-paused', env=STOP_AT_TESTER)
+                self.assertEqual('astra_plan', (stages or [None])[0], output)
+                self.assertIn('Resumed: dispatching the next stage.', output)
+
     # Controls: changing the exhausted bound itself is the operator's authority and still resumes in one
     # command, answered or not, and after a pause intervention (#301, #378, #394).
     def test_changing_the_exhausted_bound_still_resumes_every_bounded_pause(self):
@@ -437,6 +524,35 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
                     self.answer(state)
                 code, stages, output = self.invoke('--resume-paused', *flag, env=STOP_AT_TESTER)
                 self.assertTrue(stages, f'raising the exhausted bound must admit the next stage:\n{output}')
+
+
+class OrdinaryGateTests(unittest.TestCase):
+    """#509 (#586) unchanged at the human gates of a new run, where no operational pause holds it."""
+
+    def test_an_answer_and_an_approval_with_resume_dispatch_the_next_stage(self):
+        flow = test_subprocess.SubprocessFlow('setUp')
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        probe = flow.root / 'launches.jsonl'
+        flow.env.update(STOP_AT_TESTER, AUTOCODE_REGISTRY_LAUNCH_PROBE=str(probe))
+
+        def launched():
+            stages = [json.loads(line)['stage'] for line in probe.read_text().splitlines()] if probe.exists() else []
+            probe.unlink(missing_ok=True)
+            return stages
+        flow.launch(['Build greeting', '--no-chat'], 2)
+        run, state = flow.saved()
+        self.assertEqual('WAITING_FOR_USER', state['status'])
+        launched()
+        result = flow.launch(['--run-dir', str(run), '--answer', 'Q1=CLI', '--resume-paused', '--no-chat'], 2)
+        self.assertIn('Resumed: dispatching the next stage.', result.stdout)
+        self.assertEqual(['astra_discovery'], launched(), result.stdout)
+        _, state = flow.saved()
+        self.assertEqual('AWAITING_GOAL_APPROVAL', state['status'])
+        result = flow.launch(['--run-dir', str(run), '--approve-goal', state['displayed_goal'], '--resume-paused',
+                              '--no-chat'], 2)
+        self.assertIn('Resumed: dispatching the next stage.', result.stdout)
+        self.assertEqual('astra_plan', (launched() or [None])[0], result.stdout)
 
 
 class HeldPauseTests(unittest.TestCase):
@@ -504,6 +620,19 @@ class HeldPauseTests(unittest.TestCase):
         self.assertIsNone(stop.interrupted_pause(state))
         self.assertIsNone(stop.interrupted_pause({'status': 'RUNNING'}))
         self.assertEqual('PAUSED_TIME_LIMIT', stop.interrupted_pause({'status': 'PAUSED_TIME_LIMIT'})['status'])
+        self.assertEqual(stop.STOP_STATUS, pause_authority.INTERVENTION_STATUS)
+
+    def test_a_correction_is_refused_at_the_pause_an_intervention_interrupted(self):
+        held = {'status': 'PAUSED_RATE_LIMIT', 'stop_reason': 'Rate limited'}
+        state = {'status': pause_authority.INTERVENTION_STATUS, 'pause_intent': {'acknowledged_at': None,
+                                                                                'held_pause': held}}
+        self.assertIn('An edited goal does not acknowledge PAUSED_RATE_LIMIT',
+                      pause_authority.correction_refusal(state, 'An edited goal'))
+        self.assertIn('Queued feedback is applied under the pause', pause_authority.feedback_refusal(state))
+        state['pause_intent']['acknowledged_at'] = '2026-10-07T00:00:00+00:00'  # resumed: nothing interrupted
+        self.assertIsNone(pause_authority.correction_refusal(state, 'An edited goal'))
+        for status in ('PAUSED_PLANNING_BUDGET', 'PAUSED_STAGE_ABANDONED', 'AWAITING_GOAL_APPROVAL'):
+            self.assertIsNone(pause_authority.correction_refusal({'status': status}, 'An edited goal'), status)
 
 
 if __name__ == '__main__':

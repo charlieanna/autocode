@@ -683,6 +683,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())
             if args.edit_goal:
+                refusal = pause_authority.correction_refusal(candidate, 'An edited goal')
+                if refusal:
+                    raise ValueError(refusal)
                 lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
             if args.approve_goal:
