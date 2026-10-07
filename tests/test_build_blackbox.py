@@ -15,7 +15,62 @@ import time
 import unittest
 
 from goal_fixtures import body
+import autocode_process as processes
 import build_product_fixtures as products
+
+
+def supervised_processes(root):
+    """The keeper, provider and owner identities every supervision receipt under root records."""
+    rows = {}
+    # os.walk skips a directory that vanishes mid-walk; pathlib's rglob raises on it.
+    receipts = [Path(top, name) for top, _, names in os.walk(root) for name in names
+                if name.endswith('supervision.json')]
+    for receipt in receipts:
+        try:
+            value = json.loads(receipt.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(value, dict):
+            continue
+        for row in (value.get('keeper'), value.get('provider'), value.get('owner'), *(value.get('processes') or ())):
+            if isinstance(row, dict) and type(row.get('pid')) is int and row['pid'] != os.getpid():
+                rows[row['pid'], row.get('birth_identity'), row.get('started')] = row
+    return list(rows.values())
+
+
+def _alive(row):
+    try:
+        return bool(processes.live_processes([row]))
+    except processes.ProcessError:
+        return False  # the PID now names a process this user cannot inspect, so not one of ours
+
+
+def await_supervised_exit(root, bound=30):
+    """Let the supervised processes a fixture started exit before its temporary root is removed.
+
+    A stage's keeper runs in its own session, so it outlives a controller a test
+    kills on purpose. Once the provider is gone the keeper rewrites the stage's
+    receipt, and that write recreates the receipt's directory: removing the root
+    while it is still alive fails with "Directory not empty", or the write lands
+    afterwards and silently rebuilds the tree. Waiting on the birth identities the
+    receipts record is bounded; a survivor is a real leak, so it is killed (it
+    must not write into a later fixture) and reported.
+    """
+    rows = supervised_processes(root)
+    deadline = time.monotonic() + bound
+    while True:
+        live = [row for row in rows if _alive(row)]
+        if not live:
+            return
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(.05)
+    for row in live:
+        try:
+            os.kill(row['pid'], signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    raise AssertionError(f'Supervised processes outlived the test by {bound} s: {sorted(row["pid"] for row in live)}')
 
 
 def plan(rows, payloads, checks, title):
@@ -74,6 +129,8 @@ class BuildBlackbox(unittest.TestCase):
             temp = tempfile.TemporaryDirectory()
             self.addCleanup(temp.cleanup)
             self.root = Path(temp.name).resolve()
+        # Cleanups run last-in first-out, so this wait finishes before the root is removed.
+        self.addCleanup(await_supervised_exit, self.root)
         self.project = self.root / 'project'
         self.project.mkdir()
         self.source = Path(__file__).resolve().parents[1] / "tools"
