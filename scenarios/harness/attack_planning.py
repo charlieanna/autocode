@@ -100,6 +100,9 @@ def citation_after_clarification(fake, original, stage, data, trace):
             "why": "The fixture holds one user decision open after the citation repair.",
             "options": ["Ada", "Grace"], "proposed_default": "Ada", "kind": "decision",
             "category": "behavior", "delegable": True}])
+        value["contract"]["initial_task"] = {
+            "kind": "none", "milestone_id": "", "objective": "", "affected_paths": [],
+            "requirements": [], "acceptance_criteria": [], "validation_plan": []}
     return value
 
 

@@ -336,6 +336,39 @@ class DriverTimeoutTests(unittest.TestCase):
         self.assertTrue(any("cannot capture descendants" in item for item in caught.exception.cleanup_errors))
         self.parent.terminate.assert_called_once_with()
 
+    def test_timeout_retains_complete_output_collected_during_cleanup(self):
+        self.child.communicate.side_effect = [
+            subprocess.TimeoutExpired(["cli"], 10, output=b"partial", stderr=b"early error"),
+            ("partial and graceful", "early error and graceful"),
+            ("partial and graceful and final", "early error and graceful and final")]
+        with self.assertRaises(processes.CallTimeout) as caught:
+            self.run_cli()
+        self.assertEqual("partial and graceful and final", caught.exception.stdout)
+        self.assertEqual("early error and graceful and final", caught.exception.stderr)
+        self.assertEqual([], caught.exception.cleanup_errors)
+
+    def test_open_pipes_timeout_retains_latest_partial_output_and_cleanup_errors(self):
+        self.child.communicate.side_effect = [
+            subprocess.TimeoutExpired(["cli"], 10, output=b"initial", stderr=b"initial error"),
+            subprocess.TimeoutExpired(["cli"], 5, output=b"initial graceful", stderr=b"initial error graceful"),
+            subprocess.TimeoutExpired(["cli"], 2, output=b"initial graceful final", stderr=b"initial error graceful final")]
+        with self.assertRaises(processes.CallTimeout) as caught:
+            self.run_cli()
+        self.assertEqual(b"initial graceful final", caught.exception.stdout)
+        self.assertEqual(b"initial error graceful final", caught.exception.stderr)
+        self.assertTrue(any("output pipes remain open" in item for item in caught.exception.cleanup_errors))
+
+    def test_cleanup_decode_errors_do_not_discard_original_timeout_output(self):
+        decode_error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte")
+        self.child.communicate.side_effect = [
+            subprocess.TimeoutExpired(["cli"], 10, output=b"original", stderr=b"original error"),
+            decode_error, decode_error]
+        with self.assertRaises(processes.CallTimeout) as caught:
+            self.run_cli()
+        self.assertEqual(b"original", caught.exception.stdout)
+        self.assertEqual(b"original error", caught.exception.stderr)
+        self.assertTrue(any("UnicodeDecodeError" in item for item in caught.exception.cleanup_errors))
+
     def test_missing_identity_stops_direct_child_and_reports_incomplete_ownership(self):
         self.lookup.side_effect = processes.psutil.AccessDenied(100)
         self.timed_out()
@@ -2248,6 +2281,77 @@ class ModelProfileTests(unittest.TestCase):
 
 class FakeSchemaTests(unittest.TestCase):
     """The scripted model answers "none" for any required field its script does not know yet."""
+
+    def test_report_identity_uses_schema_then_repair_handoff(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        expected = {"contract_revision": 7, "contract_hash": "approved-hash", "task_id": "assigned-task"}
+        for data, schema in (
+                ({"report_identity": expected}, {}),
+                ({"goal_contract": {"revision": 1, "hash": "stale"}, "current_task": {"id": "stale"}},
+                 {"properties": {key: {"enum": [value]} for key, value in expected.items()}})):
+            with self.subTest(data=data), patch.object(fake, "OUTPUT_SCHEMA", schema):
+                self.assertEqual(expected, fake.report_identity(data))
+
+    def test_execution_repair_preserves_report_without_executing_checks(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        identity = {"contract_revision": 9, "contract_hash": "retained-hash", "task_id": "retained-task"}
+        original = {"contract_revision": 0, "criterion_results": [{"id": "C9", "status": "FAIL"}],
+                    "checks": [{"command": "false", "exit_code": 1, "evidence_ref": "event:original"}]}
+        for stage in ("terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+            for content in (original, json.dumps(original)):
+                with self.subTest(stage=stage, content=content), patch.object(fake, "OUTPUT_SCHEMA", {}), \
+                        patch.object(fake, "run_check", side_effect=AssertionError("Repair must not execute")):
+                    data = {"report_repair": True, "report_identity": identity,
+                            "rejected_report": {"content": content}}
+                    self.assertEqual({**original, **identity}, fake.report_for(stage, data))
+                    self.assertEqual(0, original["contract_revision"])
+
+    def test_empty_or_invalid_execution_repair_never_executes(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        identity = {"contract_revision": 3, "contract_hash": "approved", "task_id": "assigned"}
+        for stage in ("terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+            for content in ({}, "{}", None, "", "not json", [], "[]"):
+                with self.subTest(stage=stage, content=content), patch.object(fake, "OUTPUT_SCHEMA", {}), \
+                        patch.object(fake, "run_check", side_effect=AssertionError("Repair must not execute")), \
+                        patch.object(fake.shutil, "copytree", side_effect=AssertionError("Repair must not write")):
+                    data = {"report_repair": True, "report_identity": identity,
+                            "rejected_report": {"content": content}}
+                    if content == {} or content == "{}":
+                        self.assertEqual(identity, fake.report_for(stage, data))
+                    else:
+                        with self.assertRaises(SystemExit):
+                            fake.report_for(stage, data)
+
+    def test_planner_contract_mode_uses_required_task_schema_or_prompt_marker(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        cases = [
+            ("repair requires task", "", {"properties": {"contract": {"required": ["initial_task"]}}}, True),
+            ("repair draft", "", {"properties": {"contract": {"required": [],
+                "properties": {"initial_task": {"type": "object"}}}}}, False),
+            ("no schema", "", {}, False),
+            ("prompt marker", "ADAPTIVE PLANNING", {}, True),
+        ]
+        for name, prompt, schema, final in cases:
+            with self.subTest(name=name), \
+                    patch.multiple(fake, PROMPT=prompt, OUTPUT_SCHEMA=schema, CONFIG={}, DATA={}, PROGRESSIVE=False), \
+                    patch.object(fake, "source_refs", return_value=[]), \
+                    patch.object(fake, "permission_changes", return_value=[]), \
+                    patch.object(fake, "trace", return_value=[]), \
+                    patch.object(fake, "contract", return_value={}) as contract:
+                fake.report_for("astra_discovery", {"report_repair": True})
+                contract.assert_called_once_with(final=final)
 
     def test_missing_required_fields_get_empty_values_of_their_type(self):
         import importlib, json, os
