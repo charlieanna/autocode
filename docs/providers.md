@@ -244,6 +244,15 @@ validator checks it against the saved attempt. Receipts from another attempt,
 missing capture context, or changed output hashes are rejected. Event providers
 continue to require their independent tool-event attestation.
 
+A stage log holds the tool's stdout and stderr. When a tool exits with an error,
+AutoCode reads the provider's reason from its `error` and `turn.failed` JSON
+events and from the plain-text error lines (`ERROR: …`, `Error: …`) that end the
+log, as `codex exec` without `--json` prints them. So
+`ERROR: exceeded retry limit, last status: 429 Too Many Requests` stops the stage
+as a rate limit, and a used-up plan or a busy model as a quota or capacity stop
+([Models](models.md#when-a-roles-quota-runs-out)). Tool output earlier in the log
+is never read as the provider's error, even when it mentions 429.
+
 ### Codex commands that write capture receipts
 
 A registered `report_file` command that passes `--sandbox read-only` to Codex

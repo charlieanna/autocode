@@ -8,6 +8,7 @@ from pathlib import Path
 
 import autocode_node_tests as node_tests
 import autocode_verify as verify
+from tests.test_verify import Project
 
 
 class CommandTests(unittest.TestCase):
@@ -94,6 +95,80 @@ class NodeTests(unittest.TestCase):
         self.assertNotIn('a.cjs::test_cancel', result['passed'])
         self.assertIn('a.cjs::test_cancel', result['collection_errors'])
         self.assertEqual([], result['uncollected'])
+
+    def test_timeout_and_running_abort_keep_complete_nonpassing_results(self):
+        # Keep Node's event loop alive until its test timeout, including on Node 22.
+        sources = {
+            'testTimeoutFailure': "test('test_cancel', {timeout:100}, async t=>{"
+                                 "const hold=setTimeout(()=>{},1000);t.after(()=>clearTimeout(hold));"
+                                 "await new Promise(()=>{});});",
+            'testAborted': "const ac=new AbortController();"
+                           "test('test_cancel',{signal:ac.signal,timeout:1000},async()=>{"
+                           "setImmediate(()=>ac.abort(new Error('fixture abort')));await new Promise(()=>{});});",
+        }
+        for failure_type, source in sources.items():
+            with self.subTest(failure_type=failure_type):
+                receipt = self.run_node({'a.cjs': "const {test}=require('node:test');"
+                                                 "test('test_ok',()=>{});" + source})
+                self.assertEqual(1, receipt['exit_code'], receipt)
+                self.assertFalse(receipt['timed_out'], receipt)
+                events = [json.loads(line) for line in (self.evidence / 'probe.node.jsonl').read_text().splitlines()]
+                failure = next(row for row in events if row.get('name') == 'test_cancel' and row['type'] == 'fail')
+                self.assertEqual(failure_type, failure['failure_type'])
+                self.assertEqual((1, 0, 1), tuple(events[-2]['counts'][name] for name in ('passed', 'failed', 'cancelled')))
+                self.assertEqual({'passed': ['a.cjs::test_ok'], 'failed': ['a.cjs::test_cancel'], 'skipped': [],
+                                  'collection_errors': ['a.cjs::test_cancel'], 'uncollected': [],
+                                  'total': 2, 'complete': True}, receipt['results'])
+
+    def regression_proof(self, *, ordinary):
+        preamble = "const {test}=require('node:test');const assert=require('node:assert/strict');const p=require('./product.cjs');\n"
+        healthy = "test('test_existing',()=>assert.equal(p.existing(),1));\n"
+        cancelled = "test('test_increment',{timeout:100},async t=>{const hold=setTimeout(()=>{},1000);"
+        cancelled += "t.after(()=>clearTimeout(hold));assert.equal(await p.increment(4),5);});\n"
+        restored = "test('test_restore',async()=>{for(const x of [-7,-1,0,4,16]){const value=p.increment(x);"
+        restored += "assert.ok(value instanceof Promise);const pending=Symbol('pending');"
+        restored += "assert.equal(await Promise.race([value,Promise.resolve(pending)]),x+1);}});\n"
+        seed = preamble + healthy + (cancelled if ordinary else '')
+        project = Project({'product.cjs': "exports.existing=()=>1;exports.increment=x=>new Promise(()=>{});\n",
+                           'suite.test.cjs': seed})
+        self.addCleanup(project.close)
+        command = 'node --test suite.test.cjs'
+        framework = verify.Framework('node', command, node_files=['suite.test.cjs'])
+        baseline = verify.baseline(project.root, project.base, project.evidence / 'baseline-run',
+                                   framework=framework, suite_command=command, timeout=20)
+        project.write({'product.cjs': "exports.existing=()=>1;exports.increment=x=>Promise.resolve(x+1);\n",
+                       'suite.test.cjs': seed + (restored if ordinary else cancelled)})
+        proof = verify.verify(project.root, project.base, project.evidence / 'proof', framework=framework,
+                              suite_command=command, base_suite=baseline, timeout=20, new_behavior=False)
+        self.assertEqual('derived:node', proof['commands']['regression_source'], proof)
+        self.assertTrue((project.root / 'suite.test.cjs').read_text().startswith(seed))
+        for receipt in proof['checks'].values():
+            self.assertFalse(receipt['timed_out'], receipt)
+            self.assertTrue(verify.command_receipt.completed(receipt), receipt)
+        return proof
+
+    def test_cancellation_alone_cannot_reproduce_a_bugfix(self):
+        proof = self.regression_proof(ordinary=False)
+        self.assertEqual(verify.FAIL, proof['verdict'], proof)
+        self.assertEqual([], proof['fail_to_pass'], proof)
+        self.assertEqual(['suite.test.cjs::test_existing'], proof['pass_to_pass'], proof)
+        base = proof['checks']['regression_on_base']['results']
+        self.assertTrue(base['complete'])
+        self.assertEqual(['suite.test.cjs::test_increment'], base['failed'])
+        self.assertEqual(base['failed'], base['collection_errors'])
+
+    def test_ordinary_regression_restores_bugfix_beside_cancelled_seed(self):
+        proof = self.regression_proof(ordinary=True)
+        self.assertEqual(verify.PASS, proof['verdict'], proof)
+        self.assertEqual(['suite.test.cjs::test_restore'], proof['fail_to_pass'], proof)
+        self.assertEqual(['suite.test.cjs::test_existing'], proof['pass_to_pass'], proof)
+        base = proof['checks']['regression_on_base']['results']
+        self.assertEqual(['suite.test.cjs::test_increment'], base['collection_errors'])
+        self.assertEqual(['suite.test.cjs::test_increment', 'suite.test.cjs::test_restore'], base['failed'])
+        candidate = proof['checks']['suite_on_candidate']
+        self.assertEqual(0, candidate['exit_code'])
+        self.assertTrue(candidate['results']['complete'])
+        self.assertEqual(3, len(candidate['results']['passed']))
 
     def test_incomplete_malformed_or_inconsistent_evidence_is_never_credited(self):
         receipt = self.run_node({'a.cjs': "require('node:test')('test_case',()=>{});"})

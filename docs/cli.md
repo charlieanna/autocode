@@ -39,7 +39,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | --- | --- |
 | `--workspace /path` | Committed Git workspace to work in. Defaults to the current directory. Without a task or `--run-dir`, where AutoCode looks for the run to act on. |
 | `--run-dir /path` | Act on this saved run, from any directory. Without `--workspace`, the run's own checkout is used. |
-| `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
+| `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Uncommitted and untracked files there count as the code the task starts from (see [Workflow](workflow.md)). Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
 | `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
