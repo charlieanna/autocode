@@ -627,7 +627,18 @@ def assign_task(state, decision, current):
     task_paths = list(decision.get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
-        if owned:
+        # A serial repair of the current milestone may discover another source
+        # file needed for its existing criteria. Do not discard the reviewer's
+        # repair paths and send contradictory requirements to the Builder.
+        # Advancing milestones and parallel ownership retain the approved paths.
+        serial_repair = (decision['status'] == 'REWORK' and len(milestones) == 1
+                         and spec['milestone_id'] == (state.get('current_task') or {}).get('milestone_id')
+                         and (decision['next_objective'] != (state.get('current_task') or {}).get('objective')
+                              or any(spec[key] != (state.get('current_task') or {}).get(key)
+                                     for key in ('requirements', 'validation_plan')))
+                         and not any(state.get(key) for key in
+                                     ('parent_run', 'parent_batch', 'orchestration_batch', 'orchestration_history')))
+        if owned and not serial_repair:
             task_paths = list(dict.fromkeys(owned))
     progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])

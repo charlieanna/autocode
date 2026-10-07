@@ -528,6 +528,33 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual(recheck["next_task"]["validation_plan"], state["current_task"]["validation_plan"])
                 self.assertEqual(["server/"], state["current_task"]["affected_paths"])
 
+    def test_serial_rework_delivers_corrected_paths_to_builder(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        contract = copy.deepcopy(self.state['goal_contract'])
+        repair = self.decision('REWORK')
+        repair['affected_paths'] = ['greet.py', 'formatting.py', 'test_greeting.py']
+        repair['next_task']['requirements'] = ['Correct formatting.py to meet the approved greeting criterion']
+        lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
+        prompt, _ = stage_context.context_packet(self.state, 'terra', self.run / 'state.json')
+        packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(repair['affected_paths'], packet['current_task']['affected_paths'])
+        self.assertEqual(repair['affected_paths'], packet['affected_paths'])
+        self.assertEqual(repair['next_task']['requirements'], packet['current_task']['requirements'])
+        self.assertEqual(contract, self.state['goal_contract'])
+
+    def test_worker_rework_does_not_expand_milestone_ownership(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.state['parent_run'] = 'orchestrator'
+        owned = self.state['current_task']['affected_paths']
+        repair = self.decision('REWORK')
+        repair['affected_paths'] = [*owned, 'another_worker.py']
+        lifecycle.assign_task(self.state, repair, s.snapshot(self.root))
+        prompt, _ = stage_context.context_packet(self.state, 'terra', self.run / 'state.json')
+        packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(owned, packet['current_task']['affected_paths'])
+
     def test_task_paths_fall_back_to_report_without_milestone_ownership(self):
         for ownership in (None, []):
             with self.subTest(ownership=ownership):

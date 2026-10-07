@@ -43,6 +43,7 @@ from urllib.parse import unquote, urlparse
 try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
+    from . import autocode_python_tests as python_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_verification_schedule as schedule
     from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
@@ -54,6 +55,7 @@ try:
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
+    import autocode_python_tests as python_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_verification_schedule as schedule
     import autocode_node_tests as node_tests
@@ -265,9 +267,10 @@ def _python_can_import(python, module):
 class Framework:
     """How to run the whole suite and a targeted subset for one project."""
 
-    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=()):
+    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None):
         self.name, self.suite, self.python, self.runner, self.note = name, suite, python, runner, note
         self.node_files = frozenset(node_files)
+        self.invocation = invocation
 
     @property
     def per_test(self):
@@ -275,6 +278,9 @@ class Framework:
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
+        if self.invocation:
+            modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
+            return self.invocation.targeted(modules) if modules else None
         if self.name == "node":
             scripts = [p for p in files if p in self.node_files]
             return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
@@ -872,9 +878,9 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
 
 def command_framework(command):
     """Recognize a plain runner invocation, never infer coverage from similar text."""
-    kind = schedule.collection_kind(command)
-    if kind:
-        return Framework(kind, command, python=shlex.split(command)[0])
+    invocation = python_tests.parse(command)
+    if invocation:
+        return Framework(invocation.kind, command, python=invocation.python, invocation=invocation)
     if _go_test(command):
         return Framework("go", command)
     return None
