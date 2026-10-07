@@ -35,6 +35,7 @@ try:
     from . import autocode_finding_rescope as finding_rescope
     from . import autocode_recovery_context as recovery_context
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_native_test_names as native_test_names
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_finding_rescope as finding_rescope
     import autocode_recovery_context as recovery_context
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_native_test_names as native_test_names
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -55,7 +57,9 @@ except ImportError:
         sealed, start_clarification_episode, token, validate_requirements_body)
 
 
-def validate_body(state, body, *, ready=False, allow_legacy=False):
+def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
+    """Refuse a contract body this run cannot hold. ``origin`` is the draft's (install_draft's, or the saved
+    contract's at approval): the user's own edit is not held to the Go test names read from their brief."""
     legacy = allow_legacy and not any(key in body for key in BRIEF_FIELDS)
     schema = PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA
     s.validate_schema(body, design_plan.body_schema(schema, (state.get("settings") or {}).get("design_manifest")))
@@ -64,13 +68,6 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
         first = body["initial_task"]
         verification_plan.require_scaffolding(state.get("workspace"), first["affected_paths"], first["validation_plan"])
-        # This is a structural draft probe, not execution admission. The real
-        # assignment below approval authenticates the progressive disclosure.
-        probe_body = copy.deepcopy(body)
-        probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
-                                     if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
-        probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"}}
-        assign_task(probe, initial_decision(body), {"revision": "draft"})
     questions = body["open_blocking_questions"]
     check_delegable(questions)
     criteria = body["acceptance_criteria"]
@@ -112,6 +109,18 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
         if first.get("kind") in ("implement", "validate") and graph.get(first["milestone_id"]):
             raise ValueError(f"initial_task milestone {first['milestone_id']} has unmet prerequisites; "
                              "start with a milestone whose depends_on is []")
+    if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
+        # This is a structural draft probe, not execution admission. The real
+        # assignment below approval authenticates the progressive disclosure.
+        # It carries a copy of the run's settings, so a first task that approval
+        # could not assign (milestone checkpoints) is refused, and repaired, while
+        # the plan is a draft: never shown for approval (#615).
+        probe_body = copy.deepcopy(body)
+        probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
+                                     if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
+        probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"},
+                 "settings": copy.deepcopy(state.get("settings") or {})}
+        assign_task(probe, initial_decision(body), {"revision": "draft"})
     for key, value in body.items():
         if isinstance(value, list) and any(isinstance(x, str) and not x.strip() for x in value):
             raise ValueError(f"{key} contains an empty entry")
@@ -145,6 +154,8 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
                     raise ValueError(f"Build brief is missing {key}")
             if set(c for m in milestones for c in m["acceptance_criteria"]) != criterion_ids:
                 raise ValueError("Implementation milestones must cover every acceptance criterion")
+        # A Go test the user asked for is proven only under its own name (#498), whatever a review accepted.
+        native_test_names.check(state, body, origin=origin)
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 
@@ -172,7 +183,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     body = brief_obligations.prepare_body(state, body, origin, record)
     body = risk_obligations.prepare_body(state, body, origin, record)
-    validate_body(state, body, allow_legacy=allow_legacy)
+    validate_body(state, body, allow_legacy=allow_legacy, origin=origin)
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
     previous = state.get("goal_contract")
@@ -470,7 +481,7 @@ def _approve(state, selected):
             or not sealed(contract)
             or selected != token(contract) or state.get("displayed_goal") != selected):
         raise ValueError("Approve only the current displayed draft token; show the goal again")
-    validate_body(state, contract["body"], ready=True, allow_legacy=True)
+    validate_body(state, contract["body"], ready=True, allow_legacy=True, origin=contract.get("origin"))
     if contract["body"]["open_blocking_questions"] or state.get("pending_questions"):
         raise ValueError("Blocking questions still need answers")
     if open_obligations(state):
@@ -627,6 +638,12 @@ def assign_task(state, decision, current):
     # A review's affected paths may describe the completed milestone, not the next
     # task. Approved ownership permits its new outputs, never the previous owner's.
     task_paths = list(decision.get("affected_paths", []))
+    if not task_paths and spec["kind"] == "validate":
+        # A validate task writes nothing; it checks what its milestone owns, or in a progressive
+        # run what the active slice owns (#615).
+        task_paths = list(progressive_state.require_active(state)["definition"]["paths"]
+                          if progressive_state.enabled(state) else
+                          milestones.get(spec["milestone_id"], {}).get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
         # A serial repair of the current milestone may discover another source

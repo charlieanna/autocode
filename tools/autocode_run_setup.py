@@ -230,7 +230,12 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
     # Preserve only this locked invocation's pre-change settings for grant validation.
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
-    settings = runner.configure(args, state)
+    recovering_report = getattr(args, 'recover_job_report', None) is not None
+    settings = runner.configure(args, copy.deepcopy(state) if recovering_report else state)
+    if recovering_report:
+        if settings != state.get('settings'):
+            parser.error('Provider configuration or limits changed; report recovery requires unchanged saved settings')
+        return state  # Standalone adoption must not save configuration, migrations or other actions first.
     # Before any stage: refuse a run whose built-in OpenCode stages cannot be kernel-contained, or save
     # the explicit --allow-uncontained-tools opt-out (#413).
     containment_policy.configure(state, settings, allow=bool(getattr(args, "allow_uncontained_tools", False)),

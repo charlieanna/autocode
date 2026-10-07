@@ -100,14 +100,104 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertNotIn("requires current passing independent evidence", self.stderr)
         self.assertEqual("PAUSED_INVALID_OUTPUT", self.state["status"])
 
-        calls, provider = self.provider([self.completion_owner_requests_validation, self.validator])
+        calls, provider = self.provider([self.validator])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual(["astra_review", "sol", "astra_review"], [call["stage"] for call in calls])
+        self.assertEqual(["sol", "astra_review"], [call["stage"] for call in calls])
         self.assertEqual(new, self.state["validation"]["source_revision"])
 
         self.assertEqual(0, self.invoke("--accept-completion"))
         self.assertEqual("TASK_COMPLETE", self.state["status"])
         self.assertEqual(new, self.state["validation"]["source_revision"])
+
+    def test_resume_retires_old_validation_and_proof_before_any_completion_review(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        old_validation = copy.deepcopy(self.state['validation'])
+        receipt = self.run / 'old-proof.json'
+        s.atomic_json(receipt, {'verdict': 'PASS', 'changes': {'docs/bugs/removed.json': 'added'}})
+        proof = {'verdict': 'PASS', 'source_revision': old_validation['source_revision'], 'path': str(receipt)}
+        self.state.update(regression_proof=proof, regression_proofs=[copy.deepcopy(proof)],
+                          regression_baseline={'path': 'original-baseline.json'},
+                          status='PAUSED_INVALID_OUTPUT', phase='PAUSED_OR_BLOCKED', next_stage='astra_review',
+                          stop_reason='Completion report rejected', active_seconds=7,
+                          sessions={'sol': 'old-validator', 'astra': 'old-completion', 'terra': 'builder'})
+        retained = {key: copy.deepcopy(self.state[key]) for key in
+                    ('goal_contract', 'current_task', 'settings', 'regression_baseline', 'regression_proofs')}
+        self.edit_test_file()
+
+        calls, provider = self.provider([])
+        # A plain invocation must neither launch nor retire evidence.
+        self.assertEqual(2, self.invoke('--no-chat', role=provider))
+        self.assertEqual([], calls)
+        self.assertEqual(proof, self.state['regression_proof'])
+        self.assertEqual(old_validation, self.state['validation'])
+        # The first CLI read fills ordinary saved-setting defaults, unrelated to resume.
+        retained['settings'] = copy.deepcopy(self.state['settings'])
+
+        self.assertEqual(2, self.invoke('--resume-paused', '--no-chat', role=provider))
+        self.assertEqual(['sol'], [call['stage'] for call in calls])
+        self.assertNotIn('validation', self.state)
+        self.assertNotIn('regression_proof', self.state)
+        archived = self.state['validation_archive'][-1]
+        self.assertEqual(old_validation, archived['validation'])
+        self.assertEqual(proof, archived['regression_proof'])
+        self.assertTrue(receipt.is_file())
+        self.assertEqual('builder', self.state['sessions']['terra'])
+        self.assertNotIn('sol', self.state['sessions'])
+        self.assertNotIn('astra', self.state['sessions'])
+        self.assertGreaterEqual(self.state['active_seconds'], 7)
+        for key, value in retained.items():
+            with self.subTest(retained=key):
+                self.assertEqual(value, self.state[key])
+
+    def test_resume_of_unchanged_source_keeps_current_validation_and_reviewer_sessions(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        validation = copy.deepcopy(self.state['validation'])
+        self.state.update(status='PAUSED_INVALID_OUTPUT', phase='PAUSED_OR_BLOCKED', next_stage='astra_review',
+                          sessions={'sol': 'validator', 'astra': 'completion'})
+        calls, provider = self.provider([])
+        self.assertEqual(2, self.invoke('--resume-paused', '--no-chat', role=provider))
+        self.assertEqual(['astra_review'], [call['stage'] for call in calls])
+        self.assertEqual(validation, self.state['validation'])
+        self.assertEqual({'sol': 'validator', 'astra': 'completion'}, self.state['sessions'])
+        self.assertNotIn('validation_archive', self.state)
+
+    def test_resume_revalidates_using_the_approved_combined_checkpoint_route(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        self.state.update(status='PAUSED_INVALID_OUTPUT', phase='PAUSED_OR_BLOCKED', next_stage='astra_review')
+        runner.workflow.activate(self.state, approval_source='test_operator')
+        routing = copy.deepcopy(self.state['settings']['workflow'])
+        self.state['next_stage'] = 'astra_review'
+        self.edit_test_file()
+        calls, provider = self.provider([])
+        self.assertEqual(2, self.invoke('--resume-paused', '--no-chat', role=provider))
+        self.assertEqual(['astra_checkpoint'], [call['stage'] for call in calls])
+        self.assertEqual(routing, self.state['settings']['workflow'])
+        self.assertNotIn('validation', self.state)
+
+    def test_resume_does_not_retire_evidence_or_bypass_a_human_review_gate(self):
+        self.approve(human=True)
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        validation = copy.deepcopy(self.state['validation'])
+        proof = {'verdict': 'PASS', 'source_revision': 'old-proof-source'}
+        self.state['regression_proof'] = proof
+        lifecycle.wait_for_user(self.state, {
+            'kind': 'human_review', 'criteria': ['C1'], 'decision_needed': 'Review the greeting',
+            'impact': 'Human acceptance is required', 'options': ['Approve', 'Reject'], 'proposed_delta': ''})
+        lifecycle.human.evaluate(self.state)
+        calls, provider = self.provider([])
+        self.assertEqual(2, self.invoke('--resume-paused', '--no-chat', role=provider))
+        self.assertEqual([], calls)
+        self.assertEqual('WAITING_FOR_USER', self.state['status'])
+        self.assertEqual(validation, self.state['validation'])
+        self.assertEqual(proof, self.state['regression_proof'])
+        self.assertNotIn('validation_archive', self.state)
 
     def test_accept_completion_names_a_validation_of_another_task(self):
         self.approve()

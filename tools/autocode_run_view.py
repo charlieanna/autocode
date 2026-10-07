@@ -102,6 +102,8 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
         # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
         "tool_containment": containment_policy.mode(state.get("settings")),
+        # Status inspection supplies a fresh offer; saved state alone grants no adoption.
+        "job_report_recovery": None,
     }
     result["efficiency"] = autocode_efficiency.summary(
         state, accounting=result["usage"]["accounting"], completion_current=completion_current,

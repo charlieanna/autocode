@@ -1,11 +1,13 @@
 """Bounded, source-derived Python CLI output observations (issue #452).
 
 Pure APIs: inventory(sources), bind(sources, proposals), verify(sources, manifest),
-commands(sources, manifest), preserve(previous, proposed, replacements=()).
+commands(sources, manifest), preserve(previous, proposed, replacements=()),
+line_pattern(observation), output_reason(output, pattern, line).
 Sources are already-authenticated human records supplied by the caller; this
 module does not authenticate events or import an AutoCode controller. Supported
 syntax is an explicit `script.py ARGS` declaration that prints/outputs `FORMAT`
-"one per line" and exits 0. This is not a general natural-language/API verifier.
+"one per line" and exits 0: every printed line must have FORMAT, and one must be
+the bound observed item. This is not a general natural-language/API verifier.
 
 Proposals supply argv and argument-bound placeholders, never expectations,
 regular expressions, programs or executable code. Canonical manifests can live
@@ -223,33 +225,98 @@ def _match_argv(arguments, pattern):
         for actual, expected in zip(arguments, pattern))
 
 
-def _format_pattern(declaration, steps, bindings):
-    variables = {word for command in declaration['commands'] for word in command
-                 if _PLACEHOLDER.fullmatch(word)}
-    used, pieces, previous = set(), [], 0
-    for token in _FORMAT_TOKEN.finditer(declaration['literal']):
-        pieces.append(re.escape(declaration['literal'][previous:token.start()]))
+def _variables(declaration):
+    return {word for command in declaration['commands'] for word in command if _PLACEHOLDER.fullmatch(word)}
+
+
+def _render(literal, placeholder):
+    """Literal bytes and finite alternatives exact; placeholder(name) renders the rest."""
+    pieces, previous = [], 0
+    for token in _FORMAT_TOKEN.finditer(literal):
+        pieces.append(re.escape(literal[previous:token.start()]))
         name = token.group()
         if name.startswith('['):
             pieces.append(r'\[(?:' + '|'.join(re.escape(option) for option in name[1:-1].split('|')) + r')\]')
         elif '|' in name:
             pieces.append('(?:' + '|'.join(re.escape(option) for option in name.split('|')) + ')')
-        elif name in variables or name == 'ID':
-            if name in bindings:
-                binding = bindings[name]
-                pieces.append(re.escape(steps[binding['step']]['argv'][binding['argument']]))
-                used.add(name)
-            elif name == 'ID':
-                pieces.append(r'[^\s]+')  # opaque source-declared ID; never invent ID1
-            else:
-                raise ValueError(f'Output placeholder {name} must be tied to an invocation argument')
         else:
-            pieces.append(re.escape(name))  # e.g. SUCCESS is literal, not a wildcard
+            pieces.append(placeholder(name))
         previous = token.end()
-    pieces.append(re.escape(declaration['literal'][previous:]))
+    pieces.append(re.escape(literal[previous:]))
+    return ''.join(pieces)
+
+
+def _format_pattern(declaration, steps, bindings):
+    variables, used = _variables(declaration), set()
+
+    def placeholder(name):
+        if name not in variables and name != 'ID':
+            return re.escape(name)  # e.g. SUCCESS is literal, not a wildcard
+        if name in bindings:
+            binding = bindings[name]
+            used.add(name)
+            return re.escape(steps[binding['step']]['argv'][binding['argument']])
+        if name == 'ID':
+            return r'[^\s]+'  # opaque source-declared ID; never invent ID1
+        raise ValueError(f'Output placeholder {name} must be tied to an invocation argument')
+
+    pattern = _render(declaration['literal'], placeholder)
     if used != set(bindings):
         raise ValueError('Placeholder bindings must occur in the source-derived output template')
-    return ''.join(pieces)
+    return pattern
+
+
+def line_pattern(observation):
+    """Any one listed line of a canonical observation's `one per line` output.
+
+    The sealed item pattern names one item; a listing prints every item
+    (issue #452 live runs). Each line keeps the declaration's literal bytes and
+    finite alternatives, ID stays opaque, and every other argument placeholder
+    may only be a value the observation's own steps supplied up to the listing.
+    Derived from the verified manifest, never stored in it or model-supplied.
+    """
+    declaration, proposal = observation['declaration'], observation['proposal']
+    variables, supplied = _variables(declaration), {}
+    for step in proposal['steps'][:proposal['observe_step'] + 1]:
+        # bind() already required exactly one source-declared match per step.
+        command = next((pattern for pattern in declaration['commands'] if _match_argv(step['argv'], pattern)), None)
+        if command is None:
+            raise ValueError('Invocation must uniquely match a source-declared successful CLI command')
+        for word, value in zip(command, step['argv']):
+            if word in variables:
+                supplied.setdefault(word, set()).add(value)
+
+    def placeholder(name):
+        if name == 'ID':
+            return r'[^\s]+'
+        if name not in variables:
+            return re.escape(name)
+        values = sorted(supplied.get(name, ()))
+        return '(?:' + '|'.join(re.escape(value) for value in values) + ')' if values else '(?!)'
+
+    return _render(declaration['literal'], placeholder)
+
+
+def output_reason(output, pattern, line):
+    """'' when stdout bytes are the declared `one per line` listing, else why not.
+
+    One optional final LF or CRLF; one kind of line ending; every line fullmatches
+    `line` or is the observed item `pattern`, and at least one line is that item. The
+    item alone is always a valid listing, as before the per-line rule. No other
+    normalization. _RUNNER repeats this rule inside the clean replay.
+    """
+    crlf = output.endswith(b'\r\n')
+    body = output[:-2] if crlf else output[:-1] if output.endswith(b'\n') else output
+    try:
+        text = body.decode('utf-8')
+    except UnicodeDecodeError:
+        return 'CLI output is not UTF-8 text in this bounded slice'
+    rows = text.split('\r\n' if crlf else '\n')
+    items = [re.fullmatch(pattern, row) is not None for row in rows]
+    if (any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items))
+            or not any(items)):
+        return 'CLI output differs from the original brief format'
+    return ''
 
 
 def _bind_one(declaration, proposal):
@@ -366,15 +433,19 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
             break
     if not reason:
         output=base64.b64decode(rows[case['observe_step']]['stdout_base64'])
-        # One optional line ending is a printing convention, not permission to
-        # strip spaces, extra lines, brackets or other source literal bytes.
-        line=output[:-2] if output.endswith(b'\r\n') else output[:-1] if output.endswith(b'\n') else output
+        # output_reason(): one optional final line ending is a printing convention,
+        # not permission to strip spaces, extra lines, brackets or other source
+        # literal bytes. Every listed line has the declared format or is the item; one is the item.
+        crlf=output.endswith(b'\r\n')
+        body=output[:-2] if crlf else output[:-1] if output.endswith(b'\n') else output
         try:
-            text=line.decode('utf-8')
+            text=body.decode('utf-8')
         except UnicodeDecodeError:
             reason='CLI output is not UTF-8 text in this bounded slice'
         else:
-            if '\r' in text or '\n' in text or re.fullmatch(case['pattern'],text) is None:
+            lines=text.split('\r\n' if crlf else '\n')
+            items=[re.fullmatch(case['pattern'],line) is not None for line in lines]
+            if any('\r' in line or '\n' in line or not (item or re.fullmatch(case['line_pattern'],line)) for line,item in zip(lines,items)) or not any(items):
                 reason='CLI output differs from the original brief format'
 print(json.dumps({'verdict':'FAIL' if reason else 'PASS','observation_hash':case['hash'],'steps':rows,'reason':reason},sort_keys=True))
 sys.exit(1 if reason else 0)
@@ -395,7 +466,8 @@ def commands(sources, manifest, *, inactive=(), python='python3', timeout=15):
         payload = {'program': observation['declaration']['program'],
                    'steps': observation['proposal']['steps'],
                    'observe_step': observation['proposal']['observe_step'],
-                   'pattern': observation['pattern'], 'hash': observation['hash'], 'timeout': timeout}
+                   'pattern': observation['pattern'], 'line_pattern': line_pattern(observation),
+                   'hash': observation['hash'], 'timeout': timeout}
         result.append(shlex.join([python, '-I', '-c', _RUNNER, json.dumps(payload, sort_keys=True, ensure_ascii=False)]))
     return result
 

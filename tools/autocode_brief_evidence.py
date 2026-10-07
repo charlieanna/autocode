@@ -13,12 +13,14 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import uuid
 
 try:
     from . import autocode_brief_obligations as obligations, autocode_util as util
-    from . import autocode_command_receipt as command_receipt
+    from . import autocode_brief_acceptance as acceptance, autocode_command_receipt as command_receipt
 except ImportError:
+    import autocode_brief_acceptance as acceptance
     import autocode_brief_obligations as obligations
     import autocode_util as util
     import autocode_command_receipt as command_receipt
@@ -80,14 +82,36 @@ def _observation(data, expected):
         outputs.append(_decode(row['stdout_base64']))
         _decode(row['stderr_base64'])
     output = outputs[expected['proposal']['observe_step']]
-    line = output[:-2] if output.endswith(b'\r\n') else output[:-1] if output.endswith(b'\n') else output
-    try:
-        text = line.decode('utf-8')
-    except UnicodeDecodeError as error:
-        raise ValueError('Original-brief observed CLI output is not UTF-8 text') from error
-    if '\r' in text or '\n' in text or re.fullmatch(expected['pattern'], text) is None:
-        raise ValueError('Actual CLI output differs from the original brief format')
+    reason = acceptance.output_reason(output, expected['pattern'], acceptance.line_pattern(expected))
+    if reason:
+        raise ValueError('Actual ' + reason)
     return observed
+
+
+def _runner_reason(row, case):
+    """The contained runner's own refusal and what the step printed, for a readable rejection.
+
+    Diagnostic only: a failed runner exit is refused whatever this returns.
+    """
+    try:
+        observed = json.loads(_pinned_bytes(row['output'], row['output_sha256']).decode('utf-8'))
+        reason, steps, planned = observed['reason'], observed.get('steps'), case['proposal']['steps']
+        if not isinstance(reason, str) or not reason:
+            return ''
+        if not isinstance(steps, list):
+            return reason  # refused before any step ran (the entrypoint check)
+        # The runner stops at a step that exits nonzero or times out (a timed-out step
+        # records nothing), and checks the listing only once every step has run.
+        if steps and steps[-1]['exit_code'] != 0:
+            step = steps[-1]
+            stderr = _decode(step['stderr_base64'])
+            return f"{reason}; `{shlex.join(step['argv'])}` exited {step['exit_code']} and wrote {stderr[-400:]!r} to stderr"
+        if len(steps) < len(planned):
+            return f"{reason}; `{shlex.join(planned[len(steps)]['argv'])}` did not finish"
+        step = steps[case['proposal']['observe_step']]
+        return f"{reason}; `{shlex.join(step['argv'])}` printed {_decode(step['stdout_base64'])[:400]!r}"
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, IndexError):
+        return ''
 
 
 def evidence_pins(result):
@@ -136,7 +160,8 @@ def replay(state, workspace, out, scratch_run, *, timeout, source_revision, prog
         try:
             if (row['error'] or row['timed_out'] or type(row['exit_code']) is not int or row['exit_code'] != 0
                     or not command_receipt.completed(row)):
-                raise ValueError(row['error'] or 'mandatory original-brief invocation failed or timed out')
+                reason = row['error'] or ('' if row['timed_out'] else _runner_reason(row, case))
+                raise ValueError(reason or 'mandatory original-brief invocation failed or timed out')
             row['observation'] = _observation(_pinned_bytes(row['output'], row['output_sha256']), case)
         except (OSError, ValueError, TypeError, KeyError) as error:
             row['error'] = str(error)

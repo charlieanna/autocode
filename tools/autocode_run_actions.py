@@ -24,6 +24,7 @@ from pathlib import Path
 try:
     from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
     from . import autocode_job_route as job_route
+    from . import autocode_job_report_recovery as job_report_recovery
     from . import autopilot
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
@@ -53,6 +54,7 @@ try:
 except ImportError:
     import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
     import autocode_job_route as job_route
+    import autocode_job_report_recovery as job_report_recovery
     import autopilot
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
@@ -202,16 +204,38 @@ def discard_stale_recovered(state, run_dir, record):
     records.write_json(run_dir / 'state.json', state)
 
 
-def revalidate_on_resume(state, workspace):
-    """A validation older than the workspace cannot support completion (#302)."""
-    validation = state.get('validation') or {}
-    revision = validation.get('source_revision')
-    if not revision or revision == source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']:
+def revalidate_on_resume(state, workspace, *, review_stage):
+    """Retire source-stale evidence at an admitted, reconciled explicit resume (#607).
+
+    validation_archive retains the associated regression_proof for audit, alongside
+    the old validation. Proof receipts, regression_proofs and the baseline stay intact.
+    """
+    if (state.get('next_stage') not in ('sol', 'astra_checkpoint', 'astra_review')
+            or state.get('status') != 'RUNNING' or not goals.approved(state)
+            or (state.get(resolver_human.PUBLIC) or {}).get('scope') in ('operational_exhaustion', 'blocker')
+            or any(state.get(key) for key in ('active_stage', 'active_runner_check', 'uncertain_artifacts',
+                                            'pending_report_repair', 'pending_questions', 'user_request',
+                                            resolver_human.PRIVATE))):
         return False
-    state.setdefault('validation_archive', []).append({
-        'reason': 'Validation is non-current: the workspace revision changed after it ran',
-        'validation': state.pop('validation')})
-    state.update(next_stage=workflows.review_stage(state))
+    validation = state.get('validation') or {}
+    proof = state.get('regression_proof') or {}
+    revision = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)['revision']
+    if not any(record.get('source_revision') and record['source_revision'] != revision
+               for record in (validation, proof)):
+        return False
+    # Resolve routing before retiring anything: workflow approval remains authoritative.
+    stage = review_stage(state)
+    reason = 'Validation is non-current: the workspace revision changed after it ran'
+    archived = {'at': records.now(), 'reason': reason, 'validation': state.pop('validation', {})}
+    if proof.get('source_revision') and proof['source_revision'] != revision:
+        archived['regression_proof'] = state.pop('regression_proof')
+    state.setdefault('validation_archive', []).append(archived)
+    for role in ('sol', 'astra'):
+        old = state.setdefault('sessions', {}).pop(role, None)
+        if old:
+            state.setdefault('session_rotations', []).append({
+                'role': role, 'old_session': old, 'at': records.now(), 'reason': reason})
+    state.update(next_stage=stage)
     return True
 
 
@@ -225,6 +249,12 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
         print(f"{state['status']}: {state['stop_reason']}")
         return 2
+    active = state.get('active_stage') or {}
+    if (getattr(args, 'recover_job_report', None) is not None
+            or (active.get('stage') == 'investigate_bug' and active.get('output_mode') == 'report_file')):
+        if stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
+            print(f"{state['status']}: {state['stop_reason']}")
+            return 2
     # A pause intervention that landed on a held run, or a request it stranded, leaves that pause in
     # force: the checks below apply its own authority, never the generic resume (#486).
     if ((args.resume_paused and stop.resume_interrupted(state, runner.now()))
@@ -260,7 +290,17 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                          lambda: source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)["revision"])
     if dependency_result is not None:
         return dependency_result
-    if not args.abandon_stage and job_failure.recover(runner, state, run_dir, workspace):
+    if getattr(args, 'recover_job_report', None) is not None:
+        try:
+            with runner.checkout_lock.exclusive(workspace, run_dir):
+                job_report_recovery.apply(runner, state, run_dir, workspace, args.recover_job_report)
+        except (ValueError, OSError, KeyError, RuntimeError) as error:
+            print(f'Input rejected: {error}', file=sys.stderr)
+            return 2
+        print('Inspected Investigator report applied; provider exit remains unknown. No model launched.')
+        return 0
+    retained_report = job_report_recovery.offer(runner, state, run_dir, workspace)
+    if not args.abandon_stage and not retained_report and job_failure.recover(runner, state, run_dir, workspace):
         if not args.retry_failed_stage:
             print(state['stop_reason'])
             return 2
@@ -554,6 +594,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.
     except support.Paused as error:
+        if retained_report:
+            raise  # An inspected report offer is not authority to adopt, archive or replay it.
         if job_failure.recover(runner, state, run_dir, workspace, error):
             print(state["stop_reason"])
             return 2
@@ -722,6 +764,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # --resume-paused asked this invocation to continue: the answer or
             # approval cleared the human gate and the frontier is dispatchable,
             # so fall through to the build loop instead of exiting (#509).
+            if revalidate_on_resume(state, workspace, review_stage=runner.workflow.review_stage):
+                runner.write_json(state_path, state)
             print("Resumed: dispatching the next stage.", flush=True)
             return None
         print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
@@ -767,6 +811,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             state.pop('stop_reason', None)
     if state.get("pending_questions"):
         raise support.Paused("PAUSED_UNANSWERED_QUESTION", "Pending questions cannot be bypassed by resume")
+    if args.resume_paused and revalidate_on_resume(state, workspace, review_stage=runner.workflow.review_stage):
+        runner.write_json(state_path, state)
     if runner.migrate_opencode_roles(state, run_dir, workspace):
         print("Saved roles now use OpenCode; previous sessions archived and task progress retained.", flush=True)
     try:
