@@ -132,7 +132,9 @@ Limits that remain:
   prove a first suite on a scaffold with a `.gitignore` or an empty file: it stays
   `UNVERIFIED`, as before this fix. That includes a scenario the harness drives directly
   (`scenarios/harness/driver.py` passes `--in-place`), but not a program's workstreams,
-  which run in their own worktrees.
+  which run in their own worktrees. Since 2026-10-07 an in-place run whose launch record
+  binds its ignored inputs can
+  (docs/bugs/2026-10-07-regression-proof-design-document-base.md).
 
 Tests in `tests/test_verify.py` (`PreservationEvidenceCase`) go through `verify.baseline`
 and `verify.verify` with `dependencies_from` as `autocode_regression` passes it. By
