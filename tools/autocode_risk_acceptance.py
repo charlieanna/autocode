@@ -36,6 +36,9 @@ _CORE_METHODS = {
     'lease_queue_lifecycle_v1': (r'\benqueue\s*\(', r'\bclaim\s*\(', r'\back\s*\('),
     'transactional_outbox_lifecycle_v1': (r'\bcreate_order\s*\(', r'\bpublish\s*\('),
 }
+# It must also say what it is in its own sentence (the class name counts), so `Logger(log_file)` placed
+# between LeaseQueue(path) and its methods does not take them.
+_FAMILY_WORDS = {'lease_queue_lifecycle_v1': r'queue|lease|job', 'transactional_outbox_lifecycle_v1': r'outbox|order|event'}
 _IMPORT = re.compile(r'\bfrom\s+(?P<module>[A-Za-z][A-Za-z0-9_.]*)\s+import\s+'
                      r'(?P<name>[A-Za-z][A-Za-z0-9_]*)(?:\s+as\s+(?P<alias>[A-Za-z][A-Za-z0-9_]*))?')
 _METHODS = {
@@ -282,6 +285,46 @@ def _declaration_ranges(text, constructors):
     return ranges
 
 
+def _family(text, constructor, start, end):
+    """The lifecycle family the constructor's own range declares, or None."""
+    if _negated_constructor(text, constructor.start()):
+        return None
+    quote, api = text[start:end], text[constructor.end():end]
+    if _has(api, r'\b(?:enqueue|claim)\s*\(') and _has(quote, r'\b(?:durable|restart|old\s+tokens)\b'):
+        protocol = 'lease_queue_lifecycle_v1'
+    elif _has(api, r'\b(?:create_order|publish)\s*\(') and _has(quote, r'\b(?:outbox|durable\s+event|Reopening)\b'):
+        protocol = 'transactional_outbox_lifecycle_v1'
+    else:
+        return None
+    if constructor['argument'] != 'path' and not (all(_has(api, core) for core in _CORE_METHODS[protocol])
+                                                  and _has(_sentence(text, constructor), _FAMILY_WORDS[protocol])):
+        return None
+    return protocol
+
+
+def _sentence(text, constructor):
+    start = max(text.rfind(mark, 0, constructor.start()) for mark in '.;\r\n') + 1
+    ends = [index for index in (text.find(mark, constructor.end()) for mark in '.;\r\n') if index >= 0]
+    return text[start:min(ends, default=len(text))]
+
+
+def _declarations(text):
+    """(constructor, start, end, family or None) for each declaration boundary in one source.
+
+    Every `Name(path)` is a boundary, as it always was. A renamed-argument call is one only when it
+    declares a family itself: `Logger(log_file)` between LeaseQueue(path) and its methods must not take
+    their text (#451). Dropping one only widens its neighbours' ranges, so this ends.
+    """
+    constructors = list(_CONSTRUCTOR.finditer(text))
+    while True:
+        rows = [(constructor, start, end, _family(text, constructor, start, end))
+                for constructor, (start, end) in zip(constructors, _declaration_ranges(text, constructors))]
+        kept = [row[0] for row in rows if row[0]['argument'] == 'path' or row[3]]
+        if len(kept) == len(rows):
+            return rows
+        constructors = kept
+
+
 def inventory(sources, public_targets):
     """Recognize the two explicit source-declared API families, including gaps.
 
@@ -297,20 +340,10 @@ def inventory(sources, public_targets):
     declarations = []
     for source in _sources(sources):
         text = source['text']
-        constructors = list(_CONSTRUCTOR.finditer(text))
-        for constructor, (start, end) in zip(constructors, _declaration_ranges(text, constructors)):
-            if _negated_constructor(text, constructor.start()):
+        for constructor, start, end, protocol in _declarations(text):
+            if protocol is None:
                 continue
             quote = text[start:end]
-            api = text[constructor.end():end]
-            if _has(api, r'\b(?:enqueue|claim)\s*\(') and _has(quote, r'\b(?:durable|restart|old\s+tokens)\b'):
-                protocol = 'lease_queue_lifecycle_v1'
-            elif _has(api, r'\b(?:create_order|publish)\s*\(') and _has(quote, r'\b(?:outbox|durable\s+event|Reopening)\b'):
-                protocol = 'transactional_outbox_lifecycle_v1'
-            else:
-                continue
-            if constructor['argument'] != 'path' and not all(_has(api, core) for core in _CORE_METHODS[protocol]):
-                continue
             imported_module, class_name = _constructor_import(text, constructor['name'])
             allowed = modules if imported_module is None else [name for name in modules if name == imported_module]
             facts = _facts(quote, protocol)

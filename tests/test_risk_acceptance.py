@@ -232,6 +232,33 @@ class RiskAcceptanceTests(unittest.TestCase):
         outbox = OUTBOX.replace('Store(path)', 'Store(db_file)')
         self.assertEqual([True], [row['supported'] for row in risk.inventory([source(outbox)], TARGETS)])
 
+    def test_a_renamed_argument_call_that_declares_nothing_never_splits_a_declaration(self):
+        # The renamed-argument match (#451) made `Logger(log_file)` a declaration boundary: placed
+        # between LeaseQueue(path) and its methods, it took the API text, so LeaseQueue declared nothing
+        # and Logger became an unsupported queue the plan could never satisfy. A renamed-argument call
+        # that declares no family is not a boundary; `Name(path)` splits a source as it always did.
+        for brief, first_sentence in ((QUEUE, 'threads. '), (OUTBOX, 'outbox. ')):
+            original = risk.inventory([source(brief)], TARGETS)
+            for extra in ('Diagnostics go through Logger(log_file). ', 'Settings load from Config(config_path). '):
+                text = brief.replace(first_sentence, first_sentence + extra, 1)
+                with self.subTest(extra=extra, constructor=original[0]['constructor']):
+                    rows = risk.inventory([source(text)], TARGETS)
+                    self.assertEqual(1, len(rows))
+                    self.assertTrue(rows[0]['supported'], rows[0]['missing'])
+                    for key in ('protocol', 'class_name', 'constructor', 'methods', 'promises'):
+                        self.assertEqual(original[0][key], rows[0][key], key)
+                    self.assertIn(extra.strip(), rows[0]['source_quote'])
+        # A negated renamed-argument family is no boundary either.
+        text = QUEUE.replace('threads. ', 'threads. Do not build Archive(db_path) with enqueue(id), claim(now) and '
+                                          'ack(id). ', 1)
+        self.assertEqual([('LeaseQueue', True)], [(row['constructor'], row['supported'])
+                                                  for row in risk.inventory([source(text)], TARGETS)])
+        # A renamed-argument call that declares a family still starts its own declaration.
+        second = 'Separately build JobQueue(db_path) with enqueue(id, payload), claim(now) and ack(id); it is durable.'
+        rows = risk.inventory([source(QUEUE + '\n\n' + second)], TARGETS)
+        self.assertEqual([('JobQueue', False), ('LeaseQueue', True)],
+                         sorted((row['constructor'], row['supported']) for row in rows))
+
     def test_module_binding_requires_original_target_and_human_import(self):
         text = 'from leasequeue import LeaseQueue\n' + QUEUE
         declarations = risk.inventory([source(text)], TARGETS)

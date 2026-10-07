@@ -576,15 +576,12 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
         raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
     replay_context = progressive_state.context(state)
+    whole = human_pending or brief_obligations.whole_product_claim(state, value, progressive_context=replay_context)
     clean_run, clean_identity = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run, verify.execution_identity)
     validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, clean_run,
                                                    approved_state=state, progressive_context=replay_context,
-                                                   execution_identity=clean_identity,
-                                                   all_brief_observations=human_pending or brief_obligations.whole_product_claim(
-                                                       state, value, progressive_context=replay_context),
-                                                   all_risk_observations=human_pending or brief_obligations.whole_product_claim(
-                                                       state, value, progressive_context=replay_context),
-                                                   keep_lifecycle_failure=stage == "sol")
+                                                   execution_identity=clean_identity, all_brief_observations=whole,
+                                                   all_risk_observations=whole, keep_lifecycle_failure=stage == "sol")
                                   if value["verdict"] == "PASS" or human_pending or progressive_pass else None)
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
@@ -852,9 +849,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             progressive_state.prepare_completion(state, current, record,
                                                   product_findings=findings_ledger.blocking_entries(state))
             if modern and findings_ledger.blocking_entries(state):
-                raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: the findings ledger still lists "
-                                     "open blocking findings; resolve or retract each one with evidence: "
-                                     + risk_findings.blocking_summary(state))
+                raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: the findings ledger still lists open "
+                                     "blocking findings; resolve or retract each one with evidence: " + risk_findings.blocking_summary(state))
             if modern and goals.missing_human_reviews(state):
                 raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
             if not completion_gate.completion_ready(state, value, current):
