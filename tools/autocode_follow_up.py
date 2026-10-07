@@ -21,10 +21,15 @@ State keys written here:
                                      "blocking": [...], "advisory": [...]} or absent,
                           "design": {"mode": "propose", "documents": [path]}
                                     or {"mode": "review", "report_path", "design_under_review", "verdict",
-                                        "blocking": [...], "advisory": [...], "questions": [...]} or absent}}]
+                                        "summary", "satisfied", "concerns": [...], "questions": [...],
+                                        "blocking": [...], "advisory": [...], "revision", "revisions": [...]}
+                                    or absent}}]
         One entry per follow-up. Read by autocode_workflows.follow_up (the recognizer judges the
         newest message; it also gets previous.design, so "Build it." after a design turn names that
-        design), by review_findings (the Planner's handoff) and by the status and progress views.
+        design), by design_review_to_revise (a reply to a design review: the Architect revises the
+        report carried here, autocode_design_job), by review_findings (the Planner's handoff) and by
+        the status and progress views. A review's blocking and advisory are its OPEN concerns
+        (id, area, summary); concerns is every concern as the report has it, resolved ones included.
         stage_index is len(state["stages"]) when the turn was said: the turn's stage records start
         there, and turn_changes reads it when the NEXT follow-up is said. event_id is the turn's
         brief_feedback receipt. previous.wrote is what the finished job left in the workspace: its
@@ -42,6 +47,7 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 
+import hashlib
 import json
 import subprocess
 import uuid
@@ -57,6 +63,8 @@ except ImportError:
 
 FINDING_FIELDS = ("id", "severity", "file", "lines", "summary", "evidence")
 CONCERN_FIELDS = ("id", "area", "summary")
+# A design review's concern as the Architect revises it: everything the report says about it.
+REVISED_FIELDS = ("id", "area", "severity", "status", "resolution", "summary", "evidence", "example", "probe")
 # Where each read-only job leaves its report or note: (state key, field).
 REPORTS = {"review": ("review", "report_path"), "design": ("design_review", "report_path"),
            "discuss": ("answer", "note_path")}
@@ -169,8 +177,10 @@ def carried_design(state: dict, workspace, changes: list[str] | None = None) -> 
 
     A new design (propose mode) is the Markdown documents its turn wrote, README.md files left
     out (a design folder's index is no design), and only regular files inside the workspace (a
-    symbolic link could point anywhere); a design review is its saved report's verdict, concerns
-    and questions. An unreadable report raises ValueError."""
+    symbolic link could point anywhere); a design review is its whole saved report, which a reply
+    makes the Architect revise. A report that cannot be read, or that changed since the Architect's
+    review wrote it (its saved sha256), raises ValueError: the revision would start from text the
+    Architect never wrote."""
     found = state.get("design_review") or {}
     if workflows.kind(state) != "design" or found.get("mode") not in ("propose", "review"):
         return None
@@ -182,19 +192,29 @@ def carried_design(state: dict, workspace, changes: list[str] | None = None) -> 
     if not found.get("report_path"):
         return None
     try:
-        report = json.loads((Path(workspace) / found["report_path"]).read_text())
+        raw = (Path(workspace) / found["report_path"]).read_bytes()
+        report = json.loads(raw)
         if not isinstance(report, dict):
             raise ValueError("it is not a JSON object")
     except (OSError, ValueError) as error:
         raise ValueError(f"The design review's report {found['report_path']} cannot be read: {error}") from None
-    concerns = [concern for concern in report.get("concerns") or [] if isinstance(concern, dict)]
+    if found.get("report_sha256") and hashlib.sha256(raw).hexdigest() != found["report_sha256"]:
+        raise ValueError(f"{found['report_path']} changed since the Architect's review; restore it or start a new run")
+    concerns = [{key: c.get(key, "open" if key == "status" else "") for key in REVISED_FIELDS}
+                for c in report.get("concerns") or [] if isinstance(c, dict)]
+    unresolved = [c for c in concerns if c["status"] != "resolved"]
+    revisions = [row for row in report.get("revisions") or [] if isinstance(row, dict)]
     return {"mode": "review", "report_path": found["report_path"],
             "design_under_review": report.get("design_under_review", found.get("design_under_review", "")),
-            "verdict": report.get("verdict"),
-            "blocking": [{key: c.get(key) for key in CONCERN_FIELDS} for c in concerns if c.get("severity") == "blocking"],
-            "advisory": [{key: c.get(key) for key in CONCERN_FIELDS} for c in concerns if c.get("severity") != "blocking"],
-            "questions": [{"id": q.get("id"), "question": q.get("question")}
-                          for q in report.get("questions") or [] if isinstance(q, dict)]}
+            "verdict": report.get("verdict"), "summary": report.get("summary", ""),
+            "satisfied": [str(goal) for goal in report.get("satisfied") or []], "concerns": concerns,
+            "blocking": [{key: c[key] for key in CONCERN_FIELDS} for c in unresolved if c["severity"] == "blocking"],
+            "advisory": [{key: c[key] for key in CONCERN_FIELDS} for c in unresolved if c["severity"] != "blocking"],
+            "questions": [{"id": q.get("id"), "question": q.get("question"), "options": list(q.get("options") or [])}
+                          for q in report.get("questions") or [] if isinstance(q, dict)],
+            # A report written before revisions existed is its own first revision.
+            "revision": report["revision"] if isinstance(report.get("revision"), int) else 1,
+            "revisions": revisions}
 
 
 def carried_review(state: dict, workspace) -> dict | None:
@@ -220,6 +240,19 @@ def current(state: dict) -> dict | None:
     """The newest follow-up turn, or None for a run that is still on its first request."""
     turns = state.get("turns") or []
     return turns[-1] if turns else None
+
+
+def design_review_to_revise(state: dict) -> dict | None:
+    """The design review the newest turn replies to, or None.
+
+    Present when the newest turn follows a design review and was recognized as design: the
+    Architect then revises that review (autocode_design_job). It is the carried report plus the
+    user's message (``said``) and the turn's receipt (``event_id``)."""
+    turn = current(state)
+    design = (turn or {}).get("previous", {}).get("design") or {}
+    if design.get("mode") != "review" or workflows.kind(state) != "design":
+        return None
+    return {**design, "said": turn["say"], "event_id": turn.get("event_id")}
 
 
 def review_findings(state: dict) -> dict | None:

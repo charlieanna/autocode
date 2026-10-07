@@ -34,3 +34,8 @@ with saved context, and reject stale or altered report evidence. The new public
 regression fails on the compared master revision, which completes instead of
 waiting. Focused tests also preserve a question-free negative diagnosis and the
 reproduced-bug path.
+
+Report validation also rejects duplicate question text after trimming surrounding
+whitespace. Index-based question IDs otherwise give those duplicates separate
+identities, so answering one would leave the same question pending again.
+The check rejects the report before writing its note or publishing questions.

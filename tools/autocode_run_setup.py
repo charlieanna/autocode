@@ -164,6 +164,10 @@ def resolve(runner, args, parser):
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
         else:
             state["base_commit"] = launch_base(workspace, run_dir, parser)
+        if not state.get("project_workspace"):
+            # In-place proofs copy only these ignored generated sources. Read by
+            # autocode_regression._generated_admission. A later file is left out (#529).
+            state["generated_sources_at_start"] = verify.generated_source_record(workspace)
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None and args.max_iterations is not None:

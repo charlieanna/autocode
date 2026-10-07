@@ -33,6 +33,7 @@ try:
     from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from . import autocode_finding_rescope as finding_rescope
+    from . import autocode_recovery_context as recovery_context
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     import autocode_finding_rescope as finding_rescope
+    import autocode_recovery_context as recovery_context
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
@@ -494,6 +496,7 @@ def _approve(state, selected):
         if contract['body']['initial_task']['milestone_id'] in carried:
             state.update(next_stage='astra_review',
                          next_action='Preserve carried milestones; assign unfinished work or final integration validation')
+            recovery_context.revision_approved(state)
             return
         decision = initial_decision(contract["body"])
         kind = assign_task(state, decision, current)
@@ -505,6 +508,7 @@ def _approve(state, selected):
                      next_stage="sol" if kind == "validate" else
                                 "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
         record_decision(state, decision)
+    recovery_context.revision_approved(state)
 
 
 def resolve_passing_checkpoint(state, question_id, text):

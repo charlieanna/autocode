@@ -282,6 +282,20 @@ class ResolverTests(unittest.TestCase):
                 self.assertEqual((decision.action, receipt.attempt), ("escalate", None))
                 self.assertFalse(req.ledger.attempts)
 
+    def test_runner_sealed_acceptance_keys_do_not_block_resolution(self):
+        # A live run (2026-10-06) paused forever: the brief-acceptance manifest
+        # #522 seals into the approved body was an unknown key here, so every
+        # resolver evaluation answered "invalid contract or declarative input".
+        sealed = body()
+        sealed["brief_acceptance"] = {"manifest": {"hash": "x"}, "review": {}, "amendments": []}
+        self.assertEqual(r.resolve(request(contract=snapshot(sealed)))[0].action, "continue")
+        future = copy.deepcopy(sealed)
+        future["risk_acceptance"] = {"observations": []}
+        self.assertEqual(r.resolve(request(contract=snapshot(future)))[0].action, "continue")
+        unknown = copy.deepcopy(sealed)
+        unknown["role_output"] = "bad"
+        self.assertEqual(r.resolve(request(contract=snapshot(unknown)))[0].action, "escalate")
+
     def test_source_purity_and_constants(self):
         source = pathlib.Path(r.__file__).read_text()
         self.assertNotIn("import tools", source)

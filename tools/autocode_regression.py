@@ -241,14 +241,32 @@ def reviewed_patch(state, workspace):
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
+def _generated_admission(state, workspace, dependencies):
+    """Which ignored generated sources this proof may copy (#529).
+
+    A task worktree copies the project checkout's current generated sources.
+    An in-place run, whose dependency checkout is the candidate itself, copies
+    only ``generated_sources_at_start`` (written once in autocode_run_setup).
+    A saved run without that key copies none.
+    """
+    if Path(dependencies).resolve() != Path(workspace).resolve():
+        return {}
+    if "generated_sources_at_start" not in state:
+        return {"generated_unrecorded": True}
+    record = state.get("generated_sources_at_start")
+    return {"generated_record": record if isinstance(record, dict) else {}}
+
+
 def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
+    admission = _generated_admission(state, workspace, dependencies)
     binding = {"base": base, "command": suite,
                "framework": framework.to_dict() if framework else None,
                "base_patch": schedule.tree_identity(base_patch) if base_patch else None,
                "timeout": suite_timeout(state),
-               "runtime": verify.baseline_identity(workspace, command=suite, dependencies_from=dependencies)}
+               "runtime": verify.baseline_identity(workspace, command=suite, dependencies_from=dependencies,
+                                                   **admission)}
     if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
         try:
             result = util.read(cached["path"])
@@ -266,7 +284,7 @@ def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, b
                  output=directory / "baseline" / "suite-on-base.log")
     result = verify.baseline(workspace, base, directory, framework=framework,
                              suite_command=suite, dependencies_from=dependencies, timeout=suite_timeout(state),
-                             base_patch=base_patch)
+                             base_patch=base_patch, **admission)
     path = directory / "baseline.json"
     util.atomic_json(path, result)
     state["regression_baseline"] = {"base": base, "command": suite, "path": str(path), "health": result["health"],
@@ -282,6 +300,8 @@ def prove(state, workspace, run_dir):
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state))
     options = settings(state)
+    dependencies = state.get("project_workspace") or str(workspace)
+    admission = _generated_admission(state, workspace, dependencies)
     command = options.get("test_command")
     # A trusted explicit collector chooses the result parser and targeted tests.
     framework = verify.command_framework(command) if command else None
@@ -301,7 +321,8 @@ def prove(state, workspace, run_dir):
         "timeout": suite_timeout(state),
         "identity": verify.execution_identity(workspace, command=options.get("test_command") or
                                                (framework.suite if framework else None),
-                                               dependencies_from=state.get("project_workspace"), source_paths=source_scope.paths(state)) if base else
+                                               dependencies_from=state.get("project_workspace"),
+                                               source_paths=source_scope.paths(state), **admission) if base else
                     {"source_revision": current, "reuse_supported": False},
         "base": base,
         "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
@@ -356,6 +377,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         path = None
     else:
         dependencies = state.get("project_workspace") or str(workspace)
+        admission = _generated_admission(state, workspace, dependencies)
         suite = options.get("test_command") or (framework.suite if framework else None)
         base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch, progress)
                       if suite else None)
@@ -379,7 +401,7 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
                                preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
-                               source_paths=source_scope.paths(state))
+                               source_paths=source_scope.paths(state), **admission)
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
@@ -394,7 +416,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                            for label, receipt in result["checks"].items()}
     after = verify.execution_identity(workspace, command=options.get("test_command") or
                                        (framework.suite if framework else None),
-                                       dependencies_from=state.get("project_workspace"), source_paths=source_scope.paths(state)) if path else execution_context["identity"]
+                                       dependencies_from=state.get("project_workspace"),
+                                       source_paths=source_scope.paths(state), **admission) if path else execution_context["identity"]
     if after != execution_context["identity"]:
         proof["verdict"] = verify.UNVERIFIED
         proof.setdefault("unverified", []).append("Execution context changed while proving the candidate")

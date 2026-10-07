@@ -2,10 +2,12 @@
 try:
     from .autocode_source_scope import snapshot
     from . import autocode_recovery_accounting as accounting
+    from . import autocode_recovery_context as recovery_context
     from .autocode_permission_recovery import hold_message
 except ImportError:
     from autocode_source_scope import snapshot
     import autocode_recovery_accounting as accounting
+    import autocode_recovery_context as recovery_context
     from autocode_permission_recovery import hold_message
 
 GRANT_ADVICE = (
@@ -123,7 +125,7 @@ def stop_reason(state, count, maximum, *, allow_grant=True):
     limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
     # A zero no-progress threshold does not disable the lifetime allowance.
     if count >= maximum or (limit and accounting.consecutive_timeouts(state) >= limit):
-        cause = context.get("timeout_reason") or context.get("instruction", "Inspect saved provider logs")
+        cause = recovery_context.exhaustion_cause(state)
         return "PAUSED_TIMEOUT_RECOVERY", (
             f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "
             "AutoResolver retained the diagnosis and failure history; this is an operational "

@@ -103,7 +103,9 @@ def job_request(state, job, role, route):
     prompt, metrics = job.prompt(
         state, autoplanner.workspace_inventory(state["workspace"], state["task"]),
         state["settings"].get("context_soft_tokens", 10000), autoplanner.engine_for(state["settings"], route))
-    return ModelRequest(role, route, prompt, metrics, job.SCHEMA, True)
+    # A job whose report shape depends on the run (the Architect revising a review) names its schema.
+    schema = job.schema_for(state) if hasattr(job, "schema_for") else job.SCHEMA
+    return ModelRequest(role, route, prompt, metrics, schema, True)
 
 
 def apply_job(stage, state, value, record, workspace):
