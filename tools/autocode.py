@@ -1147,10 +1147,9 @@ def intervention_metadata(workspace, run_dir, state):
     return stop_policy.metadata(workspace, run_dir, state)
 
 
-def consume_interventions(state, run_dir, workspace, *, lock_held=False, released=False):
-    """Commit receipt effects and identity together before clearing the inbox."""
-    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, lock_held=lock_held,
-                               released=released)
+def consume_interventions(state, run_dir, workspace, **options):
+    """Commit receipt effects and identity together before clearing the inbox (options: lock_held, released)."""
+    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, **options)
 
 
 def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False):
