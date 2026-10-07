@@ -23,6 +23,10 @@ FEATURE = {"feature.py": "def feature():\n    return 'feature'\n",
            "test_feature.py": ("import unittest\nfrom feature import feature\n\n\n"
                                "class FeatureTests(unittest.TestCase):\n    def test_feature(self):\n"
                                "        self.assertEqual('feature', feature())\n")}
+TOOL_TEST = ("import os, subprocess, unittest\n\n\nclass ToolTests(unittest.TestCase):\n    def test_tool(self):\n"
+             "        here = os.path.dirname(os.path.abspath(__file__))\n"
+             "        self.assertEqual(b'ok\\n', subprocess.run([os.path.join(here, 'tool.sh')],"
+             " capture_output=True).stdout)\n")
 # What AutoCode appends to .git/info/exclude before an OpenCode stage (autocode_readonly_events).
 AUTOCODE_EXCLUDE = "/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n"
 
@@ -94,6 +98,47 @@ class LaunchCommit(unittest.TestCase):
                 proof = regression.prove(build_state(base, python), project.root, project.evidence)
                 self.assertEqual(verify.FAIL, proof["verdict"], proof)
                 self.assertTrue(any("test_app" in reason for reason in proof["failures"]), proof)
+
+    # The next three come from #574 (tests/test_launch_overlay.py), the competing fix for #540.
+    def launch(self, project):
+        """The base_commit a new in-place run records (run creation calls regression.launch_base)."""
+        return regression.launch_base(project.root, project.evidence)
+
+    def test_a_feature_that_leaves_untracked_launch_files_alone_passes(self):
+        project = self.project({"README.md": "x\n"})
+        project.write({"app.py": APP, "test_app.py": TEST_APP})
+        base = self.launch(project)
+        project.write(FEATURE)
+        proof = regression.prove(build_state(base, isolated_python(self)), project.root, project.evidence)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["feature.py"], proof["source_files"], proof)
+        self.assertEqual(["test_feature.py"], proof["test_files"], proof)
+        self.assertIn("test_feature.FeatureTests.test_feature", proof["fail_to_pass"], proof)
+
+    def test_untracked_code_on_a_readme_only_head_is_not_a_new_project(self):
+        project = self.project({"README.md": "x\n"})
+        project.write({"app.py": APP})
+        base = self.launch(project)
+        project.write({"app.py": BROKEN_APP, **FEATURE})
+        proof = regression.prove(build_state(base, isolated_python(self)), project.root, project.evidence)
+        self.assertNotEqual(verify.PASS, proof["verdict"], proof)
+        self.assertFalse(any("documentation-only" in note for note in proof["notes"]), proof["notes"])
+
+    @unittest.skipUnless(os.name == "posix", "needs POSIX file modes")
+    def test_a_launch_commit_keeps_a_tracked_scripts_exec_bit(self):
+        """An unrelated untracked file makes the launch base a new commit; dropping +x must still fail."""
+        project = self.project({"README.md": "x\n", "tool.sh": "#!/bin/sh\necho ok\n", "test_tool.py": TOOL_TEST})
+        (project.root / "tool.sh").chmod(0o755)
+        git(project.root, "add", "tool.sh")
+        git(project.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "exec")
+        project.write({"notes.md": "wip\n"})
+        base = self.launch(project)
+        self.assertNotEqual(git(project.root, "rev-parse", "HEAD"), base)
+        (project.root / "tool.sh").chmod(0o644)
+        project.write(FEATURE)
+        proof = regression.prove(build_state(base, isolated_python(self)), project.root, project.evidence)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertTrue(any("test_tool" in reason for reason in proof["failures"]), proof)
 
     def test_a_gitignored_autocode_directory_is_left_out(self):
         for rule in ("info/exclude", ".gitignore"):
