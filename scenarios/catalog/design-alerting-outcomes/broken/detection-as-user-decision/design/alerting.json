@@ -1,0 +1,107 @@
+{
+  "outcome_rules": [
+    {
+      "rule": "Alert when any message has waited in the orders dead-letter queue for 5 minutes or longer.",
+      "source": "user"
+    },
+    {
+      "rule": "Send one alert per incident, not one per message.",
+      "source": "user"
+    },
+    {
+      "rule": "The on-call team hears about an incident within 10 minutes.",
+      "source": "user"
+    },
+    {
+      "rule": "An alert carries counts and message IDs only, never message bodies.",
+      "source": "user"
+    }
+  ],
+  "mechanisms": [
+    {
+      "choice": "How the dead-letter queue condition is detected",
+      "options": [
+        {
+          "name": "CloudWatch alarm on ApproximateAgeOfOldestMessage",
+          "tradeoffs": "No code to run and it measures message age directly; one-minute metric periods, so detection can lag a few minutes behind the rule."
+        },
+        {
+          "name": "Scheduled Lambda that polls the queue",
+          "tradeoffs": "Can apply any rule and read message IDs; it is code to deploy, monitor and pay for, and its own failures need alerting."
+        }
+      ],
+      "recommended": "CloudWatch alarm on ApproximateAgeOfOldestMessage",
+      "basis": "user_decision",
+      "binding_constraint": true,
+      "reason": "The rule is about message age, which the alarm measures without code."
+    },
+    {
+      "choice": "How alerts reach Slack",
+      "options": [
+        {
+          "name": "Slack incoming webhook",
+          "tradeoffs": "Simplest to set up; posts to one channel; the webhook URL is a secret to store and rotate."
+        },
+        {
+          "name": "Slack app with chat:write",
+          "tradeoffs": "Posts to any channel it is invited to and returns the posted message; needs a workspace admin to install it and a token to store."
+        },
+        {
+          "name": "AWS Chatbot",
+          "tradeoffs": "Managed by AWS with no code to operate; needs a workspace admin to authorize it and its message format is fixed."
+        }
+      ],
+      "recommended": "AWS Chatbot",
+      "basis": "agent_proposed",
+      "binding_constraint": false,
+      "reason": "The team has no existing integration and no restriction, and this needs no code to operate."
+    }
+  ],
+  "parameters": [
+    {
+      "name": "slack_channel",
+      "description": "The Slack channel that receives alerts; the person named #orders-oncall."
+    },
+    {
+      "name": "aws_account_and_region",
+      "description": "The AWS account and region the order pipeline runs in."
+    },
+    {
+      "name": "dead_letter_queue",
+      "description": "The dead-letter queue to watch, by name or ARN."
+    }
+  ],
+  "open_blockers": [
+    "A Slack workspace administrator has to approve installing the chosen integration before it can post.",
+    "Deployment needs its own approval: approving this design authorizes no AWS or Slack change."
+  ],
+  "reliability": {
+    "delivery": "When it is uncertain whether an alert reached Slack, the alert is sent again: the team may see it twice but does not miss it. The person chose this over never repeating an alert.",
+    "latency": {
+      "target": "Within 10 minutes of the condition while AWS and Slack are healthy",
+      "kind": "healthy_path_target"
+    }
+  },
+  "assumptions": [
+    {
+      "text": "The person chose a CloudWatch alarm on ApproximateAgeOfOldestMessage for detection.",
+      "basis": "user_answer"
+    },
+    {
+      "text": "Recommendation, not the person's decision: deliver alerts through AWS Chatbot.",
+      "basis": "agent_proposed"
+    },
+    {
+      "text": "An uncertain Slack delivery is retried; a duplicate alert is acceptable.",
+      "basis": "user_answer"
+    },
+    {
+      "text": "The 10-minute delivery time is a target while AWS and Slack are healthy, not a guarantee during an outage.",
+      "basis": "user_answer"
+    }
+  ],
+  "deployment": {
+    "authorized": false,
+    "note": "This is a design document. Approving it authorizes no deployment and no AWS or Slack change."
+  }
+}

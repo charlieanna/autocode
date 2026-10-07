@@ -1,4 +1,4 @@
-Design how we should monitor the dead-letter queue of our AWS order pipeline and alert the team in Slack when something goes wrong. Do not implement or deploy anything: no infrastructure code and no calls to AWS or Slack.
+Design how we should monitor the dead-letter queue of our AWS order pipeline and alert the team in Slack when something goes wrong.
 
 Deliver only `design/alerting.json`, a JSON object with these keys:
 

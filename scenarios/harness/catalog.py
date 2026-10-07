@@ -96,8 +96,12 @@ class Scenario:
     # [fake] turn_paths: in a conversation the solution is the end state of every turn; entry i lists
     # the solution path prefixes the scripted model delivers in turn i (0 = the brief).
     fake_turn_paths: tuple[tuple[str, ...], ...] = ()
-    # [fake] answers: {question_id = answer} the person gives explicitly, for a question the driver
-    # never answers by default (an AutoResolver stop such as a quota question, ``route-sol``).
+    # [fake] answers: {question_id = answer} the person gives explicitly (README, "the driver answers").
+    # The driver gives the explicit answer to each question that has one and AutoCode's proposed default to
+    # the others: a question it never answers by default (an AutoResolver stop such as a quota question,
+    # ``route-sol``), or an ordinary clarifying question whose answer the scenario tests
+    # (design-alerting-outcomes). A gate the driver otherwise leaves to the person is served only when every
+    # question on it has an explicit answer. A live run never gives them.
     fake_answers: tuple[tuple[str, str], ...] = ()
     # [hybrid]: the stages a hybrid run (run --hybrid) scripts; empty when the scenario declares no route.
     hybrid_scripted: tuple[str, ...] = ()

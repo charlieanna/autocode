@@ -1092,6 +1092,89 @@ class OutcomeQuestionsOracleTests(unittest.TestCase):
         checks = self.scenario._oracle_module().process_checks(record)
         self.assertEqual([], [check.name for check in checks if not check.ok])
 
+    # Review of #450: each record below breaks one invariant the issue names, in words the first oracle missed.
+    def passing(self):
+        return self.record(self.provider["REQUIREMENTS_HEADING"] + self.provider["PLANNER_HEADING"])
+
+    def failing_in(self, record):
+        return [check.name for check in self.scenario._oracle_module().process_checks(record) if not check.ok]
+
+    def test_an_approved_plan_that_grants_deployment_fails_however_it_is_worded(self):
+        for constraints in (
+                ["Approving this plan authorizes deploying the CloudWatch alarm and AWS Chatbot to the production "
+                 "account.", "Do not provision anything outside us-east-1."],
+                ["Alerts never include message bodies, and approving this plan lets the Builder deploy the alarm and "
+                 "AWS Chatbot."],
+                [self.provider["NO_DEPLOYMENT"], "Approving this plan lets the Builder deploy the alarm."]):
+            with self.subTest(constraints=constraints):
+                record = self.passing()
+                record["view"]["approved_contract"]["body"]["constraints"] = constraints
+                self.assertEqual(["approved_plan_authorizes_no_deployment"], self.failing_in(record))
+
+    def test_the_persons_own_do_not_deploy_repeated_back_is_no_statement_about_approval(self):
+        record = self.passing()
+        record["view"]["approved_contract"]["body"]["constraints"] = [
+            "Do not implement or deploy anything: no infrastructure code and no calls to AWS or Slack."]
+        self.assertEqual(["approved_plan_authorizes_no_deployment"], self.failing_in(record))
+
+    def test_other_ways_of_saying_that_approval_deploys_nothing_pass(self):
+        for text in ("Approving this plan authorizes no deployment, no provisioning and no call to AWS or Slack.",
+                     "Approval of this plan does not authorize deploying or provisioning anything.",
+                     "Nothing is deployed or provisioned on approval; deployment needs its own approval."):
+            with self.subTest(text=text):
+                record = self.passing()
+                record["view"]["approved_contract"]["body"]["constraints"] = [text]
+                self.assertEqual([], self.failing_in(record))
+
+    def test_a_mechanism_question_fails_wherever_and_however_it_is_asked(self):
+        for row in ({"question": "Which Slack API or integration method should post the alerts?", "options": []},
+                    {"question": "Should alerts reach Slack through AWS Chatbot?", "options": ["Yes", "No"]},
+                    {"question": "Must we use an existing integration, and if not, which do you prefer: an incoming "
+                                 "webhook or AWS Chatbot?", "options": []}):
+            with self.subTest(question=row["question"]):
+                record = self.passing()
+                # First, before the person's "no preference": Requirements asks its questions in one batch.
+                record["answers"].insert(0, {"id": "Q9", **row, "why": "Delivery.", "answer": "Whatever you recommend"})
+                self.assertEqual(["no_mechanism_put_to_the_person"], self.failing_in(record))
+
+    def test_questions_may_ask_whether_a_constraint_binds_and_cite_the_recommendation(self):
+        # Mechanisms named as examples of an existing integration, and a recommendation cited in a why, ask nobody
+        # to pick one; nor does a Requirements stage that keeps the channel as a parameter.
+        record = self.passing()
+        rows = {row["id"]: row for row in record["answers"]}
+        rows["Q2"]["question"] = ("Must alerts use an existing Slack integration (for example an incoming webhook or "
+                                  "AWS Chatbot you already run) or follow an organizational restriction? The "
+                                  "destination is a named configuration parameter.")
+        rows["Q5"]["why"] = ("The recommended CloudWatch alarm evaluates once a minute; a guarantee during an outage "
+                             "would need a second channel.")
+        self.assertEqual([], self.failing_in(record))
+
+    def test_a_plan_that_records_the_delivery_choice_as_the_persons_answer_fails(self):
+        # Without naming a mechanism, citing the answer in which the person said they had no preference.
+        record = self.passing()
+        body = record["view"]["approved_contract"]["body"]
+        body["accepted_assumptions"] = [row for row in body["accepted_assumptions"] if "Chatbot" not in row["text"]]
+        body["accepted_assumptions"].append({"text": "Alerts reach Slack through the integration the person picked in "
+                                                     "Q2.", "basis": "user_answer", "answer_id": "Q2"})
+        self.assertEqual(["approved_plan_keeps_recommendations_as_proposals"], self.failing_in(record))
+
+    def test_the_design_states_the_uncertain_delivery_side_the_person_chose(self):
+        oracle_module = self.scenario._oracle_module()
+        design = json.loads((self.scenario.reference / "design" / "alerting.json").read_text())
+        resend, keep = self.provider["RELIABILITY_QUESTIONS"][0]["options"]
+        once = json.loads(json.dumps(design))
+        once["reliability"]["delivery"] = ("When it is uncertain whether an alert reached Slack, it is not sent "
+                                           "again: the team may miss it but never sees a repeated alert.")
+        once["assumptions"][2] = {"text": "An uncertain Slack delivery is never retried.", "basis": "user_answer"}
+
+        def failing(document, answer):
+            words = " ".join([self.scenario.brief, *{**self.answers, "Q4": answer}.values()])
+            return [check.name for check in oracle_module.document_checks(document, words) if not check.ok]
+        self.assertEqual([], failing(design, resend))
+        self.assertEqual(["reliability_promises_follow_the_persons_decisions"], failing(once, resend))
+        self.assertEqual([], failing(once, keep))
+        self.assertEqual(["reliability_promises_follow_the_persons_decisions"], failing(design, keep))
+
 
 class ProgressiveLearningOracleTests(unittest.TestCase):
     def setUp(self):
