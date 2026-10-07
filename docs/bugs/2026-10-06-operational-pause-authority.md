@@ -5,9 +5,9 @@ provider. **Fixed** 2026-10-06; regression in `tests/test_operational_pause_auth
 The rule (#379, #486): a protected operational pause is released, and a provider
 admitted, only by the operator's authority for that pause. A settings write is not
 that authority, and neither is a pause intervention, queued feedback, a requested
-pause, enabling joint planning or an edited goal. A review of the first fix found more
-paths; they are in "Review follow-ups" below. "Composition with #509 and #581" covers
-the merge with those changes.
+pause, enabling joint planning, an edited goal or a design reference revision. A review
+of the first fix found more paths; they are in "Review follow-ups" below.
+"Composition with #509 and #581" covers the merge with those changes.
 
 ## Reproduced behavior
 
@@ -169,6 +169,16 @@ information once (`resolver.information_reviews`, the `information_review` view 
   goal is still accepted, and approving it with `--resume-paused` still dispatches the
   Planner. A new run's answer and approval gates still dispatch the same way, tested
   as real processes.
+- **A design reference revision did the same.** `--revise-figma-manifest` was accepted
+  at any `PAUSED_*` status, on master too. At an unanswered `PAUSED_RATE_LIMIT` it
+  saved the revision as `PAUSED_DESIGN_INPUT_CHANGED`, and the next `--resume-paused`
+  launched the Requirements and Plan Reviewer stages and stopped for plan approval,
+  past the rate limit. It is now refused by the same `correction_refusal`
+  (`run_actions.handle`), and approving its plan can no longer dispatch past the pause.
+  Regression: `tests.test_design_manifest`
+  `test_reference_revision_never_replaces_an_operational_pause`, a public `TaskRun`
+  with a verified v2 inventory; the existing revision tests (after completion) still
+  pass.
 
 ## Not changed
 
@@ -177,8 +187,3 @@ information once (`resolver.information_reviews`, the `information_review` view 
   not grown here.
 - **`--joint-planning` on an unanswered request** stops in `configure` with an
   uncaught `ValueError`. That fails closed, but it is not a clean refusal.
-- **`--revise-figma-manifest`** (a design reference revision) is accepted at any
-  `PAUSED_*` status. It saves brief feedback and replaces the status with
-  `PAUSED_DESIGN_INPUT_CHANGED`, which a plain `--resume-paused` continues into
-  Requirements. Found by reading the code, not reproduced: no CLI fixture builds a
-  verified design manifest. It is the same kind of correction that is refused above.

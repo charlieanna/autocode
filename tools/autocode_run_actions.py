@@ -235,6 +235,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             metadata = runner.intervention_metadata(workspace, run_dir, state)
             if metadata["pending_count"] or metadata["inbox_error"]:
                 raise ValueError("Apply queued interventions before revising design references")
+            # A revision restarts plan review in place of the pause, like an edited goal (#486 review).
+            refusal = pause_authority.correction_refusal(state, 'A design reference revision')
+            if refusal:
+                raise ValueError(refusal)
             design_revision.apply(state, design_revision.manifest.load(args.revise_figma_manifest),
                                   args.expected_design_hash, args.design_change_reason, workspace)
         except (ValueError, OSError) as error:
