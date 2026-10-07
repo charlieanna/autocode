@@ -116,6 +116,47 @@ def turn_not_reached(outcome: str, summary: str, turn: int) -> tuple[str, str]:
     return (HONEST_BLOCKER if outcome == PASS else outcome), f"stopped before turn {turn}: {summary}"
 
 
+# A program (scenarios/README.md, "Programs") also stops at these, waiting for what only a person decides; its
+# PAUSED_* stops are judged as a run's. BLOCKED (a workstream run failed) and RUNNING are errors, as for a run.
+PROGRAM_STOPS = ("WAITING", "WAITING_AGREEMENT_APPROVAL", "WAITING_CHANGE_REQUEST", "AUTHORIZATION_REQUIRED")
+
+
+def judge_program(status: str, oracle: OracleResult, expected: str = "complete",
+                  summary: dict | None = None) -> tuple[str, str]:
+    """``judge`` for a program's final status, with the program-only stops; single runs never come here.
+    A program that did not complete says where each unfinished workstream stopped (``program_summary``)."""
+    if oracle.error or status not in PROGRAM_STOPS:
+        outcome, text = judge(status, oracle, expected)
+    elif expected in ("stop", "any") and oracle.passed:
+        outcome, text = PASS, f"the program stopped at {status}, as expected; oracle {oracle.summary}"
+    else:
+        outcome, text = HONEST_BLOCKER, f"the program stopped at {status}; oracle {oracle.summary}"
+    where = program_summary(summary or {}) if status not in COMPLETE_STATUSES else ""
+    return outcome, text + (f"; {where}" if where else "")
+
+
+def program_summary(summary: dict) -> str:
+    """Each workstream that has not merged: its status and its run's status and progress line."""
+    return "; ".join(f"{row['id']} {row.get('status')}"
+                     + (f" ({row.get('run_status')}: {row['progress']})" if row.get("progress") else
+                        f" ({row['run_status']})" if row.get("run_status") else "")
+                     for row in summary.get("workstreams") or [] if row.get("status") != "MERGED")
+
+
+def change_not_reached(outcome: str, text: str, changes: list[dict]) -> tuple[str, str]:
+    """A program that passed without raising a scripted change request says nothing about change requests:
+    NOT_EXERCISED, like a stage it never reached. Any other verdict stands, so a stop, a false completion or
+    an error before the request's moment (such as a regression before the skeleton merges) still counts;
+    its text only adds which request was never raised."""
+    missing = [f"{row['interface']} (after {row['after']})" for row in changes if not row.get("request")]
+    if not missing:
+        return outcome, text
+    never = f"never raised the change request on {', '.join(missing)}"
+    if outcome == PASS:
+        return NOT_EXERCISED, f"{never} ({outcome}: {text})"
+    return outcome, f"{text}; {never}"
+
+
 def judge(status: str, oracle: OracleResult, expected: str = "complete") -> tuple[str, str]:
     """``expected`` is the scenario's correct ending: complete, stop, or any."""
     if oracle.error:

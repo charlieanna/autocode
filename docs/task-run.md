@@ -51,9 +51,10 @@ while not view["done"]:
 
 `TaskRun.start` works directly in the given workspace (`--in-place`): the caller
 owns the workspace, typically a worktree it created, so start one run per
-workspace at a time. `options` (engine and model flags) are passed whenever the
-run starts or advances. Any rejected command raises `TaskRunError` with
-AutoCode's message.
+workspace at a time. Files uncommitted or untracked there at the start are the
+code the run starts from (`base_commit`), not part of its change. `options`
+(engine and model flags) are passed whenever the run starts or advances. Any
+rejected command raises `TaskRunError` with AutoCode's message.
 
 Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
@@ -98,7 +99,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
-| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
+| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT`; the next resume re-evaluates it once ([below](#operational-information)) | 0 saved, 2 rejected |
 | Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
@@ -320,12 +321,53 @@ text. Automation must check these structured fields and bind the token to
 embedded in `--show-goal` prose. This projection is not approval, execution permission
 or completion proof; the existing CLI approval checks remain authoritative.
 
+`approved_contract` is the plan in force: the contract that was approved, for as long
+as that approval holds. It has `revision`, `hash`, `token` (the `r<revision>:<hash>`
+that was approved), `task_id`, `approved_at` and `body`, the full approved contract
+body (outcome, deliverables, acceptance criteria, constraints, permission boundaries,
+end-to-end flow, technical approach, milestones and the rest) copied as saved. It is
+absent until the current sealed contract carries an approval of exactly its token,
+once a newer draft revision replaces the approved one (a goal change, or the plan a
+`--follow-up` drafts), and while the contract itself records an open blocking
+question (approval refuses one); a question the run asks after approval does not
+remove it. An edited or stale contract does not expose it, and a completed run keeps
+it. Until a follow-up's own plan is drafted, and for a follow-up answered by a
+review, design or discussion, which drafts none, it is still the earlier request's
+approved plan; compare `turn` or `progress.for_earlier_request`. The approval is
+normally the user's, but a small bug fix approved under the workflow policy the user
+agreed to (the short path for small fixes, off for now; see
+[Bug fixes](workflow.md#bug-fixes)) shows it too, and the view does not say which.
+`displayed_plan` is what a person is asked to approve; `approved_contract` is what
+was approved. A coordinating layer such as
+`autocode program` reads a child run's approved criteria here (`program derive` and
+the inherited-requirement check), never from `state.json`. Like `displayed_plan`, it
+is neither execution permission nor completion proof.
+
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `route_assignments` lists, oldest first, every model a person named for a
 role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,
 `from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
 `actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the
 `request_id` it answered. It is empty for runs that never stopped on quota or a refusal.
+
+<a id="operational-information"></a>
+`information_review` describes Resolver's one re-evaluation of the corrective
+information last sent to an operational request (`--resolver-response
+provide_information`), or is `null`: `request_id`, `status`, `cause` (the pause
+the request was for), `scheduled_at`, `evaluated_at`, `decision` (`hold` or
+`continue`), `reason`, `action` and `receipt` (the runner-owned decision record).
+`status` is `pending` until the next resume at that pause (`autocode resume` or
+`--resume-paused` with no other recovery flag) evaluates it once, with no provider
+call. A run that left the pause first (through another control, or to a newer
+request) never evaluates it, and `status` reads `superseded`. Otherwise
+it is `held` (still paused, `action` and `needs.action` name the control it
+requires, such as `--resume-paused --grant-recovery N`, a raised bound or
+`--abandon-stage ATTEMPT`; at `PAUSED_PLANNING_BUDGET` that is the
+`planning_budget` need's `action`), `admitted` (the run continued through the normal
+admission checks) or `stale` (the run, request, response or evidence changed after
+the response, so it was not evaluated and Resolver asks a fresh request). Information never raises a limit, resets
+a count or approves anything; a later resume repeats a held decision without
+evaluating again.
 
 `tool_containment` says how built-in OpenCode stages other than planning run their
 tools: `contained` (inside the kernel tool boundary, see

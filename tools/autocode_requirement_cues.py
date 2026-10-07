@@ -7,6 +7,10 @@ with the text after it into one un-quotable obligation. Substantive headings
 (``## Files must be encrypted``) stay obligations, as clean sentences. A
 delegated answer stores the model's own proposed default as its text: it stays
 a source a report may quote, but it is not itself a must-quote obligation.
+A fenced code block, opened and closed by lines of their own, is left out of
+the obligations: pasted code, data or a quoted plan is context, not sentences
+the user voiced, and it stays quotable. A ``` inside a line, or a fence that
+never closes, hides nothing: what follows stays owed.
 Pure functions over the state dict; conversation source projection uses only
 the independent handoff protocol.
 """
@@ -30,6 +34,8 @@ _LABEL_WORDS = {"required", "requirement", "requirements", "behavior", "behaviou
                 "non-goals", "nongoals", "assumptions", "questions", "changes", "tasks",
                 "outcomes", "implementation", "approach", "design"}
 _HEADING = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(.+?)\s*$")
+# Unlike the brief-literal FENCE, an inline ``` or an unclosed fence would otherwise hide every obligation after it.
+_FENCE = re.compile(r"^[ \t]{0,3}```.*?^[ \t]{0,3}```[^\n]*$", re.M | re.S)
 
 
 def _without_label_headings(text):
@@ -45,9 +51,23 @@ def _without_label_headings(text):
     return "\n".join(out)
 
 
+def _outside_fences(text):
+    """The text between fenced blocks, piece by piece."""
+    pieces, start = [], 0
+    for match in _FENCE.finditer(text):
+        pieces.append(text[start:match.start()])
+        start = match.end()
+    return [*pieces, text[start:]]
+
+
 def cue_sentences(text):
-    """Sentences carrying a requirement cue; heading labels are never obligations."""
-    parts = re.split(r"(?<=[.!?])\s+", _without_label_headings(text).strip())
+    """Sentences carrying a requirement cue; heading labels and fenced blocks are never obligations."""
+    # A program workstream's brief quotes the whole parent plan as a fenced JSON block; a live skeleton's
+    # Requirements were rejected three times for not quoting other workstreams' notes from it (2026-10-06).
+    # A block also ends the sentence before it: joined to the text after it, that sentence appeared nowhere
+    # in the brief, so no verbatim quote could cover it.
+    parts = [part for piece in _outside_fences(str(text or ""))
+             for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(piece).strip())]
     return [part.strip() for part in parts if part.strip() and CUE.search(part)]
 
 

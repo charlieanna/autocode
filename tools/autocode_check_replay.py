@@ -30,6 +30,7 @@ except ImportError:
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 import uuid
 
@@ -57,6 +58,9 @@ The clean copy is the repository's source, including explicitly approved ignored
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
 Replay uses a clean Git worktree: .git may be a file or a directory. Exclude .git in either form
 from product-file inventories; filtering only directory names leaves its worktree pointer file behind.
+Never cite a check that runs git status: what it lists is the worktree's state, not the product, and a
+program re-runs your checks after your work is committed and merged, where it lists nothing (a grep over
+it then exits 1). The runner refuses such a check.
 Git metadata is not a delivered product file. Keep the actual source-file and behavioral assertions intact.
 The runner also executes explicit commands from the approved verification methods and current_task.validation_plan;
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
@@ -82,6 +86,12 @@ assert the public error contract, unchanged persistent state and complete cleanu
 # (fix run B, 2026-09-29); each replay failed and the run paused. The rejection says why.
 RUN_FILES_HINT = (" The clean copy has no .autocode/, so a check that reads run files cannot pass there: drop it, "
                   "and cite regression_proof from your handoff as the runner's evidence instead.")
+# A live skeleton's check ended in a grep over git status: it passed while its files were uncommitted and failed
+# once the program merged them, which undid a correct merge (2026-10-06).
+WORKTREE_STATE = re.compile(r"\bgit\b[^|;&\n]*?\bstatus\b")
+WORKTREE_STATE_HINT = (" It reads the working tree's Git state, not the product: a program re-runs your checks after "
+                       "your work is committed and merged, where git status lists nothing. Drop it, and check the "
+                       "product's files and behavior directly.")
 TIMEOUT_SECONDS = 900
 TAIL_CHARS = 600
 
@@ -113,6 +123,10 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
         if execution_identity:
             execution_identity = partial(execution_identity, source_paths=selected)
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
+    checks = list(checks)
+    for check in checks:  # the Validator's own; an approved plan's commands are the planner's
+        if WORKTREE_STATE.search(str(check.get("command") or "")):
+            raise ValueError(f"Check `{check['command']}` runs git status." + WORKTREE_STATE_HINT)
     # Report stems repeat across iterations, repairs and retries of one attempt.
     # Allocate before any scratch/protected-test writes so old citations stay intact.
     stem = Path(record.get("output") or "validation").stem
@@ -222,11 +236,18 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
             what = "has no complete owned-command evidence"
         else:
             what = f"exited {row['exit_code']}"
+        planned = row.get("evidence_ref") in ("approved-plan", "approved-repeat")
         raise ValueError(
-            f"Check `{row['command']}` was reported as exit {row['reported_exit_code']}, but when the runner re-ran it "
-            f"from the repository root in a clean copy of the current source it {what}"
+            (f"Check `{row['command']}` is required by the approved verification methods or the current task's "
+             "validation plan (the Validator did not report it) and must exit 0, but when the runner ran it "
+             if planned else
+             f"Check `{row['command']}` was reported as exit {row['reported_exit_code']}, but when the runner re-ran it ")
+            + f"from the repository root in a clean copy of the current source it {what}"
             + (f"; its output ended: {row['tail'].strip()[-300:]}" if row["tail"].strip() else "")
-            + f". Receipt: {out / 'replay.json'}. Cite only checks that pass from the repository root in a clean "
-            "checkout of this source; a check that needs a server or other setup must start and stop it itself."
+            + f". Receipt: {out / 'replay.json'}. "
+            + ("A Validator report cannot change it: if the command must fail, the plan's author (the Resolver, for "
+               "a repair task) must reword that step. " + verification_plan.EXPECTED_FAILURE_RULE if planned else
+               "Cite only checks that pass from the repository root in a clean checkout of this source; a check "
+               "that needs a server or other setup must start and stop it itself.")
             + (RUN_FILES_HINT if ".autocode" in row["command"] else ""))
     return result

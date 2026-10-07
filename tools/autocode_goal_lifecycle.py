@@ -377,7 +377,8 @@ def render(state, run_dir=None):
         lines += ["", "Declared contract changes:"]
         ordered = sorted(declared, key=lambda row: row.get("change") != "permission_changed")
         for row in ordered:
-            lines.append(f"  - {row.get('change')}: {row.get('item')} (basis: {row.get('basis')})")
+            replaced = f" -> {row['replacement']}" if row.get("change") == "permission_changed" and row.get("replacement") else ""
+            lines.append(f"  - {row.get('change')}: {row.get('item')}{replaced} (basis: {row.get('basis')})")
     history = state.get("contract_history", [])
     if history:
         lines += ["", "Contract delta:"] + list(difflib.unified_diff(
@@ -627,8 +628,25 @@ def assign_task(state, decision, current):
     task_paths = list(decision.get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
+        # A serial repair of the current milestone may discover another source
+        # file needed for its existing criteria. Do not discard the reviewer's
+        # repair paths and send contradictory requirements to the Builder.
+        # Advancing milestones and parallel ownership retain the approved paths.
+        serial_repair = (decision['status'] == 'REWORK' and len(milestones) == 1
+                         and spec['milestone_id'] == (state.get('current_task') or {}).get('milestone_id')
+                         and not any(state.get(key) for key in
+                                     ('parent_run', 'parent_batch', 'orchestration_batch', 'orchestration_history')))
         if owned:
-            task_paths = list(dict.fromkeys(owned))
+            # Retain the milestone's existing source scope: replacing it with
+            # a narrower repair list invalidates the incident's evidence pins.
+            paths = list(owned)
+            if serial_repair:
+                previous = state.get('current_task') or {}
+                paths.extend(previous.get('affected_paths') or [])
+                if (decision['next_objective'] != previous.get('objective')
+                        or any(spec[key] != previous.get(key) for key in ('requirements', 'validation_plan'))):
+                    paths.extend(task_paths)
+            task_paths = list(dict.fromkeys(paths))
     progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])
     recovery = state.get("recovery_context") or {}

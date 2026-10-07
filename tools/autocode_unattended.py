@@ -187,7 +187,7 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     workspace = Path(state.get("workspace") or run_dir.parents[2])
     meta_path = workspace / ".autocode" / "task-workspace.json"
     meta = json.loads(meta_path.read_text()) if meta_path.is_file() else {}
-    base = meta.get("base_commit") or state.get("base_commit")
+    base = state.get("base_commit") or meta.get("base_commit")  # the run's own; a shared worktree's file moves on
     lines = [f"# AutoCode run analysis: {state.get('status')}", "",
              f"- Task: {state.get('task')}", f"- Run: `{run_dir}`", f"- Workspace: `{workspace}`",
              f"- Branch: {state.get('task_branch') or '(in place)'}", f"- Base commit: {base or 'unknown'}",
