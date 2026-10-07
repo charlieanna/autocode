@@ -236,7 +236,7 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
     return checks
 
 
-def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] | None = None) -> list[Check]:
+def program_checks(run: dict | None, scenario, *, journeys: dict[str, str] | None = None) -> list[Check]:
     """Checks on how a program ran (scenarios/README.md, "Programs"), from the record harness/program_driver.py
     passes to oracles; None in ``check`` mode, and then there is nothing to judge.
 
@@ -245,7 +245,8 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] | No
     was created, the agreement tokens the person was ``shown`` and ``approved``, the agreement's
     ``interfaces``, the ``changes`` the scenario scripted (``[[program.change]]``), and ``workstream_ids``:
     which derived workstream each scenario workstream id stands for (the same id under the scripted model).
-    ``journeys`` defaults to the journeys the scenario's ``[program] revise`` names, else derive's J1.
+    ``journeys`` maps each journey id to its name; it defaults to the journeys the scenario's ``[program] revise``
+    names, else derive's J1 "Main user journey".
     """
     if run is None:
         return []
@@ -308,13 +309,17 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] | No
     found = {row.get("id"): row for row in program.get("journeys") or []}
     if journeys is None:
         named = (getattr(scenario, "program_revise", None) or {}).get("journeys") or []
-        journeys = tuple(row["id"] for row in named if isinstance(row, dict) and row.get("id")) or ("J1",)
+        journeys = ({row["id"]: row.get("name") for row in named if isinstance(row, dict) and row.get("id")}
+                    or {"J1": "Main user journey"})
     integration = next((wid for wid, row in rows.items() if row.get("kind") == "integration"), None)
-    for jid in journeys:
+    # A completed program's final check names each journey it verified as "id name".
+    final = (program.get("final_check") or {}).get("journeys") or []
+    for jid, name in journeys.items():
         row = found.get(jid) or {}
         checks.append(Check(f"journey_verified_by_name[{jid}]", row.get("status") == "verified"
-                            and row.get("verified_by") == integration,
-                            f"{row.get('status')!r} by {row.get('verified_by')!r}"))
+                            and row.get("verified_by") == integration and f"{jid} {name}" in final,
+                            f"{row.get('status')!r} by {row.get('verified_by')!r}; the final check names {final}, "
+                            f"wanted {jid} {name}"))
     requests = program.get("change_requests") or []
     interfaces = {row.get("id"): row for row in run.get("interfaces") or []}
     for step in getattr(scenario, "program_changes", ()) or ():

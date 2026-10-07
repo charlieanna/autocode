@@ -20,8 +20,10 @@ import time
 import uuid
 
 try:
-    from . import autocode_process as processes, autocode_util as util, autocode_supervision_handoff as handoff
+    from . import autocode_command_receipt as receipts, autocode_process as processes, autocode_util as util
+    from . import autocode_supervision_handoff as handoff
 except ImportError:
+    import autocode_command_receipt as receipts
     import autocode_process as processes
     import autocode_util as util
     import autocode_supervision_handoff as handoff
@@ -35,7 +37,7 @@ def receipt(metadata):
     """Read a bounded receipt bound to one launch; missing/invalid is unknown."""
     try:
         path = Path(metadata['receipt'])
-        if path.stat().st_size > 1024 * 1024:
+        if path.stat().st_size > receipts.MAX_RECEIPT_BYTES:
             return None
         value = json.loads(path.read_text())
         if not isinstance(value, dict) or value.get('schema') != 1:
