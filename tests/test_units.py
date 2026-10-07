@@ -84,8 +84,10 @@ class JointPlannerUnit(unittest.TestCase):
     prepare = test_planning.JointFlow.prepare
 
     def test_joint_planner_stops_after_approval_without_a_builder(self):
-        self.prepare()
+        # Select first: prepare() wraps the selected entry in the offline OpenCode fixture,
+        # which also stands in for a qualified host at run setup (#413).
         self.select('autoplanner')
+        self.prepare()
         self.launch(['Build greeting', '--chat'], 0, answers='CLI\nyes\n')
         run, state = self.saved()
         self.assertEqual('approved', state['goal_contract']['approval_status'])
