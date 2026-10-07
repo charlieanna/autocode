@@ -115,8 +115,10 @@ planner; those have tests too.
   "without", "instead", "rather", "like", "such", "e.g.", "for example"), not
   by understanding the sentence; the user's own edit is the way out of a wrong
   reading.
-- A user's message that asks for a name again after their latest edit dropped
-  it does not bring it back; the edit decides.
+- Once the user has edited the plan, only the names that edit accounts for are
+  required. A name their later message asks for, again or for the first time,
+  is not required until another edit of theirs declares it (messages carry no
+  order relative to the edit here); the previous behavior applies to it.
 - A greenfield Go project with no `go.mod` yet is not detected as Go at
   planning time.
 - After the Builder writes the tests they exist in the workspace, so a later
