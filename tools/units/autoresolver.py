@@ -83,9 +83,16 @@ def apply_job(stage, state, value, record, workspace, *, run_dir=None):
             timeout=PROBE_TIMEOUT))
     if stage == stuck_job.STAGE:
         # The runner shows the diagnosed cause: the probe runs in a scratch tree holding only the cited files.
-        return stuck_job.apply(state, value, record, workspace, run_probe=lambda command, files: clean_run(
-            workspace, Path(record.get("output") or workspace).parent / "investigation-probe", command=command,
-            files=files, timeout=PROBE_TIMEOUT))
+        def probe(command, files):
+            if (state.get('stuck_investigation') or {}).get('mode') == 'builder_failure':
+                try:
+                    from .. import autocode_builder_failure as builder_failure
+                except ImportError:
+                    import autocode_builder_failure as builder_failure
+                command = builder_failure.readonly_probe(command)
+            return clean_run(workspace, Path(record.get('output') or workspace).parent / 'investigation-probe',
+                             command=command, files=files, timeout=PROBE_TIMEOUT)
+        return stuck_job.apply(state, value, record, workspace, run_probe=probe)
     # The runner, not the Investigator, shows the bug: its probe must exit 0 on the code as it is.
     guard = job_report_recovery.BEFORE_WRITE.get()
     if guard:
@@ -189,6 +196,12 @@ def guard(state, workspace):
 def prepare_stuck(state, state_path):
     """A fresh route and session every time, on a model different from the stuck stage's
     (stuck_job.route, or the pinned --investigator-model), so it does not inherit its reasoning."""
+    if state['stuck_investigation'].get('mode') == 'builder_failure':
+        try:
+            from .. import autocode_builder_failure as builder_failure
+        except ImportError:
+            import autocode_builder_failure as builder_failure
+        builder_failure.guard(state, state['stuck_investigation'], state['workspace'])
     roles = state["settings"]["roles"]
     stuck_route = autoplanner.route_for(state, state["stuck_investigation"]["stage"])
     roles[stuck_job.ROUTE] = (stuck_job.pinned_route(state["settings"])
@@ -204,7 +217,7 @@ def prepare_stuck(state, state_path):
     prompt, metrics = stuck_job.prompt(
         state, state_path, autoplanner.workspace_inventory(state["workspace"], state["task"]),
         state["settings"].get("context_soft_tokens", 10000), autoplanner.engine_for(state["settings"], stuck_job.ROUTE))
-    return ModelRequest("astra", stuck_job.ROUTE, prompt, metrics, stuck_job.SCHEMA, False)
+    return ModelRequest("astra", stuck_job.ROUTE, prompt, metrics, stuck_job.schema(state), False)
 
 
 def prepare(state, stage, state_path, schema_dir):

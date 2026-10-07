@@ -1011,6 +1011,55 @@ def report_identity(data: dict) -> dict:
     return identity
 
 
+def builder_failure_investigation(data: dict) -> dict:
+    """Classify the stock fixture's failed proof, not a generic exhausted-stage pause."""
+    failure = data['builder_failure']
+    record = failure['record']
+    refs = [record['output'], record['after_ref']]
+    if not failure['failure_id'] or not set(refs) <= set(failure['evidence_refs']):
+        raise SystemExit('fake_codex: stock classification lacks pinned report/source evidence')
+    rejected = json.loads(Path(refs[0]).read_text())
+    findings = ' '.join(row['finding'] for row in rejected.get('findings') or [])
+    names = sorted(set(re.findall(r'has no test named (test_\w+)', findings)))
+    if rejected.get('status') != 'REWORK' or 'regression_proof is not PASS:' not in findings or not names:
+        raise SystemExit('fake_codex: stock classification needs an actual failed refusal-test proof')
+    diagnosis = (f"The failed regression proof names {', '.join(names)}. These delivered refusal tests "
+                 "only assert exit 2, nonempty stderr and unchanged stock.json, so argparse's unknown-command "
+                 "refusal passes them too. The current move command rejects zero quantity itself. "
+                 "This is an implementation defect in tests/test_stock.py, not a new approach or permission.")
+    # The runner copies only these allowed run files; the probe reads current code
+    # and runs a refusal that cannot write stock.json, under native read-only containment.
+    code = f'''import ast, hashlib, json, re, subprocess, sys
+from pathlib import Path
+r = json.loads(Path({'run/' + Path(refs[0]).name!r}).read_text())
+s = json.loads(Path({'run/' + Path(refs[1]).name!r}).read_text())
+assert r['status'] == 'REWORK'
+assert {{k: r[k] for k in ('task_id', 'contract_hash', 'contract_revision')}} == { {k: failure['binding'][k] for k in ('task_id', 'contract_hash', 'contract_revision')}!r}
+assert s['revision'] == {record['source_revision']!r}
+for path in ('stock.py', 'tests/test_stock.py'):
+    assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == s['files'][path]
+findings = ' '.join(row['finding'] for row in r['findings'])
+assert 'regression_proof is not PASS:' in findings
+assert sorted(set(re.findall(r'has no test named (test_\\w+)', findings))) == {names!r}
+tests = {{node.name: ast.unparse(node) for node in ast.walk(ast.parse(Path('tests/test_stock.py').read_text())) if isinstance(node, ast.FunctionDef)}}
+for name in {names!r}:
+    assert 'self.assertEqual(result.returncode, 2)' in tests[name]
+    assert 'self.assertTrue(result.stderr.strip())' in tests[name]
+    assert 'self.assertEqual(self.store_bytes(), before)' in tests[name]
+    assert 'assert_refused' not in tests[name] and 'invalid choice' not in tests[name]
+p = subprocess.run([sys.executable, 'stock.py', 'move', 'bolt', '0', 'A1', 'B2'], capture_output=True, text=True, timeout=10)
+assert p.returncode == 2 and p.stderr.startswith('stock.py: ') and 'invalid choice' not in p.stderr
+'''
+    return {'diagnosis': diagnosis, 'cause': 'stage_output', 'guidance':
+            "Repair only tests/test_stock.py: require command-specific stderr starting with 'stock.py: ' "
+            "and reject 'invalid choice'; keep every existing refusal assertion and let the runner re-prove it.",
+            'recommendation': 'retry', 'user_question': '', 'evidence_refs': refs,
+            'example': 'Given the current vacuous refusal tests, the project check passes but the runner '
+                       'rejects their regression proof because the named tests also pass without move/remove.',
+            'probe': shlex.join([sys.executable, '-B', '-c', code]), 'untestable': '',
+            'failure_class': 'execution', 'failure_id': failure['failure_id']}
+
+
 def report_for(stage: str, data: dict) -> dict:
     if stage == 'requirements':
         requirements_body = contract()
@@ -1053,6 +1102,8 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "check_design":
         return check_design(data)
     if stage == "investigate_stuck":
+        if CONFIG.get('fault') == 'vacuous_refusal_tests' and data.get('builder_failure'):
+            return builder_failure_investigation(data)
         if CONFIG.get("fault") == "vacuous_refusal_tests" and os.environ.get("SCENARIO_FAKE_SCOPE_SLIP") == "retry":
             return scripted_fault("vacuous_refusal_provider.py")["investigate"](data)
         # A scripted run that got stuck is a scenario defect; pause and say so.

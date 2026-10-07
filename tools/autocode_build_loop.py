@@ -79,7 +79,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
             if not runner.recover_default_budget(current, run_dir, workspace, 'max_seconds'):
                 raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
+        classifying = (current.get('next_stage') == 'investigate_stuck'
+                       and (current.get('stuck_investigation') or {}).get('mode') == 'builder_failure')
+        if (not repairing_before_upgrade and not classifying and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                 and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
             raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
         # Do not silently change auth/provider when local config changes.
@@ -115,6 +117,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
 
     def dispatch_code_stage(current, stage):
         progressive.guard_dispatch(current, stage)
+        if current.get('_failure_routing_enabled', True):
+            autopilot.builder_failure.dispatch_guard(current, stage, workspace)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
         # retry lane blocks the serial writer launch here as well.
         if stage == "terra":

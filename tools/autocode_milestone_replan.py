@@ -41,7 +41,12 @@ def pending(row, limits):
     bounded replans are spent (every further task on it pauses PAUSED_MILESTONE_STALLED), else None.
 
     max_replans None (or 0) means replans are unbounded."""
-    if not row or not row.get("needs_replan") or not limits or not limits.get("stalled_reviews"):
+    if not row or not limits:
+        return None
+    if row.get('builder_reassessment'):
+        cap = limits.get('max_replans')
+        return EXHAUSTED if cap is not None and cap > 0 and row.get('replans', 0) >= cap else REQUIRED
+    if not row.get('needs_replan') or not limits.get('stalled_reviews'):
         return None
     cap = limits.get("max_replans")
     if cap is not None and cap > 0 and row.get("replans", 0) >= cap:
@@ -73,6 +78,9 @@ def constraint(row, limits):
     milestone = row.get("id") or "the current milestone"
     cap = limits.get("max_replans")
     counts = f"{row.get('reviews_without_progress', 0)} validations without progress (limit {limits['stalled_reviews']})"
+    if row.get('builder_reassessment'):
+        counts = ('a diagnosed approach failure, not independent validation: '
+                  + str(row['builder_reassessment']))
     if row.get("milestone_ids"):
         # An integrated batch's id (batch:<digest>) is no milestone a next task can name; the gate refuses its members.
         on = _either(members(row))

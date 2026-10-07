@@ -2223,6 +2223,95 @@ class FakeSchemaTests(unittest.TestCase):
                           "kind": "none", "nested": {"n": 0}}, report)
 
 
+class FakeBuilderClassificationTests(unittest.TestCase):
+    def setUp(self):
+        import importlib
+        temporary = tempfile.TemporaryDirectory(prefix='fake-classification-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        config = self.root / 'config.json'
+        config.write_text(json.dumps({'check': 'true', 'paths': [], 'brief': 'x'}))
+        with patch.dict(os.environ, {'SCENARIO_FAKE_CONFIG': str(config)}):
+            self.fake = importlib.import_module('harness.fake_codex')
+        self.scenario = catalog.load('feature-stock-refusals')
+        shutil.copytree(self.scenario.dir / 'broken/vacuous-refusal-tests', self.root / 'project')
+        self.project = self.root / 'project'
+        self.receipts = self.project / 'run'
+        self.receipts.mkdir()
+        self.output = self.receipts / 'completion-review-01.json'
+        self.after = self.receipts / 'completion-review-01.after.json'
+        self.name = 'test_c3_move_more_than_on_hand_is_refused'
+        self.identity = dict(task_id='current-task', contract_hash='approved-contract', contract_revision=2)
+        self.output.write_text(json.dumps({**self.identity, 'status': 'REWORK', 'findings': [{'finding':
+            f'regression_proof is not PASS: Test case C3 has no test named {self.name} '
+            'that passes with the change and did not pass without it'}]}))
+        self.after.write_text(json.dumps({'revision': 'current-source', 'files': {
+            path: hashlib.sha256((self.project / path).read_bytes()).hexdigest()
+            for path in ('stock.py', 'tests/test_stock.py')}}))
+        self.data = {'builder_failure': {'failure_id': 'current-failure', 'binding': self.identity,
+            'record': {'output': str(self.output), 'after_ref': str(self.after), 'source_revision': 'current-source'},
+            'evidence_refs': [str(self.output), str(self.after)]}}
+
+    def report(self, data=None):
+        with patch.object(self.fake, 'CONFIG', {'fault': 'vacuous_refusal_tests'}), \
+                patch.object(self.fake, 'run_check', side_effect=AssertionError('must not rerun checks')):
+            return self.fake.report_for('investigate_stuck', self.data if data is None else data)
+
+    def probe(self, report):
+        import shlex
+        return subprocess.run(shlex.split(report['probe']), cwd=self.project, capture_output=True,
+                              text=True, timeout=15)
+
+    def test_stock_classification_binds_current_failure_and_reads_receipts_without_writing(self):
+        before = {p: p.read_bytes() for p in self.project.rglob('*') if p.is_file()}
+        report = self.report()
+        self.assertEqual('execution', report['failure_class'])
+        self.assertEqual('current-failure', report['failure_id'])
+        self.assertEqual(self.data['builder_failure']['evidence_refs'], report['evidence_refs'])
+        self.assertEqual('retry', report['recommendation'])
+        self.assertIn(self.name, report['diagnosis'])
+        self.assertIn('tests/test_stock.py', report['guidance'])
+        self.assertTrue(report['example'])
+        self.assertEqual('', report['untestable'])
+        result = self.probe(report)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.project.rglob('*') if p.is_file()})
+
+    def test_stock_probe_rejects_stale_identity_false_receipt_and_changed_code(self):
+        report = self.report()
+        original = self.output.read_bytes()
+        for update in ({'status': 'COMPLETE'}, {'findings': []}, {'task_id': 'stale-task'},
+                       {'contract_hash': 'stale-contract'}, {'contract_revision': 1}):
+            with self.subTest(update=update):
+                self.output.write_text(json.dumps({**json.loads(original), **update}))
+                self.assertNotEqual(0, self.probe(report).returncode)
+        self.output.write_bytes(original)
+        shutil.copy2(self.scenario.reference / 'tests/test_stock.py', self.project / 'tests/test_stock.py')
+        self.assertNotEqual(0, self.probe(report).returncode)
+        snapshot = json.loads(self.after.read_text())
+        snapshot['files']['tests/test_stock.py'] = hashlib.sha256(
+            (self.project / 'tests/test_stock.py').read_bytes()).hexdigest()
+        self.after.write_text(json.dumps(snapshot))
+        self.assertNotEqual(0, self.probe(report).returncode, 'strengthened tests are not the vacuous cause')
+
+    def test_stock_classification_requires_real_failure_and_exact_allowed_refs(self):
+        for update in ({'status': 'COMPLETE'}, {'findings': []}):
+            with self.subTest(update=update):
+                self.output.write_text(json.dumps({**self.identity, 'status': 'REWORK', 'findings': [], **update}))
+                with self.assertRaisesRegex(SystemExit, 'actual failed'):
+                    self.report()
+        self.data['builder_failure']['evidence_refs'] = [str(self.output)]
+        with self.assertRaisesRegex(SystemExit, 'pinned report/source'):
+            self.report()
+
+    def test_generic_investigator_pause_does_not_gain_classification_or_retry(self):
+        report = self.report({})
+        self.assertEqual('pause', report['recommendation'])
+        self.assertEqual([], report['evidence_refs'])
+        self.assertNotIn('failure_class', report)
+        self.assertNotIn('failure_id', report)
+
+
 class HybridScenarioTests(unittest.TestCase):
     def test_a_hybrid_scenario_is_skipped_under_a_live_profile(self):
         with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
