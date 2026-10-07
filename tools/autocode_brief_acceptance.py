@@ -225,6 +225,29 @@ def _match_argv(arguments, pattern):
         for actual, expected in zip(arguments, pattern))
 
 
+_INTERPRETER = re.compile(r'python(?:\d+(?:\.\d+)*)?|py\Z')
+
+
+def _strip_launcher(arguments, program):
+    """'' or the stripped argv for a full `python todo.py …` command line.
+
+    The runner invokes the declared program itself (`python todo.py *argv`),
+    so a proposal's argv is the arguments after the program. Live Plan
+    Reviewers often submit the whole command line instead — with `todo.py`,
+    a relative path, or an absolute path to it. Accept that form once here
+    and store the stripped argv; never invent or rewrite arguments past the
+    launcher. Returns (argv, stripped_token_count).
+    """
+    words = list(arguments)
+    stripped = 0
+    if words and _INTERPRETER.fullmatch(PurePosixPath(words[0]).name):
+        words, stripped = words[1:], stripped + 1
+    name = PurePosixPath(program).name
+    if words and (words[0] == program or PurePosixPath(words[0]).name == name):
+        words, stripped = words[1:], stripped + 1
+    return words, stripped
+
+
 def _variables(declaration):
     return {word for command in declaration['commands'] for word in command if _PLACEHOLDER.fullmatch(word)}
 
@@ -320,7 +343,15 @@ def output_reason(output, pattern, line):
     return ''
 
 
-def _bind_one(declaration, proposal):
+def normalized_proposal(declaration, proposal):
+    """Rewrite one proposal to the runner's argv form and realign its bindings.
+
+    Live Plan Reviewers often submit a full `python todo.py …` command line as
+    argv. The runner invokes the declared program itself, so strip the launcher
+    once and store the stripped argv; bindings that pointed past the launcher
+    are shifted. Provenance hashes the stored form, so this must be the single
+    rewrite both bind() and the Plan Reviewer receipt check use.
+    """
     _exact(proposal, PROPOSAL_SCHEMA['required'], 'Observation proposal')
     criteria = proposal['criterion_ids']
     if (not isinstance(criteria, list) or not criteria or any(not isinstance(cid, str) or not _ID.fullmatch(cid) for cid in criteria)
@@ -330,6 +361,7 @@ def _bind_one(declaration, proposal):
     if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
         raise ValueError(f'Observation needs 1..{MAX_STEPS} invocation steps')
     patterns = []
+    normalized_steps, offsets = [], []
     for step in steps:
         _exact(step, ('argv',), 'Invocation step')
         arguments = step['argv']
@@ -339,28 +371,57 @@ def _bind_one(declaration, proposal):
             _string(argument, 'Invocation argument')
             if len(argument.encode('utf-8')) > MAX_ARGUMENT_BYTES:
                 raise ValueError('Invocation argument exceeds the bounded CLI slice')
+        arguments, offset = _strip_launcher(arguments, declaration['program'])
+        if not 1 <= len(arguments) <= MAX_ARGUMENTS:
+            raise ValueError('Invocation argv must be a bounded nonempty list')
         matches = [pattern for pattern in declaration['commands'] if _match_argv(arguments, pattern)]
         if len(matches) != 1:
             raise ValueError('Invocation must uniquely match a source-declared successful CLI command')
         patterns.append(matches[0])
+        normalized_steps.append({'argv': arguments})
+        offsets.append(offset)
+    steps = normalized_steps
     observe = _index(proposal['observe_step'], len(steps), 'Observed step')
     if not _match_argv(steps[observe]['argv'], declaration['observe_argv']):
         raise ValueError('Observed step must invoke the source-declared output command')
     raw_bindings = proposal['bindings']
     if not isinstance(raw_bindings, list):
         raise ValueError('Placeholder bindings must be a list')
-    bindings = {}
+    bindings, seen_steps = {}, set()
+    normalized_bindings = []
     for binding in raw_bindings:
         _exact(binding, ('placeholder', 'step', 'argument'), 'Placeholder binding')
         name = _string(binding['placeholder'], 'Placeholder')
         step = _index(binding['step'], len(steps), 'Binding step')
-        argument = _index(binding['argument'], len(steps[step]['argv']), 'Binding argument')
-        if (name in bindings or step > observe or patterns[step][argument] != name
+        argument = binding['argument']
+        if type(argument) is not int:
+            raise ValueError('Binding argument must be an index into the invocation argv')
+        argument -= offsets[step]
+        argument = _index(argument, len(steps[step]['argv']), 'Binding argument')
+        if (step > observe or patterns[step][argument] != name
                 or not _PLACEHOLDER.fullmatch(name)):
             raise ValueError('A binding must uniquely name the corresponding source argument placeholder')
-        bindings[name] = dict(binding)
+        # One argument slot per step; the same placeholder may be supplied by
+        # several invocations (TEXT on every add). The bound item uses the first.
+        if (step, argument) in seen_steps:
+            raise ValueError('A binding must uniquely name the corresponding source argument placeholder')
+        seen_steps.add((step, argument))
+        row = {'placeholder': name, 'step': step, 'argument': argument}
+        normalized_bindings.append(row)
+        bindings.setdefault(name, row)
     pattern = _format_pattern(declaration, steps, bindings)
-    observation = {'declaration': declaration, 'proposal': json.loads(json.dumps(proposal)), 'pattern': pattern}
+    normalized = json.loads(json.dumps(proposal))
+    normalized['steps'] = steps
+    normalized['bindings'] = normalized_bindings
+    return normalized, patterns, bindings
+
+
+def _bind_one(declaration, proposal):
+    normalized, patterns, bindings = normalized_proposal(declaration, proposal)
+    steps = normalized['steps']
+    observe = normalized['observe_step']
+    pattern = _format_pattern(declaration, steps, bindings)
+    observation = {'declaration': declaration, 'proposal': normalized, 'pattern': pattern}
     observation['hash'] = digest(observation)
     return observation
 
