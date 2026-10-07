@@ -44,10 +44,15 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
                 roots.add(developer_tools.resolve())
             containment = {'source_paths': list(source_paths), 'tool_commands': list(tool_commands), 'read_roots': [str(path) for path in sorted(roots)],
                            'protected_paths': [str(Path(run_dir).resolve()), str(runtime)]}
+        launch_kwargs = {'containment': containment} if containment else {}
+        if engine == "opencode" and not getattr(adapter, "CONFIGURED", False):
+            version = getattr(adapter, "transport_version", lambda _settings: None)(settings)
+            if version:
+                launch_kwargs["opencode_version"] = version
         try:
             command, child, overrides = adapter.launch(route_role, workspace, run_dir, session,
                 model, effort, allow_write, planning=planning, report=report, schema=schema,
-                prompt_file=prompt_file, sandbox=sandbox, **({'containment': containment} if containment else {}))
+                prompt_file=prompt_file, sandbox=sandbox, **launch_kwargs)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 raise

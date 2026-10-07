@@ -29,8 +29,10 @@ def on_path(*names):
 
 
 class EngineTests(unittest.TestCase):
-    def test_opencode_1x_is_ready_and_2x_is_refused(self):
-        for version, status in (("1.18.32", doctor.OK), ("2.0.1", doctor.MISSING)):
+    def test_opencode_1x_and_2x_are_ready_and_other_majors_are_refused(self):
+        for version, status in (("1.18.32", doctor.OK), ("2.0.1", doctor.OK),
+                                ("opencode v2.0.20", doctor.OK), ("0.9.0", doctor.MISSING),
+                                ("3.0.0", doctor.MISSING)):
             with self.subTest(version=version):
                 checks = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, version)}))
                 self.assertEqual(status, {c.name: c.status for c in checks}["engine:opencode"])
