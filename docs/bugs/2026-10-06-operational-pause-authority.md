@@ -82,7 +82,15 @@ tests cover each budget pause unanswered, answered and after a pause interventio
 ## Review follow-ups
 
 Each of these released the pause, on master and after the first fix, and is now held
-(same test module, every pause status unless noted):
+(same test module, every pause status unless noted). Each also reproduces on master
+`5071412`, after #581. That change re-evaluates corrective information once, at the next
+explicit resume after a `provide_information` answer, and a stop caused outside the run
+(`operational_information.INFORMATION_CAUSES`) then continues. Since that re-evaluation
+is the pause's own rule, the reproductions use an unanswered request or a pause it holds,
+such as an answered `PAUSED_TIMEOUT_RECOVERY`. The tests compare each input with it: an
+input admits what the answered request alone admits (a pause intervention leaves the run
+as the information found it), or nothing (the input changed what the information was
+bound to, so the request is asked again).
 
 - **A second pause intervention.** Applied while the run was already at
   `PAUSED_INTERVENTION` from the first, it replaced `pause_intent` and lost

@@ -608,14 +608,17 @@ planning restarts once the pause is released.
 Input that arrives while an operational pause holds the run is applied by the next
 invocation, without starting a provider, and the pause stays in force. A pause or
 feedback intervention is applied as usual, and `--resume-paused` then acknowledges it
-and returns the run to the earlier pause, whose own rules apply. Feedback acknowledges
-only a pause that offers it: an exhausted plan-review budget, or a validation-only stop
-whose request names `--feedback`. `--feedback` is refused at any other operational
-pause. Queued milestone checkpoints are enabled. A run-local `pause-requested` file
-keeps the run at its pause until you remove it. After any of these, AutoResolver asks
-its operational request again. If the same command also acknowledges the pause (the
-exhausted bound's flag, `--grant-recovery`), the pause is released first, and a queued
-pause intervention then pauses the released run. See
+and returns the run to the earlier pause, whose own rules apply. Those include the one
+re-evaluation of corrective information already sent for its request (see below), which
+applies only while the run is as that information found it; applied feedback changes the
+run, so the request is asked again instead. Feedback acknowledges only a pause that
+offers it: an exhausted plan-review budget, or a validation-only stop whose request
+names `--feedback`. `--feedback` is refused at any other operational pause. Queued
+milestone checkpoints are enabled. A run-local `pause-requested` file keeps the run at
+its pause until you remove it. Once the input is applied, an unanswered operational
+request is asked again. If the same command also acknowledges the pause (the exhausted
+bound's flag, `--grant-recovery`), the pause is released first, and a queued pause
+intervention then pauses the released run. See
 `docs/bugs/2026-10-06-operational-pause-authority.md`.
 
 Provider stages track their subprocesses, including detached tool processes. On normal

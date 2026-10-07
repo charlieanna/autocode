@@ -201,13 +201,28 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
             self.assert_held(self.invoke(process=process), status, settled=False)
         return self.invoke('--resume-paused', process=process, env=STOP_AT_TESTER)
 
-    def assert_intervention_adds_nothing(self, status, process=False):
-        """Resuming the intervention decides exactly as resuming the answered pause would without it."""
-        _, without, _ = self.resume_after_answer(status, pause=False, process=process)
-        result = self.resume_after_answer(status, pause=True, process=process)
-        self.assertEqual(without, result[1], f'the pause intervention changed what {status} admits:\n{result[2]}')
+    _after_answer = {}
+
+    def admitted_after_answer(self, status):
+        """What --resume-paused admits after the answered request alone, with nothing else sent.
+
+        AutoResolver re-evaluates the corrective information once at that resume (#486, #581): a stop
+        caused outside the run continues, and one only an operator control releases is held.
+        """
+        if status not in self._after_answer:
+            self._after_answer[status] = self.resume_after_answer(status, pause=False)[1]
+        return self._after_answer[status]
+
+    def assert_adds_nothing(self, result, status, *, answered=True):
+        """``result`` admitted no more than the answered pause alone does (nothing, when unanswered)."""
+        without = self.admitted_after_answer(status) if answered else []
+        self.assertEqual(without, result[1], f'the input changed what {status} admits:\n{result[2]}')
         if not without:
             self.assert_held(result, status)
+
+    def assert_intervention_adds_nothing(self, status, process=False):
+        """Resuming the intervention decides exactly as resuming the answered pause would without it."""
+        self.assert_adds_nothing(self.resume_after_answer(status, pause=True, process=process), status)
 
     def test_pause_intervention_never_releases_an_answered_operational_pause(self):
         self.assert_intervention_adds_nothing('PAUSED_RESOLVER_OPERATIONAL', process=True)
@@ -279,11 +294,13 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         return self.invoke('--resume-paused', process=process, env=STOP_AT_TESTER)
 
     def test_a_second_pause_intervention_never_releases_an_operational_pause(self):
-        self.assert_held(self.stacked_pauses('PAUSED_RESOLVER_OPERATIONAL', answered=True, process=True))
+        # As a process at a pause the answered request alone does not release (an operator-only control).
+        self.assert_held(self.stacked_pauses('PAUSED_TIMEOUT_RECOVERY', answered=True, process=True),
+                         'PAUSED_TIMEOUT_RECOVERY')
         cases = [*((status, True) for status in STATUSES), *((status, False) for status in SAMPLE)]
         for status, answered in cases:
             with self.subTest(status=status, answered=answered):
-                self.assert_held(self.stacked_pauses(status, answered=answered), status)
+                self.assert_adds_nothing(self.stacked_pauses(status, answered=answered), status, answered=answered)
                 if not answered:  # asked again from its own cause: the earlier advice is not repeated
                     self.assertEqual(1, self.saved()['stop_reason'].count('AutoResolver could not resolve'),
                                      self.saved()['stop_reason'])
@@ -471,6 +488,12 @@ class HeldPauseTests(unittest.TestCase):
                 state = {'status': stop.STOP_STATUS, 'next_stage': 'astra_discovery'}
                 stop.boundary_effects(state, [{'id': 'f', 'kind': 'feedback'}], lambda: 'now', held)
                 self.assertEqual(holds, 'held_pause' in (state.get('pause_intent') or {}))
+        # A pause in the same batch holds whatever the feedback would acknowledge (docs/interventions.md).
+        state = {'status': stop.STOP_STATUS, 'next_stage': 'sol'}
+        stop.boundary_effects(state, [{'id': 'p', 'kind': 'pause'}, {'id': 'f', 'kind': 'feedback'}], lambda: 'now',
+                              {'status': 'PAUSED_RESOLVER', 'feedback': True})
+        self.assertEqual(('PAUSED_RESOLVER', ['p']), (state['pause_intent']['held_pause']['status'],
+                                                      state['pause_intent']['request_ids']))
 
     def test_a_later_intervention_keeps_the_pause_the_first_one_interrupted(self):
         import autocode_stop as stop
