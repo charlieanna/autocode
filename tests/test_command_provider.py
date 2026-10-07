@@ -59,6 +59,25 @@ class CommandProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not valid TOML"):
             command.load("badtoml")
 
+    def test_builder_retry_names_a_stronger_served_model_and_a_different_checker(self):
+        head = 'command = ["tool", "{report}"]\nmodels = ["demo", "big", "other"]\n' + ROLES + "[builder_retry]\n"
+        for name, table, message in (
+                ("unknownkey", 'strong_model = "big"\nchecker_model = "other"\nchecker_effort = "high"\n', "accepts only"),
+                ("nochecker", 'strong_model = "big"\n', "checker_model needs a model name"),
+                ("unlisted", 'strong_model = "huge"\nchecker_model = "other"\n', "strong_model huge is not in models"),
+                ("samebuilder", 'strong_model = "demo"\nchecker_model = "other"\n', "Builder's own model"),
+                ("selfcheck", 'strong_model = "big"\nchecker_model = "big"\n', "checked by its own model")):
+            with self.subTest(name):
+                write_config(self.home, name, f'name = "{name}"\n' + head + table)
+                with self.assertRaisesRegex(ValueError, message):
+                    command.load(name)
+        write_config(self.home, "escalates", 'name = "escalates"\n' + head
+                     + 'strong_model = "big"\nchecker_model = "other"\nstrong_effort = "high"\n')
+        self.assertEqual({"strong_model": "big", "checker_model": "other", "strong_effort": "high"},
+                         command.load("escalates").BUILDER_RETRY)
+        write_config(self.home, "plain", 'name = "plain"\ncommand = ["tool", "{report}"]\n' + ROLES)
+        self.assertIsNone(command.load("plain").BUILDER_RETRY)
+
     def test_literal_brace_escapes_are_filled_and_invalid_braces_are_rejected(self):
         write_config(self.home, "escaped", textwrap.dedent('''\
             name = "escaped"

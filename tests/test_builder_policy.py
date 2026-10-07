@@ -10,6 +10,9 @@ from providers import command, opencode
 CLAUDE_TOML = Path(__file__).resolve().parents[1] / 'examples' / 'claude-provider' / 'claude.toml'
 CLAUDE_CONFIG = command.tomllib.loads(CLAUDE_TOML.read_text())
 CLAUDE_PROVIDER = command.CommandProvider(CLAUDE_CONFIG, CLAUDE_TOML)
+# A Claude config written before [builder_retry] existed.
+OLDER_CLAUDE_CONFIG = {key: value for key, value in CLAUDE_CONFIG.items() if key != 'builder_retry'}
+OLDER_CLAUDE_PROVIDER = command.CommandProvider(OLDER_CLAUDE_CONFIG, CLAUDE_TOML)
 
 
 class PolicyTests(unittest.TestCase):
@@ -77,7 +80,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual('custom/gpt-6-sol', state['settings']['roles']['terra']['model'])
 
     def test_a_provider_that_lists_its_models_without_the_strong_one_retries_once_more_then_pauses(self):
-        claude = CLAUDE_PROVIDER
+        claude = OLDER_CLAUDE_PROVIDER
         with self.assertRaisesRegex(ValueError, 'is not a claude model'):
             policy.configured('openai/gpt-6-sol', claude)
         self.assertEqual('claude-opus-5-5', policy.configured('claude-opus-5-5', claude)['strong_model'])
@@ -92,7 +95,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_providers_that_do_not_list_models_keep_the_default_strong_model(self):
         self.assertEqual(policy.DEFAULTS, policy.configured(None, opencode))
-        unlisted = command.CommandProvider({**CLAUDE_CONFIG, 'models': None}, CLAUDE_TOML)
+        unlisted = command.CommandProvider({**OLDER_CLAUDE_CONFIG, 'models': None}, CLAUDE_TOML)
         self.assertEqual(policy.DEFAULTS['strong_model'], policy.configured(None, unlisted)['strong_model'])
 
     def test_new_milestone_restores_normal_route_and_new_budget(self):
@@ -287,6 +290,176 @@ class PolicyTests(unittest.TestCase):
         policy.failure(state,'e1','f'); policy.failure(state,'e2','f')
         self.assertEqual('openai/gpt-6-sol',state['settings']['roles']['terra']['model'])
         self.assertEqual('xhigh',state['settings']['roles']['terra']['reasoning_effort'])
+
+
+class ToolProviderPolicyTests(unittest.TestCase):
+    """A configured command tool (here the Claude example) names its models itself, verbatim."""
+
+    def state(self, provider=CLAUDE_PROVIDER):
+        def route(role, **extra):
+            return {'engine': 'opencode', 'provider': None, 'model': provider.DEFAULT_MODELS[role],
+                    'reasoning_effort': provider.DEFAULT_REASONING_EFFORTS[role], **extra}
+        return {'settings': {'engine': 'opencode', 'provider': provider.NAME,
+                             'builder_retry': policy.configured(None, provider),
+                             'roles': {**{role: route(role) for role in ('astra', 'terra', 'sol', 'completion', 'glm')},
+                                       'plan_reviewer': route('plan_reviewer', model_pinned=True)}},
+                'goal_contract': {'hash': 'approved'},
+                'current_task': {'id': 'task1', 'milestone_id': 'M1'}, 'status': 'RUNNING'}
+
+    def test_the_builder_escalates_to_the_tools_stronger_model_and_the_validator_moves_until_the_next_milestone(self):
+        state = self.state()
+        before = copy.deepcopy(state['settings']['roles'])
+        self.assertEqual('retry', policy.failure(state, 'e1', 'f'))
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'f'))
+        roles = state['settings']['roles']
+        self.assertEqual({**before['terra'], 'model': 'claude-sonnet-5-5', 'reasoning_effort': 'xhigh'}, roles['terra'])
+        self.assertEqual({**before['sol'], 'model': 'claude-opus-5-5'}, roles['sol'])
+        self.assertEqual(before['completion'], roles['completion'])
+        self.assertEqual({'sol': 'claude-opus-5-5'}, state['builder_retry_decisions'][-1]['checker_models'])
+        dispatch.enforce_cross_model_verification(state)
+        CLAUDE_PROVIDER.check_models(roles)  # every route is a model the tool serves, spelled as it spells it
+        self.assertEqual('pause', policy.failure(state, 'e3', 'f'))
+        self.assertEqual(policy.EXHAUSTED, state['stop_reason'])
+        state = json.loads(json.dumps(state))
+        state['current_task'] = {'id': 'task2', 'milestone_id': 'M2'}
+        policy.guard(state)
+        self.assertEqual(before, state['settings']['roles'])
+
+    def test_a_parallel_tool_builder_defers_and_the_parent_escalates_with_the_validator_moved(self):
+        parent = self.state()
+        worker = copy.deepcopy(parent); worker['parent_run'] = '/runs/parent'
+        policy.failure(worker, 'e1', 'f')
+        self.assertEqual('defer', policy.failure(worker, 'e2', 'f'))
+        self.assertIn('stronger model claude-sonnet-5-5,', worker['stop_reason'])
+        policy.guard(parent); policy.adopt(parent, worker); policy.guard(parent)
+        roles = parent['settings']['roles']
+        self.assertEqual(('claude-sonnet-5-5', 'claude-opus-5-5'), (roles['terra']['model'], roles['sol']['model']))
+        dispatch.enforce_cross_model_verification(parent)
+
+    def test_a_checker_that_cannot_move_stops_the_escalation_before_any_route_changes(self):
+        for name, change in (
+                ('pinned Validator', lambda st: st['settings']['roles']['sol'].update(model_pinned=True)),
+                ('custom-provider Validator', lambda st: st['settings']['roles']['sol'].update(provider='custom')),
+                ('checker model is the strong model',
+                 lambda st: st['settings']['builder_retry'].update(checker_model='claude-sonnet-5-5')),
+                ('checker model no role uses (a run saved before checker_model existed)',
+                 lambda st: st['settings']['builder_retry'].pop('checker_model')),
+                ('Validator spells the strong model another way',
+                 lambda st: st['settings']['roles']['sol'].update(model='openai/claude-sonnet-5-5'))):
+            with self.subTest(name):
+                state = self.state(); change(state)
+                before = copy.deepcopy(state['settings']['roles'])
+                policy.failure(state, 'e1', 'f')
+                self.assertEqual('pause', policy.failure(state, 'e2', 'f'))
+                self.assertEqual(before, state['settings']['roles'])
+                self.assertNotIn('checker_models', state['builder_retry_decisions'][-1])
+                self.assertIn('would be checked by its own model', state['stop_reason'])
+                with self.assertRaises(policy.s.Paused) as raised:
+                    policy.guard(state)
+                self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', raised.exception.status)
+
+    def test_a_new_tool_run_takes_its_policy_from_the_provider_config(self):
+        self.assertEqual({**policy.DEFAULTS, 'strong_model': 'claude-sonnet-5-5', 'checker_model': 'claude-opus-5-5'},
+                         policy.configured(None, CLAUDE_PROVIDER))
+        with self.assertRaisesRegex(ValueError, 'checked by its own model'):
+            policy.configured('claude-opus-5-5', CLAUDE_PROVIDER)
+        with self.assertRaisesRegex(ValueError, 'is not a claude model'):
+            policy.configured('openai/gpt-6-sol', CLAUDE_PROVIDER)
+        self.assertEqual('claude-haiku-4-5-20251001',
+                         policy.configured('claude-haiku-4-5-20251001', CLAUDE_PROVIDER)['strong_model'])
+
+    def test_a_tool_config_without_a_builder_retry_table_keeps_todays_policy(self):
+        older = OLDER_CLAUDE_PROVIDER
+        self.assertEqual({**policy.DEFAULTS, 'strong_model': None}, policy.configured(None, older))
+        state = self.state(older)
+        self.assertEqual(['retry', 'retry', 'pause'], [policy.failure(state, f'e{n}', 'f') for n in (1, 2, 3)])
+        self.assertEqual(policy.NO_STRONG_MODEL, state['stop_reason'])
+        # The pause names the fix that works on such a tool: the flag alone would move a checker to GLM.
+        self.assertIn('[builder_retry] in the provider config', state['stop_reason'])
+        self.assertNotIn('--builder-strong-model', state['stop_reason'])
+
+    def test_a_tool_without_a_builder_retry_table_creates_runs_as_before(self):
+        # A listed tool that serves GPT-6 Sol but not GLM, with no checker on GPT-6 Sol, still starts runs.
+        listed = command.CommandProvider({**OLDER_CLAUDE_CONFIG, 'name': 'oaitool',
+                                          'models': [*OLDER_CLAUDE_CONFIG['models'], 'openai/gpt-6-sol']}, CLAUDE_TOML)
+        self.assertEqual(policy.DEFAULTS, policy.configured(None, listed))
+        self.assertEqual('claude-opus-5-5', policy.configured('claude-opus-5-5', OLDER_CLAUDE_PROVIDER)['strong_model'])
+
+    def test_a_tool_builder_that_already_runs_the_strong_model_makes_its_stronger_attempt_on_it(self):
+        # As an OpenAI Builder already on GPT-6 Sol gets its xhigh attempt, a Sonnet Builder gets Sonnet at xhigh,
+        # and the Sonnet Tester moves to Opus.
+        state = self.state()
+        roles = state['settings']['roles']
+        roles['terra']['model'] = 'claude-sonnet-5-5'
+        policy.failure(state, 'e1', 'f')
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'f'))
+        self.assertEqual(('claude-sonnet-5-5', 'xhigh', 'claude-opus-5-5'),
+                         (roles['terra']['model'], roles['terra']['reasoning_effort'], roles['sol']['model']))
+        dispatch.enforce_cross_model_verification(state)
+
+    def test_a_builder_on_the_default_strong_model_keeps_todays_policy_without_a_builder_retry_table(self):
+        # An OpenAI Builder already on GPT-6 Sol still gets its xhigh attempt, as before [builder_retry] existed.
+        for provider in (None, opencode, command.load('kilocode')):
+            with self.subTest(provider=getattr(provider, 'NAME', None)):
+                self.assertEqual(policy.DEFAULTS, policy.configured(None, provider))
+
+    def test_a_pause_before_escalating_names_jobs_by_their_screen_names(self):
+        state = self.state(); state['settings']['roles']['sol'].update(model_pinned=True)
+        policy.failure(state, 'e1', 'f')
+        self.assertEqual('pause', policy.failure(state, 'e2', 'f'))
+        self.assertIn('a Tester or Completion Reviewer on it is pinned', state['stop_reason'])
+        self.assertNotRegex(state['stop_reason'], r'\b(sol|completion|terra|astra)\b')
+
+    def test_a_tool_with_bare_gpt_names_and_the_openai_default_pauses_without_changing_a_route(self):
+        # The documented codex_receipts tool: bare GPT names, no models list, so the OpenAI defaults apply.
+        receipts = command.CommandProvider({**OLDER_CLAUDE_CONFIG, 'name': 'codex_receipts', 'models': None, 'roles': {
+            **{role: {'model': 'gpt-6-sol', 'effort': 'medium'} for role in ('astra', 'sol', 'completion', 'plan_reviewer')},
+            'terra': {'model': 'gpt-6-luna', 'effort': 'medium'}, 'glm': {'model': 'gpt-6-luna', 'effort': 'medium'}}},
+            CLAUDE_TOML)
+        for strong in (None, 'gpt-6-sol'):
+            with self.subTest(strong=strong):
+                state = self.state(receipts)
+                state['settings']['builder_retry'] = policy.configured(strong, receipts)
+                before = copy.deepcopy(state['settings']['roles'])
+                policy.failure(state, 'e1', 'f')
+                self.assertEqual('pause', policy.failure(state, 'e2', 'f'))
+                self.assertEqual(before, state['settings']['roles'])
+                self.assertIn('would be checked by its own model', state['stop_reason'])
+
+    def test_a_tool_that_names_models_with_a_slash_escalates_as_before(self):
+        kilo = command.load('kilocode')
+        state = self.state(kilo)
+        self.assertEqual(policy.DEFAULTS, state['settings']['builder_retry'])
+        state['settings']['roles']['sol']['model'] = 'openai/gpt-6-sol'
+        policy.failure(state, 'e1', 'f'); self.assertEqual('escalate', policy.failure(state, 'e2', 'f'))
+        roles = state['settings']['roles']
+        self.assertEqual(('openai/gpt-6-sol', 'zai-coding-plan/glm-5.3'), (roles['terra']['model'], roles['sol']['model']))
+
+    def test_a_kilocode_builder_given_a_bare_strong_model_gets_the_openai_alias_as_before(self):
+        kilo = command.load('kilocode')
+        state = self.state(kilo)
+        state['settings']['builder_retry'] = policy.configured('gpt-6-sol', kilo)
+        policy.failure(state, 'e1', 'f')
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'f'))
+        self.assertEqual('openai/gpt-6-sol', state['settings']['roles']['terra']['model'])
+
+    def test_a_tool_that_names_models_with_a_slash_keeps_the_old_policy_where_a_checker_cannot_be_proven_safe(self):
+        # Before tools had their own kind a kilocode Builder escalated here: a pinned Validator stayed for the
+        # cross-model guard to catch, and an unrouted GLM still took the Validator's place. It still does.
+        kilo = command.load('kilocode')
+        for name, change, validator in (
+                ('pinned Validator', lambda roles: roles['sol'].update(model_pinned=True), 'openai/gpt-6-sol'),
+                ('checker model no role uses', lambda roles: roles['glm'].update(model='openai/gpt-5.6-sol'),
+                 'zai-coding-plan/glm-5.3')):
+            with self.subTest(name):
+                state = self.state(kilo)
+                roles = state['settings']['roles']
+                roles['sol']['model'] = 'openai/gpt-6-sol'
+                change(roles)
+                policy.failure(state, 'e1', 'f')
+                self.assertEqual('escalate', policy.failure(state, 'e2', 'f'))
+                self.assertEqual(('openai/gpt-6-sol', 'xhigh', validator),
+                                 (roles['terra']['model'], roles['terra']['reasoning_effort'], roles['sol']['model']))
 
 
 class PolicyBlackbox(unittest.TestCase):
