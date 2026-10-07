@@ -178,7 +178,8 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
     previous = state.get("goal_contract")
     if previous:
         state.setdefault("contract_history", []).append(copy.deepcopy(previous))
-    revision = previous["revision"] + 1 if previous else 1
+    # Numbering continues past contracts a follow-up archived (autocode_follow_up.plan_afresh).
+    revision = 1 + max([0, *(row.get("revision") or 0 for row in state.get("contract_history", []) if isinstance(row, dict))])
     contract = {"task_id": state["task_id"], "revision": revision, "body": copy.deepcopy(body)}
     contract.update(hash=s.digest(contract), approval_status="draft", approval_event=None,
                     origin=origin, created_at=s.now(), declared_changes=copy.deepcopy(changes or []))

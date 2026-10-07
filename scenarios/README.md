@@ -439,9 +439,12 @@ starts with, so no turn's message may begin another's, repeat another or begin
 the brief (`catalog.load` refuses it, in every scenario with turns). With
 `turn_paths` the scripted Planner also bounds each turn's plan to that turn's
 paths, and declares the change of boundary from an approved contract the way a
-real Planner must: one `permission_changed` row backed by the follow-up's receipt. `discuss-then-design-then-build` is the
-example: a discussion's note, then a design that follows it, then "Build it."
-implementing that design (AutoCode checks it first as an approved design).
+real Planner must: one `permission_changed` row backed by the follow-up's receipt
+(no catalog scenario reaches that row today: a build of a proposed design plans
+afresh, and `tests/test_contract_revision.py` covers the guard).
+`discuss-then-design-then-build` is the example of turns: a discussion's note,
+then a design that follows it, then "Build it." implementing that design (AutoCode
+checks it first as an approved design, then plans the build afresh from it).
 
 When a job's report itself changes from turn to turn, the solution scripts each
 turn's report in `.fake-turns/<turn>/<stage>.json` (`0` for the brief). Only the
@@ -532,8 +535,10 @@ merged run with its own approved plan, the walking skeleton verified first and
 nothing else started before that, every merge re-running the checks of all
 merged before it (a workstream with a run retired since the last passing
 verification, by an accepted change say, takes its checks out of that set until
-it merges again), each journey verified by name by the integration workstream,
-and each scripted change request accepted or rejected. For an acceptance, the
+it merges again), each journey verified by the integration workstream and named
+in the program's `final_check` with the name `[program] revise` gives it (else
+derive's `J1 Main user journey`), and each scripted change request accepted or
+rejected. For an acceptance, the
 producer and every consumer are merged under the latest agreement revision;
 each of them whose first run started before the change was accepted has a run
 retired since then, and no other workstream has a run retired after it. The run

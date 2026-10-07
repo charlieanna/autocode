@@ -1,5 +1,6 @@
 """Pure command ownership evidence and safe-retry policy."""
 import copy
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -139,6 +140,25 @@ class CommandReceiptTests(unittest.TestCase):
         self.write({**self.value, 'provider': metadata['provider'], 'processes': [inventory]})
         self.assertIsNone(policy.load(metadata))
         self.assertFalse(policy.completed(self.receipt(supervision=metadata)))
+
+    def test_suite_sized_inventory_stays_inside_the_reader_and_an_over_limit_receipt_does_not(self):
+        row = {"birth_identity": 1.25, "birth_time": 1.25, "group": 1,
+               "started": "Wed Oct  7 03:10:23 2026"}
+        inventory = [{**self.metadata["provider"], "group": self.metadata["provider"]["pid"],
+                      "birth_time": 1.25, "started": row["started"]}]
+        inventory += [{**row, "pid": 1000 + index, "group": 1000 + index} for index in range(8000)]
+        self.write({**self.value, "processes": inventory})
+        raw = self.path.read_bytes()
+        self.assertGreater(len(raw), 1024 * 1024)
+        self.assertLessEqual(len(raw), policy.MAX_RECEIPT_BYTES)
+        self.assertTrue(policy.within_reader_limit(json.loads(raw)))
+        self.assertTrue(policy.cleanup_complete(self.metadata))
+        import autocode_supervision as supervision
+        self.assertEqual("stopped", supervision.receipt(self.metadata)["phase"])
+        full = [{**row, "pid": index + 1, "group": index + 1} for index in range(policy.liveness.PROCESS_INVENTORY_LIMIT)]
+        full[self.metadata["provider"]["pid"] - 1] = inventory[0]
+        self.assertTrue(policy.within_reader_limit({**self.value, "processes": full}))
+        self.assertFalse(policy.within_reader_limit({**self.value, "blob": "x" * (policy.MAX_RECEIPT_BYTES + 1)}))
 
     def test_invalid_and_oversized_bytes_are_unavailable(self):
         for data in (b'not json', b'[]', b'x' * (policy.MAX_RECEIPT_BYTES + 1)):
