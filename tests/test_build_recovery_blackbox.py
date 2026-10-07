@@ -90,6 +90,8 @@ class RecoveryBlackbox(unittest.TestCase):
                 try: os.kill(provider_pid,signal.SIGCONT)
                 except ProcessLookupError: pass
             (self.root/'release').touch()
+            # The stage's keeper also outlives the killed controller and writes its final receipt
+            # after the provider exits; the fixture's cleanup (bb.await_supervised_exit) waits for it.
             deadline=time.monotonic()+10
             while provider_pid and time.monotonic()<deadline:
                 try: os.kill(provider_pid,0)
