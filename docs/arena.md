@@ -13,23 +13,27 @@ Use one operator at a time: concurrent catalog writers are not supported.
 
 ## Start with the included projects
 
-The checkout includes six pinned upstream bug cases in [`arena/catalog.json`](../arena/catalog.json).
+The checkout includes eight pinned upstream bug cases in [`arena/catalog.json`](../arena/catalog.json):
+three starter Python cases and five hard cases across Python, TypeScript and Go.
 Each has a problem description and a self-contained oracle under `arena/cases/`.
 The catalog pins the full baseline and reference commit IDs; preparation fetches
 those commits, verifies that the baseline fails and the reference passes, and
-only then adds the case to the local Arena.
+only then adds the case to the local Arena. TypeScript also receives the disclosed
+test-only adapter described below; its upstream pins remain in the catalog.
 
 | Case ID | Project and upstream report | Work to solve | Starter split |
 | --- | --- | --- | --- |
 | `boltons-indexedset-update` | [Boltons #474](https://github.com/mahmoud/boltons/pull/474) | Update an ordered set from several iterables while retaining order and tuple-valued members | development |
-| `humanize-intcomma-large` | [Humanize #392](https://github.com/python-humanize/humanize/pull/392) | Format positive and negative integers beyond floating-point range without losing digits | regression |
+| `humanize-intcomma-large` | [Humanize #392](https://github.com/python-humanize/humanize/pull/392) | Format large positive and negative integers, including ordinary integer subclasses, without losing digits | regression |
 | `more-itertools-custom-exceptions` | [More Itertools #1279](https://github.com/more-itertools/more-itertools/pull/1279) | Preserve custom exceptions that evaluate to false and avoid formatting items when a custom exception is given | holdout |
 
 From the checkout root, using its installed venv:
 
 ```sh
 .venv/bin/python arena/prepare.py --list
-.venv/bin/python arena/prepare.py --arena .autocode/arena
+.venv/bin/python arena/prepare.py --arena .autocode/arena \
+  --case boltons-indexedset-update --case humanize-intcomma-large \
+  --case more-itertools-custom-exceptions
 .venv/bin/python tools/autocode_arena.py --arena .autocode/arena cases
 ```
 
@@ -41,6 +45,11 @@ a new destination when retrying. Source repositories are in `sources/`, fixed
 reference trees in `references/`, and admitted cases in `catalog.json` and `cases/`
 under that destination. Candidate attempts get their own frozen broken source
 tree without upstream history or remotes.
+
+Omitting `--case` prepares all eight projects. Install their dependencies first,
+including the external TypeScript build bundle and Go module cache below, and use
+`--oracle-timeout 400` when including Go. Preparation does not install those
+dependencies or freeze their contents for you.
 
 Run the development case with an authenticated native Codex CLI. The checkout's
 venv needs `pytest` for this project's test command; install it before starting
@@ -65,8 +74,8 @@ add the model options that provider needs. The test command above is specific
 to Boltons; choose the corresponding project's test command for other cases.
 
 These cases are public historical exercises. Their descriptions are explicitly
-marked evaluator-authored, problem-only adaptations of upstream PR reports, not
-authenticated pre-fix issue snapshots. They omit solution text and comments.
+marked evaluator-authored, problem-only adaptations of upstream issue and PR
+reports, not authenticated pre-fix issue snapshots. They omit solution text and comments.
 The checked-in source links and reference revisions remain evaluator material;
 this host-level setup cannot prevent a model from finding a public historical fix.
 The starter holdout is public and is **not a secret or contamination-free benchmark**.
@@ -77,6 +86,21 @@ standard library. Humanize's generated version metadata is supplied in memory fo
 archive imports; its formatting implementation still comes from the candidate.
 These targeted checks do not replace each project's full upstream test suite.
 The catalog/preparation tool is distributed with the checkout, not the wheel.
+
+For Humanize's native number tests, supply generated version metadata through
+the case-specific setup plugin:
+
+```sh
+PYTHONPATH="$PWD/arena/support/humanize" PYTEST_PLUGINS=arena_humanize_bootstrap \
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q \
+  -p no:cacheprovider tests/test_number.py
+```
+
+Put those environment settings in the attempt environment or its configured
+test command. The helper supplies metadata only; number formatting comes from
+the candidate. The integer-subclass check was added after an earlier four-check
+candidate missed that boundary. Prepare a fresh store and cohort for the current
+five checks; earlier results retain their original score.
 
 ## Hard cases
 
@@ -89,6 +113,8 @@ AutoCode may produce a different correct implementation.
 | `sympy-matrix-derivatives` | [SymPy #25150](https://github.com/sympy/sympy/pull/25150) and linked reports | Matrix gradients and Hessians, rectangular coordinates, noncommuting powers and tensor axes | 11 | development |
 | `django-filteredrelation-join-lifecycle` | [Django #33766](https://code.djangoproject.com/ticket/33766), [PR #16786](https://github.com/django/django/pull/16786) | Conditions that spawn joins, filtered aliases, cloning and nested subqueries | 3 | regression |
 | `pytest-stop-fixture-teardown` | [pytest #11706](https://github.com/pytest-dev/pytest/issues/11706), [PR #11721](https://github.com/pytest-dev/pytest/pull/11721) and [PR #12048](https://github.com/pytest-dev/pytest/pull/12048) | Teardown and plugin reports after early stops, including multiple failing callbacks on one fixture | 3 | holdout |
+| `typescript-dependent-destructuring` | [TypeScript #35283](https://github.com/microsoft/TypeScript/issues/35283), [PR #46266](https://github.com/microsoft/TypeScript/pull/46266) and linked reports | Correlated union tags and payloads after destructuring, with assignment and error-preservation boundaries | 2 | development |
+| `go-http2-hung-reset-health` | [Go #59690](https://github.com/golang/go/issues/59690) | Canceled stream capacity, health acknowledgments, strict admission, healthy reuse and dead connection replacement | 1 | regression |
 
 The pytest case combines early-stop routing with same-fixture exception aggregation.
 Its reference is pinned to the [early-stop reapplication](https://github.com/pytest-dev/pytest/pull/12279),
@@ -103,7 +129,7 @@ These are public historical exercises. The holdout split controls which evidence
 an improvement proposal exposes; it does not make a public fix private. Fresh
 private tasks are needed for stronger generalization claims.
 
-Prepare only these cases in a fresh destination:
+Prepare the three Python hard cases in a fresh destination:
 
 ```sh
 .venv/bin/python arena/prepare.py --arena .autocode/arena-hard-v1 --oracle-timeout 120 \
@@ -150,9 +176,111 @@ PYTHONPATH="$PWD/arena/support/django" PYTEST_PLUGINS=arena_django_bootstrap \
   "--option=--test-command=$PWD/.venv/bin/python -m pytest -q -o 'python_files=test*.py' -p no:cacheprovider tests/filtered_relation tests/queries"
 ```
 
-Use an oracle deadline of 120 seconds for the harder cohort; pytest's oracle
+Use an oracle deadline of 120 seconds for these Python cases; pytest's oracle
 starts several isolated child suites. Benchmark approval still covers only the
 exact plan token, never questions, human reviews, recovery or quota overrides.
+
+### TypeScript setup and native tests
+
+The TypeScript controls used Node v25.9.0. Select and freeze the Node executable
+before preparation, and keep it unchanged through an attempt. Create the external
+build bundle from the checked-in lockfile:
+
+```sh
+arena_ts_deps="$PWD/.scenario-runs/arena-dependencies/typescript"
+mkdir -p "$arena_ts_deps"
+cp arena/support/typescript/package.json arena/support/typescript/package-lock.json "$arena_ts_deps/"
+(cd "$arena_ts_deps" && npm ci --ignore-scripts --no-audit --no-fund)
+export ARENA_TYPESCRIPT_DEPS="$arena_ts_deps"
+export ARENA_TYPESCRIPT_HELPER="$PWD/arena/support/typescript/arena_typescript_compiler.cjs"
+export ARENA_NODE="$(command -v node)"
+.venv/bin/python arena/prepare.py --arena .autocode/arena-typescript-v1 \
+  --case typescript-dependent-destructuring --oracle-timeout 120
+```
+
+The lockfile pins TypeScript 4.5.2, `@types/node` 14.18.2 and
+`@types/microsoft__typescript-etw` 0.1.1. Record the installed bundle's content
+identity, the helper and the Node runtime before freezing the attempt. The pinned
+TypeScript package bootstraps the build: both the helper and oracle compile the
+candidate's own source in a temporary directory and load that fresh compiler.
+Generated candidate build files are not reused. The diagnostic metadata generator
+and table also come from the candidate.
+
+The pinned upstream tree lacks the selected native test file. Preparation adds
+only `tests/cases/unittests/arenaDependentDestructuring.test.cjs`, containing three
+preservation guards that pass on the broken baseline. It commits those new tests
+as an adapted baseline and adds the identical adapter to the reference tree.
+Upstream runtime source and existing tests are preserved. `arena/catalog.json`
+retains the upstream baseline/reference pins; the prepared case's
+`preparation.json` records `upstream_base_commit`, `adapted_base_commit`,
+`upstream_reference_commit` and per-file hashes under `test_overlay_sha256`.
+
+Use this direct native command in `--option=--test-command=...`, with the same
+environment inherited by AutoCode and its regression replay:
+
+```sh
+node --test tests/cases/unittests/arenaDependentDestructuring.test.cjs
+```
+
+The task must extend that file with its own named regressions and retain the
+three guards. Passing only the initial preservation tests does not establish a
+fix. The independent oracle checks 15 diagnostic behaviors, including cases
+that must continue to report errors. This is a focused compiler scope using an
+in-memory declaration library; it does not run the full historic Gulp/Mocha,
+conformance, language-service, emit or platform suites. Its external oracle
+deadline is 120 seconds.
+
+### Go setup and native tests
+
+The HTTP/2 case uses Go 1.25.5 with `GOTOOLCHAIN=local`. Its independent oracle
+uses `testing/synctest` in an external evaluator module; the candidate's upstream
+`go.mod` is preserved. Select the frozen Go executable through `PATH` (the local
+controls used `/opt/homebrew/bin/go`). Before going offline, run `go mod download`
+from a separate checkout of the catalog's baseline into an external `GOMODCACHE`.
+The pinned dependencies are `golang.org/x/crypto` v0.28.0, `x/sys` v0.26.0,
+`x/term` v0.25.0 and `x/text` v0.19.0.
+
+Freeze the toolchain and module-cache contents before preparation. Give each
+attempt separate writable build and temporary directories outside its source;
+set `GOCACHE`, `GOPATH`, `GOTMPDIR` and `TMPDIR` to those directories. Then inherit
+the following offline settings through preparation and every native replay:
+
+```sh
+export GOTOOLCHAIN=local GOMODCACHE=/absolute/frozen/go-module-cache
+export GOPROXY=off GOSUMDB=off GOWORK=off GOFLAGS=-mod=readonly
+export CGO_ENABLED=0 GODEBUG=asynctimerchan=0
+.venv/bin/python arena/prepare.py --arena .autocode/arena-go-v1 \
+  --case go-http2-hung-reset-health --oracle-timeout 400
+```
+
+Use the following literal native command in `--option=--test-command=...`, with
+`PATH` selecting the frozen Go executable:
+
+```sh
+go test ./http2 ./http2/hpack -count=1 -timeout=120s -parallel=2
+```
+
+The task must add its own native Go regression tests. The evaluator-owned
+oracle's six checks use a scripted `net.Pipe` wire peer, public connection state and actual
+HTTP/2 frames. They distinguish strict waiting and pool reservations, health ACKs
+from peer PINGs, repeated healthy cancellation/reuse, dead connections exhausted
+at several concurrency limits, and single-use preservation. It builds and tests
+only a disposable copy. A passing child must have actually run and passed its
+requested named test; skipped or missing results and real process timeouts are
+evaluation errors. Retained controls record two additional local source-integrity
+checks separately; these do not add scored behaviors.
+
+Use `--oracle-timeout 400` during both preparation and attempts: compilation is
+bounded at 180 seconds and each probe at 20 seconds in Go and 25 seconds by its
+supervisor. The native command covers HTTP/2 and HPACK; it does not establish the
+full x/net suite, TLS interoperability, real TCP/firewall failure handling or
+performance across platforms.
+
+“Hard” describes the selected interacting behaviors, not a measured ranking of
+model difficulty. Positive/negative oracle controls and native setup checks
+establish case validity; they do not establish live AutoCode success, general
+reliability or improvement across languages. Freeze external dependencies and
+retain fresh per-attempt evidence before making those claims.
 
 ## Declare a case
 

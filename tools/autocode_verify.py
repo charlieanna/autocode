@@ -389,12 +389,16 @@ class Framework:
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
+        if self.name == "node":
+            if self.invocation:
+                scripts = [p for p in files if PurePosixPath(p).suffix in
+                           (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts")]
+                return self.invocation.targeted(scripts) if scripts else None
+            scripts = [p for p in files if p in self.node_files]
+            return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
         if self.invocation:
             modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
             return self.invocation.targeted(modules) if modules else None
-        if self.name == "node":
-            scripts = [p for p in files if p in self.node_files]
-            return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
         if self.name == "pytest":
             modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
             return (f"{shlex.quote(self.python)} -m pytest -q -p no:cacheprovider "
@@ -1308,6 +1312,9 @@ def command_framework(command):
     invocation = python_tests.parse(command)
     if invocation:
         return Framework(invocation.kind, command, python=invocation.python, invocation=invocation)
+    invocation = node_tests.parse(command)
+    if invocation:
+        return Framework("node", command, invocation=invocation)
     if _go_test(command):
         return Framework("go", command)
     return None
@@ -1348,7 +1355,18 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                           and not re.search(r"[;&|<>`$\n]", command))
     python = (invocation.python if invocation else words[0] if python_command
               else python_for(dependencies_from or workspace))
-    executable = shutil.which(python, path=environment.get("PATH", ""))
+    node_invocation = node_tests.parse(command)
+    runtime = node_invocation.node if node_invocation else python
+    search_path = environment.get("PATH", "")
+    if node_invocation:
+        command_root = workspace.resolve()
+        if os.path.dirname(runtime) and not Path(runtime).is_absolute():
+            runtime = str(command_root / runtime)
+        # The shell executes in the proof workspace. Relative and empty PATH
+        # entries must select its Node, never a binary in the controller cwd.
+        search_path = os.pathsep.join(str(Path(entry) if Path(entry).is_absolute() else command_root / entry)
+                                      for entry in search_path.split(os.pathsep))
+    executable = shutil.which(runtime, path=search_path)
     venv_config = Path(executable).parent.parent / "pyvenv.cfg" if executable else None
     try:
         isolated_runtime = venv_config is not None and venv_config.is_file() and not re.search(
@@ -1464,6 +1482,8 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None,
     Python virtualenv is not required: npm, Go and a global interpreter still
     get a stable cache key. With ``ignored_inputs`` (make_tree's), the ignored
     vendored files are bound by what it supplies, not the whole ``vendor`` tree.
+    Direct Node tests still execute fresh: external preloads, loaders and module
+    resolution are not completely bound by these dependency roots.
     """
     identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from,
                                   generated_record=generated_record, generated_unrecorded=generated_unrecorded,
@@ -1480,8 +1500,9 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None,
     bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
     bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
     bound["environment_hash"] = util.digest(environment)
-    bound["cache_policy"] = "baseline_runtime_identity"
-    bound["cache_binding_complete"] = not (identity.get("unbound_editables")
+    node_command = node_tests.parse(command) is not None
+    bound["cache_policy"] = "fresh_execution_only" if node_command else "baseline_runtime_identity"
+    bound["cache_binding_complete"] = not (node_command or identity.get("unbound_editables")
                                            or identity.get("unbound_relative_pythonpath"))
     bound["reuse_supported"] = bool(bound["cache_binding_complete"]
                                     and (bound["dependencies"] is not None or not any(
@@ -1663,6 +1684,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
+    configured = node_tests.parse(suite_command)
+    if configured:
+        framework = Framework("node", suite_command, invocation=configured)
     before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
     changes = changed_files(workspace, base, source_paths=source_paths)
     tests = [p for p in changes if is_test_path(p)]
