@@ -11,7 +11,7 @@ Three pieces, none of which changes AutoCode:
 
 | File | What it does |
 | --- | --- |
-| `claude.toml` | Registers a provider named `claude`. The command runs one stage through the wrapper. `[roles]` gives the default model per role. |
+| `claude.toml` | Registers a provider named `claude`. The command runs one stage through the wrapper. `[roles]` gives the default model per role; `[builder_retry]` names the Builder's stronger attempt and the model that checks it. |
 | `claude_stage.py` | The wrapper. Reads the stage prompt on stdin and runs `claude -p` once with `--json-schema` set to the stage's report schema. The report it returns is written to the path AutoCode gives. It also translates Claude's event stream into the Codex-style events AutoCode's idle watchdog and token accounting read, and puts each call's cost in the event log (`cost_usd`). |
 | `trial.py` | Registers a `claude-tiers` profile in memory and calls the scenario harness (`scenarios/run.py`), so the harness starts AutoCode on a scenario and judges the delivery with its oracle. |
 | `batch.py`, `qualification.txt` | Runs a list of scenarios several times in parallel, restarts only the runs still missing after an interruption, and summarizes verdicts and cost. With `--hybrid` (also on `trial.py`) a scenario's `[hybrid]` route is scripted and every other stage runs on Claude ([Hybrid runs](../../scenarios/README.md#hybrid-runs)). |
@@ -19,6 +19,11 @@ Three pieces, none of which changes AutoCode:
 Roles: Sonnet does requirements, planning and validation. Opus is the plan reviewer, the Completion
 Owner, the Investigator and the AutoResolver. Haiku is the Builder. AutoCode requires a verifier to
 differ from its producer, and this split satisfies that.
+
+A Builder that still fails a milestone after its ordinary retry gets one attempt on Sonnet at `xhigh`
+effort (`[builder_retry]`). For the rest of that milestone the Tester, which runs Sonnet, moves to Opus,
+so no model checks its own work; both return to their routes at the next milestone
+([Models](../../docs/models.md#builder-retry-policy)).
 
 ## Run it
 
@@ -32,6 +37,10 @@ cp examples/claude-provider/claude.toml examples/claude-provider/claude_stage.py
 .venv/bin/python examples/claude-provider/trial.py run bugfix-trivial --profile claude-tiers \
   --i-authorize-live-model-spend --out /path/to/results --timeout-minutes 45
 ```
+
+Copy `claude.toml` again after it changes, between batches only: a run saves the file's hash
+(`config_sha256`), so one still running or paused when the file changes stops with
+`PAUSED_TRANSPORT_CHANGED` at its next stage.
 
 The harness then starts AutoCode as it does for any live profile, roughly
 `python tools/autocode.py "<brief>" --workspace <project> --provider claude --joint-planning

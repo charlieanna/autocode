@@ -41,6 +41,34 @@ class AgreementTests(ProgramHarness):
             self.assertEqual(0, program.cli(["status", str(path), "--workspace", str(self.project)]))
         return json.loads(output.getvalue())
 
+    def conflict_with_an_external_change(self, path, wid):
+        """wid waits for plan approval while a person commits their own version of its file on the integration
+        branch; then wid completes, and its merge conflicts. Return the paused result."""
+        self.child_outcome[wid] = "AWAITING_GOAL_APPROVAL"
+        _, waiting = self.run_program(path)
+        integration = Path(waiting["integration_workspace"])
+        (integration / self.owned(wid)).parent.mkdir(exist_ok=True)
+        (integration / self.owned(wid)).write_text("external repair\n")
+        git(integration, "add", self.owned(wid))
+        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
+        self.set_child(self.records(waiting)[wid], status="RUNNING")
+        self.child_outcome[wid] = "TASK_COMPLETE"
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]), result)
+        self.assertEqual("CONFLICT", self.records(result)[wid]["status"])
+        return result
+
+    def merge_by_hand(self, result, wid, *, later_work=None):
+        """A person resolves wid's conflict by merging its branch, keeping its side. With ``later_work`` (a path in
+        its worktree) a follow-up of its run, outside the program, first left work there uncommitted (#626).
+        Return the integration head after the merge."""
+        record = self.records(result)[wid]
+        if later_work:
+            (Path(record["workspace"]) / later_work).write_text("later work\n")
+        integration = Path(result["integration_workspace"])
+        git(integration, *program.GIT_IDENTITY, "merge", "--no-ff", "-X", "theirs", "--no-edit", record["branch"])
+        return git(integration, "rev-parse", "HEAD")
+
     def test_each_workstream_is_a_normal_run_pinned_to_the_agreement_it_was_built_from(self):
         value = with_requirements(manifest())
         path = self.write_manifest(value)
@@ -173,28 +201,127 @@ class AgreementTests(ProgramHarness):
         self.assertNotIn("approved_plan", record)
         self.assertNotIn("a/service.py", self.integration_files(result))
 
-    def test_a_conflict_resolved_by_hand_lands_only_under_a_checked_plan(self):
+    def test_a_conflict_resolved_by_hand_still_merges_what_the_run_delivered_after_it(self):
+        # #626: while a's merge conflicted, a person followed up a's run outside the program, then merged a's branch
+        # by hand as the pause asks. The follow-up's work was never on that branch.
         path = self.write_manifest(with_requirements(manifest()))
+        result = self.conflict_with_an_external_change(path, "a")
+        self.merge_by_hand(result, "a", later_work="a/retry.py")
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        record = self.records(result)["a"]
+        self.assertEqual("MERGED", record["status"])
+        self.assertNotIn("manual_merge", record)
+        self.assertIn("a/retry.py", self.integration_files(result))
+        self.assertEqual("", git(Path(record["workspace"]), "status", "--porcelain", "--", "a"))  # committed, nothing left
+
+    def test_a_skeleton_resolved_by_hand_is_delivered_once_its_later_work_lands(self):
+        # The skeleton produces the contracts interface. Checking the person's merge on its own publishes nothing,
+        # so its later work is not refused as a change to an interface already delivered, and what a and b build on
+        # is the skeleton with that work (#626).
+        path = self.write_manifest(with_requirements(manifest()))
+        result = self.conflict_with_an_external_change(path, "contracts")
+        self.merge_by_hand(result, "contracts", later_work="contracts/extra.json")
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        merged = self.records(result)["contracts"]["merged_commit"]
+        self.assertIn("contracts/extra.json", git(self.project, "ls-tree", "-r", "--name-only", merged))
+        self.assertEqual(("contracts", merged), (result["skeleton"]["workstream"], result["skeleton"]["commit"]))
+        saved = json.loads(Path(result["state_file"]).read_text())
+        self.assertEqual(merged, saved["interfaces"]["contracts"]["commit"])
+
+    def test_a_skeleton_whose_later_work_fails_its_merge_is_not_delivered(self):
+        # Its resolution passed on its own, but nothing builds on the skeleton or its interface before its later work
+        # lands (#626).
+        path = self.write_manifest(with_requirements(manifest()))
+        self.child_checks["contracts"] = ["test -f contracts/spec.json", "test ! -f contracts/extra.json"]
+        result = self.conflict_with_an_external_change(path, "contracts")
+        self.merge_by_hand(result, "contracts", later_work="contracts/extra.json")
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]), result)
+        self.assertIn("The merge of its later work was undone", result["next"])
+        self.assertIsNone(result["skeleton"])
+        self.assertEqual({}, json.loads(Path(result["state_file"]).read_text())["interfaces"])
+        self.assertEqual({"PENDING"}, {self.records(result)[wid]["status"] for wid in ("a", "b", "integration")})
+        self.assertEqual(["contracts"], sorted({row["id"] for row in self.launches}))
+
+    def test_a_resolutions_guard_keeps_the_checks_it_passed_while_its_run_goes_on(self):
+        # b's later work failed its merge, and the person followed b up as the pause advises: the follow-up's new
+        # check tests work not yet on the branch. a's merge is guarded by the checks b's resolution passed, not by
+        # that new check, so a merges, then b's work lands (#626).
+        path = self.write_manifest(manifest())
         self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
-        _, waiting = self.run_program(path)
-        integration = Path(waiting["integration_workspace"])
-        (integration / "a").mkdir()
-        (integration / "a/service.py").write_text("external repair\n")
-        git(integration, "add", "a/service.py")
-        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
-        self.set_child(self.records(waiting)["a"], status="RUNNING")
+        self.child_checks["b"] = ["test -f b/service.py", "test ! -f b/retry.py"]  # the later work breaks b's check
+        result = self.conflict_with_an_external_change(path, "b")
+        self.merge_by_hand(result, "b", later_work="b/retry.py")
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]), result)
+        records = self.records(result)
+        self.set_child(records["b"], status="RUNNING")  # the follow-up
+        self.child_checks["b"] = ["test -f b/service.py", "test -f b/fix.py"]
+        self.child_extra_files["b"] = {"b/fix.py": "fix\n"}
+        self.set_child(records["a"], status="RUNNING")  # the person approves a's plan
         self.child_outcome["a"] = "TASK_COMPLETE"
         code, result = self.run_program(path)
-        self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]), result)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        self.assertLessEqual({"a/service.py", "b/fix.py"}, self.integration_files(result))
+
+    def test_a_resolution_re_checked_before_its_later_work_lands_starts_from_the_integration_head(self):
+        # Like a merged workstream, a re-checked resolution starts from the integration branch that holds it, not
+        # from its old worktree, which never had it (#626).
+        value = manifest()
+        path = self.write_manifest(value)
+        self.child_checks["a"] = ["test -f a/service.py", "test ! -f a/retry.py"]  # the later work breaks a's check
+        result = self.conflict_with_an_external_change(path, "a")
+        old = self.records(result)["a"]["workspace"]
+        self.merge_by_hand(result, "a", later_work="a/retry.py")
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]), result)
+        value["workstreams"][1]["brief"] = "Build service a with retries"
+        path.write_text(json.dumps(value))
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        recheck = self.launches_of("a")[-1]
+        self.assertNotEqual(old, recheck["workspace"])
+        self.assertNotIn("a/retry.py", recheck["files"])  # the retired run's later work stays in its worktree
+        self.assertEqual(old, self.records(result)["a"]["retired_runs"][0]["workspace"])
+
+    def test_while_a_resolutions_later_work_waits_its_checks_guard_every_other_merge(self):
+        # A change request on a's own interface holds the merge of a's later work. The person's resolution stays on
+        # the integration branch meanwhile, so a's checks run on b's merge, as a merged workstream's would (#626).
+        value = manifest()
+        value["shared"]["interfaces"].append({"id": "a-api", "summary": "a's API", "paths": ["a/api/"], "producer": "a"})
+        path = self.write_manifest(value)
+        self.child_outcome["b"] = "AWAITING_GOAL_APPROVAL"
+        self.child_checks["a"] = ["test -f a/service.py", "test ! -f b/service.py"]  # b's delivery breaks a
+        result = self.conflict_with_an_external_change(path, "a")
+        head = self.merge_by_hand(result, "a", later_work="a/retry.py")
+        self.request_change(path, "a-api", "a")
+        self.set_child(self.records(result)["b"], status="RUNNING")  # the person approves b's plan
+        self.child_outcome["b"] = "TASK_COMPLETE"
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]), result)
+        self.assertIn("The check was left by workstream a. Either b broke what it checks: fix b", result["next"])
+        records = self.records(result)
+        self.assertEqual(("COMPLETE", "COMPLETE"), (records["a"]["status"], records["b"]["status"]))
+        self.assertIn("change request CR-1 is open on interface a-api", records["a"]["blocked_reason"])
+        self.assertEqual(head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))  # b's merge was undone
+        # Once the request is decided, the later work merges on top of the resolution.
+        with contextlib.redirect_stdout(io.StringIO()):
+            program.cli(["resolve-change", str(path), "--workspace", str(self.project), "--request", "CR-1",
+                         "--reject", "--reason", "The interface stays"])
+        code, result = self.run_program(path)
+        self.assertEqual("MERGED", self.records(result)["a"]["status"])
+        self.assertIn("a/retry.py", self.integration_files(result))
+
+    def test_a_conflict_resolved_by_hand_lands_only_under_a_checked_plan(self):
+        path = self.write_manifest(with_requirements(manifest()))
+        result = self.conflict_with_an_external_change(path, "a")
         record = self.records(result)["a"]
-        self.assertEqual("CONFLICT", record["status"])
         # Meanwhile the person followed the run up by hand and it completed showing no plan in force; then they
         # resolve the conflict as the pause asks.
         self.set_child(record, view={"approved_contract": None})
-        merge = subprocess.run(["git", "-C", str(integration), "-c", "user.name=H", "-c", "user.email=h@example.test",
-                                "merge", "--no-ff", "-X", "theirs", "--no-edit", record["branch"]],
-                               capture_output=True, text=True)
-        self.assertEqual(0, merge.returncode, merge.stdout + merge.stderr)
+        self.merge_by_hand(result, "a")
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]), result)
         self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
@@ -723,28 +850,42 @@ class AgreementTests(ProgramHarness):
         self.assertNotIn("b/service.py", self.integration_files(result))
         self.assertIn("a/service.py", self.integration_files(result))
 
-    def test_a_failing_manual_merge_says_it_is_still_on_the_integration_branch(self):
+    def fail_a_manual_merge(self, *, later_work=False):
+        """a's merge conflicts; a person resolves it by hand in a way that breaks a's check, then the program reruns.
+        With ``later_work`` a follow-up of a's run left work in a's worktree first (#626)."""
         path = self.write_manifest(manifest())
-        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
-        _, result = self.run_program(path)
-        integration = Path(result["integration_workspace"])
-        (integration / "a").mkdir()
-        (integration / "a/service.py").write_text("external repair\n")
-        git(integration, "add", "a/service.py")
-        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
-        self.set_child(self.records(result)["a"], status="RUNNING")
-        self.child_outcome["a"] = "TASK_COMPLETE"
         self.child_checks["a"] = ["grep -q external a/service.py"]  # passes only while the external repair stays
-        code, result = self.run_program(path)
-        self.assertEqual((2, "PAUSED_MERGE_CONFLICT"), (code, result["status"]))
-        git(integration, *program.GIT_IDENTITY, "merge", "--no-ff", "-X", "theirs", "--no-edit",
-            self.records(result)["a"]["branch"])
-        head = git(integration, "rev-parse", "HEAD")
+        result = self.conflict_with_an_external_change(path, "a")
+        head = self.merge_by_hand(result, "a", later_work="a/retry.py" if later_work else None)
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]))
-        self.assertNotIn("The merge was undone", result["next"])
+        self.assertNotIn("was undone", result["next"])
         self.assertIn("Your merge is still on the integration branch", result["next"])
-        self.assertEqual(head, git(integration, "rev-parse", "HEAD"))
+        self.assertEqual(head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))
+        return result
+
+    def test_a_failing_manual_merge_says_it_is_still_on_the_integration_branch(self):
+        self.fail_a_manual_merge()
+
+    def test_a_failing_manual_merge_is_named_before_the_runs_later_work_merges_on_it(self):
+        # The person's resolution is checked on its own first (#626): the later work does not merge on top of it,
+        # and the pause names the person's merge, not a merge the program made.
+        result = self.fail_a_manual_merge(later_work=True)
+        self.assertEqual("CONFLICT", self.records(result)["a"]["status"])
+        self.assertNotIn("a/retry.py", self.integration_files(result))
+
+    def test_later_work_that_fails_its_merge_is_undone_and_the_hand_merge_stays(self):
+        path = self.write_manifest(manifest())
+        self.child_checks["a"] = ["test -f a/service.py", "test ! -f a/retry.py"]  # the later work breaks a's check
+        result = self.conflict_with_an_external_change(path, "a")
+        head = self.merge_by_hand(result, "a", later_work="a/retry.py")
+        for _ in range(2):  # an unchanged rerun repeats the pause
+            code, result = self.run_program(path)
+            self.assertEqual((2, "PAUSED_INTEGRATION_CHECK"), (code, result["status"]), result)
+            self.assertIn("The merge of its later work was undone; your merge by hand stays. The check is a's own",
+                          result["next"])
+            self.assertEqual(head, git(Path(result["integration_workspace"]), "rev-parse", "HEAD"))
+            self.assertEqual("COMPLETE", self.records(result)["a"]["status"])
 
     def test_brief_md_keeps_the_brief_that_started_the_run(self):
         path = self.write_manifest(manifest())

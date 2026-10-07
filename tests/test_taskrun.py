@@ -45,7 +45,7 @@ class RunViewTests(unittest.TestCase):
                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
                           "efficiency", "recovery", "verification", "code_checkpoints", "routes",
                           "route_assignments", "liveness", "information_review", "tool_containment",
-                          "escalation_outcomes"},
+                          "escalation_outcomes", "job_report_recovery"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):

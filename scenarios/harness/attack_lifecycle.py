@@ -96,3 +96,19 @@ class ProviderBarrier:
 
     def __exit__(self, *_):
         self.close()
+
+
+# Also copied as sitecustomize for one controller-only artifact boundary. The
+# real CLI publishes its own result; the hook neither imports runtime nor reads
+# or edits private state. Provider exec is isolated from this startup hook.
+if os.environ.get("LIFECYCLE_CONTROLLER_CHECKPOINT"):
+    target = os.path.abspath(os.environ["LIFECYCLE_CONTROLLER_CHECKPOINT"])
+    original_replace = os.replace
+
+    def replace(source, destination, *args, **kwargs):
+        result = original_replace(source, destination, *args, **kwargs)
+        if os.path.abspath(destination) == target:
+            hold_provider(os.environ["LIFECYCLE_HOLD_STAGE"])
+        return result
+
+    os.replace = replace

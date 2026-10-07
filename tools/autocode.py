@@ -190,11 +190,13 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     rework_policy.verify_existing(record)
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
-        record['response_text'] = str(Path(record['output']).with_suffix('.response.txt'))
+        if record.get('output_mode') != 'report_file':
+            record['response_text'] = str(Path(record['output']).with_suffix('.response.txt'))
         value = opencode.final_report(record["events"], recover_wrapped=bool(record.get("report_only")),
-                                      response_path=record['response_text'])
+                                      response_path=None if record.get('output_mode') == 'report_file' else record['response_text'])
         # Persist rejected reports too, so archival never leaves a missing repair input.
-        write_json(Path(record['output']), value)
+        if record.get('output_mode') != 'report_file':
+            write_json(Path(record['output']), value)
     else:
         value = util.read_object(Path(record["output"]))
     reported = copy.deepcopy(value)
@@ -233,7 +235,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
              'evidence_ref': check['evidence_ref'], 'events': evidence_record['events']}
             for index, check in enumerate(checks or [])
             if (reported.get('validation', reported)['checks'][index]).get('exit_code') is None]
-    if record.get('engine') == 'opencode' or value != reported:
+    if (record.get('engine') == 'opencode' and record.get('output_mode') != 'report_file') or value != reported:
         write_json(Path(record['output']), value)
     return rework_policy.capture(record, value) if workspace is not None else value
 
