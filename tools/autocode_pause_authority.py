@@ -5,8 +5,9 @@ A protected operational pause is released only by the operator's authority for t
 request itself (--grant-recovery, --retry-failed-stage, --abandon-stage, a route answer, a
 resolver response). A budget flag for any other bound is a settings write, not that authority,
 and neither is a pause intervention, queued feedback, a requested pause or enabling joint
-planning (autocode_stop records the pause an intervention interrupted). Plan feedback is the
-planning budget's own authority (FEEDBACK_ACKNOWLEDGES).
+planning (autocode_stop records the pause an intervention interrupted). Brief feedback is a
+pause's own authority only where that pause offers it (feedback_acknowledges): the exhausted
+plan-review budget, and the validation-only stop, whose request names --feedback.
 
 held_origin() names the pause from the run's own records: its live or queued operational
 request, the request its answer consumed, else its saved status. held_cause() is the saved stop
@@ -38,7 +39,8 @@ OPERATIONAL_PAUSES = (
     'PAUSED_MILESTONE_BUDGET', 'PAUSED_MILESTONE_TIME_LIMIT', 'PAUSED_PROVIDER_UNCERTAIN',
     'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY', 'PAUSED_NO_PROGRESS', provider_refusal.STATUS)
 # The operational pauses whose own authority includes brief feedback: an exhausted plan-review
-# budget is answered with plan feedback or a new review-call limit (docs/task-run.md).
+# budget is answered with plan feedback or a new review-call limit (docs/task-run.md). A request
+# can offer it too (feedback_acknowledges).
 FEEDBACK_ACKNOWLEDGES = ('PAUSED_PLANNING_BUDGET',)
 
 # The bound each budget pause exhausted, when its request does not name one.
@@ -58,28 +60,57 @@ BUDGET_FLAGS = {
 }
 
 
+def _entry_proposal(entry):
+    return ((entry or {}).get('identity') or {}).get('proposal') or {}
+
+
 def _proposal(state, request_id):
-    entry = ((state.get('resolver') or {}).get('human_escalations') or {}).get(request_id) or {}
-    return (entry.get('identity') or {}).get('proposal') or {}
+    return _entry_proposal(((state.get('resolver') or {}).get('human_escalations') or {}).get(request_id))
+
+
+def _held_proposal(state):
+    """The operational proposal behind the pause holding the run: live, queued or consumed; else {}."""
+    queued = state.get(RESOLVER_PROPOSAL_KEY) or {}
+    if queued.get('scope') == 'operational_exhaustion' and queued.get('origin'):
+        return queued
+    published = state.get(RESOLVER_REQUEST_KEY) or {}
+    if published.get('scope') == 'operational_exhaustion':
+        proposal = _proposal(state, published.get('request_id'))
+        if proposal.get('origin'):
+            return proposal
+    status = state.get('status')
+    answered = (state.get('resolver') or {}).get('human_response_frontier') or {}
+    if answered.get('pause_status') == status:
+        proposal = _proposal(state, answered.get('request_id'))
+        if (proposal.get('origin') or {}).get('pause_status') == status:
+            return proposal
+    return {}
 
 
 def held_origin(state):
     """The origin of the pause holding the run: its pause_status and, for a budget, the bound's kind."""
-    queued = state.get(RESOLVER_PROPOSAL_KEY) or {}
-    if queued.get('scope') == 'operational_exhaustion' and queued.get('origin'):
-        return queued['origin']
-    published = state.get(RESOLVER_REQUEST_KEY) or {}
-    if published.get('scope') == 'operational_exhaustion':
-        origin = _proposal(state, published.get('request_id')).get('origin')
-        if origin:
-            return origin
-    status = state.get('status')
-    answered = (state.get('resolver') or {}).get('human_response_frontier') or {}
-    if answered.get('pause_status') == status:
-        origin = _proposal(state, answered.get('request_id')).get('origin') or {}
-        if origin.get('pause_status') == status:
-            return origin
-    return {'pause_status': status}
+    return _held_proposal(state).get('origin') or {'pause_status': state.get('status')}
+
+
+def feedback_acknowledges(state, pause_status):
+    """Whether brief feedback is ``pause_status``'s own authority.
+
+    It is for the exhausted plan-review budget, and where the request asked for that pause offers
+    it: the validation-only stop (autocode_validation_rounds) names --feedback as the way to
+    continue, and it alone carries ``finding_ids``. The request is the one holding the run, else
+    the latest asked for that pause (a withdrawn one, while queued input is applied under it).
+    """
+    if pause_status in FEEDBACK_ACKNOWLEDGES:
+        return True
+    proposal = _held_proposal(state)
+    if (proposal.get('origin') or {}).get('pause_status') != pause_status:
+        asked = [entry for entry in ((state.get('resolver') or {}).get('human_escalations') or {}).values()
+                 if isinstance(entry, dict)
+                 and (_entry_proposal(entry).get('origin') or {}).get('pause_status') == pause_status
+                 and _entry_proposal(entry).get('scope') == 'operational_exhaustion']
+        latest = max(asked, key=lambda entry: str(entry.get('issued_at') or ''), default={})
+        proposal = _entry_proposal(latest)
+    return bool((proposal.get('request') or {}).get('finding_ids'))
 
 
 def held_cause(state, pause_status):
@@ -93,8 +124,7 @@ def held_cause(state, pause_status):
     if not isinstance(reason, str):
         return reason
     entries = ((state.get('resolver') or {}).get('human_escalations') or {}).values()
-    proposals = [state.get(RESOLVER_PROPOSAL_KEY) or {},
-                 *(((entry or {}).get('identity') or {}).get('proposal') or {} for entry in entries)]
+    proposals = [state.get(RESOLVER_PROPOSAL_KEY) or {}, *(_entry_proposal(entry) for entry in entries)]
     causes = [str(cause).strip() for proposal in proposals
               if proposal.get('scope') == 'operational_exhaustion'
               and (proposal.get('origin') or {}).get('pause_status') == pause_status
@@ -111,7 +141,7 @@ def operational(status):
 def feedback_refusal(state):
     """Why brief feedback may not restart planning past the pause holding ``state``; None when it may."""
     pause = held_origin(state).get('pause_status')
-    if operational(pause) and pause not in FEEDBACK_ACKNOWLEDGES:
+    if operational(pause) and not feedback_acknowledges(state, pause):
         return (f'Brief feedback does not acknowledge {pause}; resolve that pause first '
                 '(AutoResolver\'s request names how). Queued feedback is applied under the pause.')
     return None
@@ -134,4 +164,6 @@ def held_pause(state, *, own_status):
         status = str(held_origin(state).get('pause_status') or '')
     if not status.startswith('PAUSED_') or status == own_status:
         return None
-    return {'status': status, 'stop_reason': held_cause(state, status)}
+    # feedback: whether queued feedback is that pause's own authority (read by autocode_stop).
+    return {'status': status, 'stop_reason': held_cause(state, status),
+            'feedback': feedback_acknowledges(state, status)}

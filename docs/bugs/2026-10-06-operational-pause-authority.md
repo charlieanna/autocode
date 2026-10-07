@@ -91,10 +91,11 @@ Each of these released the pause, on master and after the first fix, and is now 
 - **Queued feedback.** It replaced the status with `PAUSED_INTERVENTION`, and the next
   resume restarted Requirements discovery. With an unanswered request it was held
   until a settings write withdrew the request. Feedback that lands on an operational
-  pause now records `held_pause` like a pause does. The exception is an exhausted
-  plan-review budget, whose own authority is plan feedback (`FEEDBACK_ACKNOWLEDGES`).
-  This replaces the "Feedback after an answered request" policy note the first fix
-  left open.
+  pause now records `held_pause` like a pause does. The exception is a pause that
+  offers feedback (`pause_authority.feedback_acknowledges`): an exhausted plan-review
+  budget, and the validation-only stop, whose request names `--feedback`
+  (`tests.test_rework_cli`). This replaces the "Feedback after an answered request"
+  policy note the first fix left open.
 - **Pending input with no request asked.** `record_operational_exhaustion` refuses
   while input is pending, and both callers then fell through to the generic resume.
   The input was a queued intervention, the `pause-requested` file, or
@@ -112,7 +113,7 @@ Each of these released the pause, on master and after the first fix, and is now 
   is released. With an unanswered request, `configure` already refused it.
 - **`--feedback TEXT` on an unanswered request.** `goals.feedback` accepted
   `WAITING_FOR_USER` as a conversation checkpoint and set `RUNNING`. It is now refused
-  at an operational pause other than the planning budget
+  at an operational pause that does not offer feedback
   (`pause_authority.feedback_refusal`), as it already was once the request had been
   answered.
 

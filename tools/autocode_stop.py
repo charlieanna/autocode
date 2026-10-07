@@ -168,7 +168,7 @@ def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now:
     held = None
     if interrupted and not stops and (pauses or (
             feedback and pause_authority.operational(interrupted["status"])
-            and interrupted["status"] not in pause_authority.FEEDBACK_ACKNOWLEDGES)):
+            and not (interrupted.get("feedback") or interrupted["status"] in pause_authority.FEEDBACK_ACKNOWLEDGES))):
         held = interrupted
     if pauses or held:
         state["pause_intent"] = {"request_ids": [item["id"] for item in pauses or feedback], "applied_at": now(),

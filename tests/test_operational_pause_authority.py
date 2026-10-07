@@ -440,6 +440,38 @@ class HeldPauseTests(unittest.TestCase):
         state['stop_reason'] = 'AutoResolver received the human response; no execution was authorized.'
         self.assertEqual(state['stop_reason'], pause_authority.held_cause(state, 'PAUSED_RATE_LIMIT'))
 
+    def test_feedback_acknowledges_only_a_pause_that_offers_it(self):
+        # The planning budget, and the validation-only stop whose request names --feedback (tests.test_rework_cli).
+        def asked(request, at, pause='PAUSED_RESOLVER', status='pending'):
+            return {'status': status, 'issued_at': at, 'identity': {'proposal': {
+                'scope': 'operational_exhaustion', 'origin': {'pause_status': pause}, 'request': request}}}
+        stalled = {'kind': 'blocker', 'discovered': 'stalled', 'finding_ids': ['F1']}
+        live = {'status': 'WAITING_FOR_USER', 'resolver_human_request': {'scope': 'operational_exhaustion',
+                                                                         'request_id': 'b'},
+                'resolver': {'human_escalations': {'a': asked({'discovered': 'older'}, '2026-10-06T01:00:00'),
+                                                   'b': asked(stalled, '2026-10-06T02:00:00')}}}
+        self.assertTrue(pause_authority.feedback_acknowledges(live, 'PAUSED_RESOLVER'))
+        self.assertIsNone(pause_authority.feedback_refusal(live))
+        withdrawn = {'status': 'PAUSED_RESOLVER', 'resolver': live['resolver']}  # queued input applied under it
+        self.assertTrue(pause_authority.feedback_acknowledges(withdrawn, 'PAUSED_RESOLVER'))
+        newer = {'status': 'PAUSED_RESOLVER', 'resolver': {'human_escalations': {
+            **live['resolver']['human_escalations'], 'c': asked({'discovered': 'other'}, '2026-10-06T03:00:00')}}}
+        self.assertFalse(pause_authority.feedback_acknowledges(newer, 'PAUSED_RESOLVER'))
+        self.assertIn('does not acknowledge PAUSED_RESOLVER', pause_authority.feedback_refusal(newer))
+        self.assertTrue(pause_authority.feedback_acknowledges({}, 'PAUSED_PLANNING_BUDGET'))
+        self.assertIsNone(pause_authority.feedback_refusal({'status': 'PAUSED_INVALID_OUTPUT'}))
+
+    def test_queued_feedback_holds_only_a_pause_it_does_not_acknowledge(self):
+        import autocode_stop as stop
+        for held, holds in (({'status': 'PAUSED_RATE_LIMIT', 'feedback': False}, True),
+                            ({'status': 'PAUSED_RESOLVER', 'feedback': True}, False),
+                            ({'status': 'PAUSED_PLANNING_BUDGET'}, False),
+                            ({'status': 'PAUSED_INVALID_OUTPUT', 'feedback': False}, False)):
+            with self.subTest(held=held):
+                state = {'status': stop.STOP_STATUS, 'next_stage': 'astra_discovery'}
+                stop.boundary_effects(state, [{'id': 'f', 'kind': 'feedback'}], lambda: 'now', held)
+                self.assertEqual(holds, 'held_pause' in (state.get('pause_intent') or {}))
+
     def test_a_later_intervention_keeps_the_pause_the_first_one_interrupted(self):
         import autocode_stop as stop
         held = {'status': 'PAUSED_RATE_LIMIT', 'stop_reason': 'Rate limited'}

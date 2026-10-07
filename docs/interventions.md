@@ -57,8 +57,9 @@ pauses at the next safe boundary with a `pause_intent`; `--resume-paused` record
 acknowledgement and resumes that selected stage. If the run was already held at another
 pause (an operational pause, with or without its AutoResolver request), the intent
 records that pause as `held_pause`. A second pause keeps the `held_pause` of the first,
-and applied feedback records one too when the held pause is operational (other than
-an exhausted plan-review budget, which feedback acknowledges). `--resume-paused` then
+and applied feedback records one too when the held pause is operational, unless that
+pause offers feedback (an exhausted plan-review budget, or a validation-only stop whose
+request names `--feedback`). `--resume-paused` then
 acknowledges the intervention and returns the run to that pause, which is released only
 by its own authority. An invocation that acknowledged that pause itself (for example
 with the exhausted bound's flag or `--grant-recovery`) releases it before applying the

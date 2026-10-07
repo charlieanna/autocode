@@ -609,7 +609,8 @@ Input that arrives while an operational pause holds the run is applied by the ne
 invocation, without starting a provider, and the pause stays in force. A pause or
 feedback intervention is applied as usual, and `--resume-paused` then acknowledges it
 and returns the run to the earlier pause, whose own rules apply. Feedback acknowledges
-only an exhausted plan-review budget; `--feedback` is refused at any other operational
+only a pause that offers it: an exhausted plan-review budget, or a validation-only stop
+whose request names `--feedback`. `--feedback` is refused at any other operational
 pause. Queued milestone checkpoints are enabled. A run-local `pause-requested` file
 keeps the run at its pause until you remove it. After any of these, AutoResolver asks
 its operational request again. If the same command also acknowledges the pause (the
