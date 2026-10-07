@@ -1,8 +1,9 @@
 # A settings flag at a parallel Builder member's stop (#542, #543)
 
-Reproduced on master `ddc940f`, again on `d0919ad`, and on `87d8db3` (2026-10-07),
-through the real CLI and worker processes (offline fixtures). **Fixed** 2026-10-06;
-regression in `tests/test_member_stop_settings.py`.
+Reproduced on master `ddc940f`, again on `d0919ad`, `87d8db3` and `0591e76` (2026-10-07),
+through the real CLI and worker processes (offline fixtures): all eight tests in
+`tests/test_member_stop_settings.py` fail on `0591e76`. **Fixed** 2026-10-06, with the
+review finding below fixed 2026-10-07.
 
 ## Reproduced behavior
 
@@ -44,6 +45,14 @@ MODEL` exited 2 with `autocode: Role result belongs to another implementation ta
    attempt (`worker_milestone`), not the parent's, so `autopilot.queue_resolution` hit
    `goals.execution_guard`.
 
+**Review of the first fix (on `47107cf`): a Builder model given with a member retry was
+saved but never used.** With the guard gone, `--resume-paused --retry-builder M1
+--terra-model MODEL` at a quota member's stop was accepted. It saved the parent's Builder
+model and reran M1 on the route its batch started it with, which M1's own run keeps
+(`dispatch.prepare` copies the settings into it). The retry neither ran under the new
+setting nor refused it. The same held for a failed member, and for a Builder provider or
+reasoning effort.
+
 ## Fix
 
 - **Asking again from a withdrawn request** (`resolver_runtime.record_operational_exhaustion`,
@@ -74,13 +83,20 @@ MODEL` exited 2 with `autocode: Role result belongs to another implementation ta
   content filter refused or one that already completed, saves nothing and says so in a
   sentence after the refusal ("... Nothing was saved, including this invocation's
   settings; they are saved by the same command without --retry-builder."). An accepted
-  retry runs under the new settings: a quota member reruns its model, and a failed
-  member gets its second attempt.
+  retry is saved with its settings and the run continues under them (the Tester, later
+  batches): a quota member reruns its model, and a failed member gets its second attempt.
+- **A Builder route change with a member retry is refused** (`worker_quota.retry_route_refusal`,
+  asked by `load_locked` after `member_retry_refusal`). A member reruns on the route its
+  batch started it with, and only an answer to its `route-terra` question moves that
+  (`worker_quota.assign_child`). A changed Builder model, provider or reasoning effort with
+  `--retry-builder` names the model the member reruns on, and for a member stopped on its
+  model the accepted form, `--answer route-terra=MODEL`; nothing is saved.
 
 The tests cover each member cause through the CLI: quota, refusal and a generic failure,
 both for the settings flag alone and with `--retry-builder` (and a completed member's
-refusal). A unit test covers a member that is no longer the batch's current stop: its
-request is asked again without the question or its advice.
+refusal), and a Builder model given with a quota or failed member's retry. A unit test
+covers a member that is no longer the batch's current stop: its request is asked again
+without the question or its advice.
 
 ## Composition with neighbouring changes
 
@@ -91,7 +107,10 @@ request is asked again without the question or its advice.
   another role's settings flag behaves as before: the settings write withdraws the
   request, the settings are saved, and the answer is refused as out of date, naming the
   `--no-chat` run that publishes a fresh request. That fresh request now asks the
-  member's question again, so the answer it advises is accepted.
+  member's question again, so the answer it advises is accepted. Checked on `47107cf`
+  with `--resume-paused --answer route-terra=MODEL --sol-model MODEL` at a quota member's
+  stop: the setting was saved, the answer refused as out of date, and the next run asked
+  `route-terra` again.
 - **Master's #581** (corrective information is re-evaluated at a resume) skips an
   invocation carrying `--retry-builder`. `resolver_human.withdrawn` names only a
   superseded request, never one consumed by a response, so the information path's own
@@ -100,8 +119,18 @@ request is asked again without the question or its advice.
   `load_locked` from the withdrawn request's own cause, and `run_actions` asks from
   `pause_authority.held_cause`, which also strips appended advice. Both reach
   `record_operational_exhaustion`, where the payload rule restores the member's question;
-  the cause rule then has nothing to do. Either merge order works: the two merge without
-  conflicts, and on the combination (2026-10-07) the seven tests here, that branch's
-  `tests.test_operational_pause_authority` and `tests.test_architecture` pass. That branch
-  alone still drops the member's question and hits the guard: six of the seven tests here
-  fail on it, all but the failed member's advice, which its `held_cause` already gives once.
+  the cause rule then has nothing to do. With `--retry-builder` that branch also keeps the
+  request rather than withdrawing it, and the member checks here run before its settings
+  write. Either merge order works: the two merge without conflicts, and on the combination (this branch
+  at `8c034e0` with that branch at `8f9eef8`, 2026-10-07) the eight tests here, that
+  branch's `tests.test_operational_pause_authority` and `tests.test_architecture` pass
+  (40 tests). That branch alone (`8f9eef8`) still drops the member's question and hits
+  the guard: seven of the eight tests here fail on it (the guard three times, the question
+  dropped twice, route advice repeated once, a Builder model accepted with a member retry
+  once). Only the failed member's advice passes, which its `held_cause` already gives once.
+- **`claude/issue-541-member-stop-information`** (#541, unmerged) conflicts with this branch
+  in `dispatch.request_retry` and `worker_quota` (it moves `current` to
+  `autocode_member_stop` and gives `refused_retry` the state and the open request). Whichever
+  merges second keeps `member_retry_refusal` as the one member check and calls the new
+  `refused_retry` from it; a `Paused` it returns (a member's stop collected again) is not a
+  refusal, so the run setup must not turn it into one.
