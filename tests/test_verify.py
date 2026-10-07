@@ -505,9 +505,12 @@ class VerifyCase(unittest.TestCase):
         result = project.verify(new_behavior=True)
         self.assertEqual('npm test --silent', result['commands']['suite'], result)
         self.assertEqual(['test/feature.test.js::mul'], result['fail_to_pass'], result)
-        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
-        self.assertTrue(any('redefined' in reason for reason in result['unverified']), result)
-        self.assertEqual([], result['failures'], result)
+        # The original test script, run on the candidate's code, still runs the broken old test.
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertTrue(any('as originally defined passes on base but fails on the candidate' in reason
+                            for reason in result['failures']), result)
+        self.assertNotEqual(0, result['checks']['suite_with_original_definitions']['exit_code'], result)
+        self.assertEqual([], result['unverified'], result)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
     def test_the_same_break_without_narrowing_the_script_still_fails(self):
@@ -546,7 +549,8 @@ class VerifyCase(unittest.TestCase):
         })
         result = project.verify(new_behavior=True)
         self.assertEqual(verify.PASS, result['verdict'], result)
-        self.assertFalse(any('redefined' in reason for reason in result['unverified']), result)
+        # A new dependency changes nothing the suite runs, so no second run is needed.
+        self.assertNotIn('suite_with_original_definitions', result['checks'], result)
         self.assertIn('test/feature.test.js::mul', result['fail_to_pass'], result)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
@@ -564,15 +568,6 @@ class VerifyCase(unittest.TestCase):
         result = project.verify(new_behavior=True)
         self.assertEqual('npm test --silent', result['commands']['suite'], result)
         self.assertEqual(verify.PASS, result['verdict'], result)
-
-    def test_suite_package_script_names_the_script_an_npm_command_runs(self):
-        self.assertEqual('test', verify._suite_package_script('npm test --silent'))
-        self.assertEqual('test', verify._suite_package_script('yarn test'))
-        self.assertEqual('test', verify._suite_package_script('pnpm run test'))
-        self.assertEqual('test:unit', verify._suite_package_script('npm run test:unit'))
-        self.assertIsNone(verify._suite_package_script('node --test a.test.js'))
-        self.assertIsNone(verify._suite_package_script('npm test && echo done'))
-        self.assertIsNone(verify._suite_package_script('npm run'))
 
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})

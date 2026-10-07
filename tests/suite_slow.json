@@ -28,5 +28,6 @@
   "tests.test_no_progress_recovery": "216 s locally (macOS, one module at a time) for five tests, 550 s for eight on a loaded machine; each drives the real CLI through plan, hold and resume, 2026-10-05",
   "tests.test_brief_cli": "Public CLI original-brief controls: planning, approved build, tamper/source restart, both planning flows and negative reference; 2026-10-05",
   "tests.test_risk_cli": "Public CLI lifecycle proof: independent hard-death references and self-consistent mutants, replay pins and restart; 2026-10-05",
-  "tests.test_rejected_repair_retry": "38 s locally (Linux, one module at a time), 2026-10-06; two scripted feature-stock-refusals runs through the real CLI, plan to completion"
+  "tests.test_rejected_repair_retry": "38 s locally (Linux, one module at a time), 2026-10-06; two scripted feature-stock-refusals runs through the real CLI, plan to completion",
+  "tests.test_package_suite_proof": "42 s locally (Linux, one module at a time, idle machine), 2026-10-07; about twenty real git, node and npm projects through verify and regression.prove"
 }

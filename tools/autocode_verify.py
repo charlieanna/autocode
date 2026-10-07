@@ -49,7 +49,7 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
-    from . import autocode_first_suite as first_suite
+    from . import autocode_first_suite as first_suite, autocode_original_scripts as original_scripts
     from . import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
@@ -62,6 +62,7 @@ except ImportError:
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
     import autocode_first_suite as first_suite
+    import autocode_original_scripts as original_scripts
     import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -127,47 +128,6 @@ def _document_only_base(workspace, base):
         if not separator or metadata.split()[:2] != ["100644", "blob"] or path != "README.md":
             return False
     return True
-
-
-def _package_scripts(text) -> dict:
-    try:
-        package = json.loads(text or "{}")
-    except ValueError:
-        return {}
-    scripts = package.get("scripts")
-    return dict(scripts) if isinstance(scripts, dict) else {}
-
-
-def _suite_package_script(command):
-    """The package.json script name an npm/yarn/pnpm suite command runs, if any."""
-    if not isinstance(command, str) or re.search(r"[;&|<>`$\n\r]", command):
-        return None
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        return None
-    if not words or PurePosixPath(words[0]).name not in ("npm", "npm.cmd", "yarn", "yarn.cmd", "pnpm", "pnpm.cmd"):
-        return None
-    positional = [word for word in words[1:] if not word.startswith("-")]
-    if not positional:
-        return None
-    if positional[0] in ("run", "run-script"):
-        return positional[1] if len(positional) > 1 else None
-    return "test" if positional[0] in ("test", "t") else None
-
-
-def _package_script_redefined(workspace, base, suite_command):
-    """True when the suite runs a package.json script the candidate redefined.
-
-    ``npm test`` reads each tree's own package.json, so identical suite text can
-    run different tests after the candidate narrows the script (#528).
-    """
-    name = _suite_package_script(suite_command)
-    if name is None:
-        return False
-    before = _package_scripts(_git(workspace, "show", f"{base}:package.json", check=False))
-    after = _package_scripts(_read(Path(workspace) / "package.json"))
-    return before.get(name) != after.get(name)
 
 
 def _ignored(path: str) -> bool:
@@ -1272,9 +1232,18 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             allow_empty_base = bool(new_behavior and not preserve and not base_patch
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base))
-            _judge_suite(on_candidate, comparable, fail, unverified, notes,
-                         allow_empty_base=allow_empty_base,
-                         script_redefined=_package_script_redefined(workspace, base, commands["suite"]))
+            _judge_suite(on_candidate, comparable, fail, unverified, notes, allow_empty_base=allow_empty_base)
+            # npm, Yarn and pnpm run each tree's own package definitions: when an exit code
+            # decided, the old definitions must also pass on the new code (#528).
+            if not allow_empty_base and original_scripts.decided_by_exit_code(on_candidate, comparable):
+                original = _suite_with_original_definitions(
+                    workspace, base, run_dir, changes, framework, commands["suite"], timeout=timeout,
+                    base_patch=base_patch, dependencies_from=dependencies_from, generated_record=generated_record,
+                    generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
+                if original:
+                    if "exit_code" in original:
+                        checks[original_scripts.LABEL] = original
+                    original_scripts.judge(original, comparable, fail, unverified, notes)
         elif sources or preserve:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1468,8 +1437,36 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
             if command_receipt.completed(receipt) and receipt.get("results") else None)
 
 
-def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False,
-                 script_redefined=False):
+def _suite_with_original_definitions(workspace, base, run_dir, changes, framework, command, *, timeout,
+                                     base_patch=None, **tree_options):
+    """The suite on the candidate's code with the original package definitions put back (#528).
+
+    Existing test files the candidate changed are put back too (original_scripts.originals).
+    None when the candidate changed no definition that restoring would undo; ``error`` when
+    the run could not be prepared. The tree is built exactly like the candidate's."""
+    try:
+        definitions, tests = original_scripts.originals(workspace, base, base_patch, changes, is_test_path)
+        restored = original_scripts.plan(definitions)
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+    if not restored:
+        return None
+    try:
+        tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "original-definitions", workspace, changes,
+                         **tree_options)
+    except (OSError, ValueError, RuntimeError) as error:
+        return {"error": str(error)}
+    try:
+        original_scripts.install(tree, restored, tests, Path(run_dir) / "original-definitions")
+        receipt = run_suite(framework, command, tree, run_dir, "suite-with-original-definitions", timeout=timeout)
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+    finally:
+        remove_tree(workspace, tree)
+    return {**receipt, "restored": sorted(restored), "restored_tests": sorted(tests)}
+
+
+def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -1567,13 +1564,6 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             notes.append(f"{len(base_results['failed'])} test(s) already failed on base; none newly fail")
         return
     if on_candidate["exit_code"] == 0:
-        # An exit code proves preservation only when both trees ran the same suite.
-        # npm/yarn/pnpm run each tree's own package.json script, so a redefined
-        # script can hide the old tests behind a green exit (#528). A document-only
-        # base has no old behavior, so that first suite may still pass.
-        if script_redefined and not allow_empty_base:
-            unverified.append("The package.json test script was redefined, so base and candidate did not "
-                              "run the same tests; preservation of existing behavior is unproven")
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")

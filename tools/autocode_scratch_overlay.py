@@ -7,12 +7,16 @@ except ImportError:
     from autocode_protected_paths import identity, relative_name, verify_links
 
 
-def apply(tree, files, links):
+def apply(tree, files, links, *, removed=()):
+    """Copy ``files`` (name: source), create ``links`` (name: target) and leave ``removed`` absent."""
     tree = Path(tree).resolve()
     files, links = files or {}, links or {}
+    installed = files.keys() | links.keys()
     if files.keys() & links.keys():
         raise ValueError('Scratch overlay cannot be both a file and a link')
-    names = sorted(files.keys() | links.keys())
+    if installed & set(removed):
+        raise ValueError('Scratch overlay cannot both install and remove a path')
+    names = sorted(installed | set(removed))
     for name in names:
         relative_name(name)
     # Prepare every destination before creating links: candidate parents may
@@ -36,4 +40,4 @@ def apply(tree, files, links):
     if links:
         # This also prevents a caller accidentally supplying an escaping link
         # or forgetting the original target in its overlay.
-        verify_links(tree, {name: identity(tree / name) for name in names})
+        verify_links(tree, {name: identity(tree / name) for name in sorted(installed)})
