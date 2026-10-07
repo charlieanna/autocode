@@ -254,7 +254,8 @@ def run_module(module: str, verbosity: int) -> dict:
 
 
 def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "modules") -> bool:
-    """Run each module in its own process, ``jobs`` at a time; print a failing module's whole output."""
+    """Run each module in its own process, ``jobs`` at a time; print a failing module's whole output
+    as soon as it finishes, so a slow or hung module cannot hold back a finished failure (#545)."""
     started = time.monotonic()
     failed = []
     tests = 0
@@ -268,8 +269,7 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "mod
                 print(row["output"], flush=True)
             if not row["ok"]:
                 failed.append(row)
-    for row in failed:
-        print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{row['output']}")
+                print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{row['output']}", flush=True)
     print(f"\nRan {tests} tests in {len(modules)} {unit}, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
           + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK"))
     return not failed

@@ -171,6 +171,47 @@ def head(workspace):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+LAUNCH_REFS = "refs/autocode/launch/"
+LAUNCH_REF_GRACE_SECONDS = 86400  # a run launched in another worktree has saved its run directory by then
+
+
+def _git(workspace, *args):
+    result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def launch_base(workspace, run_dir):
+    """The base_commit of a new in-place run: HEAD, or, when the checkout holds uncommitted or
+    untracked files, a child commit of HEAD that holds them (verify.commit_worktree). The proof
+    then runs them as original code instead of counting them as the change. A ref named after the
+    run keeps that commit from Git's garbage collection; the caller holds the checkout
+    (autocode_checkout_lock), so no other run's agents are editing it."""
+    commit = verify.commit_worktree(workspace)
+    if commit and commit != head(workspace):
+        _git(workspace, "update-ref", LAUNCH_REFS + Path(run_dir).name, commit)
+    try:
+        _drop_finished_launch_refs(workspace)
+    except (RuntimeError, ValueError, OSError):
+        pass  # housekeeping only: the next launch tries again
+    return commit
+
+
+def _drop_finished_launch_refs(workspace):
+    """Delete the launch refs of runs that no worktree of the repository holds any more (a deleted
+    or archived run), so Git can collect their launch-time files. A ref younger than a day is kept:
+    its run may be launching in another worktree and not have saved its run directory yet."""
+    roots = [Path(line[len("worktree "):]) for line in _git(workspace, "worktree", "list", "--porcelain").splitlines()
+             if line.startswith("worktree ")]
+    cutoff = time.time() - LAUNCH_REF_GRACE_SECONDS
+    listing = _git(workspace, "for-each-ref", "--format=%(refname)%09%(committerdate:raw)", LAUNCH_REFS)
+    for ref, _, date in (line.partition("\t") for line in listing.splitlines()):
+        name = ref[len(LAUNCH_REFS):]
+        if int((date.split() or [0])[0]) < cutoff and not any((root / ".autocode/runs" / name).exists() for root in roots):
+            _git(workspace, "update-ref", "-d", ref)
+
+
 def settings(state):
     return state.get("settings", {}).get("regression") or {}
 

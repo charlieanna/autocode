@@ -96,6 +96,29 @@ def turn_paths() -> list[str]:
     return [path for path in ALL_PATHS if path.startswith(prefixes)]
 
 
+def turn_permissions() -> list[str]:
+    """The plan's permission boundary. A real Planner bounds each job to what it delivers, so in a
+    conversation with turn_paths the fake bounds each turn to that turn's paths."""
+    table = CONFIG.get("turn_paths") or []
+    if not table:
+        return ["Read and edit only this scenario workspace"]
+    return ["Edit only " + ", ".join(table[turn_number()]) + " in this scenario workspace"]
+
+
+def permission_changes() -> list[dict]:
+    """What the Planner declares when this turn's boundary replaces the approved one, as it is asked to:
+    one row naming the previous boundary, the new text as its replacement, backed by the newest
+    follow-up's receipt. Live Planners wrote exactly this row for "Build it." (issue #185)."""
+    contract = DATA.get("goal_contract") or {}
+    old = (contract.get("body") or {}).get("permission_boundaries") or []
+    new = turn_permissions()
+    feedback = [row for row in DATA.get("brief_feedback") or [] if row.get("id")]
+    if contract.get("approval_status") != "approved" or not feedback or old == new or len(old) != 1:
+        return []
+    return [{"item": old[0], "change": "permission_changed", "basis": "user_feedback",
+             "answer_id": feedback[-1]["id"], "replacement": new[0], "example_correction": None}]
+
+
 def workstream() -> dict | None:
     """The program workstream this call serves, {id, kind, inherited, task}, or None outside a program.
 
@@ -526,7 +549,7 @@ def contract(final: bool = False) -> dict:
         "important_failure_cases": ["The scenario check command fails"],
         "scope_exclusions": ["Anything outside the scenario brief"],
         "constraints": ["Change only the paths the reference solution touches"],
-        "permission_boundaries": ["Read and edit only this scenario workspace"],
+        "permission_boundaries": turn_permissions(),
         "accepted_assumptions": [{"text": "The request describes the intended behavior completely",
                                   "basis": "agent_proposed", "answer_id": ""}],
         "delegated_decisions": [],
@@ -1019,7 +1042,8 @@ def report_for(stage: str, data: dict) -> dict:
         "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
                          "options": [], "proposed_delta": ""},
     }
-    planning = {"code_refs": [ref for ref in source_refs() if ref != "task"], "contract_changes": [], "conflict_resolutions": [], "requirement_trace": trace()}
+    planning = {"code_refs": [ref for ref in source_refs() if ref != "task"], "contract_changes": permission_changes(),
+                "conflict_resolutions": [], "requirement_trace": trace()}
     if CONFIG.get("fault") == "verification_reuse" and stage == "sol":
         import runpy
         scenario = next(parent for parent in Path(CONFIG["reference"]).parents

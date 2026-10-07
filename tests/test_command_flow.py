@@ -11,7 +11,7 @@ import textwrap
 import unittest
 from unittest import mock
 
-import autocode as runner, autocode_providers, autocode_workspaces
+import autocode as runner, autocode_providers, autocode_run_view as run_view, autocode_workspaces
 
 
 class ConfigToolFlow(unittest.TestCase):
@@ -212,6 +212,24 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertNotEqual("terra", saved["next_stage"])
         self.assertNotEqual("terra", saved.get("active_stage", {}).get("stage"))
         self.assertTrue(any(stage.get("recovered_at") for stage in saved["stages"] if stage["stage"] == "terra"))
+
+    def test_a_plain_text_429_is_a_rate_limit_set_aside_by_a_plain_resume(self):
+        # #562: ``codex exec`` without --json ends a rate-limited stage with plain ERROR lines and no JSON
+        # error event. Read as a rate limit, the stopped Tester is retired by a resume: no --abandon-stage.
+        self.configure_fixture(track_invocations=True)
+        self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"] = "ERROR: exceeded retry limit, last status: 429 Too Many Requests\n" * 2
+        paused = self.launch("--chat", "Build a greeting tool")
+        self.assertEqual(2, paused.returncode, paused.stdout + paused.stderr)
+        run = next((self.project / ".autocode/runs").iterdir())
+        self.assertIn("sol exited 1", json.loads((run / "state.json").read_text())["stop_reason"])
+
+        del self.env["AUTOCODE_FIXTURE_PLAIN_ERROR"]
+        resumed = self.launch("--run-dir", str(run), "--resume-paused", "--no-chat", answers="")
+
+        self.assertEqual(2, resumed.returncode, resumed.stdout + resumed.stderr)
+        view = run_view.view(json.loads((run / "state.json").read_text()))
+        self.assertTrue(view["stop_reason"].startswith("Provider rate limit retained by AutoResolver"), view["stop_reason"])
+        self.assertEqual(1, (run / "invocations.txt").read_text().splitlines().count("sol"))  # never replayed
 
     def test_sessionless_incomplete_checkpoints_pause_without_relaunch(self):
         run, state = self.complete_run(track_invocations=True)
