@@ -5,7 +5,7 @@ module finishes, so a slow or hung module still running cannot hide it. It
 also dropped the copy printed at the end of the run. Two consequences showed up
 on master, both at `--verbosity 2`, which CI uses and which
 [saved-verification-commands.md](saved-verification-commands.md) names as a
-declared suite command. Both still reproduced on master at 0591e76, with
+declared suite command. Both still reproduced on master at 0175e89, with
 `run_suite.py --jobs 5` run as a subprocess and its output read by that
 commit's verifier.
 
