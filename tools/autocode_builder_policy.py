@@ -20,8 +20,11 @@ SERIAL = 'SERIAL_ESCALATION'
 # Efforts a replacement checker keeps; a climbed xhigh/max rung belongs to the GPT ladder.
 CHECKER_EFFORTS = ('low', 'medium', 'high')
 EXHAUSTED = 'Implementation remains blocked after configured retry/escalation; human decision or replanning required'
+CHECKER_STUCK = ('Implementation remains blocked after the ordinary retries; the stronger Builder model {model} '
+                 'would be checked by its own model: {why}; human decision or replanning required')
 NO_STRONG_MODEL = ("Implementation remains blocked after the ordinary retries; this run's provider offers no stronger "
-                   'Builder model (set --builder-strong-model when creating a run); human decision or replanning required')
+                   'Builder model (name one, and the model its checkers move to, under [builder_retry] in the provider '
+                   'config); human decision or replanning required')
 
 
 def _bare(model):
@@ -31,11 +34,17 @@ def _bare(model):
 def configured(strong_model=None, provider=None):
     """A new run's retry policy. Its checkers move to checker_model, so the strong model cannot be it.
 
-    A provider config that lists its models without the strong one gets none: a live Claude-provider
-    run escalated its Builder to the OpenAI default, which that provider cannot serve, so the launch
-    failed and the run waited on a person (2026-09-29).
+    A configured tool may name its own stronger Builder and checker model ([builder_retry] in its
+    config); every other provider uses DEFAULTS. A provider config that lists its models without
+    the strong one gets none: a live Claude-provider run escalated its Builder to the OpenAI
+    default, which that provider cannot serve, so the launch failed and the run waited on a
+    person (2026-09-29).
     """
-    config = {**DEFAULTS, 'strong_model': strong_model or DEFAULTS['strong_model']}
+    declared = getattr(provider, 'BUILDER_RETRY', None) or {}
+    config = {**DEFAULTS, **{key: declared[name] for key, name in (
+        ('strong_model', 'strong_model'), ('checker_model', 'checker_model'),
+        ('strong_reasoning_effort', 'strong_effort')) if name in declared}}
+    config['strong_model'] = strong_model or config['strong_model']
     offered = getattr(provider, 'LISTED_MODELS', None)
     if offered is not None and config['strong_model'] not in offered:
         if strong_model:
@@ -44,7 +53,8 @@ def configured(strong_model=None, provider=None):
     if config['strong_model'] and _bare(config['strong_model']) == _bare(config['checker_model']):
         raise ValueError(f"--builder-strong-model {config['strong_model']} is the model the checkers move to "
                          "when the Builder escalates, so the escalated work would be checked by its own model; "
-                         "choose another model")
+                         "choose another model" + (", or another checker_model under [builder_retry] in the "
+                                                   "provider config" if declared else ""))
     return config
 
 
@@ -126,6 +136,46 @@ def _take_deferred(state, current):
             'Stronger attempt deferred by a parallel Builder; making it serially', checkers, stop_reason)
 
 
+def _tool_route(state, route):
+    """A route a configured command tool serves (settings.provider names its config).
+
+    Such a tool spells its models itself (autocode_configure._provider_model): no openai/ alias
+    is added, and a bare name is the tool's model, not a native Codex one.
+    """
+    settings = state['settings']
+    return (settings.get('provider') not in (None, 'opencode')
+            and route.get('engine', settings.get('engine')) == 'opencode')
+
+
+def _movable(state, route):
+    return not (route.get('model_pinned') or route.get('provider') not in (None, 'openai')
+                or ('/' not in str(route.get('model')) and not _tool_route(state, route)))
+
+
+def _tool_swap_problem(state, config, model):
+    """Why a configured tool's checkers cannot all move off the strong model, or None.
+
+    AutoCode cannot ask the tool what it serves here, so a checker moves only when it runs exactly
+    the strong model (the tool's own spelling), is neither pinned nor on another provider, and its
+    replacement is a different model this run already routes a role to. The reason names the jobs
+    as the screen does (autocode_roles), in prose: this module imports only autocode_util.
+    """
+    roles = state['settings']['roles']
+    replacement = config.get('checker_model') or DEFAULTS['checker_model']
+    routed = {route.get('model') for route in roles.values() if isinstance(route, dict)}
+    for role in colliding_checkers(state, model):
+        route = roles[role]
+        if route.get('model') != model:
+            return f'a Tester or Completion Reviewer route names it {route.get("model")}'
+        if not _movable(state, route):
+            return 'a Tester or Completion Reviewer on it is pinned or uses another provider'
+        if _bare(replacement) == _bare(model):
+            return f'the checkers would move to {replacement}, the stronger model itself'
+        if replacement not in routed:
+            return f'the checkers would move to {replacement}, which no role of this run uses'
+    return None
+
+
 def colliding_checkers(state, model):
     """Checker roles whose route is the given Builder model."""
     roles = state['settings']['roles']
@@ -145,8 +195,7 @@ def swap_checkers(state, current, config, model):
     swapped = {}
     for role in colliding_checkers(state, model) if _bare(replacement) != _bare(model) else ():
         route = state['settings']['roles'][role]
-        if (route.get('model_pinned') or route.get('provider') not in (None, 'openai')
-                or '/' not in str(route.get('model'))):
+        if not _movable(state, route):
             continue
         current.setdefault('checker_routes', {}).setdefault(role, copy.deepcopy(route))
         effort = route.get('reasoning_effort')
@@ -162,7 +211,10 @@ def _escalate(state, current, config, route):
     if not model:
         return 'pause', {}, NO_STRONG_MODEL
     engine = route.get('engine', state['settings'].get('engine'))
-    if engine == 'opencode' and '/' not in model:
+    # A configured tool whose Builder has a bare model name spells its models itself; a tool
+    # that spells them provider/model (kilocode) keeps the policy it had, alias included.
+    tool = _tool_route(state, route) and '/' not in str(current['initial_route'].get('model'))
+    if engine == 'opencode' and '/' not in model and not tool:
         model = 'openai/' + model
     elif engine == 'codex':
         model = _bare(model)
@@ -174,6 +226,11 @@ def _escalate(state, current, config, route):
         # strong model would check its own work. The parent makes the attempt serially.
         return 'defer', {}, (f'Parallel Builder needs the stronger model {model}, which also checks this batch; '
                              'the parent run makes that attempt serially after integrating the other Builders')
+    # Such a tool's Builder escalates only when every checker on the strong model can move off it;
+    # otherwise nothing changes and the run pauses here, before any route is rewritten.
+    problem = tool and _tool_swap_problem(state, config, model)
+    if problem:
+        return 'pause', {}, CHECKER_STUCK.format(model=model, why=problem)
     route.update(model=model, reasoning_effort=config['strong_reasoning_effort'])
     return 'escalate', swap_checkers(state, current, config, model), None
 

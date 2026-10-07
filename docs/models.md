@@ -81,22 +81,32 @@ New standard-workflow runs use a persisted Builder retry policy per approved mil
 the configured Builder gets one ordinary retry, then one stronger attempt
 (default `openai/gpt-6-sol` at `xhigh` reasoning, not Astra), then a safety pause. Set
 `--builder-strong-model MODEL` when creating a run to select a different model.
+A tool registered with a TOML file can name its own stronger model, and the model its
+checkers move to, in a `[builder_retry]` table
+([Providers](providers.md#builder-retry-on-a-tool)); `--builder-strong-model` still wins.
+The Claude example declares Sonnet for a Haiku Builder, with Opus checking that attempt.
 When the run's provider config lists its models (`models = [...]`) and the strong model is
 not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
-place, then pauses, and `--builder-strong-model` must name one of the listed models.
+place, then pauses, and `--builder-strong-model` (or `[builder_retry]`) must name one of the
+listed models.
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses
 are not automatically retried by this policy.
 
 The stronger attempt must not be checked by its own model. When the Tester or
-Completion Reviewer runs the stronger model, it moves to `zai-coding-plan/glm-5.3` for the
+Completion Reviewer runs the stronger model, it moves to the policy's checker model
+(`zai-coding-plan/glm-5.3` by default, or `checker_model` under `[builder_retry]`) for the
 rest of that milestone (keeping its effort, or `high` for a climbed `xhigh`/`max`) and
 returns to its route at the next milestone. The decision records the switch as
-`checker_models`. Runs saved before this switch existed use the same model. Pinned and
+`checker_models`. Runs saved before this switch existed use the default checker model. Pinned and
 custom-provider checkers are never moved; the cross-model guard pauses the run instead. A
-new run refuses a `--builder-strong-model` that is `zai-coding-plan/glm-5.3`, since the
-moved checkers would then check their own model's work.
+new run refuses a `--builder-strong-model` that is the checker model, since the
+moved checkers would then check their own model's work. On a tool whose Builder model has
+no `provider/` prefix (the Claude example), a Tester or Completion Reviewer moves only
+when it runs exactly the strong model and the checker model is one the run already routes a
+role to. When one cannot move, the run pauses (`PAUSED_BUILDER_RETRY_LIMIT`) before any route
+changes, and the stop reason says why. `provider/model` names, as KiloCode uses, keep the rule above.
 
 A parallel Builder cannot move the checkers that will check its batch. When its stronger
 attempt would run on the checkers' model, it stops with `SERIAL_ESCALATION` instead

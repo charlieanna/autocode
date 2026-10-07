@@ -266,7 +266,9 @@ AutoCode at it with `XDG_CONFIG_HOME`; your own provider configs are read, never
 written. Each call reads its stage from the handoff, appends a row to
 `hybrid/trace.jsonl`, and runs either the scripted provider or the live tool's
 own command, filled with the same values and run with the environment the
-harness started from. The live tool must be registered with a TOML file and
+harness started from. The `hybrid` tool keeps the live tool's roles, models,
+version command, login checks and Builder retry policy (`[builder_retry]`), so its
+Builder escalates as a natural run's does. The live tool must be registered with a TOML file and
 `output = "report_file"`, as `examples/claude-provider` is; built-in OpenCode and
 Codex, and tools with sessions, are `SKIPPED`. Through such a tool the scripted
 provider cites capture receipts, never Codex event ids, as the tool contract
