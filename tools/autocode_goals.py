@@ -1173,6 +1173,8 @@ directories covering all writes, including tests. Do not use globs, parent paths
 or repository-wide '.'. Shared writes or interface/read dependencies need ordering
 edges; disjoint writes alone do not establish semantic independence. If ownership
 cannot be established, use [] for affected_paths; the Orchestrator will run it serially.
+An implement initial_task still lists in affected_paths the files or directories it writes;
+a validate initial_task, which writes nothing, may leave [] and checks its milestone's paths.
 initial_task must target a milestone with depends_on []; later tasks may start a
 milestone only after all of its depends_on milestones are accepted.
 Put the check descriptions in acceptance_criteria[].criterion and verification_method.

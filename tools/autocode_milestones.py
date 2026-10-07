@@ -38,8 +38,8 @@ DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_rep
 POLICY = """
 ENFORCED MILESTONE CHECKPOINTS
 Finish one observable outcome within the approved scope before starting another
-milestone. Each task needs an objective, affected paths, requirements, criterion IDs
-and an executable validation plan. The Builder may implement, test and fix within that task.
+milestone. Each task needs an objective, affected paths (a validate task, which writes
+nothing, checks its milestone's), requirements, criterion IDs and an executable validation plan. The Builder may implement, test and fix within that task.
 Every completed implementation handoff goes to the Validator, then the Plan Reviewer. Writer self-reports
 cannot authorize advancement. The Validator's verdict covers the CURRENT milestone's outcome;
 provide criterion evidence for all of its acceptance criteria. end_to_end_result
@@ -336,8 +336,12 @@ def before_assignment(state, decision, current):
     if not enabled(state):
         return
     spec = decision["next_task"]
-    if not spec["milestone_id"].strip() or not decision.get("affected_paths"):
-        raise ValueError("Milestone tasks require a named milestone and explicit affected paths")
+    # A validate task writes nothing: assign_task gives it its milestone's paths, so it may have none
+    # when its milestone owns none, as a program's final check does (#615).
+    if not spec["milestone_id"].strip() or not (decision.get("affected_paths") or spec["kind"] == "validate"):
+        raise ValueError("Milestone tasks require a named milestone and explicit affected paths: an implement "
+                         "task (initial_task in a plan) must list in affected_paths the repository files or "
+                         "directories it writes, even when its milestone's affected_paths is []")
     row = progress(state)
     if row is None:
         return

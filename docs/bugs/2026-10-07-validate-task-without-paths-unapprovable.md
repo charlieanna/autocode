@@ -28,19 +28,31 @@ runs on a draft. Only the real assignment after approval applies it.
 The Planner's own instructions (`autocode_goals`, the milestone `affected_paths` note)
 also allow `[]` when the paths "cannot be established".
 
-## Open question
+## Fixed (#615)
 
-What a validate task's affected paths should be is not settled. Three options:
+- **Validate tasks.** A validate task writes nothing, so it no longer needs paths of its
+  own. `assign_task` gives it its milestone's paths, and when the milestone owns none
+  (as a program's final check owns none) the task keeps `[]`, which
+  `before_assignment` now accepts for a validate task. An implement task still needs
+  explicit paths.
+- **Draft checks.** `validate_body` checks the draft's first task under a copy of the
+  run's settings, so the milestone-checkpoint rule runs on the draft. A first task that
+  approval could not start is refused as a draft and goes back to the Planner as a
+  report repair. The refusal tells it to list the files the implement task writes.
+- **Instructions.** The Planner's instructions (`CONTRACT_REFERENCES`) and the
+  milestone policy say the same.
+- **Tests.** `tests/test_taskrun.py` plans both of live run 15's shapes through the CLI
+  (`LIVE_FIXTURE_FIRST_TASK`):
+  - a validate first task with no paths is approved;
+  - an implement one is repaired before approval.
 
-- the milestone's own paths;
-- the files its checks read;
-- none, since a validate task has no writer.
+  Unit tests in `tests/test_planning.py` cover the draft check and the path fallback.
 
-Until that is decided, either:
+## What remains
 
-- apply the checkpoint rule when a draft is validated, so the Planner repairs the plan
-  before anyone is asked to approve it; or
-- let a validate task with no paths through `before_assignment`.
-
-Both change single-run planning, so they belong in their own pull request with a live
-run.
+- **Saved runs.** A run saved at `AWAITING_GOAL_APPROVAL` with an unassignable implement
+  task still fails at approval. Its recourse is `--feedback`, which plans again.
+- **Checkpoints switched on later.** A plan whose milestone checkpoints were switched on
+  after it was drafted is checked only at approval, as before.
+- **Progressive runs.** `guard_assignment` refuses any task without paths. The draft
+  probe leaves out the progressive delegation, so that refusal still waits for approval.

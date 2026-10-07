@@ -109,6 +109,32 @@ class PlanningTests(unittest.TestCase):
                            "code_refs": [], "alternatives": [], "uncertainties": [],
                            "contract_changes": [], "requirement_trace": []}, {"output": "draft.json"})
 
+    def test_a_draft_first_task_is_held_to_what_approval_will_assign(self):
+        # #615: the draft is checked under the run's own settings, so with milestone checkpoints a first task
+        # that writes must name its paths while the plan is a draft; a validate task takes its milestone's.
+        state = self.state()
+        draft = body()
+        draft["milestones"][0]["affected_paths"] = []
+        task = {"objective": "Build it", "affected_paths": [], "kind": "implement", "milestone_id": "M1",
+                "requirements": ["Real flow"], "acceptance_criteria": ["C1"], "validation_plan": ["Run the CLI"]}
+        lifecycle.validate_body(state, {**draft, "initial_task": task})  # without checkpoints [] is unbounded
+        state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        with self.assertRaisesRegex(ValueError, r"an implement task \(initial_task in a plan\) must list in "
+                                                r"affected_paths the repository files or directories it writes"):
+            lifecycle.validate_body(state, {**draft, "initial_task": task})
+        lifecycle.validate_body(state, {**draft, "initial_task": {**task, "affected_paths": ["greet.py"]}})
+        lifecycle.validate_body(state, {**draft, "initial_task": {**task, "kind": "validate"}})
+
+    def test_a_validate_task_naming_no_paths_checks_its_milestones(self):
+        draft = body()  # M1 owns greet.py
+        task = {"objective": "Check it", "affected_paths": [], "kind": "validate", "milestone_id": "M1",
+                "requirements": ["Real flow"], "acceptance_criteria": ["C1"], "validation_plan": ["Run the CLI"]}
+        state = {"goal_contract": {"body": {**draft, "initial_task": task}, "revision": 0, "hash": "draft"},
+                 "settings": {"milestone_checkpoints": copy.deepcopy(milestones.DEFAULTS)}}
+        self.assertEqual("validate", lifecycle.assign_task(state, goals.initial_decision(state["goal_contract"]["body"]),
+                                                           {"revision": "draft"}))
+        self.assertEqual(["greet.py"], state["current_task"]["affected_paths"])
+
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
         args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
         settings = {"engine": "opencode", "roles": {r: {} for r in ("astra", "terra", "sol")},
