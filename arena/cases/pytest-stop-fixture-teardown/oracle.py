@@ -238,11 +238,61 @@ def normal_reuse():
           ["setup", "call", "teardown"] * 2)
 
 
+def same_fixture_finalizers(option, *, setup_failure=False):
+    # Separate fixtures exercise SetupState, but cannot catch FixtureDef.finish
+    # dropping all but the first error from callbacks on the same fixture.
+    p = run('''
+        import pytest
+        from conftest import events
+        @pytest.fixture(scope="session")
+        def shared(request):
+            def first():
+                events.append("first_cleanup")
+                raise RuntimeError("ARENA_SAME_FIXTURE_FIRST")
+            def second():
+                events.append("second_cleanup")
+                raise RuntimeError("ARENA_SAME_FIXTURE_SECOND")
+            request.addfinalizer(first)
+            request.addfinalizer(second)
+        @pytest.fixture(scope="module")
+        def inner(shared):
+            yield
+            events.append("inner_cleanup")
+            raise ValueError("ARENA_SAME_FIXTURE_INNER")
+        @pytest.fixture
+        def prepared(inner):
+            if SETUP_FAILURE:
+                raise LookupError("ARENA_SAME_FIXTURE_SETUP")
+        def test_first(prepared):
+            events.append("call")
+            assert False, "ARENA_SAME_FIXTURE_CALL"
+        def test_later(inner):
+            events.append("later")
+    '''.replace("SETUP_FAILURE", repr(setup_failure)), [option])
+    equal(p["events"], ([] if setup_failure else ["call"]) +
+          ["inner_cleanup", "second_cleanup", "first_cleanup"])
+    equal(p["nextitems"], [["test_first", None]])
+    failures = [r for r in p["reports"] if r["outcome"] == "failed"]
+    equal([(r["when"], r["nodeid"]) for r in failures],
+          [("setup" if setup_failure else "call", "test_lifecycle.py::test_first"),
+           ("teardown", "test_lifecycle.py::test_first")])
+    # Match rendered exceptions, not literals merely present in traceback source.
+    for error in ("RuntimeError: ARENA_SAME_FIXTURE_FIRST",
+                  "RuntimeError: ARENA_SAME_FIXTURE_SECOND",
+                  "ValueError: ARENA_SAME_FIXTURE_INNER"):
+        assert error in failures[1]["longrepr"], error
+    equal(p["returncode"], 1 if option == "--maxfail=1" else 2)
+    assert "INTERNALERROR" not in p["output"]
+
+
 for scope in ("module", "session"):
     for flag, label in (("--maxfail=1", "maxfail"), ("--stepwise", "stepwise")):
         check(label + "_" + scope, lambda scope=scope, flag=flag: early_stop(scope, flag))
 check("setup_error_cleanup", setup_failure)
 check("all_finalizers_reported", all_finalizers)
+check("same_fixture_maxfail", lambda: same_fixture_finalizers("--maxfail=1"))
+check("same_fixture_stepwise", lambda: same_fixture_finalizers("--stepwise"))
+check("same_fixture_setup", lambda: same_fixture_finalizers("--maxfail=1", setup_failure=True))
 check("shouldfail_sticky", lambda: sticky("shouldfail", "--maxfail=1"))
 check("shouldstop_sticky", lambda: sticky("shouldstop", "--stepwise"))
 check("normal_fixture_reuse", normal_reuse)

@@ -254,7 +254,10 @@ def inherited(manifest, wid):
 
 
 def dropped(manifest, wid, criteria):
-    """Inherited ids missing from a child plan's acceptance criteria (rows with ids, or ids)."""
+    """Inherited ids missing from a child plan's acceptance criteria (rows with ids, or ids).
+
+    Ids only: a child rewords criteria into a testable form, so whether a kept one still says what the agreement
+    does is its own plan review's to judge (docs/program.md, "Inherited requirements")."""
     ids = {row.get("id") if isinstance(row, dict) else row for row in criteria or []}
     return [cid for cid in inherited(manifest, wid) if cid not in ids]
 

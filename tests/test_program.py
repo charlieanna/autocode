@@ -11,6 +11,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import os
@@ -334,7 +335,9 @@ class ProgramHarness(unittest.TestCase):
         self.launches = []
         self.child_outcome = {}  # workstream id -> run status to leave behind
         self.child_extra_files = {}  # workstream id -> {relpath: text}
-        self.child_view = {}  # workstream id -> status-view fields the child shows (approved_contract, displayed_plan)
+        # workstream id -> status-view fields the child shows (approved_contract, displayed_plan). A completed child
+        # shows the approved plan it ran under (approved_plan_view) unless approved_contract is given; None: none.
+        self.child_view = {}
         self.child_checks = {}  # workstream id -> the checks its validation re-ran
         self.journey_status = {}  # journey id -> the integration run's recorded status
         self.feedback = []  # (workstream id, text) sent to child runs
@@ -353,6 +356,16 @@ class ProgramHarness(unittest.TestCase):
         return {"contracts": "contracts/spec.json", "a": "a/service.py", "b": "b/service.py",
                 "integration": "tests/test_flow.py", "deploy": "deploy/compose.yml"}.get(wid, f"{wid}/result.txt")
 
+    @staticmethod
+    def approved_plan_view(run, saved):
+        """The plan in force a completed build run's status view shows (autocode_run_view.approved_contract): its
+        own, approved by the person, keeping every id its brief said the workstream inherits."""
+        body = {"acceptance_criteria": [{"id": cid, "criterion": f"{cid} holds", "verification_method": "a test"}
+                                        for cid in saved.get("inherits", [])]}
+        digest = hashlib.sha256(json.dumps({"run": run.name, "body": body}, sort_keys=True).encode()).hexdigest()
+        return {"revision": 1, "hash": digest, "token": f"r1:{digest}", "task_id": run.name,
+                "approved_at": "2026-10-07T00:00:00Z", "body": body}
+
     def fake_status(self, command):
         """`autocode --status`: the status view of the saved run as the real CLI prints it, plus the
         fields the scripted child shows (approved_contract, displayed_plan, evidence)."""
@@ -363,7 +376,11 @@ class ProgramHarness(unittest.TestCase):
         if saved.get("workstream") in self.status_override:
             saved["status"] = self.status_override[saved["workstream"]]
         view = run_view.view({key: value for key, value in saved.items() if key != "view"})
+        if saved.get("status") == "TASK_COMPLETE":
+            view["approved_contract"] = self.approved_plan_view(state.parent, saved)
         view.update(saved.get("view", {}))
+        if view.get("approved_contract") is None:
+            view.pop("approved_contract", None)  # as the real view leaves it out
         return subprocess.CompletedProcess(command, 0, json.dumps({"view": view}), "")
 
     def fake_feedback(self, command):
@@ -390,10 +407,13 @@ class ProgramHarness(unittest.TestCase):
         if "--run-dir" in command:
             run = Path(command[command.index("--run-dir") + 1])
             saved = json.loads((run / "state.json").read_text())
-            wid = saved["workstream"]
+            wid, inherits = saved["workstream"], saved.get("inherits", [])
         else:
             brief = command[2]
             wid = re.search(r"PROGRAM WORKSTREAM (\S+)", brief).group(1)
+            # Its plan keeps the ids its brief says it inherits (compose_brief), as a conforming planner's does.
+            found = re.search(r"with exactly this id \(([^)]*)\)", brief)
+            inherits = found.group(1).split(", ") if found else []
             run = workspace / ".autocode/runs" / f"run-{wid}-{len(self.launches) + 1}"
             run.mkdir(parents=True)
         self.launches.append({"id": wid, "workspace": str(workspace), "brief": brief, "run_dir": str(run), "files": sorted(
@@ -416,7 +436,7 @@ class ProgramHarness(unittest.TestCase):
                                ({"J1": "verified", **self.journey_status}.items() if wid == "integration" else ())],
                 "check_replay": {"verdict": "PASS", "checks": [{"command": c, "exit_code": 0} for c in checks]}})
         (run / "state.json").write_text(json.dumps({"status": outcome, "workstream": wid, "workspace": str(workspace),
-                                                    "view": view}))
+                                                    "inherits": inherits, "view": view}))
         return subprocess.CompletedProcess(command, 0 if outcome == "TASK_COMPLETE" else 2, "", "")
 
     def approve(self, path):

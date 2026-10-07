@@ -343,6 +343,7 @@ class TaskRunTests(unittest.TestCase):
         self.assertFalse((self.workspace / ".autocode").exists())
 
     def test_start_approve_and_complete(self):
+        before = self.footprint()
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
@@ -373,43 +374,82 @@ class TaskRunTests(unittest.TestCase):
         stale = again.status()
         self.assertEqual(0, stale["efficiency"]["delivery"]["verified_deliveries"])
         self.assertIsNone(stale["efficiency"]["unit_metrics"]["wall_seconds"]["value"])
-        self.assert_no_project_level_files(run, stale)
+        # The task-run interface works in place (--in-place): the job delivers into the project itself.
+        self.assert_no_project_level_files(before, run, stale, delivered=("greet.py", "test_greet.py", "README.md"))
 
-    def assert_no_project_level_files(self, run, view):
+    def test_a_default_launch_keeps_its_job_in_its_own_task_worktree(self):
+        # The CLI without --in-place, as a person launches it: the run works in a task worktree.
+        before = self.footprint()
+        launch = captured_process.run([*taskrun.AUTOCODE, BRIEF, "--no-chat", *FIXTURE_OPTIONS,
+                                       "--workspace", str(self.workspace)], env={**os.environ, **self.env}, timeout=300)
+        self.assertEqual(2, launch.returncode, (launch.stdout + launch.stderr)[-2000:])  # stopped for plan approval
+        (tree,) = self.footprint().worktrees - before.worktrees
+        run = taskrun.TaskRun.attach(tree, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        run.approve_plan(run.status()["needs"]["token"])
+        view = run.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assertTrue((tree / "greet.py").is_file())
+        self.assert_no_project_level_files(before, run, view)
+
+    def footprint(self):
+        """What a job could leave at the project level, to compare before and after it.
+
+        The root's entries (Git does not show an empty directory), Git status with ignored files (a
+        directory that ignores itself, as .autocode does, still shows), every ref and its commit,
+        and the worktrees.
+        """
+        git = lambda *args: subprocess.run(["git", "-C", str(self.workspace), *args], capture_output=True,
+                                           text=True, check=True).stdout.splitlines()
+        return SimpleNamespace(
+            entries={entry.name for entry in self.workspace.iterdir()},
+            status=set(git("status", "--porcelain", "--ignored", "--untracked-files=normal")),
+            refs=dict(line.split(" ", 1) for line in git("for-each-ref", "--format=%(refname) %(objectname)")),
+            worktrees={Path(line.removeprefix("worktree ")).resolve()
+                       for line in git("worktree", "list", "--porcelain") if line.startswith("worktree ")})
+
+    def assert_no_project_level_files(self, before, run, view, *, delivered=()):
         """#22: a normal single job creates no project-level files.
 
         Programs, task flows and component builds coordinate several runs of one project and keep
-        their records at the project level. A job started through the task-run interface writes its
-        own run under .autocode/runs (beside the usage log, locks and .gitignore) and nothing else.
+        their records at the project level: .autocode/programs (`autocode program`),
+        .autocode/task-flows (`autocode tasks MANIFEST`) and .autocode-components (`autocode
+        components ARCH`), with worktrees on branches of their own (autocode/program-<key>/...,
+        components/<id>-<hex>). A single job adds .autocode and the files it ``delivered`` to the
+        project; launched without --in-place, also its task worktree and that worktree's branch.
         """
         workspace = self.workspace.resolve()
-        # Positive control: this is the project the run saved itself in.
+        after = self.footprint()
+        tree = run.workspace if run.workspace != workspace else None  # a default launch's task worktree
+        # Positive control: this is the run the job saved, in the project or in its task worktree.
         self.assertTrue((run.run_dir / "state.json").is_file(), run.run_dir)
-        self.assertEqual(workspace / ".autocode" / "runs", run.run_dir.parent)
-        # Exactly the run and the runner's housekeeping beside it. A new runner file belongs in this set
+        self.assertEqual(run.workspace / ".autocode" / "runs", run.run_dir.parent)
+        self.assertEqual(before.entries | {".autocode", *delivered}, after.entries)
+        self.assertEqual(before.status | {"!! .autocode/"} | {f"?? {name}" for name in delivered}, after.status)
+        self.assertEqual(before.worktrees | ({tree} if tree else set()), after.worktrees)
+        # No existing ref moves: the job never commits to the project's own branch.
+        self.assertEqual({}, {ref: commit for ref, commit in before.refs.items() if after.refs.get(ref) != commit})
+        added = {ref: commit for ref, commit in after.refs.items() if ref not in before.refs}
+        branches = {ref for ref in added if ref.startswith("refs/heads/")}
+        # The only new branch is the task worktree's own (autocode/<task>-<id>, docs/task-lanes.md).
+        self.assertEqual({f"refs/heads/autocode/{tree.name}"} if tree else set(), branches)
+        # Any other new ref is one of the run's code checkpoints, listed in its status view.
+        checkpoints = {row["commit"] for row in view["code_checkpoints"]["rows"]}
+        for ref in added.keys() - branches:
+            self.assertTrue(ref.startswith("refs/autocode/code-checkpoints/") and added[ref] in checkpoints, ref)
+        names = lambda directory: {entry.name for entry in directory.iterdir()}
+        # Exactly the run and the runner's housekeeping beside it. A new runner file belongs in these sets
         # only if it is per-run housekeeping (a log, a lock); a record that coordinates runs does not.
-        self.assertEqual({".gitignore", "runs", "usage.jsonl", "usage.lock", "writer.lock"},
-                         {entry.name for entry in (workspace / ".autocode").iterdir()})
-        self.assertEqual([run.run_dir.name], [entry.name for entry in (workspace / ".autocode" / "runs").iterdir()])
-        # The paths the coordinating layers write, named so a failure says which layer leaked.
-        for relative in (".autocode/programs",    # `autocode program approve|run|request-change|resolve-change`
-                         ".autocode/task-flows",  # `autocode tasks MANIFEST`: one directory per task flow
-                         ".autocode-components"):  # `autocode components ARCH`: component worktrees and manifest
-            self.assertFalse((workspace / relative).exists(), relative)
+        housekeeping = {".gitignore", "runs", "usage.jsonl", "usage.lock", "writer.lock"}
+        if tree:  # the project keeps only the task worktree; the run and its housekeeping are inside it
+            self.assertEqual({".gitignore", "worktree-create.lock", "worktrees"}, names(workspace / ".autocode"))
+            self.assertEqual({tree.name}, names(workspace / ".autocode" / "worktrees"))
+            housekeeping.add("task-workspace.json")
+        self.assertEqual(housekeeping, names(run.workspace / ".autocode"))
+        self.assertEqual({run.run_dir.name}, names(run.workspace / ".autocode" / "runs"))
         # The progressive record is written only when the Planner proposes progressive delivery,
         # which the fixture provider never does: this guards against writing it unconditionally.
         self.assertFalse((run.run_dir / "progressive").exists())
         self.assertNotIn("progressive", view)
-        # The task-run interface works in place (--in-place), so the project is the only worktree.
-        # Programs, task-flow lanes and component builds each add worktrees on branches of their own:
-        # autocode/program-<key>/... for a program, components/<id>-<hex> for a component build.
-        worktrees = subprocess.run(["git", "-C", str(workspace), "worktree", "list", "--porcelain"],
-                                   capture_output=True, text=True, check=True).stdout
-        self.assertEqual(1, sum(line.startswith("worktree ") for line in worktrees.splitlines()), worktrees)
-        branches = subprocess.run(["git", "-C", str(workspace), "for-each-ref", "--format=%(refname:short)",
-                                   "refs/heads/"], capture_output=True, text=True, check=True).stdout.split()
-        self.assertEqual([], [name for name in branches if name.startswith(("autocode/program-", "components/"))],
-                         branches)
 
     def use_question_preserving_planner(self, *, genuine_questions=0):
         # Reproduce the live Planner faithfully carrying a question from its handoff.
