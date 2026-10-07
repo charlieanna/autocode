@@ -188,8 +188,9 @@ JSON report; ...` and then:
    `output = "opencode_events"` and `resume`), the runner resumes the stage's own
    session once and asks for the report alone, with no command. This correction
    spends no report-repair attempt. It applies to every stage, planning stages
-   included, but only on the route (engine, provider, model, effort) that
-   started the session.
+   included, but only when it would run on the route (engine, provider, model,
+   effort) that started the session: a Plan Reviewer attempt that ran on its
+   one-use fallback route goes straight to step 2.
 2. Otherwise, or when that correction fails, the usual report-only repairs run
    (`report_repair.max_attempts`, two by default), told that the rejected report
    is a command with nothing to repair.

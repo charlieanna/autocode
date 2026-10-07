@@ -22,8 +22,10 @@ summary".
   unwrap it.
 - On a transport that keeps sessions (Codex, OpenCode events), the one same-session correction of
   `autocode_format_correction` resumes the stage's own session and asks for the report alone, with no
-  command. It now also applies to planning stages for this defect, and only on the route that started
-  the session. It spends no report-repair attempt.
+  command. It now also applies to planning stages for this defect, and only when the route it launches
+  on (engine, provider, model, effort) is the one that started the session: a Plan Reviewer attempt
+  that ran on its one-use fallback route gets the full repair instead, never its session resumed on
+  another model. It spends no report-repair attempt.
 - Otherwise, or when the correction fails, the existing report-only repairs run, told that the rejected
   report is a command with nothing to repair. A stage that keeps doing it stops at the existing bound
   with the defect named in `stop_reason`.

@@ -6,7 +6,9 @@ is in test_cmd_only_report_cli.
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock
 
 import autocode_cmd_only_report as cmd_only
 import autocode_failures as failures
@@ -87,6 +89,7 @@ class CorrectionRouteTests(unittest.TestCase):
     def pending(self, error=cmd_only.ERROR, **original):
         record = {"role": "astra", "route_role": "plan_reviewer", "stage": "astra_challenge", "planning": True,
                   "engine": "codex", "supports_sessions": True, "events": str(self.events),
+                  "schema": str(self.events.with_name("stage.schema.json")),
                   "launch_route": dict(self.route), **original}
         return {"original": record, "attempts": 0, "error": error}
 
@@ -116,6 +119,28 @@ class CorrectionRouteTests(unittest.TestCase):
                 self.assertIsNone(format_correction.session_for(self.state, self.pending(**original)))
         self.events.write_text(json.dumps({"type": "turn.completed"}) + "\n")
         self.assertIsNone(format_correction.session_for(self.state, self.pending()))
+
+    def correct(self, pending, route_role):
+        """Run execute as the runner does, the correction's route being ``route_role``; the launch kwargs, or None."""
+        runtime = SimpleNamespace(planning=SimpleNamespace(route_for=lambda state, stage, role: route_role),
+                                  run_role=Mock(return_value=({}, {})), write_json=Mock(), account_stage=Mock(),
+                                  accept_repaired_report=Mock())
+        self.state["pending_report_repair"] = pending
+        ran = format_correction.execute(runtime, self.state, self.events.parent, self.events.parent)
+        self.assertEqual(ran, runtime.run_role.called)
+        return runtime.run_role.call_args.kwargs if ran else None
+
+    def test_a_session_is_resumed_only_on_the_route_the_correction_runs_on(self):
+        launch = self.correct(self.pending(), "plan_reviewer")
+        self.assertEqual(("reviewer-session", "reviewer-model"), (launch["resume_session"], launch["model"]))
+        # The Plan Reviewer's one-use fallback (autocode_reviewer_fallback) ran this attempt on another
+        # configured role's model; the correction runs on the reviewer's own route, so it must not resume
+        # that session on it: the full repair runs instead, and the correction stays unspent.
+        fallback = {"engine": "opencode", "provider": "opencode", "model": "fallback-model", "reasoning_effort": "high"}
+        self.state["settings"]["roles"].update(plan_reviewer={**fallback, "model": "reviewer-model"}, glm=dict(fallback))
+        pending = self.pending(engine="opencode", route_role="glm", launch_route=dict(fallback))
+        self.assertIsNone(self.correct(pending, "plan_reviewer"))
+        self.assertNotIn("correction_attempted", pending)
 
     def test_other_rejections_keep_the_existing_rules(self):
         # The serialization error stays OpenCode-only and never resumes a planning stage; other errors never resume.
