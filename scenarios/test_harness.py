@@ -1859,6 +1859,36 @@ class TurnTests(unittest.TestCase):
             self.assertTrue(follows(["app/shared_cache.py", "tests/test_shared_cache.py"]).ok,
                             follows(["app/shared_cache.py"]).detail)
 
+    def test_a_design_s_private_helpers_do_not_bind_the_build(self):
+        """A live design listed `_check_fetch_budget(...)` among "example names"; the build merged two helpers."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            decided = design.read_text().replace("## Rejected", "## Helpers (example names)\n\n"
+                                                 "- `_check_fetch_budget(tld)`\n- `_read(key, now)`\n\n## Rejected")
+            follows = lambda extra: (design.write_text(decided.replace("## Rejected", extra + "## Rejected")),
+                                     next(check for check in scenario.oracle()(project, scenario)
+                                          if check.name == "build_follows_design"))[1]
+            self.assertTrue(follows("").ok, follows("").detail)
+            missing = follows("- `evict(key)` drops one entry.\n\n")
+            self.assertFalse(missing.ok, "a public callable the design names must still exist")
+            self.assertIn("missing from app/: ['evict']", missing.detail)
+
+    def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
+        """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
+        memo when it is missing, and the hidden tests failed it for not creating the directory."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.oracle import hidden_tests
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            cache = project / "app" / "shared_cache.py"
+            cache.write_text(cache.read_text().replace("        self.directory.mkdir(parents=True, exist_ok=True)\n", ""))
+            result = hidden_tests(project, scenario.dir / "hidden")
+            self.assertEqual(0, result.returncode, (result.stdout or "")[-1500:] + (result.stderr or "")[-1500:])
+
     def test_each_turn_records_what_it_changed_in_the_workspace(self):
         with tempfile.TemporaryDirectory() as root:
             project = Path(root)
