@@ -11,13 +11,16 @@ matcher is not widened to read it: the plan must declare the requested name itse
 A name is requested (``requested``) when all of these hold:
 
 - It has the form of a Go test function (Test, then an upper-case letter, digit or underscore). TestMain
-  is Go's hook for the test binary and TestXxx is Go's own placeholder; neither is a test to write.
+  is Go's hook for the test binary and TestXxx is Go's own placeholder; neither is a test to write. A
+  subtest path (TestCacheExpiry/expired) asks for its test function, TestCacheExpiry; declaring that
+  function or any subtest of it accounts for it, and which subtests the plan declares is not checked.
 - The user wrote it as a test to add (``named``), in their own words, as for the brief-literal check
   (autocode_requirement_cues.scan_texts): the task, brief feedback and the user's answers, never a
-  delegated default or model-written text. It must come right after "test", "tests" or "func" (a
-  "function", "case", "named" or "called" may come between), as in "add the Go tests TestA, TestB and
-  TestC" or "a test for Fixed named TestA", or start an item of a list whose lead-in names tests ("Add
-  these tests:" then "- TestA: what it checks"). In a list each name may carry a description ("TestA
+  delegated default or model-written text. It must come right after "test" or "tests" (a "function",
+  "func", "case", "named" or "called" may come between), as in "add the Go tests TestA, TestB and TestC"
+  or "a test for Fixed named TestA", be declared with a test's parameter ("func TestA(t *testing.T)";
+  "func TestConnection() error" is production code), or start an item of a list whose lead-in names
+  tests ("Add these tests:" then "- TestA: what it checks"). In a list each name may carry a description ("TestA
   (empty input), TestB (one item)", or "TestA checks X, TestB checks Y; TestC ..."); the list ends at
   the sentence's end, at a description's first comma or semicolon that no name follows ("the test
   TestA, which must not break TestB"), and at a name inside a description ("TestA for the parser and
@@ -29,9 +32,10 @@ A name is requested (``requested``) when all of these hold:
 - The runner's regression proof will run Go tests: an explicit ``go test`` regression command, else the
   framework autocode_verify detects in the workspace, chosen as autocode_regression.prove chooses it.
   Elsewhere TestParser is a Python or Java class, not a test the proof reports.
-- The project's Go files do not already contain it. A brief that mentions an existing test or helper
-  ("the test TestRetention fails", "keep the test TestX passing") names the suite's own code, which the
-  proof already protects; it is not a new case.
+- The code of the project's Go files does not already contain it. A brief that mentions an existing test
+  or helper ("the test TestRetention fails", "keep the test TestX passing") names the suite's own code,
+  which the proof already protects; it is not a new case. A comment or a string ("// TODO: TestA") is
+  not code: it declares no test, so a name in it is still requested.
 - The user has not settled it otherwise. The user's own edit of the plan (``USER_EDIT``) is never refused
   here, and the names the latest such edit leaves unaccounted for are no longer requested of the
   planners' later drafts.
@@ -67,15 +71,22 @@ except ImportError:
     import autocode_verify as verify
 
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
+# A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).
+_TEST_WORD = re.compile(r"(Test[A-Z0-9_][A-Za-z0-9_]*)(?:/.+)?")
+# Go comments and string and rune literals, which name no identifier of the code.
+_GO_NOT_CODE = re.compile(r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|`[^`]*`|'(?:\\.|[^'\\\n])*'", re.S)
 NOT_A_TEST = frozenset({"TestMain"})
 PLACEHOLDER = re.compile(r"Test[Xx]+")
 # The origin of a contract the user wrote with --edit-goal (autocode_run_actions); only the user makes one.
 USER_EDIT = "user_cli_edit"
 
 # The words a requested name follows, and the words that may come between them ("test function TestA").
-CUES = frozenset({"test", "tests", "func"})
+CUES = frozenset({"test", "tests"})
 NAMING = frozenset({"named", "called"})
-BETWEEN = frozenset({"function", "functions", "case", "cases"}) | NAMING
+BETWEEN = frozenset({"function", "functions", "func", "funcs", "case", "cases"}) | NAMING
+# "func TestA" alone may be production code ("func TestConnection() error"); with a *testing.T parameter it is a test.
+FUNC = "func"
+TESTING_T = "testing.T"
 # A clause with one of these before the cue negates the request or gives an example. "Don't forget" and
 # "not only" still ask; "I'd like" and "we would like" want.
 NEGATORS = frozenset({"not", "never", "without", "instead", "rather"})
@@ -98,6 +109,23 @@ _SKIPPED_DIRECTORIES = frozenset({"node_modules"})
 
 def _word(token: str) -> str:
     return token.lower() if token[:1].isalnum() or token[:1] == "_" else ""
+
+
+def _test_name(token: str) -> str | None:
+    """The Go test function ``token`` names (TestA for TestA or for its subtest path TestA/empty), else None."""
+    match = _TEST_WORD.fullmatch(token)
+    return match[1] if match else None
+
+
+def _parenthesized(tokens, k) -> tuple[list[str], int]:
+    """The tokens of the parenthesized group opening at ``tokens[k]``, and where the group ends."""
+    depth, start = 0, k
+    while k < len(tokens):
+        depth += {"(": 1, ")": -1}.get(tokens[k], 0)
+        k += 1
+        if not depth:
+            break
+    return tokens[start + 1:k - 1], k
 
 
 def _skip(tokens, k, allowed) -> int:
@@ -153,12 +181,12 @@ def _past_description(tokens, k) -> int | None:
     semicolon that another name does not follow ("TestA, which must not break TestB"), and at a name inside
     the description ("TestA for the parser and make sure TestServer, TestClient still pass")."""
     while k < len(tokens) and tokens[k] not in SENTENCE_END - {":", ";"}:
-        if IDENTIFIER.fullmatch(tokens[k]):
+        if _test_name(tokens[k]):
             return None
         after = _separator(tokens, k)
         if after is not None:
             after = _skip(tokens, after, QUOTES)
-            if after < len(tokens) and IDENTIFIER.fullmatch(tokens[after]):
+            if after < len(tokens) and _test_name(tokens[after]):
                 return after
             if tokens[k] in (",", ";"):
                 return None
@@ -172,18 +200,13 @@ def _names(tokens, k) -> list[tuple[int, str]]:
     found = []
     while True:
         k = _skip(tokens, k, QUOTES)
-        if k >= len(tokens) or not IDENTIFIER.fullmatch(tokens[k]):
+        name = _test_name(tokens[k]) if k < len(tokens) else None
+        if not name:
             break
-        found.append((k, tokens[k]))
+        found.append((k, name))
         k = _skip(tokens, k + 1, QUOTES)
         if k < len(tokens) and tokens[k] == "(":
-            depth = 0
-            while k < len(tokens):
-                depth += {"(": 1, ")": -1}.get(tokens[k], 0)
-                k += 1
-                if not depth:
-                    break
-            k = _skip(tokens, k, QUOTES)
+            k = _skip(tokens, _parenthesized(tokens, k)[1], QUOTES)
         after = _separator(tokens, k)
         if after is None:
             if k < len(tokens) and _word(tokens[k]) == "or":
@@ -202,11 +225,21 @@ def _cue(tokens, i) -> bool:
     return word in CUES or (word in NAMING and any(w in CUES for w in _clause(tokens, i, SENTENCE_END)))
 
 
+def _test_func(tokens, i) -> tuple[int, str] | None:
+    """The test that "func" at ``i`` declares, with its position: a name whose parameters take a *testing.T
+    ("func TestA(t *testing.T)"); "func TestConnection() error" is production code."""
+    k = _skip(tokens, i + 1, QUOTES)
+    name = _test_name(tokens[k]) if k < len(tokens) else None
+    if not name or tokens[k + 1:k + 2] != ["("] or TESTING_T not in _parenthesized(tokens, k + 1)[0]:
+        return None
+    return (k, name) if name not in NOT_A_TEST and not PLACEHOLDER.fullmatch(name) else None
+
+
 def _after_cue(tokens, i) -> int:
     """Where a name introduced by the cue at ``i`` starts: right after it, or after a colon that ends its
     sentence's lead-in ("Add native Go tests in product_test.go: TestA, TestB")."""
     k = _skip(tokens, i + 1, BETWEEN | QUOTES | {"(", ":"})
-    if k < len(tokens) and IDENTIFIER.fullmatch(tokens[k]):
+    if k < len(tokens) and _test_name(tokens[k]):
         return k
     while k < len(tokens) and tokens[k] not in SENTENCE_END:
         k += 1
@@ -226,11 +259,13 @@ def _withdrawn(tokens, k) -> bool:
 
 def _line_events(tokens) -> list[tuple[int, str, bool]]:
     """(position, name, requested) for each name the line asks for or withdraws."""
-    events = [(k, token, False) for k, token in enumerate(tokens)
-              if IDENTIFIER.fullmatch(token) and _withdrawn(tokens, k)]
+    events = [(k, _test_name(token), False) for k, token in enumerate(tokens)
+              if _test_name(token) and _withdrawn(tokens, k)]
     for i in range(len(tokens)):
         if _cue(tokens, i) and not _qualified(tokens, i):
             events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))]
+        elif _word(tokens[i]) == FUNC and _test_func(tokens, i) and not _qualified(tokens, i):
+            events.append((*_test_func(tokens, i), True))
     return sorted(set(events))
 
 
@@ -296,7 +331,8 @@ def named(texts) -> list[str]:
 
 
 def go_identifiers(workspace) -> set[str]:
-    """Every Test-prefixed identifier already written in the workspace's Go files."""
+    """Every Test-prefixed identifier already written in the code of the workspace's Go files. A comment or a
+    string ("// TODO: TestA", "TestA" in a constant) declares no test, so its names do not count."""
     found = set()
     for directory, subdirectories, files in os.walk(workspace):
         subdirectories[:] = [name for name in subdirectories
@@ -304,7 +340,8 @@ def go_identifiers(workspace) -> set[str]:
         for name in files:
             if name.endswith(".go"):
                 try:
-                    found.update(IDENTIFIER.findall(Path(directory, name).read_text(errors="replace")))
+                    code = _GO_NOT_CODE.sub(" ", Path(directory, name).read_text(errors="replace"))
+                    found.update(IDENTIFIER.findall(code))
                 except OSError:
                     continue
     return found

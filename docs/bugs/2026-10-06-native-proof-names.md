@@ -38,12 +38,15 @@ a refusal the planner could not satisfy:
 
 - It has the form of a Go test function (`Test` then an upper-case letter, digit
   or underscore). `TestMain` is Go's test-binary hook and `TestXxx` Go's own
-  placeholder; neither is a test to write.
+  placeholder; neither is a test to write. A subtest path
+  (`TestCacheExpiry/expired`) asks for its test function, `TestCacheExpiry`.
 - The user wrote it (task, brief feedback, own answers; not a delegated default
-  or model text) as a test to add. It must come right after "test", "tests" or
-  "func" ("function", "case", "named" or "called" may come between), as in "add
-  the Go tests TestA, TestB and TestC" or "a test for Fixed named TestA", or
-  start an item of a list whose lead-in names tests ("Add these tests in
+  or model text) as a test to add. It must come right after "test" or "tests"
+  ("function", "func", "case", "named" or "called" may come between), as in
+  "add the Go tests TestA, TestB and TestC" or "a test for Fixed named TestA",
+  be declared with a test's parameter (`func TestA(t *testing.T)`; "implement
+  func TestConnection() error in product.go" is a production API), or start an
+  item of a list whose lead-in names tests ("Add these tests in
   x_test.go:" then "- TestA: what it checks", one name per item however long
   its description). An inline list may describe each name too ("TestA (empty
   input), TestB (one item)" or "TestA checks X, TestB checks Y; TestC ..."); it
@@ -61,9 +64,12 @@ a refusal the planner could not satisfy:
 - The regression proof will run Go tests (an explicit `go test` command, else
   the framework `autocode_verify` detects, as `autocode_regression.prove`
   chooses). In Python or Java, `TestParser` is a class.
-- The project's Go files do not already contain it. A bug report's failing test,
-  "keep the test TestX passing" or a `TestServer` helper names existing code that
-  the suite comparison already protects.
+- The code of the project's Go files does not already contain it. A bug
+  report's failing test, "keep the test TestX passing" or a `TestServer` helper
+  names existing code that the suite comparison already protects. Comments and
+  string and rune literals are not code: a `// TODO: TestFixedReturnsTwo` or a
+  constant holding the names declares no test, and counting it let the issue's
+  alias through.
 - The job is not design-only, and no reproduced diagnosis drives the proof.
 - The user has not settled it. The user's own `--edit-goal` is never refused by
   this check, and a name their latest edit leaves unaccounted for is no longer
@@ -98,7 +104,14 @@ same list written inline with a description after each name still lost every
 name after the first, that the alias passed when it sat in the criterion text
 next to a Validator criterion, and that one Validator criterion naming all the
 requested tests accounted for each of them, against the rule given to the
-planner; those have tests too.
+planner; those have tests too. A third reader of the branch (issue comment,
+2026-10-07) found that a `.go` comment or string naming the requested tests
+made them count as existing, so nothing was requested and the alias passed, and
+that `func TestConnection() error`, a production API, was read as a requested
+test because "func" alone was a cue; "func" now needs a `*testing.T` parameter.
+It also asked for the scope of a subtest path, which had asked for nothing and
+dropped the rest of its list; it now asks for its test function. Tests cover
+all three.
 
 ## Limits
 
@@ -123,6 +136,12 @@ planner; those have tests too.
   order relative to the edit here); the previous behavior applies to it.
 - A greenfield Go project with no `go.mod` yet is not detected as Go at
   planning time.
+- A requested subtest path is checked only through its test function: a plan
+  declaring `TestCacheExpiry` or `TestCacheExpiry/other` accounts for
+  `TestCacheExpiry/expired`. A subtest asked for under a test that already
+  exists asks for nothing, since subtest names live in strings.
+- `func TestA` with no parameter list asks for nothing, even when it is meant
+  as a test.
 - After the Builder writes the tests they exist in the workspace, so a later
   revision is no longer checked against them.
 - A bug fix proven by its Investigator's cases names tests after the case IDs

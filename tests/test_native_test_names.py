@@ -133,6 +133,24 @@ class NamedTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual([], native.named([text]))
 
+    def test_func_names_a_test_only_with_a_testing_signature(self):
+        # #498 (issue comment): "func" alone does not make a Go test; a production API kept its Test prefix.
+        for text in ["implement func TestConnection() error in product.go; this is a callable production API",
+                     "Add a func named TestConnection that returns an error.",
+                     "Add func TestConnection to product.go."]:
+            with self.subTest(text=text):
+                self.assertEqual([], native.named([text]))
+        self.assertEqual(["TestA"], native.named(["Add func TestA(t *testing.T) to product_test.go."]))
+        self.assertEqual(["TestA"], native.named(["Add the test func TestA."]))
+        self.assertEqual([], native.named(["Don't write func TestA(t *testing.T) yet."]))
+
+    def test_a_subtest_path_asks_for_its_test_function(self):
+        # #498 (issue comment): the scope of a requested subtest path. Its test function is requested; which
+        # subtest the plan declares under it is not checked.
+        self.assertEqual(["TestCacheExpiry"], native.named(["Add the Go test TestCacheExpiry/expired."]))
+        self.assertEqual(["TestA", "TestB"], native.named(["Add the tests TestA/empty and TestB."]))
+        self.assertEqual(["TestA", "TestB"], native.named(["Add these tests:\n- TestA/empty: no input\n- TestB"]))
+
     def test_a_later_user_message_can_withdraw_a_name(self):
         retract = "Changed my mind: use the default test_<id> naming instead of TestFixedReturnsTwo."
         self.assertEqual(NAMES[1:], native.named([BRIEF, retract]))
@@ -190,6 +208,15 @@ class ProblemsTests(unittest.TestCase):
                       'requested spelling (write "test: TestFixedReturnsTwo")', errors)
         self.assertEqual(["no criterion declares TestFixedPreservesCrash"],
                          native.problems(plan(CORRECTED[:2] + ["guard: TestFixed_Preserves_Crash"]), NAMES))
+
+    def test_a_requested_subtest_path_is_accounted_for_by_its_function(self):
+        names = ["TestCacheExpiry"]
+        aliased = plan(["test: test_ac1_cache_expiry — resolves to TestCacheExpiry/expired"] + CONVENTION[1:])
+        self.assertEqual(['AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry '
+                          '(write "test: TestCacheExpiry")'], native.problems(aliased, names))
+        for declared in ("test: TestCacheExpiry/expired", "test: TestCacheExpiry"):
+            with self.subTest(declared=declared):
+                self.assertEqual([], native.problems(plan([declared] + CONVENTION[1:]), names))
 
     def test_criteria_without_a_requested_name_keep_the_default_convention(self):
         body = plan(CORRECTED)
@@ -316,6 +343,43 @@ class DraftValidationTests(unittest.TestCase):
 
     def test_an_existing_test_the_brief_mentions_is_not_a_new_case(self):
         task = "The test TestExistingIsSeven must keep passing; fix Fixed to return 2."
+        self.assertEqual([], native.requested(self.state(task=task)))
+        lifecycle.validate_body(self.state(task=task), plan(CONVENTION), ready=True)
+
+    def test_a_name_in_a_go_comment_or_string_is_not_an_existing_test(self):
+        # #498 (issue comment): a TODO comment or a string naming the requested tests made them "existing", so
+        # nothing was requested and the issue's alias passed although no such test existed.
+        notes = project({**GO_SEED, "notes.go": (
+            'package product\n\n// TODO: TestFixedReturnsTwo, TestFixedPreservesExisting, TestFixedPreservesCrash\n'
+            '/* TestFixedReturnsTwo */\nconst plan = "TestFixedReturnsTwo TestFixedPreservesExisting"\n'
+            "var raw = `TestFixedPreservesCrash`\nvar quote = '\"' // TestFixedPreservesCrash\n")})
+        self.addCleanup(notes.close)
+        self.assertEqual(NAMES, native.requested(self.state(notes.root)))
+        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_fixed_returns_two"):
+            lifecycle.validate_body(self.state(notes.root), plan(ALIASED), ready=True)
+        lifecycle.validate_body(self.state(notes.root), plan(CORRECTED), ready=True)
+
+    def test_go_identifiers_reads_code_not_comments_or_strings(self):
+        code = project({"go.mod": "module product\n\ngo 1.16\n", "server.go": (
+            'package product\n\nconst url = "http://x/TestInString" // TestInComment\n'
+            'func TestServer() int { return 1 } /* TestInBlock\n TestInBlockToo */\n'
+            "var r = '\\'' + 'x'\nvar y = TestServer() + len(`TestInRaw`)\n")})
+        self.addCleanup(code.close)
+        self.assertEqual({"TestServer"}, native.go_identifiers(code.root))
+
+    def test_a_subtest_of_a_new_test_is_requested_and_of_an_existing_one_is_not(self):
+        task = "Add the Go test TestCacheExpiry/expired."
+        self.assertEqual(["TestCacheExpiry"], native.requested(self.state(task=task)))
+        aliased = plan(["test: test_ac1_cache_expiry — resolves to TestCacheExpiry/expired"] + CONVENTION[1:])
+        with self.assertRaisesRegex(ValueError, "AC1 declares test_ac1_cache_expiry but refers to TestCacheExpiry"):
+            lifecycle.validate_body(self.state(task=task), aliased, ready=True)
+        lifecycle.validate_body(self.state(task=task), plan(["test: TestCacheExpiry/expired"] + CONVENTION[1:]),
+                                ready=True)
+        task = "Add the Go test TestExistingIsSeven/after_fix."
+        self.assertEqual([], native.requested(self.state(task=task)))
+
+    def test_a_production_func_with_a_test_prefix_is_not_a_requested_test(self):
+        task = "implement func TestConnection() error in product.go; this is a callable production API"
         self.assertEqual([], native.requested(self.state(task=task)))
         lifecycle.validate_body(self.state(task=task), plan(CONVENTION), ready=True)
 

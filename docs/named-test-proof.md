@@ -51,10 +51,15 @@ installed or approved, that leaves a requested name unaccounted for, declares a
 respelling of it (`test_fixed_returns_two`), or declares another identifier (or
 none it can read, as in `test: TestFixedReturnsTwo.`) while its method or
 criterion text names the requested one, as in prose saying it "resolves to" it
-(#498). A name counts as requested when the user wrote it right after "test",
-"tests" or "func" (or in a list introduced as tests, each name with or without
-a description), not negated or offered as an example, the proof will run Go
-tests, and the project's Go files do not already contain it.
+(#498). A name counts as requested when the user wrote it right after "test"
+or "tests", declared it with a test's parameter (`func TestA(t *testing.T)`;
+`func TestConnection() error` is production code), or listed it under a lead-in
+that introduces tests (each name with or without a description); when it is
+not negated or offered as an example; when the proof will run Go tests; and
+when the code of the project's Go files does not already contain it (a name in
+a comment or a string does not count as existing). A subtest path such as
+`TestCacheExpiry/expired` asks for its test function, `TestCacheExpiry`; the
+plan accounts for it by declaring that function or any subtest of it.
 The user's own `--edit-goal` is never refused by this check and settles which
 requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
 frameworks, and bug fixes proven by their diagnosis's cases, keep the
