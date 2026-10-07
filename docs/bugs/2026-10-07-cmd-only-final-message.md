@@ -30,7 +30,7 @@ summary".
 
 `tests/test_cmd_only_report_cli.py` drives all three routes; `tests/test_cmd_only_report.py` has the rules.
 
-**Not fixed here:** a model that keeps doing it still costs the original request, the correction, the
-two repairs and one Investigator call before the pause. Run that role on another model
-([Providers](../providers.md#a-final-message-that-is-only-a-shell-command)). No live rerun on that
-route was made for this change.
+**Not fixed here:** a model that keeps doing it still costs the original request, the correction (on a
+transport with sessions), the two repairs and one Investigator call before the pause. Run that role on
+another model ([Providers](../providers.md#a-final-message-that-is-only-a-shell-command)). No live rerun
+on that route was made for this change.
