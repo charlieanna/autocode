@@ -150,6 +150,8 @@ class NamedTests(unittest.TestCase):
         self.assertEqual(["TestCacheExpiry"], native.named(["Add the Go test TestCacheExpiry/expired."]))
         self.assertEqual(["TestA", "TestB"], native.named(["Add the tests TestA/empty and TestB."]))
         self.assertEqual(["TestA", "TestB"], native.named(["Add these tests:\n- TestA/empty: no input\n- TestB"]))
+        # Leaving out one subtest does not withdraw its function.
+        self.assertEqual(["TestA"], native.named(["Add the tests TestA/empty and TestA/one, but not TestA/two."]))
 
     def test_a_later_user_message_can_withdraw_a_name(self):
         retract = "Changed my mind: use the default test_<id> naming instead of TestFixedReturnsTwo."

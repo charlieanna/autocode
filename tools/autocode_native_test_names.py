@@ -262,8 +262,9 @@ def _withdrawn(tokens, k) -> bool:
 
 def _line_events(tokens) -> list[tuple[int, str, bool]]:
     """(position, name, requested) for each name the line asks for or withdraws."""
-    events = [(k, _test_name(token), False) for k, token in enumerate(tokens)
-              if _test_name(token) and _withdrawn(tokens, k)]
+    # Leaving out a subtest ("not TestA/two") does not withdraw its function.
+    events = [(k, token, False) for k, token in enumerate(tokens)
+              if IDENTIFIER.fullmatch(token) and _withdrawn(tokens, k)]
     for i in range(len(tokens)):
         if _cue(tokens, i) and not _qualified(tokens, i):
             events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))]
