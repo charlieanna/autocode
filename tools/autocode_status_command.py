@@ -13,9 +13,11 @@ import sys
 try:
     from . import autocode_verification_inspection as verification
     from . import autocode_progress_view as progress_view
+    from . import autocode_job_report_recovery as job_report_recovery
 except ImportError:
     import autocode_verification_inspection as verification
     import autocode_progress_view as progress_view
+    import autocode_job_report_recovery as job_report_recovery
 
 
 def render(runner, state, args, workspace, run_dir):
@@ -66,6 +68,7 @@ def render(runner, state, args, workspace, run_dir):
                                        visual_acceptance=visual_acceptance, liveness=liveness,
                                        runner_check_liveness=check_liveness,
                                        stale_report_repair=runner.stale_report_repair(state, workspace) is not None)
+    public_view['job_report_recovery'] = job_report_recovery.offer(runner, state, run_dir, workspace)
     if inspected is not None:
         public_view['verification'] = inspected
     supervision_state = public_view.get('liveness', {})

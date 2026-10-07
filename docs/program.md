@@ -300,7 +300,7 @@ point, the pass pauses at `PAUSED_INTEGRATION_DIRTY` instead.
 | `WAITING_CHANGE_REQUEST` | An interface change request is open, even if every workstream is merged. The workstreams the agreement binds to its interface (its producer and consumers, every workstream when it has no producer) and the final check neither start, resume nor merge; other workstreams go on | Accept it (publish the interface's next version and approve that revision), reject it with `program resolve-change`, or approve a revision that removes the interface, which withdraws it; serve any listed child runs; rerun |
 | `AUTHORIZATION_REQUIRED` | Everything else is merged; deployment workstreams need authorization to start or resume | Rerun with `--authorize-deployment` after deciding deployment is wanted |
 | `BLOCKED` | A child invocation failed, with or without a saved checkpoint | Inspect its logs, then use `--retry-workstream ID`; missing checkpoints must be restored |
-| `PAUSED_MERGE_CONFLICT` | A completed workstream conflicts with the integration branch; the merge was aborted, both branches are intact. That pass ends; later passes merge and start the other workstreams | Merge it by hand in the integration worktree, commit, rerun (the program adopts the manual merge once the cumulative checks pass, and only under the run's checked plan, as any merge) |
+| `PAUSED_MERGE_CONFLICT` | A completed workstream conflicts with the integration branch; the merge was aborted, both branches are intact. That pass ends; later passes merge and start the other workstreams | Merge it by hand in the integration worktree, commit, rerun (the program adopts the manual merge once the cumulative checks pass, and only under the run's checked plan, as any merge; then work the run left uncommitted in its worktree after the conflict, such as a follow-up's, is committed and merged on top of it as an ordinary merge. Until that merge lands, the checks your merge passed run on every other merge, and its interfaces and the skeleton count as delivered only once it lands. Work committed on the workstream branch after your merge needs another merge by hand) |
 | `PAUSED_INTEGRATION_DIRTY` | The integration worktree has uncommitted tracked changes, such as a retired final check run's edits ([open bug](bugs/2026-10-06-program-integration-retired-leftovers.md)), or is not on its recorded branch. Raised before a merge or an adopted conflict resolution, before the final check starts and before an [interrupted merge](#run-it) is taken back, and repeated there on every rerun until it is cleared | Commit or discard (`git restore`) the changes, or restore the branch, then rerun |
 | `PAUSED_OWNERSHIP` | A completed workstream changed files outside `owns`, or switched branches. Nothing was merged; every rerun repeats it, and nothing starts until it is fixed | Correct the workstream delivery or restore its recorded branch, then rerun |
 | `PAUSED_METADATA` | Runner metadata was staged or committed. Every rerun repeats it, and nothing starts until it is fixed | Unstage `.autocode` without deleting it, or remove the metadata diff, then rerun |
@@ -405,9 +405,10 @@ or waiting at plan approval included:
   carries a `RE-CHECK:` line that asks it to plan against the agreement, keep what
   still conforms, change what does not, and verify again. It asks for plan approval
   like any run;
-- a workstream that was merged, or that depends on a workstream re-checked by the same
-  revision, restarts in a fresh worktree from the current integration head. Any other
-  plans again in its own worktree;
+- a workstream that was merged, or whose conflict you resolved by hand while its later
+  work still waits to merge (see `PAUSED_MERGE_CONFLICT`), or that depends on a workstream
+  re-checked by the same revision, restarts in a fresh worktree from the current
+  integration head. Any other plans again in its own worktree;
 - when the walking skeleton is stale, everything that waits for it is held again until
   its re-check is merged and verified.
 
@@ -448,7 +449,9 @@ reads each child's plan from its status view: the draft shown for approval
   ids before anyone approves it, and plans again at its next invocation. This feedback
   is the only input the program ever gives a child; it never approves anything.
 - An approved plan that drops one is never resumed or merged. Its run is retired
-  (`STALE`) and a fresh run plans again in the same worktree.
+  (`STALE`) and a fresh run plans again in the same worktree, or, while a conflict
+  you resolved by hand waits for the run's later work, in a new worktree from the
+  integration head.
 - Nothing merges while the last plan the program saw from a workstream's run drops an
   inherited id, even when that run completes.
 - The program rejects a workstream's dropping plans twice at most (`plan_rejections`,

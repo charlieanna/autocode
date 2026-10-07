@@ -62,3 +62,38 @@ def parse(command):
     if tail[2] == 'unittest' and not {'-v', '--verbose'} & set(tail[3:]):
         return None
     return Invocation(tuple(words[:offset]), tail[0], tail[2], tuple(tail[3:]))
+
+
+def verbose_unittest(command):
+    """A plain unittest command that names every test, or ``command`` unchanged.
+
+    ``-q`` and the default dot reporter print a count, not test names, so a
+    passing run cannot show which tests the base ran. ``-v`` only changes that
+    report. ``discover`` has to stay the first argument. A shell program is
+    left alone: its text is not a single unittest invocation.
+    """
+    if not isinstance(command, str) or re.search(r'[;&|<>`$\n]', command):
+        return command
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return command
+    offset = 0
+    if words and words[0] in ('env', '/usr/bin/env', '/bin/env'):
+        offset = 1
+        while offset < len(words) and re.match(r'^[A-Za-z_][A-Za-z_0-9]*=', words[offset]):
+            offset += 1
+    tail = words[offset:]
+    if (len(tail) < 3 or not re.fullmatch(r'python(?:\d+(?:\.\d+)*)?', Path(tail[0]).name)
+            or tail[1] != '-m' or tail[2] != 'unittest'):
+        return command
+    args = [word for word in tail[3:] if word not in ('-q', '--quiet')]
+    if not {'-v', '--verbose'} & set(args):
+        if args and args[0] == 'discover':
+            args = ['discover', '-v', *args[1:]]
+        else:
+            args = ['-v', *args]
+    rewritten = [*words[:offset], tail[0], '-m', 'unittest', *args]
+    if rewritten == words:
+        return command
+    return shlex.join(rewritten)

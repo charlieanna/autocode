@@ -26,8 +26,8 @@ class SupervisionUnavailable(RuntimeError):
 class CallTimeout(subprocess.TimeoutExpired):
     """A timed-out invocation, including any uncertainty about worker cleanup."""
 
-    def __init__(self, command, timeout, errors):
-        super().__init__(command, timeout)
+    def __init__(self, command, timeout, errors, output=None, stderr=None):
+        super().__init__(command, timeout, output=output, stderr=stderr)
         self.cleanup_errors = errors
 
 
@@ -62,7 +62,7 @@ def _signal(process, method, errors):
         errors.append(f"cannot {method} owned PID {process.pid}: {error}")
 
 
-def _stop(child, parent, identity_error):
+def _stop(child, parent, identity_error, output):
     errors = []
     owned = [parent] if parent else []
     if parent:
@@ -79,9 +79,13 @@ def _stop(child, parent, identity_error):
         except OSError as error:
             errors.append(f"cannot terminate CLI PID {child.pid}: {error}")
     try:
-        child.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+        stdout, stderr = child.communicate(timeout=5)
+        output.update(stdout=stdout, stderr=stderr)
+    except subprocess.TimeoutExpired as error:
+        if error.stdout is not None:
+            output["stdout"] = error.stdout
+        if error.stderr is not None:
+            output["stderr"] = error.stderr
     except BaseException as error:
         # Decoding failures and a second interrupt must not skip worker cleanup.
         errors.append(f"cannot collect CLI output during graceful cleanup: {type(error).__name__}: {error}")
@@ -105,8 +109,13 @@ def _stop(child, parent, identity_error):
     except (psutil.Error, OSError) as error:
         errors.append(f"cannot verify owned worker cleanup: {error}")
     try:
-        child.communicate(timeout=2)
-    except subprocess.TimeoutExpired:
+        stdout, stderr = child.communicate(timeout=2)
+        output.update(stdout=stdout, stderr=stderr)
+    except subprocess.TimeoutExpired as error:
+        if error.stdout is not None:
+            output["stdout"] = error.stdout
+        if error.stderr is not None:
+            output["stderr"] = error.stderr
         errors.append("CLI output pipes remain open after cleanup; an uncaptured worker may remain")
     except BaseException as error:
         errors.append(f"cannot collect CLI output after cleanup: {type(error).__name__}: {error}")
@@ -184,7 +193,8 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
         if write_fd is not None:
             os.close(write_fd)
             write_fd = None
-        errors = _stop(child, parent, identity_error) if child is not None else []
+        output = {"stdout": getattr(error, "stdout", None), "stderr": getattr(error, "stderr", None)}
+        errors = _stop(child, parent, identity_error, output) if child is not None else []
         if call_record is not None:
             call_record.update(phase="interrupted", exit=child.returncode if child is not None else None,
                                finished_at=time.time(), interruption=type(error).__name__, cleanup_errors=errors)
@@ -193,7 +203,7 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             except (OSError, ValueError) as save_error:
                 errors.append(f"cannot retain interrupted CLI admission: {save_error}")
         if isinstance(error, subprocess.TimeoutExpired):
-            raise CallTimeout(command, timeout, errors) from None
+            raise CallTimeout(command, timeout, errors, output["stdout"], output["stderr"]) from None
         if errors:
             error.add_note("CLI cleanup incomplete: " + "; ".join(errors))
         raise

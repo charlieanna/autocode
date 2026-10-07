@@ -209,6 +209,36 @@ Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
 Changing the config file or the tool version pauses a saved run.
 
+### Builder retry on a tool
+
+A Builder that keeps failing a milestone gets one ordinary retry and then one stronger
+attempt ([Models](models.md#builder-retry-policy)). By default that attempt runs GPT-6 Sol,
+and a checker on GPT-6 Sol moves to GLM; a tool whose `models` list lacks GPT-6 Sol gets
+only one more ordinary retry instead. A tool that serves other models, such as the Claude
+example, names its own in an optional `[builder_retry]` table:
+
+```toml
+[builder_retry]
+strong_model = "claude-sonnet-5-5"   # the Builder's stronger attempt
+checker_model = "claude-opus-5-5"    # a Tester or Completion Reviewer on strong_model moves here
+strong_effort = "xhigh"              # optional; xhigh when left out
+```
+
+Both models are the tool's own spelling. When the config lists `models`, both must be in
+it. `strong_model` must differ from the `[roles]` Builder's model, and `checker_model` from
+`strong_model`; a config that breaks either is refused when it loads. A new run takes the
+table when it is created (`--builder-strong-model` still wins). A Builder that already runs
+the strong model makes its stronger attempt on that model at `strong_effort`. When the stronger attempt
+starts, a Tester or Completion Reviewer that runs the strong model moves to `checker_model`
+until the next milestone. When the Builder's model has no `provider/` prefix it moves only when it
+runs exactly the strong model, is neither pinned nor on another provider, and `checker_model`
+is a model the run already routes a role to; otherwise the run pauses with
+`PAUSED_BUILDER_RETRY_LIMIT` before changing any route. A config without the table keeps the
+default models, and `provider/model` names such as KiloCode's keep the earlier rule (a checker
+that cannot move is left for the cross-model guard). Adding or changing the table
+changes the config file, so saved runs on that tool stop with `PAUSED_TRANSPORT_CHANGED` at
+their next stage: change it between runs.
+
 ### Output modes
 
 `output` says how the result comes back:

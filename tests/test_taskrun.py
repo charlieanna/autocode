@@ -44,7 +44,7 @@ class RunViewTests(unittest.TestCase):
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
                           "efficiency", "recovery", "verification", "code_checkpoints", "routes",
-                          "route_assignments", "liveness", "information_review", "tool_containment"},
+                          "route_assignments", "liveness", "information_review", "tool_containment", "job_report_recovery"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
@@ -378,6 +378,31 @@ class TaskRunTests(unittest.TestCase):
         self.assertIsNone(stale["efficiency"]["unit_metrics"]["wall_seconds"]["value"])
         # The task-run interface works in place (--in-place): the job delivers into the project itself.
         self.assert_no_project_level_files(before, run, stale, delivered=("greet.py", "test_greet.py", "README.md"))
+
+    def test_a_first_task_that_only_validates_needs_no_paths_to_be_approved(self):
+        # A live program's final check planned one validate task naming no affected paths, in a milestone that
+        # owned none; the Plan Reviewer passed it and every approval failed with "Input rejected" (#615).
+        env = {**self.env, "LIVE_FIXTURE_FIRST_TASK": "validate"}
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=300)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        view = run.approve_plan(view["needs"]["token"])
+        first = view["approved_contract"]["body"]["initial_task"]
+        self.assertEqual(("validate", []), (first["kind"], first["affected_paths"]))
+        self.assertNotEqual("approve_plan", (view.get("needs") or {}).get("kind"), view)
+
+    def test_a_first_task_that_writes_must_name_its_paths_before_anyone_approves_it(self):
+        # The same plan with an implement task cannot be assigned: it is refused as a draft and repaired, never
+        # shown for approval with a task approval would refuse (#615).
+        env = {**self.env, "LIVE_FIXTURE_FIRST_TASK": "implement"}
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=env, timeout=300)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"], view["efficiency"])
+        view = run.approve_plan(view["needs"]["token"])
+        first = view["approved_contract"]["body"]["initial_task"]
+        self.assertEqual(("implement", ["greet.py", "test_greet.py", "README.md"]),
+                         (first["kind"], first["affected_paths"]))  # the repaired plan names what it writes
 
     def test_a_default_launch_keeps_its_job_in_its_own_task_worktree(self):
         # The CLI without --in-place, as a person launches it: the run works in a task worktree.

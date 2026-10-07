@@ -243,6 +243,24 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                 run.require_mode(args)
 
 
+class DriverFlagTests(unittest.TestCase):
+    def test_new_run_only_flags_go_to_the_first_call_and_never_to_a_saved_run(self):
+        flags = ["--provider", "claude", "--workflow", "build", "--builder-strong-model", "claude-sonnet-5-5",
+                 "--builder-strong-model=claude-opus-5-5", "--workflow=build", "--terra-model", "claude-haiku"]
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with tempfile.TemporaryDirectory() as root, patch("harness.driver.run_cli", return_value=done) as launch:
+            driver = Driver(Path(root), Path(root), flags, {}, autocode=["cli"], max_steps=5, timeout_seconds=60)
+            driver.call("start", task="Build")
+            driver.run_dir = Path(root) / "saved-run"
+            driver.call("resume", "--resume-paused")
+        first, then = (call.args[0] for call in launch.call_args_list)
+        self.assertEqual(flags, first[first.index("--no-chat") + 1:])
+        # The CLI refuses --builder-strong-model and --workflow on a saved run, so a resume never repeats them.
+        self.assertEqual(["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
+                         then[then.index("--no-chat") + 1:])
+        self.assertEqual(flags, driver.flags)
+
+
 class DriverTimeoutTests(unittest.TestCase):
     def setUp(self):
         self.events = []
@@ -335,6 +353,39 @@ class DriverTimeoutTests(unittest.TestCase):
             self.run_cli()
         self.assertTrue(any("cannot capture descendants" in item for item in caught.exception.cleanup_errors))
         self.parent.terminate.assert_called_once_with()
+
+    def test_timeout_retains_complete_output_collected_during_cleanup(self):
+        self.child.communicate.side_effect = [
+            subprocess.TimeoutExpired(["cli"], 10, output=b"partial", stderr=b"early error"),
+            ("partial and graceful", "early error and graceful"),
+            ("partial and graceful and final", "early error and graceful and final")]
+        with self.assertRaises(processes.CallTimeout) as caught:
+            self.run_cli()
+        self.assertEqual("partial and graceful and final", caught.exception.stdout)
+        self.assertEqual("early error and graceful and final", caught.exception.stderr)
+        self.assertEqual([], caught.exception.cleanup_errors)
+
+    def test_open_pipes_timeout_retains_latest_partial_output_and_cleanup_errors(self):
+        self.child.communicate.side_effect = [
+            subprocess.TimeoutExpired(["cli"], 10, output=b"initial", stderr=b"initial error"),
+            subprocess.TimeoutExpired(["cli"], 5, output=b"initial graceful", stderr=b"initial error graceful"),
+            subprocess.TimeoutExpired(["cli"], 2, output=b"initial graceful final", stderr=b"initial error graceful final")]
+        with self.assertRaises(processes.CallTimeout) as caught:
+            self.run_cli()
+        self.assertEqual(b"initial graceful final", caught.exception.stdout)
+        self.assertEqual(b"initial error graceful final", caught.exception.stderr)
+        self.assertTrue(any("output pipes remain open" in item for item in caught.exception.cleanup_errors))
+
+    def test_cleanup_decode_errors_do_not_discard_original_timeout_output(self):
+        decode_error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte")
+        self.child.communicate.side_effect = [
+            subprocess.TimeoutExpired(["cli"], 10, output=b"original", stderr=b"original error"),
+            decode_error, decode_error]
+        with self.assertRaises(processes.CallTimeout) as caught:
+            self.run_cli()
+        self.assertEqual(b"original", caught.exception.stdout)
+        self.assertEqual(b"original error", caught.exception.stderr)
+        self.assertTrue(any("UnicodeDecodeError" in item for item in caught.exception.cleanup_errors))
 
     def test_missing_identity_stops_direct_child_and_reports_incomplete_ownership(self):
         self.lookup.side_effect = processes.psutil.AccessDenied(100)
@@ -1896,6 +1947,37 @@ class TurnTests(unittest.TestCase):
             self.assertFalse(missing.ok, "a public callable the design names must still exist")
             self.assertIn("missing from app/: ['evict']", missing.detail)
 
+    def test_a_formula_in_the_design_does_not_bind_the_build(self):
+        """A live design bounded fetches with `ceil(3600 / TTL_seconds) × N <= 60`; its build computed it
+        without importing math, and build_follows_design failed on `ceil`."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            design.write_text(design.read_text().replace(
+                "## Rejected", "Attempts per hour stay at most `ceil(3600 / ttl_seconds)` per key.\n\n## Rejected"))
+            follows = next(check for check in scenario.oracle()(project, scenario) if check.name == "build_follows_design")
+            self.assertTrue(follows.ok, follows.detail)
+
+    def test_a_design_that_removes_the_seed_s_cache_in_its_own_words_follows_the_decision(self):
+        """Live designs said "a shared, host-local file-backed cache" without the token shared-file, and
+        named the seed's cache they remove (`functools.lru_cache(maxsize=256)`, "`cache_clear()`: Removed");
+        their builds removed it, and the oracle judged them FALSE_COMPLETE."""
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs" / "design" / "metadata-cache.md"
+            reworded = design.read_text().replace("docs/decisions/metadata-cache.json (recommendation: shared-file)",
+                                                  "the decision record: a shared, host-local file-backed cache")
+            self.assertNotIn("shared-file", reworded.split("## Rejected")[0])
+            design.write_text(reworded.replace("## Rejected", "The seed's `functools.lru_cache(maxsize=256)` goes, "
+                                               "and with it `cache_clear()` and `cache_info()`.\n\n## Rejected"))
+            checks = {check.name: check for check in scenario.oracle()(project, scenario)}
+            self.assertTrue(checks["design_follows_decision"].ok, checks["design_follows_decision"].detail)
+            self.assertTrue(checks["build_follows_design"].ok, checks["build_follows_design"].detail)
+
     def test_the_hidden_tests_leave_a_missing_cache_directory_to_the_design(self):
         """The deploy configuration provisions METADATA_CACHE_DIR; a live design fell back to a per-worker
         memo when it is missing, and the hidden tests failed it for not creating the directory."""
@@ -2050,6 +2132,77 @@ class ModelProfileTests(unittest.TestCase):
 class FakeSchemaTests(unittest.TestCase):
     """The scripted model answers "none" for any required field its script does not know yet."""
 
+    def test_report_identity_uses_schema_then_repair_handoff(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        expected = {"contract_revision": 7, "contract_hash": "approved-hash", "task_id": "assigned-task"}
+        for data, schema in (
+                ({"report_identity": expected}, {}),
+                ({"goal_contract": {"revision": 1, "hash": "stale"}, "current_task": {"id": "stale"}},
+                 {"properties": {key: {"enum": [value]} for key, value in expected.items()}})):
+            with self.subTest(data=data), patch.object(fake, "OUTPUT_SCHEMA", schema):
+                self.assertEqual(expected, fake.report_identity(data))
+
+    def test_execution_repair_preserves_report_without_executing_checks(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        identity = {"contract_revision": 9, "contract_hash": "retained-hash", "task_id": "retained-task"}
+        original = {"contract_revision": 0, "criterion_results": [{"id": "C9", "status": "FAIL"}],
+                    "checks": [{"command": "false", "exit_code": 1, "evidence_ref": "event:original"}]}
+        for stage in ("terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+            for content in (original, json.dumps(original)):
+                with self.subTest(stage=stage, content=content), patch.object(fake, "OUTPUT_SCHEMA", {}), \
+                        patch.object(fake, "run_check", side_effect=AssertionError("Repair must not execute")):
+                    data = {"report_repair": True, "report_identity": identity,
+                            "rejected_report": {"content": content}}
+                    self.assertEqual({**original, **identity}, fake.report_for(stage, data))
+                    self.assertEqual(0, original["contract_revision"])
+
+    def test_empty_or_invalid_execution_repair_never_executes(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        identity = {"contract_revision": 3, "contract_hash": "approved", "task_id": "assigned"}
+        for stage in ("terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve"):
+            for content in ({}, "{}", None, "", "not json", [], "[]"):
+                with self.subTest(stage=stage, content=content), patch.object(fake, "OUTPUT_SCHEMA", {}), \
+                        patch.object(fake, "run_check", side_effect=AssertionError("Repair must not execute")), \
+                        patch.object(fake.shutil, "copytree", side_effect=AssertionError("Repair must not write")):
+                    data = {"report_repair": True, "report_identity": identity,
+                            "rejected_report": {"content": content}}
+                    if content == {} or content == "{}":
+                        self.assertEqual(identity, fake.report_for(stage, data))
+                    else:
+                        with self.assertRaises(SystemExit):
+                            fake.report_for(stage, data)
+
+    def test_planner_contract_mode_uses_required_task_schema_or_prompt_marker(self):
+        import importlib
+        with patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": "unused-config.json"}), \
+                patch.object(Path, "read_text", return_value=json.dumps({"check": "true", "paths": []})):
+            fake = importlib.import_module("harness.fake_codex")
+        cases = [
+            ("repair requires task", "", {"properties": {"contract": {"required": ["initial_task"]}}}, True),
+            ("repair draft", "", {"properties": {"contract": {"required": [],
+                "properties": {"initial_task": {"type": "object"}}}}}, False),
+            ("no schema", "", {}, False),
+            ("prompt marker", "ADAPTIVE PLANNING", {}, True),
+        ]
+        for name, prompt, schema, final in cases:
+            with self.subTest(name=name), \
+                    patch.multiple(fake, PROMPT=prompt, OUTPUT_SCHEMA=schema, CONFIG={}, DATA={}, PROGRESSIVE=False), \
+                    patch.object(fake, "source_refs", return_value=[]), \
+                    patch.object(fake, "permission_changes", return_value=[]), \
+                    patch.object(fake, "trace", return_value=[]), \
+                    patch.object(fake, "contract", return_value={}) as contract:
+                fake.report_for("astra_discovery", {"report_repair": True})
+                contract.assert_called_once_with(final=final)
+
     def test_missing_required_fields_get_empty_values_of_their_type(self):
         import importlib, json, os
         with tempfile.TemporaryDirectory() as root:
@@ -2137,6 +2290,17 @@ class FakeRunTests(unittest.TestCase):
                 self.assertLessEqual(result["metrics"]["model_stages"], ceiling,
                                      result["metrics"]["model_stage_names"])
                 self.assertGreater(result["wall_seconds"], 0)
+
+    def test_bugfix_completes_with_runner_diagnosis_outside_builder_scope(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out),
+                                      autocode=None, max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("bugfix-trivial"), args,
+                extra_env={"SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE": "1"})
+            self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+            self.assertIn("investigate_bug", result["metrics"]["model_stage_names"])
+            self.assertIn("astra_review", result["metrics"]["model_stage_names"])
+            self.assertEqual(0, result["metrics"]["report_repairs"])
 
     def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
         result = self.run_fake("reference", "review-then-fix")
@@ -2357,12 +2521,20 @@ class HybridRouteTests(unittest.TestCase):
 
     def test_the_hybrid_tool_config_reads_back_as_written(self):
         import tomllib
-        config = {"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
-                  "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
-                  "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
-                  "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
-                           "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]}}
+        live = {"name": "claude", "command": ["claude-stage", "{report}"], "prompt": "stdin", "output": "report_file",
+                "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
+                "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
+                "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
+                         "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]},
+                "builder_retry": {"strong_model": "claude-sonnet-5-5", "checker_model": "claude-opus-5-5",
+                                  "strong_effort": "high"}}
+        config = hybrid.tool_config(live, ["python3", "stage.py", "{report}"], "stdin")
+        self.assertEqual({"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
+                          **{key: live[key] for key in ("models", "version_command", "auth", "roles")}}
+                         | {"builder_retry": live["builder_retry"]}, config)
+        # The live tool's Builder retry policy survives the round trip, so a hybrid Builder escalates as it does.
         self.assertEqual(config, tomllib.loads(hybrid.toml(config)))
+        self.assertEqual(live["builder_retry"], tomllib.loads(hybrid.toml(config))["builder_retry"])
 
     def test_a_live_tool_that_cannot_be_split_by_stage_is_refused(self):
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
@@ -2467,8 +2639,10 @@ class HybridRunTests(unittest.TestCase):
             tools.mkdir(parents=True)
             (Path(home) / "live_standin.py").write_text(LIVE_STANDIN)
             models = {role: f"live-{role}" for role in profiles.ROLES}
+            retry = {"strong_model": "live-strong", "checker_model": "live-completion"}
             (tools / "livestandin.toml").write_text(hybrid.toml({
-                "name": "livestandin", "prompt": "stdin", "models": sorted(models.values()),
+                "name": "livestandin", "prompt": "stdin", "models": sorted([*models.values(), "live-strong"]),
+                "builder_retry": retry,
                 "command": [sys.executable, str(Path(home) / "live_standin.py"), "{workspace}", "exec", "--model",
                             "{model}", "--output-schema", "{schema}", "-o", "{report}"],
                 "version_command": [sys.executable, "--version"],
@@ -2489,6 +2663,11 @@ class HybridRunTests(unittest.TestCase):
             self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "builder",
                                                        "validator", "completion")], [row["model"] for row in served])
             self.assertEqual({home}, {row["xdg"] for row in served})
+            # The hybrid tool AutoCode ran on kept the live tool's Builder retry policy.
+            import tomllib
+            written = Path(result["evidence"]) / "hybrid" / "config" / "autocode" / "providers" / "hybrid.toml"
+            self.assertEqual(retry, tomllib.loads(written.read_text())["builder_retry"])
+            self.assertEqual("live-strong", state["settings"]["builder_retry"]["strong_model"])
 
 
 class StockRefusalsProductTests(unittest.TestCase):

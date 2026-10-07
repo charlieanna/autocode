@@ -34,11 +34,17 @@ omitted, edited or deleted evidence is insufficient. Public status exposes the
 receipt at `evidence.check_replay.brief_acceptance`. Disagreement uses the
 existing rejected-report/rework boundaries; it never changes the human target.
 
-Scope is deliberately limited to explicit Python CLI one-line formats, declared
-successful invocations and finite literal alternatives. Opaque IDs remain opaque;
-a TEXT placeholder must match an actual declared input. One optional LF/CRLF
-printing terminator is allowed. Other API shapes, negative exits, no-write-on-
-failure, durability and concurrency claims still need separate verification.
-Supported briefs require an independent planning review; a legacy single-stage
-plan cannot supply that provenance. Fake evidence and live qualification must
-remain separate; live qualification is still owed until recorded in the PR.
+Scope is deliberately limited to explicit Python CLI `one per line` formats,
+declared successful invocations and finite literal alternatives. Every printed
+line must have the declared format, and one line must be exactly the bound
+observed item. Opaque IDs remain opaque. A TEXT placeholder must match an input
+that the observation's steps actually supplied. One optional LF/CRLF printing
+terminator is allowed. The check does not prove that every item is listed.
+Other API shapes, negative exits, no-write-on-failure, durability and
+concurrency claims still need separate verification. Supported briefs require
+an independent planning review; a legacy single-stage plan cannot supply that
+provenance. Fake evidence and live qualification must remain separate.
+
+The first live runs found two false refusals: a correct listing of several
+items, and a Resolver that escalated every request on a contract carrying this
+record. See `2026-10-06-brief-acceptance-live-false-refusals.md`.

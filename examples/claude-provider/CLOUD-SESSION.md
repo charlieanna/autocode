@@ -20,6 +20,11 @@ cp examples/claude-provider/claude.toml examples/claude-provider/claude_stage.py
 ```
 
 - AutoCode runs the **installed** copy of `claude_stage.py`. Copy it again after changing it, before a live run.
+- Copy `claude.toml` again when it changes, as it did when `[builder_retry]` was added (2026-10-07: a failing
+  Haiku Builder escalates to Sonnet, and the Sonnet Tester moves to Opus for that milestone). An older copy
+  has no stronger Builder, so such runs stop with `PAUSED_BUILDER_RETRY_LIMIT` and "offers no stronger Builder
+  model". **Copy it only between batches**, never while runs are running or paused: each run saved the file's
+  hash (`config_sha256`) and stops with `PAUSED_TRANSPORT_CHANGED` at its next stage.
 - `go` is needed only for `port-policy-go`.
 - This venv does not install the `autocode_cli` package, so `tests.test_configure_module` fails locally with
   `No module named 'autocode_cli'`. CI installs the package; the failure is the environment, not a change.
@@ -73,7 +78,7 @@ mkdir -p /tmp/live && printf 'feature-stock-refusals\n' > /tmp/live/hybrid.txt
   `hybrid.live_stage_names` the model stages Claude ran. `diagnosis` scores only Resolver calls Claude served.
 - Scripted stages cost nothing, so `status`'s cost is the live stages' alone.
 - The installed `claude.toml` must be in `~/.config/autocode/providers/` (step 1): the hybrid tool copies its
-  roles and model list and runs its command for every live stage.
+  roles, model list and `[builder_retry]` and runs its command for every live stage.
 
 ## 4. Watch it
 

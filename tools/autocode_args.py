@@ -73,7 +73,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--workflow", choices=workflows.WORKFLOWS, help="Name the kind of job instead of having the recognizer read it from the request (a new run, or a saved run whose recognizer has not run yet)")
     parser.add_argument("--max-parallel-builders", type=int,
                         help="Orchestrator concurrency for independent milestones (new joint runs: 2; 1 dispatches serially)")
-    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh); pinned routes never escalate')
+    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh, or [builder_retry] in the provider config); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-manifest", type=Path,
@@ -214,6 +214,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="With --resume-paused, accept the current validated OpenCode configuration at a clean transport-change pause")
     parser.add_argument("--abandon-stage", metavar="ATTEMPT_ID",
                         help="Set aside exactly this stopped uncertain attempt, preserving edits and logs; no agent is launched")
+    parser.add_argument('--recover-job-report', metavar='TOKEN',
+                        help='Adopt the exact inspected owner-lost Investigator file report from --status; no model launches and the provider exit stays unknown')
     parser.add_argument("--bind-dependency", help="Register an authorized prerequisite delivery from a JSON specification")
     parser.add_argument("--receive-dependency", help="Record a verified registered delivery manifest; never approves a plan")
     parser.add_argument("--show-goal", action="store_true", help="Display the exact contract revision and approval token")
@@ -254,6 +256,7 @@ def user_actions(args) -> dict[str, bool]:
             "--approve-review": bool(args.approve_review), "--reconcile-review": bool(args.reconcile_review),
             "--feedback": args.feedback is not None, "--follow-up": args.follow_up is not None,
             "--accept-completion": bool(args.accept_completion), "--abandon-stage": args.abandon_stage is not None,
+            '--recover-job-report': args.recover_job_report is not None,
             "--close-finding": bool(args.close_finding),
             "--request-milestone-checkpoints": bool(args.request_milestone_checkpoints),
             "--planning-review-call-limit": args.planning_review_call_limit is not None,
@@ -318,6 +321,9 @@ def parse(unit, argv, default_models):
         parser.error('--max-parallel-builders must be positive')
     if args.retry_builder:
         _requires_resume(parser, args, '--retry-builder')
+    if args.recover_job_report and any((args.resume_paused, args.retry_failed_stage, args.retry_report,
+                                      args.diagnose_failed_stage, args.grant_recovery is not None)):
+        parser.error('--recover-job-report adopts an inspected report on its own; resume or retry separately')
     if args.unlimited_iterations and (args.max_iterations is not None or args.legacy_iteration_ceiling is not None):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change:

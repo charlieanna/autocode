@@ -41,6 +41,7 @@ from pathlib import Path
 
 CONFIG = json.loads(Path(os.environ["SCENARIO_FAKE_CONFIG"]).read_text())
 PROMPT = ""
+OUTPUT_SCHEMA: dict = {}
 DATA: dict = {}
 CHECK = CONFIG["check"]
 ALL_PATHS = CONFIG["paths"]
@@ -956,10 +957,28 @@ def brief_observations(data: dict) -> list[dict]:
             arguments = ['brief-probe' if re.fullmatch(r'[A-Z][A-Z_]*', word) else word for word in pattern]
             bindings.append({'placeholder': variable, 'step': len(steps), 'argument': pattern.index(variable)})
             steps.append({'argv': arguments})
+        # Like the live Plan Reviewers (#452 runs on d6aded9), set up a second item, so a
+        # listing prints more than one line.
+        steps += [{'argv': ['brief-probe-2' if word == 'brief-probe' else word for word in step['argv']]}
+                  for step in steps]
         steps.append({'argv': list(declaration['observe_argv'])})
         result.append({'declaration_id': declaration['id'], 'criterion_ids': criteria,
                        'steps': steps, 'observe_step': len(steps) - 1, 'bindings': bindings})
     return result
+
+
+def builder_evidence_repair(data: dict) -> dict:
+    """A Builder report repair: the rejected report, now citing the check it ran.
+
+    Repair packets omit the live contract and task, so the identity comes from
+    report_identity, and the citation from the original execution's checks.
+    """
+    source = data.get('rejected_report') or data.get('original_report') or {}
+    content = source.get('content') or '{}'
+    report = json.loads(content if isinstance(content, str) else json.dumps(content))
+    report.update(data.get('report_identity') or {})
+    report['evidence_refs'] = [row['evidence_ref'] for row in data.get('original_executed_checks') or []][:1]
+    return report
 
 
 def risk_observations(data: dict) -> list[dict]:
@@ -975,6 +994,21 @@ def risk_observations(data: dict) -> list[dict]:
             result.append({'declaration_id': declaration['id'], 'criterion_ids': criteria,
                            'module': declaration['allowed_modules'][0]})
     return result
+
+
+def report_identity(data: dict) -> dict:
+    """Use this invocation's schema and handoff, including context-free repairs."""
+    contract = data.get("goal_contract") or {}
+    identity = {"contract_revision": contract.get("revision", 0),
+                "contract_hash": contract.get("hash", ""),
+                "task_id": (data.get("current_task") or {}).get("id", "")}
+    identity.update({key: value for key, value in (data.get("report_identity") or {}).items()
+                     if key in identity and value is not None})
+    for key in identity:
+        allowed = OUTPUT_SCHEMA.get("properties", {}).get(key, {}).get("enum", [])
+        if len(allowed) == 1:
+            identity[key] = allowed[0]
+    return identity
 
 
 def runner_findings(data: dict) -> list[dict]:
@@ -1023,13 +1057,25 @@ def report_for(stage: str, data: dict) -> dict:
         if stage == 'plan_finalize':
             allowed |= {'brief_observations', 'brief_observation_changes', 'risk_observations', 'risk_observation_changes'}
         return {key: value for key, value in value.items() if key in allowed}
-    if PROGRESSIVE and data.get("report_repair"):
+    execution_repair = data.get("report_repair") and stage in (
+        "terra", "sol", "astra_checkpoint", "astra_review", "astra_plan", "astra_resolve")
+    if data.get("report_repair") and (PROGRESSIVE or execution_repair):
         # A report-only repair may preserve its original proposal/checklist, not
-        # invent progressive authority from a packet without execution context.
+        # invent execution authority from a packet without execution context.
         original = data.get("rejected_report") or data.get("original_report") or {}
         content = original.get("content") if isinstance(original, dict) else None
-        if content:
-            return json.loads(content) if isinstance(content, str) else content
+        if content is not None:
+            try:
+                report = json.loads(content) if isinstance(content, str) else json.loads(json.dumps(content))
+            except (TypeError, ValueError):
+                raise SystemExit("fake_codex: report-only repair needs an object report") from None
+            if not isinstance(report, dict):
+                raise SystemExit("fake_codex: report-only repair needs an object report")
+            if execution_repair:
+                report.update(report_identity(data))
+            return report
+        if execution_repair:
+            raise SystemExit("fake_codex: report-only repair is missing its rejected report")
     if stage == "recognize_workflow":
         return recognize(data.get("task") or CONFIG["brief"], data.get("follow_up"))
     if stage == "answer_question":
@@ -1049,10 +1095,19 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "investigate_bug":
         return investigate()
     task = data.get("current_task") or {}
-    revision = data.get("goal_contract") or {"revision": 0, "hash": ""}
+    if (stage in ("sol", "astra_checkpoint", "astra_review")
+            and os.environ.get("SCENARIO_FAKE_REQUIRE_DIAGNOSIS_PROVENANCE")):
+        artifacts = data.get("runner_artifacts") or []
+        note_path = "docs/bugs/scripted-diagnosis.json"
+        note = Path(data["workspace"]) / note_path
+        if (len(artifacts) != 1 or artifacts[0].get("path") != note_path
+                or artifacts[0].get("kind") != "runner_written_diagnosis"
+                or artifacts[0].get("sha256") != hashlib.sha256(note.read_bytes()).hexdigest()
+                or note_path in task.get("affected_paths", [])
+                or note_path not in (data.get("regression_proof") or {}).get("source_files", [])):
+            raise SystemExit("Scripted reviewer: diagnosis ownership is not authenticated or raw proof was hidden")
     common = {
-        "contract_revision": revision.get("revision", 0), "contract_hash": revision.get("hash", ""),
-        "task_id": task.get("id", ""), "deferred_backlog": [],
+        **report_identity(data), "deferred_backlog": [],
         "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
                          "options": [], "proposed_delta": ""},
     }
@@ -1097,7 +1152,8 @@ def report_for(stage: str, data: dict) -> dict:
                 "proposed_assumptions": [], "open_questions": [], "requirements": requirements(),
                 "ignored_statements": ignored, "conflicts": [], "proposed_reframes": []}
     # An adaptive-planning Planner drafts the complete plan, initial_task included.
-    adaptive = "ADAPTIVE PLANNING" in PROMPT
+    adaptive = ("ADAPTIVE PLANNING" in PROMPT or
+                "initial_task" in OUTPUT_SCHEMA.get("properties", {}).get("contract", {}).get("required", []))
     if stage == "astra_discovery":
         report = {"summary": "Scripted plan", "contract": contract(final=adaptive), "alternatives": [],
                   "uncertainties": [], **planning}
@@ -1227,11 +1283,7 @@ def report_for(stage: str, data: dict) -> dict:
         source = data.get("rejected_report") or data.get("original_report") or {}
         draft = source.get("content") if isinstance(source, dict) else None
         fixed = _json.loads(draft) if draft else {}
-        identity = data.get("report_identity") or {}
-        original = data.get("original") or {}
-        fixed.update(contract_revision=identity.get("contract_revision", original.get("contract_revision", 0)),
-                     contract_hash=identity.get("contract_hash", original.get("contract_hash", "")),
-                     task_id=identity.get("task_id", original.get("task_id", "")))
+        fixed.update(report_identity(data))
         return fixed
     if stage in ("astra_review", "astra_plan") and MILESTONES:
         task = data.get("current_task") or {}
@@ -1332,7 +1384,7 @@ def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (scenario fake provider)")
         return 0
-    global PROMPT
+    global PROMPT, OUTPUT_SCHEMA
     prompt = PROMPT = sys.stdin.read()
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     emit({"type": "thread.started", "thread_id": session})
@@ -1355,18 +1407,30 @@ def main() -> int:
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
-    report = cite_receipts(report_for(stage, data))
+    OUTPUT_SCHEMA = (json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+                     if "--output-schema" in sys.argv else {})
+    # Live #452 run jb1acns9: the Builder's first report after approval cites no evidence.
+    no_evidence = stage == 'terra' and os.environ.get('SCENARIO_FAKE_BUILDER_NO_EVIDENCE') == '1'
+    if no_evidence and data.get('report_repair'):
+        report = builder_evidence_repair(data)
+    else:
+        report = cite_receipts(report_for(stage, data))
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_RISK_OMIT') == '1':
         report['risk_observations'] = []
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_BRIEF_OMIT') == '1':
         report['brief_observations'] = []
+    if no_evidence and not data.get('report_repair'):
+        marker = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-builder-no-evidence")
+        if not marker.exists():  # once: later Builder runs cite their check as usual
+            marker.touch()
+            report['evidence_refs'] = []
     if os.environ.get("SCENARIO_FAKE_SIDE"):
         # A hybrid run's witness (harness/hybrid.py): which side of the route this scripted call stood for.
         with Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-calls.jsonl").open("a") as handle:
             handle.write(json.dumps({"stage": stage, "repair": bool(data.get("report_repair")),
                                      "side": os.environ["SCENARIO_FAKE_SIDE"]}) + "\n")
     if "--output-schema" in sys.argv:
-        schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+        schema = OUTPUT_SCHEMA
         # Runner-owned brief fields exist only for protected human declarations.
         # Match this call's schema, including report repairs with a smaller packet.
         for field in ('brief_observations', 'brief_observation_changes', 'risk_observations', 'risk_observation_changes'):

@@ -7,11 +7,13 @@ deploy configuration says, so any design that follows the decision can pass them
 follows THIS design is checked against the names the design fixes: every app/ module it names exists
 and every public callable it names is defined in app/ (or is a builtin or comes from a
 standard-library module the code imports, such as `flock(...)` from fcntl). A name with a leading
-underscore is a private helper, which the build may split or name differently.
+underscore is a private helper, which the build may split or name differently, and a callable the
+seed already provides (seed_callables) is the seed's, which the design may keep or remove.
 """
 import ast
 import builtins
 import importlib
+import math
 import re
 import sys
 
@@ -22,6 +24,11 @@ SPAN = re.compile(r"`([^`\n]+)`")
 MODULE = re.compile(r"^app/[\w/]+\.py$")
 SIGNATURE = re.compile(r"^([A-Za-z_]\w*)\(([^()]*)\)$")
 IDENTIFIER = re.compile(r"^[A-Za-z_]\w*$")
+# Citing the decision in the design's own words: "shared-file", "a shared file cache", "a shared,
+# host-local file-backed cache" (a live design that followed it said only the last).
+SHARED_FILE = re.compile(r"\bshared(?:-|[\s,]+(?:[\w-]+[\s,]+){0,2})file", re.I)
+# The methods functools.lru_cache adds to the function it wraps (the seed's metadata()).
+LRU_METHODS = {"cache_clear", "cache_info", "cache_parameters"}
 # A design's rejected options are not what it decides; their names and words do not count.
 SET_ASIDE = re.compile(r"^#{1,6}\s*(rejected|alternatives?|considered|not chosen)\b", re.I | re.M)
 
@@ -35,7 +42,7 @@ def check(project, scenario, run=None):
     whole = (project / design_path).read_text() if design_path else ""
     text = decided(whole)
     checks.append(Check("design_document_written", bool(whole.strip()), design_path or "no design under docs/design/"))
-    follows = ((NOTE in text or "shared-file" in text) and "METADATA_CACHE_DIR" in text
+    follows = ((NOTE in text or SHARED_FILE.search(text)) and "METADATA_CACHE_DIR" in text
                and re.search(r"os\.replace|\brename|\batomic", text, re.I))
     checks.append(Check("design_follows_decision", bool(follows),
                         "" if follows else "outside its rejected options, the design must cite the decision "
@@ -43,7 +50,9 @@ def check(project, scenario, run=None):
                         "visible atomically"))
     modules, signatures = named_interface(text)
     defined, params = definitions(project)
-    missing = [m for m in modules if not (project / m).is_file()] + [n for n in signatures if n not in defined]
+    seeded = seed_callables(scenario.seed)
+    missing = [m for m in modules if not (project / m).is_file()] + [
+        n for n in signatures if n not in defined and n not in seeded]
     differs = [f"{name}({', '.join(want)}) vs {[list(p) for p in params.get(name, ())]}"
                for name, want in signatures.items() if want is not None and name in params
                and tuple(want) not in params[name]]
@@ -110,10 +119,24 @@ def named_interface(text):
     return modules, signatures
 
 
+def seed_callables(seed):
+    """Callables the seed already provides: what definitions() finds there, and the methods of an
+    lru_cache-wrapped function. They are the seed's, not the design's: a design may keep or remove
+    them, and live designs that removed the seed's cache named it (`functools.lru_cache(maxsize=256)`,
+    "`cache_clear()`: Removed") while their builds did just that."""
+    names, _ = definitions(seed)
+    for path in (seed / "app").rglob("*.py") if (seed / "app").is_dir() else []:
+        if "lru_cache" in path.read_text():
+            names |= LRU_METHODS
+    return names
+
+
 def definitions(project):
     """Names the code can call (app/ definitions, builtins, its standard-library imports), and the
-    positional parameters of each app/ function or class (its __init__), self and cls left out."""
-    names, params = set(dir(builtins)), {}
+    positional parameters of each app/ function or class (its __init__), self and cls left out.
+    The math module's names count too: a design's formula (`ceil(3600 / TTL_seconds)`) is
+    arithmetic, not interface, and a live build that computed it another way failed on it."""
+    names, params = set(dir(builtins)) | set(dir(math)), {}
     for path in (project / "app").rglob("*.py") if (project / "app").is_dir() else []:
         try:
             tree = ast.parse(path.read_text())

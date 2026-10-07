@@ -32,3 +32,8 @@ right answer. Unknown keys still fail closed.
 `tests.test_resolver_unit.test_runner_sealed_acceptance_keys_do_not_block_resolution`
 evaluates a body sealed with `brief_acceptance` (and one also carrying
 `risk_acceptance`), and keeps the unknown-key escalation.
+
+The same refusal stopped both `claude-tiers` live runs of #452 on `d6aded9`
+(one of them on an ordinary Builder report repair). Their record,
+`2026-10-06-brief-acceptance-live-false-refusals.md`, also requires each
+runner-owned record to be an object.

@@ -21,9 +21,19 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 GROUPS = ("evidence", "recovery", "lifecycle", "persistence", "planning")
 
+from scenarios.harness.attempts import atomic_json
+
+
+def positive_integer(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
 
 def source_hashes():
-    files = {Path(__file__).resolve(), REPO / "scenarios/harness/fake_codex.py"}
+    files = {Path(__file__).resolve(), REPO / "scenarios/harness/fake_codex.py",
+             REPO / "scenarios/harness/processes.py", REPO / "scenarios/harness/attempts.py"}
     for pattern in ("test_adversarial_*.py", "harness/adversarial*.py", "harness/attack_*.py"):
         files.update((REPO / "scenarios").glob(pattern))
     return {str(p.relative_to(REPO)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)}
@@ -35,10 +45,24 @@ def group_passed(report):
             and all(row["status"] == "PASS" for row in report["rows"]))
 
 
+def read_checkpoint(directory, group):
+    report = json.loads((directory / "result.json").read_text())
+    if (not isinstance(report, dict) or report.get("group") != group
+            or type(report.get("tests_run")) is not int or report["tests_run"] < 0
+            or not isinstance(report.get("rows"), list)
+            or any(not isinstance(row, dict) or not isinstance(row.get("test"), str)
+                   or not row["test"] or row.get("status") not in ("PASS", "FAIL", "ERROR", "NOT_EXERCISED")
+                   or (row.get("evidence") is not None and not isinstance(row["evidence"], str))
+                   for row in report["rows"])):
+        raise ValueError("Invalid outcome checkpoint: expected group, nonnegative tests_run and result rows")
+    return report
+
+
 class Result(unittest.TextTestResult):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, checkpoint=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.rows = []
+        self.checkpoint = checkpoint
 
     def add_row(self, test, status, detail=""):
         root = getattr(test, "root", None)
@@ -55,6 +79,8 @@ class Result(unittest.TextTestResult):
             previous.update(row)
         else:
             self.rows.append(row)
+        if self.checkpoint:
+            self.checkpoint(self)
 
     def addSuccess(self, test):
         super().addSuccess(test)
@@ -91,32 +117,58 @@ def worker(group, output):
     output.mkdir(parents=True, exist_ok=True)
     os.environ["AUTOCODE_ADVERSARIAL_OUT"] = str(output)
     suite = unittest.defaultTestLoader.loadTestsFromName("scenarios.test_adversarial_" + group)
-    result = unittest.TextTestRunner(verbosity=2, resultclass=Result).run(suite)
+    def checkpoint(result):
+        atomic_json(output / "result.json",
+                    {"group": group, "tests_run": result.testsRun, "rows": result.rows}, max_bytes=None)
+    result = unittest.TextTestRunner(verbosity=2,
+        resultclass=lambda *args, **kwargs: Result(*args, checkpoint=checkpoint, **kwargs)).run(suite)
     report = {"group": group, "tests_run": result.testsRun, "rows": result.rows}
-    (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+    atomic_json(output / "result.json", report, max_bytes=None)
     return 0 if group_passed(report) else 1
 
 
-def execute(group, output):
+def execute(group, output, group_timeout_seconds=600):
     from scenarios.harness.processes import run_cli
     directory = output / group
     command = [sys.executable, str(Path(__file__).resolve()), "--worker", group, "--out", str(directory)]
+    result = None
     try:
-        result = run_cli(command, cwd=REPO, env=os.environ.copy(), timeout=600)
+        result = run_cli(command, cwd=REPO, env=os.environ.copy(), timeout=group_timeout_seconds)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "console.log").write_text(result.stdout + result.stderr)
-        report = json.loads((directory / "result.json").read_text())
+        report = read_checkpoint(directory, group)
         report["exit_code"] = result.returncode
         return report
     except Exception as error:
-        return {"group": group, "tests_run": 0, "exit_code": 2,
-                "rows": [{"test": group, "status": "ERROR", "detail": str(error), "evidence": str(directory)}]}
+        directory.mkdir(parents=True, exist_ok=True)
+        detail = [str(error), *getattr(error, "__notes__", [])]
+        cleanup_errors = getattr(error, "cleanup_errors", [])
+        if cleanup_errors:
+            detail.append("CLI cleanup incomplete: " + "; ".join(cleanup_errors))
+        captured = []
+        for name in ("stdout", "stderr"):
+            stream = getattr(error, name, None)
+            if stream is None and result is not None:
+                stream = getattr(result, name)
+            captured.append(stream.decode("utf-8", errors="replace") if isinstance(stream, bytes) else stream or "")
+        try:
+            report = read_checkpoint(directory, group)
+        except (OSError, ValueError) as read_error:
+            report = {"group": group, "tests_run": 0, "rows": []}
+            detail.append("Cannot read outcome checkpoint: " + str(read_error))
+        (directory / "console.log").write_text("".join(captured) + "\n" + "\n".join(detail) + "\n")
+        report.update(exit_code=2, cleanup_errors=cleanup_errors)
+        report["rows"].append({"test": group, "status": "ERROR", "detail": "\n".join(detail),
+                               "evidence": str(directory)})
+        atomic_json(directory / "result.json", report, max_bytes=None)
+        return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", nargs="+", choices=GROUPS, default=list(GROUPS))
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--group-timeout-seconds", type=positive_integer, default=600)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--worker", choices=GROUPS, help=argparse.SUPPRESS)
@@ -139,7 +191,7 @@ def main():
     before_sources = source_hashes()
     groups = list(dict.fromkeys(args.group))
     with ThreadPoolExecutor(max_workers=min(args.jobs, len(groups))) as pool:
-        reports = list(pool.map(lambda group: execute(group, output), groups))
+        reports = list(pool.map(lambda group: execute(group, output, args.group_timeout_seconds), groups))
     rows = [row for report in reports for row in report["rows"]]
     counts = {status: sum(row["status"] == status for row in rows) for status in ("PASS", "FAIL", "ERROR", "NOT_EXERCISED")}
     summary = {"mode": "real CLI with scripted provider and isolated process/I/O faults; no live models",
@@ -152,7 +204,7 @@ def main():
     summary["test_source_sha256"] = before_sources
     summary["test_sources_unchanged"] = before_sources == source_hashes()
     summary["core_tools_modified"] = bool(subprocess.run(["git", "diff", "--quiet", "HEAD", "--", "tools"], cwd=REPO).returncode)
-    (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    atomic_json(output / "summary.json", summary, max_bytes=None)
     lines = ["# Adversarial CLI results", "", summary["mode"], "", f"Tests: {summary['tests_run']}; results: {json.dumps(counts)}", "",
              "A failed assertion is retained for triage. It is a product defect only after the injection and control are verified.", "",
              "| Test | Result | Evidence |", "| --- | --- | --- |"]
