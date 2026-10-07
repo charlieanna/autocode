@@ -501,7 +501,7 @@ passed and `UNVERIFIED` when the base suite already failed. When both runs name
 their tests, they are compared test by test. If a runner reaches its selector
 through a variable or a computed path, the proof is `UNVERIFIED` only when the
 fix also changed a file that is neither a test, product code the tests import
-nor a definition file (docs/bugs/2026-10-07-base-definition-gaps.md).
+nor a definition file ([#652 note](bugs/2026-10-07-base-definition-gaps.md)).
 
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's
