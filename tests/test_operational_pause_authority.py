@@ -217,10 +217,20 @@ class OperationalPauseAuthorityTests(unittest.TestCase):
         return self.after_answer(status)[0]
 
     def after_answer(self, status):
-        """(stages admitted, information review decided) by --resume-paused after the answered request alone."""
+        """(stages admitted, information review decided) by --resume-paused after the answered request alone.
+
+        Worked out once per status on a fresh copy of the fixture; the run a caller is checking is put back.
+        """
         if status not in self._after_answer:
-            stages = self.resume_after_answer(status, pause=False)[1]
-            self._after_answer[status] = (stages, self.information_review())
+            kept = Path(tempfile.mkdtemp()) / 'kept'
+            shutil.copytree(self.flow.root, kept, symlinks=True)
+            try:
+                stages = self.resume_after_answer(status, pause=False)[1]
+                self._after_answer[status] = (stages, self.information_review())
+            finally:
+                shutil.rmtree(self.flow.root)
+                shutil.copytree(kept, self.flow.root, symlinks=True)
+                shutil.rmtree(kept.parent, ignore_errors=True)
         return self._after_answer[status]
 
     def information_review(self):
