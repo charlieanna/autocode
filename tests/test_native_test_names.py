@@ -99,7 +99,8 @@ class NamedTests(unittest.TestCase):
         for text in ["Add the test TestA, which must not break TestB and TestC.",
                      "Add the test TestA for Fixed, similar to TestExisting.",
                      "Add the test TestA that checks X or Y.",
-                     "Add the test TestA for Fixed, but not TestB."]:
+                     "Add the test TestA for Fixed, but not TestB.",
+                     "Add the test TestA for the parser and make sure TestServer, TestClient still pass."]:
             with self.subTest(text=text):
                 self.assertEqual(["TestA"], native.named([text]))
 

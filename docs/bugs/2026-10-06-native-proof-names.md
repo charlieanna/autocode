@@ -47,8 +47,10 @@ a refusal the planner could not satisfy:
   x_test.go:" then "- TestA: what it checks", one name per item however long
   its description). An inline list may describe each name too ("TestA (empty
   input), TestB (one item)" or "TestA checks X, TestB checks Y; TestC ..."); it
-  ends at the sentence's end or at a description's first comma or semicolon that
-  no name follows ("the test TestA, which must not break TestB"). A name
+  ends at the sentence's end, at a description's first comma or semicolon that
+  no name follows ("the test TestA, which must not break TestB"), and at a
+  name inside a description ("TestA for the parser and make sure TestServer,
+  TestClient still pass"). A name
   further away ("the tests pass on TestNet", "a test
   for TestHelper misuse") asks for nothing; so does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test

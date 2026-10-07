@@ -19,8 +19,9 @@ A name is requested (``requested``) when all of these hold:
   TestC" or "a test for Fixed named TestA", or start an item of a list whose lead-in names tests ("Add
   these tests:" then "- TestA: what it checks"). In a list each name may carry a description ("TestA
   (empty input), TestB (one item)", or "TestA checks X, TestB checks Y; TestC ..."); the list ends at
-  the sentence's end, or at a description's first comma or semicolon that no name follows ("the test
-  TestA, which must not break TestB"). A name further from the word, such as "the tests pass
+  the sentence's end, at a description's first comma or semicolon that no name follows ("the test
+  TestA, which must not break TestB"), and at a name inside a description ("TestA for the parser and
+  make sure TestServer, TestClient still pass"). A name further from the word, such as "the tests pass
   on TestNet" or "a test for TestHelper misuse", asks for nothing. So does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test TestReadAll"), or one offered
   with an alternative ("a test TestA or similar"). A later message of the user's that says "instead of",
@@ -148,9 +149,12 @@ def _separator(tokens, k) -> int | None:
 
 def _past_description(tokens, k) -> int | None:
     """Where the next name of a list starts after the description from ``tokens[k]`` ("TestA checks X, TestB
-    checks Y; TestC ..."), or None. The list ends at the sentence's end, and at the description's first comma
-    or semicolon that another name does not follow ("TestA, which must not break TestB")."""
+    checks Y; TestC ..."), or None. The list ends at the sentence's end, at the description's first comma or
+    semicolon that another name does not follow ("TestA, which must not break TestB"), and at a name inside
+    the description ("TestA for the parser and make sure TestServer, TestClient still pass")."""
     while k < len(tokens) and tokens[k] not in SENTENCE_END - {":", ";"}:
+        if IDENTIFIER.fullmatch(tokens[k]):
+            return None
         after = _separator(tokens, k)
         if after is not None:
             after = _skip(tokens, after, QUOTES)
