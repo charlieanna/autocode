@@ -8,10 +8,13 @@ import sys
 import unittest
 from unittest.mock import patch
 
+import autocode_command_receipt as command_receipt
+import autocode_command_supervision as command_supervision
 import autocode_process as processes
 import autocode_regression as regression
 import autocode_runner_check as runner_check
 import autocode_status as status
+import autocode_util as util
 from tests.test_verify import Project, REFERENCE, isolated_python
 
 
@@ -106,6 +109,44 @@ class RunnerCheckTests(unittest.TestCase):
             self.assertFalse(view["runner_check_workers"]["alive"])
             self.assertIn("runner check", view["next_action"])
             self.assertIsNone(view["attempt_id"])
+
+    def _hold(self, *, phase="uncertain", cleanup_error="keeper failed"):
+        path = self.run / "supervision.json"
+        metadata = {"schema": 1, "nonce": "c" * 32, "receipt": str(path.resolve()),
+                    "owner": {"pid": 301, "birth_identity": 1},
+                    "keeper": {"pid": 302, "birth_identity": 2},
+                    "provider": {"pid": 303, "birth_identity": 3}}
+        util.atomic_json(path, {**metadata, "phase": phase, "cause": "keeper_failure",
+                                "cleanup_error": cleanup_error, "observed_at": "2026-10-07T03:10:23Z",
+                                "processes": [metadata["provider"]]})
+        self.state["active_runner_check"] = {"stage": "regression_proof", "summary": "baseline",
+                                              "supervision": metadata}
+        return metadata
+
+    def _persist(self, path, state):
+        path.write_text(json.dumps(state))
+
+    def test_a_dead_uncertain_inventory_is_retired_without_becoming_proof(self):
+        self._hold()
+        with patch.object(command_supervision.processes, "live_processes", return_value=[]):
+            runner_check.clear(self.state, self.run, self._persist)
+        self.assertNotIn("active_runner_check", self.state)
+        self.assertNotIn("regression_proof", self.state)
+        self.assertEqual("runner_check_retired", self.state["user_events"][-1]["kind"])
+        saved = json.loads(self.path.read_text()) if self.path.exists() else {}
+        self.assertNotIn("active_runner_check", saved)
+
+    def test_a_live_or_unreadable_inventory_keeps_the_hold(self):
+        self._hold()
+        with patch.object(command_supervision.processes, "live_processes", return_value=[{"pid": 303}]):
+            with self.assertRaises(command_receipt.OwnershipUncertain):
+                runner_check.clear(self.state, self.run, self._persist)
+        self.assertIn("active_runner_check", self.state)
+        self.assertNotIn("user_events", self.state)
+        (self.run / "supervision.json").write_bytes(b"x" * (command_receipt.MAX_RECEIPT_BYTES + 1))
+        with self.assertRaises(command_receipt.OwnershipUncertain):
+            runner_check.clear(self.state, self.run, self._persist)
+        self.assertIn("active_runner_check", self.state)
 
     def test_unknown_process_liveness_does_not_claim_a_dead_check(self):
         with runner_check.track(self.state, self.run, "regression_proof", "Testing the change", status.persist):

@@ -23,6 +23,7 @@ import unittest
 
 import psutil
 
+import autocode_command_receipt as command_receipt
 import autocode_process as processes
 import autocode_supervision as supervision
 import autocode_taskrun as taskrun
@@ -305,6 +306,7 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         self.addCleanup(lambda: sentinel.wait(timeout=10))
         self.addCleanup(lambda: sentinel.kill() if sentinel.poll() is None else None)
         sentinel_identity = processes.identity(processes.process_table({sentinel.pid})[sentinel.pid])
+        self.sentinel_identity = sentinel_identity
         with (self.root / "driver.log").open("wb") as output:
             self.driver = subprocess.Popen([sys.executable, "-u", "-c", script], stdout=output,
                                            stderr=subprocess.STDOUT, start_new_session=True)
@@ -405,10 +407,55 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
             self.assertFalse((workspace / "review/findings.json").exists(), "Interrupted proof accepted a review")
         self.uncertain_retry_guard(run, workspace, provider_calls)
 
+    def _admissions(self):
+        return {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in self.root.rglob("admission.json")}
+
+    def _assert_hold_remains(self, run, view, provider_calls, admissions):
+        after = self.public_status(run)
+        for current in (view, after):
+            self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", current["status"], current)
+            self.assertEqual(self.metadata["receipt"], current["runner_check"]["supervision"]["receipt"])
+            self.assertEqual(self.metadata["nonce"], current["runner_check"]["supervision"]["nonce"])
+            self.assertFalse(current["done"])
+            self.assertIsNone(current["evidence"]["regression_proof"])
+            self.assertEqual([], current["evidence"]["acceptance"])
+        self.assertEqual(admissions, self._admissions(), "Held cleanup admitted a new verification command")
+        self.assertEqual(provider_calls, self.provider_calls(), "Held cleanup dispatched another provider")
+        state = json.loads((run.run_dir / "state.json").read_text())
+        self.assertFalse(any(event.get("kind") == "runner_check_retired" for event in state.get("user_events") or []))
+
+    def _release_restarted_commands(self, stop):
+        """Unblock a fresh check's barrier. A retired hold may run the check again."""
+        self.server.settimeout(0.5)
+        try:
+            while not stop.is_set():
+                try:
+                    connection, _ = self.server.accept()
+                except socket.timeout:
+                    continue
+                connection.settimeout(5)
+                data = bytearray()
+                while b"\n" not in data:
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                try:
+                    if b"\n" in data:
+                        event = json.loads(bytes(data).partition(b"\n")[0])
+                        self.capture(event["pid"])
+                        connection.sendall(b"x")
+                finally:
+                    connection.close()
+        finally:
+            self.server.settimeout(30)
+
     def uncertain_retry_guard(self, run, workspace, provider_calls):
-        # Inject only retained cleanup evidence after native ownership has ended.
-        # The public relaunch must preserve that uncertainty before admitting any
-        # replacement command or applying the previously finished review report.
+        # Owner loss already stopped the command. Injected uncertainty must still
+        # fail closed while any recorded process is alive or the receipt is unreadable.
+        # Once every recorded process is gone, resume retires the hold and may run
+        # the check again. That retirement is not a passing result (#598).
         actors = [self.metadata["provider"], self.metadata["keeper"], *supervision.receipt(self.metadata)["processes"]]
         deadline = time.monotonic() + 10
         live = processes.live_processes(actors)
@@ -420,30 +467,42 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
         original = json.loads(receipt_path.read_text())
         self.retain("owner-loss-original-receipt.json", original)
         uncertain = {**original, "phase": "uncertain", "cleanup_error": "injected cleanup uncertainty"}
+        admissions = self._admissions()
+        with_sentinel = {**uncertain, "processes": [*original["processes"], self.sentinel_identity]}
+        receipt_path.write_text(json.dumps(with_sentinel, indent=2))
+        self._assert_hold_remains(run, run.advance(), provider_calls, admissions)
+        self.assertEqual(with_sentinel, json.loads(receipt_path.read_text()))
+        self.assertTrue(processes.live_processes([self.sentinel_identity]), "Hold inspection stopped the unrelated sentinel")
+        receipt_path.write_bytes(b"x" * (command_receipt.MAX_RECEIPT_BYTES + 1))
+        self._assert_hold_remains(run, run.advance(), provider_calls, admissions)
         receipt_path.write_text(json.dumps(uncertain, indent=2))
-        admissions = {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
-                      for path in self.root.rglob("admission.json")}
-        retried = run.advance()
+        stop = threading.Event()
+        releaser = threading.Thread(target=self._release_restarted_commands, args=(stop,), daemon=True)
+        releaser.start()
+        try:
+            retried = run.advance()
+        finally:
+            stop.set()
+            releaser.join(timeout=5)
         after = self.public_status(run)
-        after_admissions = {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
-                            for path in self.root.rglob("admission.json")}
         self.retain("after-uncertain-retry.json", {"status": self.last_status, "view": after,
                     "advance_view": retried, "receipt": json.loads(receipt_path.read_text()),
-                    "admissions_before": admissions, "admissions_after": after_admissions,
-                    "live_actors": processes.live_processes(actors)})
+                    "admissions_before": admissions, "admissions_after": self._admissions()})
+        state = json.loads((run.run_dir / "state.json").read_text())
+        self.assertTrue(any(event.get("kind") == "runner_check_retired" for event in state.get("user_events") or []))
+        self.assertEqual(uncertain, json.loads(receipt_path.read_text()), "Resume rewrote the uncertain receipt into evidence")
         for view in (retried, after):
-            self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", view["status"], view)
-            self.assertEqual(self.metadata["receipt"], view["runner_check"]["supervision"]["receipt"])
-            self.assertEqual(self.metadata["nonce"], view["runner_check"]["supervision"]["nonce"])
-            self.assertFalse(view["done"])
-            self.assertIsNone(view["evidence"]["regression_proof"])
-            self.assertEqual([], view["evidence"]["acceptance"])
-        self.assertEqual(uncertain, json.loads(receipt_path.read_text()), "Retry rewrote uncertain ownership evidence")
-        self.assertEqual(admissions, after_admissions, "Uncertain cleanup admitted a new verification command")
-        self.assertEqual(provider_calls, self.provider_calls(), "Uncertain cleanup dispatched another provider")
+            self.assertFalse(view["done"], view)
+            self.assertIsNone(view["evidence"]["regression_proof"], view)
+            self.assertEqual([], view["evidence"]["acceptance"], view)
+            check = view.get("runner_check")
+            if check and check.get("supervision"):
+                self.assertNotEqual(self.metadata["nonce"], check["supervision"].get("nonce"), view)
         self.assertEqual([], processes.live_processes(actors))
-        if after["runner_check"]["stage"] == "review_change":
+        self.assertTrue(processes.live_processes([self.sentinel_identity]))
+        if self.metadata and after.get("next_stage") == "review_change":
             self.assertFalse((workspace / "review/findings.json").exists(), "Uncertain cleanup accepted a review")
+            self.assertEqual(provider_calls, self.provider_calls(), "Uncertain cleanup dispatched another provider")
 
     def test_taskrun_owner_loss_stops_prerequisite_without_accepting_readiness(self):
         workspace, manifest, environment = self.prepare_prerequisite()
