@@ -495,6 +495,7 @@ class PlannerPromptTests(unittest.TestCase):
                 rule = text.split("NATIVE TEST NAMES:", 1)[1].split("\n", 1)[0]
                 self.assertIn(", ".join(NAMES), rule)
                 self.assertIn('"test: TestFixedReturnsTwo"', rule)
+                self.assertIn("keeping the user's spelling and any subtest path they gave", rule)
 
     def test_no_rule_without_requested_names_or_before_planning(self):
         self.assertNotIn("NATIVE TEST NAMES", self.prompt("glm_revise", task="Fix Fixed to return 2."))
