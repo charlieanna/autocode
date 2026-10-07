@@ -319,8 +319,8 @@ class BoundaryTests(unittest.TestCase):
         tree = self.tree("autocode_program.py")
         self.assertNotIn("runs_before", ast.unparse(tree))
         self.assertNotIn(".autocode/runs", ast.unparse(tree))
-        # `program derive` still reads the approved plan from its run's checkpoint (#22 moves it next).
-        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name != "cli_derive"]
+        # `program derive` reads the approved plan from the status view too (approved_contract).
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
         for function in functions:
             for node in ast.walk(function):
                 if isinstance(node, ast.BinOp) and getattr(node.right, "value", None) == "state.json":

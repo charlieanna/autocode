@@ -1,0 +1,42 @@
+{
+  "design_under_review": "docs/design/registry-events-kafka.md",
+  "summary": "Ordering is still broken across transfers; the migration still has no way back.",
+  "satisfied": [
+    "Throughput: 12 partitions at about 1,000 events/s each give 12,000/s against the 5,000/s peak, and the busiest partition (verisign's 450/s plus its share of about 1,400 other registries, about 380/s) stays under 1,000/s.",
+    "Replay: 30-day retention on registry-events lets a consumer re-read after a fix.",
+    "Independent consumers: one consumer group per service, so billing, notifications and audit read at their own pace.",
+    "Redelivery: billing and notifications skip a redelivered event by event_id (events/billing.py, events/notifications.py), so at-least-once delivery charges and notifies once."
+  ],
+  "concerns": [
+    {
+      "id": "F1",
+      "area": "migration",
+      "severity": "blocking",
+      "summary": "Dual-write has no rollback or reconciliation. A service switched to Kafka that must switch back has no defined point to resume the table from, and nothing compares the two sides before the table is removed.",
+      "evidence": "Design, Migration: consumers switch to Kafka by feature flag, forward only; after two weeks the table and the old consumer are removed. No rollback step, no reconciliation.",
+      "example": "Given billing switched to Kafka on day 3 and a Kafka write failed for one renew on day 4, when billing must switch back to the table on day 5, then nothing says from which row it resumes, and the renew that reached only the table is never compared against what Kafka delivered.",
+      "status": "open",
+      "resolution": ""
+    },
+    {
+      "id": "F2",
+      "area": "operations",
+      "severity": "advisory",
+      "summary": "registry-events.dlq has no runbook: nothing says what 'dealt with' means for an event there, or who decides how the stopped partition resumes.",
+      "evidence": "Design, Failures: the consumer copies an event that fails validation to the DLQ and stops consuming that partition until the event 'has been dealt with'; on-call is paged, but no procedure is given.",
+      "status": "open",
+      "resolution": ""
+    },
+    {
+      "id": "O1",
+      "area": "ordering",
+      "severity": "blocking",
+      "summary": "Messages are keyed by registry_id, and a transfer moves a domain to another registry, so a domain's events before and after a transfer land on different partitions and can be consumed out of order, which breaks the per-domain order the user requires.",
+      "evidence": "Design, Producer: keyed by registry_id. Code: events/processor.py docstring, a transfer and every later event carry the gaining registry. User: ordering is per-domain.",
+      "example": "Given example.de renewed at denic (partition 3) and then transferred to verisign (partition 8), when partition 8's consumer runs ahead of partition 3's, then the transfer is processed before the renew that preceded it.",
+      "status": "open",
+      "resolution": ""
+    }
+  ],
+  "questions": []
+}

@@ -7,6 +7,8 @@ import autocode_support as support
 LIMITS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
 # The live run's stalled milestone (feature-stock-refusals, run 8soi9a5s).
 STALLED = {"id": "M1", "needs_replan": True, "replans": 0, "reviews_without_progress": 4, "rejected_advances": 2}
+# An integrated batch's row (autocode_milestone_scope.scope): its id is a digest no next_task.milestone_id can take.
+BATCH = {**STALLED, "id": "batch:caa8bd913910f702", "milestone_ids": ["M1", "M2"], "reviews_without_progress": 3}
 
 
 class PendingReplanTests(unittest.TestCase):
@@ -42,9 +44,47 @@ class ReplanConstraintTests(unittest.TestCase):
         self.assertIn("Replans are unbounded", text)
         self.assertNotIn("PAUSED_MILESTONE_STALLED", text)
 
-    def test_nothing_to_state_unless_a_replan_is_required(self):
-        self.assertEqual("", replan.constraint({**STALLED, "needs_replan": False}, LIMITS))
-        self.assertEqual("", replan.constraint({**STALLED, "replans": 1}, LIMITS))
+    def test_spent_replans_state_that_any_task_on_the_milestone_pauses(self):
+        # The second stall after replan 1 of 1: before_assignment refuses every task on M1.
+        spent = {**STALLED, "replans": 1, "reviews_without_progress": 3}
+        text = replan.constraint(spent, LIMITS)
+        self.assertIn("MILESTONE REPLANS SPENT", text)
+        self.assertIn("3 validations without progress (limit 3) and its replans are spent (1 made, limit 1)", text)
+        self.assertIn("a next task on M1 with any status, REWORK or CONTINUE,\nincluding a kind=validate", text)
+        self.assertIn("PAUSED_MILESTONE_STALLED", text)
+        self.assertNotIn("MILESTONE REPLAN REQUIRED", text)
+        self.assertEqual(replan.SPENT_VALIDATE_RULE, replan.validate_rule(spent, LIMITS))
+        self.assertEqual(replan.REPLAN_VALIDATE_RULE, replan.validate_rule(STALLED, LIMITS))
+
+    def test_spent_replans_name_every_decision_that_still_calls_the_resolver(self):
+        # A REWORK, and a BLOCKED of most user_request kinds, call the Resolver before the run pauses;
+        # PendingReplanThroughTheCLI checks each kind against ASKS_USER_DIRECTLY.
+        text = replan.constraint({**STALLED, "replans": 1}, LIMITS)
+        self.assertIn("the Resolver is called first for a REWORK on M1 (it cannot get M1 another task)\n"
+                      "and for a BLOCKED whose user_request.kind is not permission or goal_change", text)
+        self.assertIn("a CONTINUE on M1 pauses without the Resolver", text)
+        self.assertIn("including which user_request.kind to choose", text)
+
+    def test_a_batch_names_the_members_the_gate_refuses_not_its_row_id(self):
+        # before_assignment treats a task as on the batch when next_task.milestone_id is a member.
+        self.assertEqual(["M1", "M2"], replan.members(BATCH))
+        self.assertEqual(["M1"], replan.members(STALLED))
+        for row, gate in ((BATCH, "only with status REWORK"), ({**BATCH, "replans": 1}, "with any status")):
+            with self.subTest(gate=gate):
+                text = replan.constraint(row, LIMITS)
+                self.assertIn("A next task is on this batch when next_task.milestone_id is M1 or M2", text)
+                self.assertIn(f"a next task on M1 or M2 {gate}", text)
+                self.assertNotIn("on batch:", text)
+                self.assertIn("Advancing to a milestone outside the batch still needs", text)
+        self.assertIn("if the batch stalls again after it", replan.constraint(BATCH, LIMITS))
+        self.assertEqual(["M1", "M2", "M3"], replan.members({**BATCH, "milestone_ids": ["M1", "M2", "M3"]}))
+        self.assertIn("on M1, M2 or M3 with any status",
+                      replan.constraint({**BATCH, "replans": 1, "milestone_ids": ["M1", "M2", "M3"]}, LIMITS))
+
+    def test_nothing_to_state_without_a_pending_replan(self):
+        for row, limits in (({**STALLED, "needs_replan": False}, LIMITS), (STALLED, {**LIMITS, "stalled_reviews": None})):
+            self.assertEqual("", replan.constraint(row, limits))
+            self.assertIsNone(replan.validate_rule(row, limits))
 
     def test_the_overridden_rule_is_the_one_the_completion_owner_reads(self):
         # If ASTRA_DECISIONS is reworded, the stage context would silently keep the conflicting rule.
@@ -52,6 +92,8 @@ class ReplanConstraintTests(unittest.TestCase):
         rewritten = support.ASTRA_DECISIONS.replace(replan.GENERAL_VALIDATE_RULE, replan.REPLAN_VALIDATE_RULE)
         self.assertNotIn("with CONTINUE when existing work only needs Validator revalidation", rewritten)
         self.assertIn("that task is a REWORK, never a CONTINUE", rewritten)
+        rewritten = support.ASTRA_DECISIONS.replace(replan.GENERAL_VALIDATE_RULE, replan.SPENT_VALIDATE_RULE)
+        self.assertIn("except on any milestone\nnamed in MILESTONE REPLANS SPENT below", rewritten)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,14 @@
 """The design workflow's Architect: review a design without building anything, or hand a
 request for a new design on to the build pipeline."""
+import copy
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
 import autocode_design_job as design_job
+import autocode_follow_up as follow_up
 import autocode_jobs as jobs
 import autocode_run_view as run_view
 import autocode_workflows as workflows
@@ -56,6 +59,9 @@ class PrepareTests(unittest.TestCase):
                          (roles["architect"]["model"], roles["architect"]["engine"]))
         self.assertEqual(design_job.SCHEMA, request.schema)
         self.assertIn("kafka-events.md", request.prompt)
+        # A first review is asked as before revisions existed.
+        self.assertNotIn("REVISING YOUR REVIEW", request.prompt)
+        self.assertNotIn("previous_review", design_job.packet(state))
 
     def test_prompt_puts_an_open_requirement_choice_to_the_requester(self):
         """A blocking concern hinging on an unspecified guarantee must become a question, not an assumption."""
@@ -64,6 +70,8 @@ class PrepareTests(unittest.TestCase):
         self.assertIn("whether strict ordering is required", text)
         self.assertIn("ask it here rather than assuming one interpretation", text)
         self.assertIn("already settles", text)
+        # A concern that hinges on the unanswered choice waits for the answer before it blocks (issue #185).
+        self.assertIn("a problem only under one answer, is advisory until the requester answers", " ".join(text.split()))
 
     def test_architect_effort_is_capped_at_medium_but_never_raised(self):
         for given, expected in (("max", "medium"), ("xhigh", "medium"), ("high", "medium"),
@@ -125,6 +133,185 @@ class ApplyTests(unittest.TestCase):
     def test_propose_mode_may_not_smuggle_a_review(self):
         with self.assertRaisesRegex(ValueError, "handed on, not reviewed"):
             self.apply(report("propose", concerns=report()["concerns"]))
+
+
+def concern(id, severity="blocking", status="open", resolution="", **fields):
+    return {"id": id, "area": fields.pop("area", "ordering"), "severity": severity, "status": status,
+            "resolution": resolution, "summary": fields.pop("summary", f"concern {id}"), "evidence": "design text",
+            "example": "Given a transfer; when events split; then order is lost" if severity == "blocking" else "",
+            "probe": "", **fields}
+
+
+class RevisionTests(unittest.TestCase):
+    """A reply to a finished design review makes the Architect revise it (issue #185): same ids, resolved
+    concerns kept, and the whole trail in the report."""
+
+    def setUp(self):
+        self.workspace = Path(tempfile.mkdtemp(prefix="design-revision-"))
+        self.state = state_for(str(self.workspace))
+        first = report(concerns=[concern("F1", area="migration"), concern("F2", "advisory", area="dlq")],
+                       questions=[{"id": "Q1", "question": "Which ordering do consumers need?", "options": ["a"]}])
+        autoreview.apply_job(design_job.STAGE, self.state, first, {"changed_files": [], "output": "o1"}, self.workspace)
+
+    def reply(self, say, kind="design"):
+        follow_up.accept(self.state, say, self.workspace, "t")
+        workflows.apply(self.state, {"workflow": kind, "reason": "", "signals": []}, {})
+
+    def revise(self, **overrides):
+        value = report(concerns=[concern("F1", area="migration"), concern("F2", "advisory", area="dlq"),
+                                 concern("O1", summary="a transfer splits a domain's events")],
+                       questions=[{"id": "Q2", "question": "Is per-registry order acceptable?", "options": ["yes"]}])
+        value.update(overrides)
+        return value
+
+    def saved(self):
+        return json.loads((self.workspace / design_job.REPORT_PATH).read_text())
+
+    def test_a_first_review_is_revision_1_with_every_concern_open(self):
+        written = self.saved()
+        self.assertEqual((1, ["open", "open"], ["", ""]),
+                         (written["revision"], [c["status"] for c in written["concerns"]],
+                          [c["resolution"] for c in written["concerns"]]))
+        self.assertEqual([{"revision": 1, "said": None, "event_id": None, "verdict": "request_changes",
+                           "blocking": ["F1"], "advisory": ["F2"], "resolved": [],
+                           "questions": [{"id": "Q1", "question": "Which ordering do consumers need?"}]}],
+                         written["revisions"])
+        text = (self.workspace / design_job.REPORT_PATH).read_bytes()
+        self.assertEqual(hashlib.sha256(text).hexdigest(), self.state["design_review"]["report_sha256"])
+        self.assertIsNone(design_job.revising(self.state))
+
+    def test_a_reply_asks_for_a_revision_with_the_previous_review_and_the_message(self):
+        self.reply("Ordering is per-domain.")
+        request = autoreview.prepare(self.state, design_job.STAGE, "/run/state.json", None)
+        self.assertEqual(design_job.REVISION_SCHEMA, request.schema)
+        self.assertIn("REVISING YOUR REVIEW", request.prompt)
+        packet = design_job.packet(self.state)
+        self.assertEqual("Ordering is per-domain.", packet["user_message"])
+        self.assertEqual((1, ["F1", "F2"], ["Q1"]),
+                         (packet["previous_review"]["revision"], [c["id"] for c in packet["previous_review"]["concerns"]],
+                          [q["id"] for q in packet["previous_review"]["questions"]]))
+        # A reply recognized as another job revises nothing.
+        other = copy.deepcopy(self.state)
+        other["workflow"]["kind"] = "build"
+        self.assertEqual(design_job.SCHEMA, design_job.schema_for(other))
+
+    def test_a_revision_that_breaks_the_rules_is_refused(self):
+        self.reply("Ordering is per-domain.")
+        before = copy.deepcopy(self.state)
+        cases = {
+            "keeps every earlier concern.*F2 \\(concern F2\\)":
+                self.revise(concerns=[concern("F1"), concern("O1")]),
+            "own id; used more than once: \\['F1'\\]":
+                self.revise(concerns=[concern("F1"), concern("F1"), concern("F2", "advisory")]),
+            "says what settled it in resolution: \\['F2'\\]":
+                self.revise(concerns=[concern("F1"), concern("F2", "advisory", status="resolved")]),
+            "Only an earlier concern can be resolved.*\\['O1'\\]":
+                self.revise(concerns=[concern("F1"), concern("F2", "advisory"),
+                                      concern("O1", status="resolved", resolution="fine")]),
+            "open blocking concern": self.revise(verdict="approve"),
+            "open blocking concern ": self.revise(
+                verdict="request_changes", concerns=[concern("F1", status="resolved", resolution="done"),
+                                                     concern("F2", "advisory")]),
+        }
+        for pattern, value in cases.items():
+            state = copy.deepcopy(before)
+            with self.subTest(pattern), self.assertRaisesRegex(ValueError, pattern.strip()):
+                autoreview.apply_job(design_job.STAGE, state, value, {"changed_files": [], "output": "o2"},
+                                     self.workspace)
+        # A first review resolves nothing.
+        with self.assertRaisesRegex(ValueError, "first review of a design resolves nothing.*: F2"):
+            design_job.check(self.revise(concerns=[concern("F1"), concern("F2", "advisory", status="resolved",
+                                                                          resolution="no")]), [])
+
+    def test_a_reply_about_another_design_gets_a_fresh_review(self):
+        self.reply("Now review docs/design/other.md instead.")
+        fresh = self.revise(design_under_review="docs/design/other.md",
+                            concerns=[concern("C1")], questions=[])
+        resolving = copy.deepcopy(fresh)
+        resolving["concerns"].append(concern("C2", status="resolved", resolution="n/a"))
+        # The refusal says how to keep revising if the Architect only renamed the same design.
+        with self.assertRaisesRegex(ValueError, "resolves nothing.*If it is the review of "
+                                                "'docs/design/kafka-events.md' again, name that design"):
+            autoreview.apply_job(design_job.STAGE, copy.deepcopy(self.state), resolving,
+                                 {"changed_files": [], "output": "o2"}, self.workspace)
+        autoreview.apply_job(design_job.STAGE, self.state, fresh, {"changed_files": [], "output": "o2"}, self.workspace)
+        written = self.saved()
+        self.assertEqual((1, ["Now review docs/design/other.md instead."]),
+                         (written["revision"], [row["said"] for row in written["revisions"]]))
+
+    def test_two_replies_leave_three_revisions_in_the_report(self):
+        self.reply("Ordering is per-domain.")
+        first_event = self.state["turns"][-1]["event_id"]
+        autoreview.apply_job(design_job.STAGE, self.state, self.revise(), {"changed_files": [], "output": "o2"},
+                             self.workspace)
+        self.assertEqual(("TASK_COMPLETE", 2), (self.state["status"], self.state["design_review"]["revision"]))
+        self.reply("Per-registry is fine.")
+        settled = self.revise(questions=[], concerns=[
+            concern("F1", area="migration"), concern("F2", "advisory", area="dlq"),
+            concern("O1", status="resolved", resolution="per-registry accepted; the registry_id key keeps order")])
+        autoreview.apply_job(design_job.STAGE, self.state, settled, {"changed_files": [], "output": "o3"},
+                             self.workspace)
+        written = self.saved()
+        self.assertEqual(3, written["revision"])
+        self.assertEqual([(1, None, ["F1"], ["F2"], [], ["Q1"]),
+                          (2, "Ordering is per-domain.", ["F1", "O1"], ["F2"], [], ["Q2"]),
+                          (3, "Per-registry is fine.", ["F1"], ["F2"], ["O1"], [])],
+                         [(row["revision"], row["said"], row["blocking"], row["advisory"], row["resolved"],
+                           [q["id"] for q in row["questions"]]) for row in written["revisions"]])
+        self.assertEqual(first_event, written["revisions"][1]["event_id"])
+        self.assertEqual("resolved", written["concerns"][2]["status"])
+        found = self.state["design_review"]
+        self.assertEqual((1, 1, 1, 0, 3), (found["blocking"], found["advisory"], found["resolved"],
+                                           found["questions"], found["revision"]))
+        self.assertEqual(hashlib.sha256((self.workspace / design_job.REPORT_PATH).read_bytes()).hexdigest(),
+                         found["report_sha256"])
+        self.assertIn("Revision 3: 1 concern(s) resolved", design_job.render(self.state))
+
+    def test_same_design_reads_the_path_first_then_the_words(self):
+        for before, after, same in (("docs/design/a.md", "docs/design/a.md, revision 2", True),
+                                    ("docs/design/a.md", "docs/design/b.md", False),
+                                    ("docs/design/a.md", "a.md (the revised review)", True),
+                                    ("./docs/design/a.md", "docs/design/a.md", True),
+                                    ("docs/design/a.md", "docs/design/xa.md", False),
+                                    # The design document decides, wherever it is named.
+                                    ("docs/design/a.md", "Kafka migration of events/processor.py per docs/design/a.md",
+                                     True),
+                                    ("read/write split in docs/design/a.md", "docs/design/a.md", True),
+                                    ("docs/design/a.md against events/processor.py",
+                                     "docs/design/b.md against events/processor.py", False),
+                                    ("the design named in the request", "The design  named in the request", True),
+                                    ("docs/design/a.md", "the design in the request", False),
+                                    ("", "", False)):
+            with self.subTest(before=before, after=after):
+                self.assertEqual(same, design_job.same_design(before, after))
+
+    def test_a_repair_of_a_revision_gets_the_revision_rules_and_the_review_it_must_keep(self):
+        self.assertIn("Keep every concern id from previous_review", jobs.repair_rules(design_job.STAGE))
+        self.assertEqual({}, jobs.repair_context(design_job.STAGE, self.state), "a first review keeps nothing")
+        self.reply("Ordering is per-domain.")
+        context = jobs.repair_context(design_job.STAGE, self.state)
+        self.assertEqual("Ordering is per-domain.", context["user_message"])
+        # The whole earlier concern, so a dropped one is restored as it was, not guessed from its id.
+        self.assertEqual(self.saved()["concerns"], context["previous_review"]["concerns"])
+        self.assertEqual({}, jobs.repair_context("review_change", self.state))
+
+    def test_a_reply_saved_before_revisions_existed_is_revised_from_its_open_concerns(self):
+        """A turn recorded by the earlier carry has no concerns, revision or trail; its review is revision 1."""
+        self.reply("Ordering is per-domain.")
+        design = self.state["turns"][-1]["previous"]["design"]
+        for key in ("concerns", "revision", "revisions", "summary", "satisfied"):
+            design.pop(key)
+        autoreview.apply_job(design_job.STAGE, self.state, self.revise(), {"changed_files": [], "output": "o2"},
+                             self.workspace)
+        self.assertEqual([(1, ["F1"], ["F2"]), (2, ["F1", "O1"], ["F2"])],
+                         [(row["revision"], row["blocking"], row["advisory"]) for row in self.saved()["revisions"]])
+
+    def test_a_reply_asking_for_a_new_design_hands_it_to_the_build_pipeline(self):
+        self.reply("Rewrite the design so it has a rollback step.")
+        self.assertIn("return mode\n  propose", design_job.REVISE)
+        autoreview.apply_job(design_job.STAGE, self.state, report("propose"), {"changed_files": [], "output": "o2"},
+                             self.workspace)
+        self.assertEqual(("RUNNING", "requirements_gather"), (self.state["status"], self.state["next_stage"]))
 
 
 if __name__ == "__main__":

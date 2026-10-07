@@ -104,6 +104,43 @@ class OpenCodeTests(unittest.TestCase):
         self.assertEqual(20, events[-1]["usage"]["input_tokens"])
         self.assertEqual(7, events[-1]["usage"]["output_tokens"])
 
+    def test_opencode_2_shell_exit_is_command_evidence_and_a_decoy_is_not(self):
+        nested = event("tool_use", tool="shell", state={"status": "completed",
+                       "input": {"command": "python test.py"},
+                       "metadata": {"metadata": {"exit": 3, "truncated": False}},
+                       "output": "Real failure"})
+        events = oc.normalized_events([nested, terminal()])
+        checks = [row["item"] for row in events if row["type"] == "item.completed"]
+        self.assertEqual(("command_execution", 3), (checks[0]["type"], checks[0]["exit_code"]))
+        decoy = event("tool_use", tool="shell", state={"status": "completed",
+                      "input": {"command": "python test.py"},
+                      "metadata": {"exit": "3", "metadata": {"exit": 0}},
+                      "output": "ignored"})
+        events = oc.normalized_events([decoy, terminal()])
+        self.assertFalse(any(row["type"] == "item.completed" and row["item"].get("exit_code") == 0
+                             for row in events))
+
+    def test_version_text_accepts_1x_and_prefixed_2x_only(self):
+        self.assertEqual("1.18.33", oc.parse_opencode_version("1.18.33\n"))
+        self.assertEqual("2.0.20", oc.parse_opencode_version("opencode v2.0.20"))
+        self.assertEqual("1.18.33-beta.1", oc.parse_opencode_version("1.18.33-beta.1"))
+        for refused in ("0.9.0", "opencode v3.0.0", "not a version", None):
+            self.assertIsNone(oc.parse_opencode_version(refused))
+
+    def test_opencode_2_launch_uses_standalone_and_a_model_variant(self):
+        command, _, _ = oc.launch("sol", Path("/workspace"), Path("/run"), "ses_saved",
+                                   "openai/gpt-6-sol", "high", False, opencode_version="opencode v2.0.20")
+        self.assertIn("--standalone", command)
+        self.assertNotIn("--dir", command)
+        self.assertNotIn("--variant", command)
+        self.assertEqual("openai/gpt-6-sol#high", command[command.index("--model") + 1])
+        self.assertEqual("ses_saved", command[command.index("--session") + 1])
+        unchanged, _, _ = oc.launch("sol", Path("/workspace"), Path("/run"), None,
+                                     "openai/gpt-6-sol", "high", False)
+        self.assertIn("--dir", unchanged)
+        self.assertEqual("high", unchanged[unchanged.index("--variant") + 1])
+        self.assertNotIn("--standalone", unchanged)
+
     def test_absent_exit_code_or_model_claims_cannot_be_command_evidence(self):
         # Completed output without an integer exit can attest a capture receipt.
         # It is not a command_execution, so it cannot be cited as event: evidence.

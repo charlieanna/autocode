@@ -302,6 +302,31 @@ def admit(state, record, workspace):
     record['job_retry_token'] = auth['token']
 
 
+def supersede(state):
+    """Drop a job failure a later non-job pause replaced. Its token must not retry the old stage."""
+    state.pop('job_failure', None)
+    state.pop('job_retry_authorization', None)
+
+
+def resume_gate(state, *, resume, retry, token):
+    """How ``--resume-paused`` meets ``job_failure``.
+
+    ``'authorize'`` checks the token and retries that job. An error string stops
+    the invocation. None continues. A failure whose recovery record is a later
+    attempt is removed, so a plain resume continues that later stage (#567).
+    """
+    if state.get('job_failure') and state.get('status') in PAUSES and not quota_route.job_pause_current(state):
+        if token or retry:
+            return ('this pause is not the stopped workflow job. The retry token belongs to an earlier '
+                    'attempt. Resume with --resume-paused to continue.')
+        supersede(state)
+    if state.get('job_failure') and (quota_route.job_pause_current(state) or token):
+        if not (resume and retry):
+            return state.get('stop_reason') or 'Inspect the retained workflow-job attempt before retrying.'
+        return 'authorize'
+    return None
+
+
 def completed(state, stage):
     if stage == (state.get('job_failure') or {}).get('stage'):
         state.pop('job_failure', None)

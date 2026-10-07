@@ -11,10 +11,12 @@ import subprocess
 from pathlib import Path
 
 try:
-    from . import autocode_support as support, autocode_bug_questions as bug_questions
+    from . import autocode_support as support, autocode_operational_information as information
+    from . import autocode_bug_questions as bug_questions
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
     import autocode_support as support, autocode_bug_questions as bug_questions
+    import autocode_operational_information as information
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 
 
@@ -503,7 +505,12 @@ def respond_operational(state, request_id, request_token, action, text=''):
 
 
 def review_operational_response(state):
-    """Consume information without manufacturing authority for another attempt."""
+    """Consume information without manufacturing authority for another attempt.
+
+    The response itself stays a hold. Corrective information on an operational_exhaustion
+    request is also scheduled for one AutoResolver re-evaluation at the next resume (#486,
+    autocode_operational_information); leave_paused is final.
+    """
     resolver = state.get('resolver') or {}
     event = resolver.get('pending_human_response')
     if not event:
@@ -520,6 +527,9 @@ def review_operational_response(state):
     resolver.pop('pending_human_response', None)
     resolver['human_response_frontier'] = {'binding': _binding(state), 'pause_status': state['status'],
                                          'request_id': event['request_id']}
+    if information.schedule(state, event, entry, resolver['human_response_frontier']):
+        resolution['reason'] = ('Corrective information is retained for one AutoResolver re-evaluation at the next '
+                                'resume; this response did not authorize another attempt or new limits.')
     return copy.deepcopy(resolution)
 
 

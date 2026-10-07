@@ -2,19 +2,21 @@
 
 Each check reports ok, missing (a required piece is absent), or warn (worth
 knowing, not blocking), and the fix for anything not ok. It runs the same
-commands AutoCode itself relies on: ``opencode --version`` (1.x only, as
+commands AutoCode itself relies on: ``opencode --version`` (1.x or 2.x, as
 providers/opencode.py enforces), ``codex login status`` (autocode_support),
 ``git``, for a configured default provider the check a run makes before
 launching it, and the model list a new run checks its default routes against
 (``opencode models``, as `autocode models` does; it can take up to a minute).
-It never reads credentials. The dashboard's setup screen (issue #36) is meant to
-show the same checks, so ``--json`` prints them as data.
+It never reads credentials. OpenCode 1.x and 2.x both count as a ready engine;
+strict tool containment stays qualified only for OpenCode 1.18.33. The dashboard's
+setup screen (issue #36) is meant to show the same checks, so ``--json`` prints
+them as data.
 
 Doctor passes only when the engine a new run uses is ready, resolved as the
 runner resolves it (autocode_configure): ``--engine codex`` runs Codex;
 otherwise (no --engine, or --engine opencode) the OpenCode engine runs the
 provider AUTOCODE_PROVIDER or default_provider in ~/.config/autocode/config.toml
-names, else the built-in OpenCode 1.x. That provider must answer and offer every
+names, else the built-in OpenCode adapter. That provider must answer and offer every
 role's default model. A ready Codex does not pass for a default that is not
 ready; doctor names ``--engine codex``, the single-login route, as the
 alternative (issue #67).
@@ -23,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -32,8 +33,10 @@ from pathlib import Path
 
 try:
     from . import autocode_providers, model_catalogue
+    from .providers import opencode as opencode_provider
 except ImportError:
     import autocode_providers, model_catalogue
+    from providers import opencode as opencode_provider
 
 OK, MISSING, WARN = "ok", "missing", "warn"
 ENGINES = ("opencode", "codex")
@@ -83,11 +86,16 @@ def engine_checks(which=shutil.which, runner=run) -> list[Check]:
     checks = []
     if which("opencode"):
         version = runner(["opencode", "--version"]).stdout.strip()
-        if re.fullmatch(r"1\.\d+\.\d+(?:[-+].*)?", version):
-            checks.append(Check("engine:opencode", OK, f"OpenCode {version}"))
+        parsed = opencode_provider.parse_opencode_version(version)
+        if parsed:
+            detail = f"OpenCode {parsed}"
+            if parsed.split(".", 1)[0] == "2":
+                detail += "; strict tool containment is qualified only for OpenCode 1.18.33"
+            checks.append(Check("engine:opencode", OK, detail))
         else:
             checks.append(Check("engine:opencode", MISSING, f"OpenCode {version or '(no version)'}; AutoCode "
-                                "requires OpenCode 1.x", "npm install -g opencode-ai@1; 2.x is refused"))
+                                "requires OpenCode 1.x or 2.x",
+                                "install OpenCode 1.x or 2.x, then log in (docs/install.md)"))
     else:
         checks.append(Check("engine:opencode", MISSING, "opencode is not on PATH",
                             "npm install -g opencode-ai@1, then log in (docs/install.md)"))

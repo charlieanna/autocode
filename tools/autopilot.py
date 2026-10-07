@@ -22,11 +22,11 @@ try:
     from . import autocode_planning_clarification as clarification
     from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
     from .units import autoplanner as planning_unit, common as units_common
-    from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
+    from . import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     from . import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
     from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
-    import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
+    import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
@@ -163,6 +163,10 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
     regression.before_review(state, stage, workspace, run_dir)
+    try:
+        launch_inputs.guard(state, workspace, run_dir)
+    except ValueError as error:
+        raise runtime.support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
     if stage == "orchestrator":
         return unit.dispatch(state, workspace, run_dir)
     state_path = run_dir / "state.json"
@@ -572,9 +576,10 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
         raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
     replay_context = progressive_state.context(state)
-    validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run,
+    clean_run, clean_identity = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run, verify.execution_identity)
+    validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, clean_run,
                                                    approved_state=state, progressive_context=replay_context,
-                                                   execution_identity=verify.execution_identity,
+                                                   execution_identity=clean_identity,
                                                    all_brief_observations=human_pending or brief_obligations.whole_product_claim(
                                                        state, value, progressive_context=replay_context),
                                                    all_risk_observations=human_pending or brief_obligations.whole_product_claim(
@@ -709,11 +714,15 @@ def apply_result(runtime, state, stage, value, record, workspace, run_dir):
 
 def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
     """Autopilot alone interprets unit results and advances the workflow."""
+    try:
+        launch_inputs.guard(state, workspace, run_dir)
+    except ValueError as error:
+        raise runtime.support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
     support, goals, planning = runtime.support, runtime.goals, runtime.planning
     workflow, milestones, escalation = runtime.workflow, runtime.milestones, runtime.escalation
     dispatch, save_record, now = runtime.dispatch, runtime.save_record, runtime.now
     if stage in jobs.UNIT:
-        unit_module(stage).apply_job(stage, state, value, record, workspace)
+        unit_module(stage).apply_job(stage, state, value, record, workspace, run_dir=run_dir)
         return save_record(state, record)
     if stage == "astra_resolve":
         unit_module(stage).validate(state, value, record, workspace)
@@ -919,7 +928,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             unit_for(stage)
         apply_review_result(runtime, state, stage, value, record, workspace, run_dir)
     save_record(state, record)
-    state.pop("stop_reason", None) if state["status"] == "RUNNING" else None
+    state.pop("stop_reason", None) if state["status"] in ("RUNNING", "TASK_COMPLETE") else None
 
 
 def run(runtime, state, workspace, run_dir, args):
@@ -943,6 +952,10 @@ def run(runtime, state, workspace, run_dir, args):
         except interventions.InterventionError as error:
             raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
         regression.before_review(current, None, workspace, run_dir)
+        try:
+            launch_inputs.guard(current, workspace, run_dir)
+        except ValueError as error:
+            raise support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
         if args.unit and pending_unit(current) != args.unit:
             publish_handoffs(current, run_dir)
             write_json(state_path, current)

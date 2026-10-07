@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import re
-import shlex
 import uuid
 
 try:
     from . import autocode_util as util, autocode_command_receipt as command_receipt
+    from . import autocode_python_tests as python_tests
 except ImportError:
     import autocode_util as util
     import autocode_command_receipt as command_receipt
+    import autocode_python_tests as python_tests
 
 
 def tree_identity(root, *, excluded=()):
@@ -50,17 +50,8 @@ def tree_identity(root, *, excluded=()):
 
 def collection_kind(command):
     """A known exact Python collector, not shell text resembling a test suite."""
-    if re.search(r"[;&|<>`$\n]", command):
-        return None
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        return None
-    if len(words) < 3 or not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name):
-        return None
-    if words[1:3] == ["-m", "unittest"] and ("-v" in words or "--verbose" in words):
-        return "unittest"
-    return "pytest" if words[1:3] == ["-m", "pytest"] else None
+    invocation = python_tests.parse(command)
+    return invocation.kind if invocation else None
 
 
 def complete_results(receipt):

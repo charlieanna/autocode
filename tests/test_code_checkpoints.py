@@ -99,6 +99,8 @@ class CodeCheckpoints(unittest.TestCase):
         self.assertEqual(self.state['settings'],saved['settings']); self.assertEqual(12,saved['active_seconds'])
         self.assertFalse(saved['milestone_progress']['M1']['accepted']); self.assertEqual(12,saved['milestone_progress']['M1']['seconds'])
         self.assertNotIn('validation',saved); self.assertNotIn('final_decision',saved)
+        # An in-place original: the new worktree's project is the checkout its Builder edited (autocode_regression.proof_dependencies).
+        self.assertEqual((str(self.workspace),True),(saved['project_workspace'],saved.get('project_worked_in_place')))
         self.assertEqual(self.state,util.read(child.run_dir/'restoration-history.json'))
         self.assertEqual(checkpoint_bytes,(self.run/'code-checkpoints'/f'{self.ident}.json').read_bytes())
         again=self.client.restore_checkpoint(self.ident,compared['expected_token'],'restore-owned-one')

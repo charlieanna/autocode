@@ -224,11 +224,13 @@ def context_packet(state, stage, state_path):
         elif stage == "sol":
             milestone_policy += ("\nDo not include milestone_results for this non-batch task, including final "
                 "whole-product validation. Follow the current schema, not a previous batch report.\n")
-        required_replan = replan.constraint(base['milestone_checkpoint']['current'], base['milestone_checkpoint']['limits'])
-        if required_replan and stage in ("astra_plan", "astra_review"):
+        checkpoint = base['milestone_checkpoint']
+        pending_replan = replan.constraint(checkpoint['current'], checkpoint['limits'])
+        if pending_replan and stage in ("astra_plan", "astra_review"):
             # State the gate the decision must pass, and drop the general rule it refuses (#459).
-            instruction = instruction.replace(replan.GENERAL_VALIDATE_RULE, replan.REPLAN_VALIDATE_RULE)
-            milestone_policy += required_replan
+            instruction = instruction.replace(replan.GENERAL_VALIDATE_RULE,
+                                              replan.validate_rule(checkpoint['current'], checkpoint['limits']))
+            milestone_policy += pending_replan
     if workflow.enabled(state):
         workflow.guard(state)
         base["workflow"] = state["settings"]["workflow"]

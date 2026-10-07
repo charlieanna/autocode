@@ -2,8 +2,10 @@
 
 try:
     from . import autocode_source_scope as source_scope
+    from . import autocode_launch_inputs as launch_inputs
 except ImportError:
     import autocode_source_scope as source_scope
+    import autocode_launch_inputs as launch_inputs
 
 import json
 import sys
@@ -35,6 +37,11 @@ def render(runner, state, args, workspace, run_dir):
                          if (state.get('settings', {}).get('design_manifest') or strict_visual) and current else None)
     completion_current = (runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
                           if state["status"] == "TASK_COMPLETE" else None)
+    if completion_current:
+        try:
+            launch_inputs.guard(state, workspace, run_dir)
+        except ValueError:
+            completion_current = False
     if completion_current is True and (state.get('settings', {}).get('design_manifest') or strict_visual):
         completion_current = runner.visual_runtime.completion_check(state, current_snapshot=current)['passed']
     inspected = None
@@ -45,6 +52,13 @@ def render(runner, state, args, workspace, run_dir):
         accepted = [row['id'] for row in criteria if row.get('human_review') and row['id'] not in missing]
         inspected = verification.inspect(state, workspace, snapshot=lambda root: source_scope.snapshot(root, state, base_snapshot=runner.support.snapshot),
             read_state=lambda: runner.read_json(run_dir / 'state.json'), accepted_human_ids=accepted, initial_snapshot=current)
+        try:
+            launch_inputs.guard(state, workspace, run_dir)
+        except ValueError as error:
+            inspected = verification.project(state,
+                current_revision=inspected.get('inspected_source_revision'), evidence_matches=False,
+                accepted_human_ids=accepted)
+            inspected['reasons'].append(str(error))
         if completion_current is not None and (inspected['freshness'] != 'current'
                 or inspected.get('inspected_source_revision') != current['revision']):
             completion_current = False

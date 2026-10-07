@@ -44,6 +44,16 @@ RUNNERS = frozenset({"pytest", "npm", "npx", "yarn", "pnpm", "go", "cargo", "rub
                      "sh", "bash"})
 
 
+# Every command in backticks in a check plan is replayed as a check that must exit 0 unless its exit status is
+# declared (assertion_commands). A live repair task's validation plan named usage errors in backticks and said
+# "check that each exits 2", so its Validator could never pass (2026-10-06).
+EXPECTED_FAILURE_RULE = (
+    "Every command a check plan names in backticks (an acceptance criterion's verification_method, a task's "
+    "validation_plan step) is replayed by the runner as a check that must exit 0. Check a command that must fail "
+    "(a usage error, a refused input) inside a test, or name it as \"run `X` and assert exit N\" right after the "
+    "commands (N/M with one status per command for several), or wrap it so it exits 0 exactly when it fails as it "
+    "should, for example sh -c 'X; test $? -eq 2'.")
+
 def executable(text):
     text = text.strip()
     try:
