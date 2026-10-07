@@ -14,12 +14,14 @@ try:
     from . import autocode_worker_quota as worker_quota, autocode_quota_route as quota_route
     from . import autocode_test_examples as test_examples, autocode_test_cases as test_cases
     from . import autocode_assignment as assignment
+    from . import autocode_process as processes, autocode_supervision_cli as supervision_cli
 except ImportError:
     import autocode_assignment as assignment
     import autocode_test_cases as test_cases
     import autocode as runner, autocode_stage_context as stage_context
     import autocode_worker_quota as worker_quota, autocode_quota_route as quota_route
     import autocode_test_examples as test_examples
+    import autocode_process as processes, autocode_supervision_cli as supervision_cli
 
 
 def execute(state, directory, workspace, mode):
@@ -133,11 +135,14 @@ def main(directory, mode="start"):
                 previous = directory / "result.json"
                 if previous.exists():
                     runner.write_json(directory / ("result-history-" + uuid.uuid4().hex[:12] + ".json"), runner.read_json(previous))
-                execute(state, directory, workspace, mode)
+                # Its lifeline keeper's SIGTERM between stages saves a pause too; a stage's own handler defers to this one.
+                with processes.interruption_handler():
+                    execute(state, directory, workspace, mode)
                 return 0
             except (Exception, KeyboardInterrupt) as error:
                 reason = str(error) or state.get("pending_report_repair", {}).get("error") or type(error).__name__
-                state.update(status=getattr(error, "status", "PAUSED_ORCHESTRATOR_WORKER"), stop_reason=reason)
+                interrupted = "PAUSED_INTERRUPTED" if isinstance(error, KeyboardInterrupt) else "PAUSED_ORCHESTRATOR_WORKER"
+                state.update(status=getattr(error, "status", interrupted), stop_reason=reason)
                 runner.write_json(directory / "state.json", state)
                 result = {"status": state["status"], "reason": reason}
                 if state["status"] in quota_route.STATUSES:  # its quota or its provider's content filter (#465)
@@ -153,4 +158,18 @@ def main(directory, mode="start"):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "start"))
+    # The Orchestrator's lifeline (#454), composed as autocode.cli composes the CLI's: when the
+    # Orchestrator dies, this worker saves its pause and its keeper stops anything left. A lifeline
+    # refused because the Orchestrator is already gone ends the worker before any work.
+    working = False
+    try:
+        with processes.interrupts_held(until_exit=True), supervision_cli.guard(sys.argv[1:]) as argv:
+            working = True
+            code = main(argv[0], argv[1] if len(argv) > 1 else "start")
+            working = False
+    except (RuntimeError, ValueError, OSError) as error:
+        if working:
+            raise  # the worker's own failure, not its lifeline's: keep its traceback in worker.log
+        print(f"Builder lifeline: {error}", file=sys.stderr)
+        code = 2
+    raise SystemExit(code)

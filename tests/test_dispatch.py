@@ -17,6 +17,7 @@ import autocode_dispatch as d
 import autocode_goals as g
 import autocode_goal_lifecycle as lifecycle
 import autocode_milestones as m
+import autocode_recovery_view as recovery
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope
 
@@ -283,6 +284,61 @@ class DispatchTests(unittest.TestCase):
             with self.assertRaisesRegex(s.Paused, 'empty implementation candidate'):
                 d.collect(self.state, self.root, self.run, batch)
         self.assertFalse((self.root / 'a.txt').exists())
+
+    def test_built_result_is_adopted_only_after_verified_lifeline_cleanup(self):
+        self.prepare()
+        batch = d.prepare(self.state, self.root, self.run, d.select(self.state))
+        d.run_workers(self.state, self.run, batch)
+        row = batch["workers"][0]
+        receipt = Path(row["supervision"]["receipt"])
+        final = json.loads(receipt.read_text())
+        self.assertEqual(("discharged", "controller_finished", None), (final["phase"], final["cause"], final["cleanup_error"]))
+        # A keeper that could not verify its cleanup leaves a BUILT result for a person to inspect (#454).
+        receipt.write_text(json.dumps({**final, "phase": "uncertain", "cleanup_error": "ProcessError: still alive"}))
+        with self.assertRaises(s.Paused) as raised:
+            d.collect(self.state, self.root, self.run, batch)
+        self.assertEqual("PAUSED_ORCHESTRATOR_WORKER", raised.exception.status)
+        self.assertIn("Builder M1 reported BUILT", str(raised.exception))
+        self.assertIn(f"(uncertain/controller_finished); inspect {receipt}", str(raised.exception))
+        # Cleanup completed after owner loss: the result is still checked like any other.
+        receipt.write_text(json.dumps({**final, "phase": "stopped", "cause": "owner_lost"}))
+        d.collect(self.state, self.root, self.run, batch)
+        self.assertEqual("READY_TO_INTEGRATE", batch["status"])
+
+    def test_held_built_result_is_rerun_only_by_an_explicit_retry(self):
+        self.prepare()
+        batch = d.prepare(self.state, self.root, self.run, d.select(self.state))
+        d.run_workers(self.state, self.run, batch)
+        row = batch["workers"][0]
+        held, receipt, nonce = Path(row["run_dir"]) / "result.json", Path(row["supervision"]["receipt"]), row["supervision"]["nonce"]
+        # Its keeper died after the worker reported BUILT, before publishing its discharge, and so did
+        # the controller, before it saw any worker exit (#454).
+        receipt.write_text(json.dumps({**json.loads(receipt.read_text()), "phase": "armed", "cause": None}))
+        for member in batch["workers"]:
+            member["status"] = "RUNNING"
+        first = (self.root / ".autocode/barrier/M1").read_bytes()
+        for _ in range(2):  # resuming never adopts it
+            with self.assertRaises(s.Paused) as raised:
+                self.build()
+            self.assertEqual("PAUSED_ORCHESTRATOR_WORKER", raised.exception.status)
+            self.assertIn(f"unverified (armed/None); inspect {receipt}, then rerun it with --retry-builder M1",
+                          str(raised.exception))
+        self.assertEqual("BUILT", s.read(held)["status"])
+        card = recovery.project({**s.read(self.run / "state.json"), "status": "PAUSED_ORCHESTRATOR_WORKER"})
+        self.assertEqual([["M1"]], [action["milestone_ids"] for action in card["actions"] if action["kind"] == "retry_builder"])
+        with self.assertRaisesRegex(ValueError, "Builder M2 already completed"):
+            d.request_retry(self.state, self.run, ["M2"])
+        d.request_retry(self.state, self.run, ["M1"])
+        self.assertFalse(held.exists())
+        self.assertEqual([{"status": "BUILT"}], [{"status": s.read(path)["status"]}
+                                                 for path in held.parent.glob("result-history-*.json")])
+        self.build()
+        self.assertEqual("sol", self.state["next_stage"])
+        # The relaunch rechecked the saved implementation under a fresh, discharged lifeline; no Builder reran.
+        self.assertEqual(first, (self.root / ".autocode/barrier/M1").read_bytes())
+        rerun = self.state["orchestration_history"][0]["workers"][0]
+        self.assertNotEqual(nonce, rerun["supervision"]["nonce"])
+        self.assertEqual("discharged", d.lifeline.settled(rerun["supervision"]))
 
     def test_snapshot_commit_ignores_generated_python_bytecode_at_any_depth(self):
         self.prepare()

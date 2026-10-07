@@ -455,7 +455,7 @@ with guard.launch({command!r},receipt_path={str(self.root/'receipt.json')!r},tim
         self.assertFalse(marker.exists())
         self.assertIsNone(supervision.receipt(metadata))
 
-    def start_cli_guard(self, *, normal=False, exit_code=0):
+    def start_cli_guard(self, *, normal=False, exit_code=0, timeout=30):
         read_fd,write_fd=os.pipe()
         identity=processes.identity(processes.process_table({os.getpid()})[os.getpid()])
         nonce='a'*32
@@ -469,7 +469,7 @@ def interrupted(*_):
     Path({str(self.root/'interrupted')!r}).write_text('retained')
     raise SystemExit(2)
 signal.signal(signal.SIGTERM,interrupted)
-with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json')!r},timeout=30,
+with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json')!r},timeout={timeout!r},
                          owner_identity={identity!r},nonce={nonce!r}) as meta:
     print(json.dumps({{'metadata':meta}}),flush=True)
     {after}
@@ -496,16 +496,53 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json
                 self.assertFalse((self.root/'interrupted').exists())
 
     def test_cli_guard_eof_allows_interrupted_receipt_before_stopping(self):
-        child,writer=self.start_cli_guard()
-        metadata=self.read_event(child)['metadata']
-        writer.close()
-        child.wait(timeout=15)
-        self.assertEqual(2,child.returncode,child.stderr.read())
-        self.assertEqual('retained',(self.root/'interrupted').read_text())
-        value=self.receipt_until(metadata)
-        self.assertEqual('owner_lost',value['cause'])
-        self.assertEqual('stopped',value['phase'],value)
+        for timeout in (30,None):  # None: a Builder worker's lifeline has no deadline of its own (#454)
+            with self.subTest(timeout=timeout):
+                for path in (self.root/'cli-receipt.json',self.root/'interrupted'):
+                    path.unlink(missing_ok=True)
+                child,writer=self.start_cli_guard(timeout=timeout)
+                metadata=self.read_event(child)['metadata']
+                writer.close()
+                child.wait(timeout=15)
+                self.assertEqual(2,child.returncode,child.stderr.read())
+                self.assertEqual('retained',(self.root/'interrupted').read_text())
+                value=self.receipt_until(metadata)
+                self.assertEqual('owner_lost',value['cause'])
+                self.assertEqual('stopped',value['phase'],value)
 
+    def test_cli_guard_without_deadline_admits_nested_launch_then_discharges(self):
+        read_fd,write_fd=os.pipe()
+        identity=processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        script=f"""import sys,json
+sys.path.insert(0,{str(TOOLS)!r})
+import autocode_supervision as guard
+with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json')!r},timeout=None,
+                         owner_identity={identity!r},nonce={'a'*32!r}) as meta:
+    print(json.dumps({{'metadata':meta}}),flush=True)
+    with guard.launch([sys.executable,'-c','pass'],receipt_path={str(self.root/'nested.json')!r},timeout=None,
+                      start_new_session=True) as child:
+        child.wait(timeout=10)
+    print(json.dumps({{'nested':child.supervision}}),flush=True)
+"""
+        child=subprocess.Popen([sys.executable,'-u','-c',script],stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE,text=True,start_new_session=True,pass_fds=(read_fd,))
+        os.close(read_fd)
+        self.addCleanup(self.stop_owner,child)
+        writer=os.fdopen(write_fd,'wb',buffering=0)
+        self.addCleanup(writer.close)
+        metadata=self.read_event(child)['metadata']
+        nested=self.read_event(child)['nested']
+        child.wait(timeout=15)
+        self.assertEqual(0,child.returncode,child.stderr.read())
+        value=self.receipt_until(metadata)
+        self.assertEqual(('discharged','controller_finished',None),(value['phase'],value['cause'],value['cleanup_error']))
+        # The nested pair was admitted before its provider could exec, with no owner deadline to bound it.
+        for role in ('keeper','provider'):
+            self.assertTrue(any(processes.matches(nested[role],row) for row in value['processes']),role)
+        with self.assertRaisesRegex(supervision.SupervisionError,'expired'):
+            with supervision.protect_owner(0,receipt_path=self.root/'unused.json',timeout=0,
+                                           owner_identity=metadata['owner'],nonce='b'*32):
+                pass
 
     def test_pid_zero_never_establishes_ownership_or_signals_a_process_group(self):
         row={'pid':0,'group':0,'birth_identity':1.0,'started':'kernel'}

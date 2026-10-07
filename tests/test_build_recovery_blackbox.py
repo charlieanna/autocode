@@ -11,6 +11,7 @@ import unittest
 
 from . import test_build_blackbox as bb
 import autocode_builder_policy as builder_policy
+import autocode_process as processes
 
 
 class RecoveryBlackbox(unittest.TestCase):
@@ -30,28 +31,86 @@ class RecoveryBlackbox(unittest.TestCase):
         self.env.update(PYTHONPATH=str(hooks), BUILD_AUDIT_CONTROLLER_FAULT=kind,
                         BUILD_AUDIT_FAULT_ROOT=str(self.root))
 
-    def await_results(self, count):
-        deadline = time.monotonic() + 35
+    def until(self, found, message, seconds=30):
+        deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            found = list(self.project.glob('.autocode/builders/*/*/.autocode/runs/*/result.json'))
-            if len(found) >= count:
-                return found
-            time.sleep(.05)
-        self.fail(f'Only {len(found)} worker results appeared; expected {count}')
+            value = found()
+            if value:
+                return value
+            time.sleep(.02)
+        self.fail(message)
 
-    def test_08_live_orphan_worker_blocks_second_writer(self):
-        self.seed(); self.env['BUILD_AUDIT_FAULT'] = 'hold'; self.fault('after_worker')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+    def worker_row(self, milestone):
+        return next(r for r in self.state()['orchestration_batch']['workers'] if r['milestone_id'] == milestone)
+
+    def lifeline_receipt(self, row):
+        path = Path(row['supervision']['receipt'])
+        return json.loads(path.read_text()) if path.is_file() else {}
+
+    def test_08_live_guarded_worker_blocks_second_writer(self):
+        # A worker whose keeper has not yet acted on owner loss (frozen here) still owns its milestone (#454).
+        self.seed(); self.env['BUILD_AUDIT_FAULT'] = 'hold'
+        controller = subprocess.Popen(self.command('autocode_build', ['--run-dir', str(self.run), '--no-chat']),
+            cwd=self.root, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            start_new_session=True)
+        owned = []  # psutil handles keep birth identity: cleanup never signals a reused PID
+
+        def capture():
+            if controller.poll() is None:  # unreaped: its PID cannot have been reused
+                try:
+                    owned.extend(processes.psutil.Process(controller.pid).children(recursive=True))
+                except processes.psutil.Error:
+                    pass
         try:
-            deadline = time.monotonic() + 20
-            while not self.events() and time.monotonic() < deadline:
-                time.sleep(.05)
-            self.assertEqual(1, len(self.events()))
-            self.build(2, extra=['--resume-paused', '--retry-builder', 'M1'])
-            self.assertEqual(1, len(self.events()), 'Duplicate writer was launched')
-        finally:
+            provider = self.until(lambda: next((e for e in self.events() if e['milestone'] == 'M1'), None),
+                                  'M1 provider never started')
+            def built(milestone):
+                path = Path(self.worker_row(milestone)['run_dir']) / 'result.json'
+                return path.is_file() and json.loads(path.read_text())['status'] == 'BUILT'
+            self.until(lambda: built('M2') and built('M3'), 'M2 and M3 did not build')
+            row = self.worker_row('M1')
+            self.assertIn('supervision', row, 'M1 was launched without a lifeline')
+            def retained():
+                receipt = self.lifeline_receipt(row)
+                return receipt if any(p['pid'] == provider['pid'] for p in receipt.get('processes', [])) else None
+            receipt = self.until(retained, "M1's keeper never retained its provider")
+            capture()
+            keeper = processes.psutil.Process(receipt['keeper']['pid'])
+            worker = processes.psutil.Process(receipt['provider']['pid'])
+            self.assertTrue(processes.live_processes([receipt['keeper'], receipt['provider']]))
+            keeper.suspend()
+            controller.kill()
+            stdout, stderr = controller.communicate(timeout=10)
+            (self.root / 'killed-controller.log').write_text(stdout + stderr)
+            refused = self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat', '--resume-paused',
+                                                     '--retry-builder', 'M1'], 2)
+            self.assertIn('PAUSED_ORCHESTRATOR_WORKERS', refused.stderr)
+            self.assertEqual(1, sum(e['milestone'] == 'M1' for e in self.events()), 'Duplicate writer was launched')
+            self.assertTrue(worker.is_running(), 'The guarded worker was stopped before its keeper acted')
+            keeper.resume()
+            self.until(lambda: self.lifeline_receipt(row).get('phase') == 'stopped', 'Keeper never cleaned up after owner loss')
+            final = self.lifeline_receipt(row)
+            self.assertEqual(('owner_lost', None), (final['cause'], final['cleanup_error']), final)
+            # The keeper publishes its receipt, then exits.
+            self.until(lambda: not processes.live_processes([receipt['keeper'], receipt['provider']]),
+                       'The keeper or its worker outlived the recorded cleanup', seconds=10)
             (self.root / 'release').touch()
-            self.await_results(1)
+            self.build(extra=['--resume-paused', '--retry-builder', 'M1']); self.candidate()
+            self.assertEqual(2, sum(e['milestone'] == 'M1' for e in self.events()))
+        finally:
+            # Also when the test fails before its barrier: the tree is taken before the controller dies,
+            # and waited for, so nothing writes into the test's directory once it is removed.
+            capture()
+            if controller.poll() is None:
+                controller.kill()
+            (self.root / 'release').touch()
+            for process in owned:
+                try:
+                    process.resume(); process.kill()  # psutil checks birth identity before signalling
+                except processes.psutil.Error:
+                    pass
+            processes.psutil.wait_procs(owned, timeout=10)
+            controller.communicate(timeout=10)
 
     def test_08_actual_timeout_then_controller_crash_keeps_live_writer_exclusive(self):
         spec = bb.plan([([], 'Create output.txt containing done', ['output.txt'])],
@@ -111,7 +170,12 @@ class RecoveryBlackbox(unittest.TestCase):
     def test_11_crash_after_spawn_before_pid_checkpoint(self):
         self.seed(); self.fault('after_worker')
         self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
-        self.await_results(1)
+        # The worker launched just before the crash finds its Orchestrator gone and does no work (#454).
+        directory = Path(self.worker_row('M1')['run_dir'])
+        log = directory / 'worker.log'
+        self.until(lambda: log.is_file() and 'Builder lifeline:' in log.read_text(), 'Orphaned worker did not refuse its lifeline')
+        self.assertEqual([], self.events())
+        self.assertFalse((directory / 'result.json').exists())
         self.build(extra=['--resume-paused']); self.candidate()
         self.assertEqual(3, len(self.events()))
         self.assertEqual(1, sum(e['milestone'] == 'M1' for e in self.events()))

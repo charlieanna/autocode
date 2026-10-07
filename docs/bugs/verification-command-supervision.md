@@ -35,9 +35,10 @@ and refusal to launch again when cleanup is uncertain. Deadline normalization us
 actual zero-exit command; existing keeper fault tests cover physical deadline
 termination. No paid models or larger run allowances are needed for these faults.
 
-Independent supervision of Builder workers, version-2 preflight workers and
-other standalone capture/oracle owners remains separate #454 work. Builder
-retry admission still honors any command ownership hold within its own run.
+Parallel Builder workers now have their own lifeline
+(`qualification-supervision-454.md`). Version-2 preflight workers and other
+standalone capture/oracle owners remain separate #454 work. Builder retry
+admission still honors any command ownership hold within its own run.
 
 The original harness readiness event could occur during `codex login status`,
 before a supervised model stage. Retained local argv proved that barrier gap;

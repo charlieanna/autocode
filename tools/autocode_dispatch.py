@@ -25,6 +25,7 @@ try:
     from . import autocode_milestones as milestones, autocode_process as processes
     from . import autocode_interventions as interventions, autocode_worktrees as worktrees
     from . import autocode_builder_policy as builder_policy, autocode_worker_quota as worker_quota
+    from . import autocode_worker_lifeline as lifeline
     from .autocode_assignment import contains
 except ImportError:
     import autocode_support as s
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_worktrees as worktrees
     import autocode_builder_policy as builder_policy
     import autocode_worker_quota as worker_quota
+    import autocode_worker_lifeline as lifeline
     from autocode_assignment import contains
 
 
@@ -305,12 +307,37 @@ def finish_preparation(state, workspace, run_dir, batch):
     autocode_status.persist(run_dir / "state.json", state)
 
 
+def worker_alive(row):
+    """A saved worker, its lifeline keeper or anything either of them recorded still runs."""
+    saved = lifeline.owned(row.get("supervision"), row.get("processes") or ())
+    return bool(saved) and bool(processes.live_processes(saved))
+
+
+def unverified(row):
+    """Its lifeline keeper never verified the cleanup after this worker (#454).
+
+    A BUILT result from such a worker is held, and --retry-builder may rerun it.
+    Batches saved before worker lifelines have no record and are never held.
+    """
+    return bool(row.get("supervision")) and lifeline.settled(row["supervision"]) not in lifeline.ADOPTABLE
+
+
 def run_workers(state, run_dir, batch):
-    """One provider supervisor process per Builder, with durable launch intent."""
+    """One provider supervisor process per Builder, with durable launch intent.
+
+    Each worker guards itself on a pipe whose only writer is this process
+    (autocode_worker_lifeline), so no worker outlives the Orchestrator.
+    """
     processes.process_table()  # Refuse launch if process ownership cannot be supervised.
     active = []
+    writers = []  # closed by the finally below, so even an unrecorded launch loses its owner
+
+    def release(fd):
+        if fd in writers:
+            writers.remove(fd)
+            os.close(fd)
     for row in batch["workers"]:
-        if row.get("processes") and processes.live_processes(row["processes"]):
+        if worker_alive(row):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "A saved Builder is still running; no duplicate will be launched")
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
     try:
@@ -323,6 +350,8 @@ def run_workers(state, run_dir, batch):
                 elif row["status"] == "PENDING":
                     mode = "start"
                 elif result.get("status") in ("BUILT", builder_policy.SERIAL):
+                    if row["status"] == "RUNNING":  # saved by a controller that died; its worker was found gone above
+                        row["status"] = result["status"]
                     continue
                 elif not row.get("recovery_attempted"):
                     mode = "recover"
@@ -331,31 +360,44 @@ def run_workers(state, run_dir, batch):
                 with interventions.admission(run_dir):
                     if (run_dir / "pause-requested").exists():
                         raise s.Paused("PAUSED_REQUESTED", "Pause requested before Builder launch")
-                    row["status"] = "RUNNING"
-                    row.pop("retry_requested", None)
-                    if mode == "recover":
-                        row["recovery_attempted"] = True
-                    autocode_status.persist(run_dir / "state.json", state)
-                    with (directory / "worker.log").open("ab") as log:
-                        child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("autocode_builder_worker.py")),
-                                                  str(directory), mode], stdout=log, stderr=subprocess.STDOUT,
-                                                 start_new_session=True)
+                    record, reader, writer = lifeline.prepare(directory)
+                    writers.append(writer)
+                    try:
+                        row["status"] = "RUNNING"
+                        row.pop("retry_requested", None)
+                        if mode == "recover":
+                            row["recovery_attempted"] = True
+                        row["supervision"] = record
+                        autocode_status.persist(run_dir / "state.json", state)
+                        with (directory / "worker.log").open("ab") as log:
+                            child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("autocode_builder_worker.py")),
+                                                      str(directory), mode, *lifeline.argv(reader)], stdout=log,
+                                                     stderr=subprocess.STDOUT, close_fds=True, pass_fds=(reader,),
+                                                     start_new_session=True)
+                    finally:
+                        os.close(reader)
                 def checkpoint(owned, row=row):
                     row["processes"] = owned
                 tree = processes.ProcessTree(child.pid, checkpoint)
-                active.append((row, child, tree))
+                active.append((row, child, tree, writer))
                 tree.sample(initial=True)
                 autocode_status.persist(run_dir / "state.json", state)
-            while any(child.poll() is None for _, child, _ in active):
-                for row, child, tree in active:
+            while any(child.poll() is None for _, child, _, _ in active):
+                for row, child, tree, writer in active:
                     tree.sample()
                     if child.poll() is not None:
                         row["exit_code"] = child.returncode
                         result_path = Path(row["run_dir"]) / "result.json"
                         row["status"] = s.read(result_path).get("status", "PAUSED_ORCHESTRATOR_WORKER") if result_path.is_file() else "INTERRUPTED"
+                        release(writer)
                 autocode_status.persist(run_dir / "state.json", state)
                 time.sleep(.2)
-            for row, child, tree in active:
+            for fd in tuple(writers):
+                release(fd)
+            # A worker that exited normally discharged its keeper first; any other
+            # keeper finishes its cleanup before the fallback below.
+            lifeline.await_settled([row.get("supervision") for row, *_ in active], 3)
+            for row, child, tree, _ in active:
                 row["exit_code"] = child.returncode
                 result_path = Path(row["run_dir"]) / "result.json"
                 row["status"] = s.read(result_path).get("status", "PAUSED_ORCHESTRATOR_WORKER") if result_path.is_file() else "INTERRUPTED"
@@ -365,9 +407,20 @@ def run_workers(state, run_dir, batch):
         raise s.Paused("PAUSED_INTERRUPTED", "Orchestrator interrupted; Builder work and logs retained") from error
     finally:
         cleanup_errors = []
-        for _, child, tree in active:
+        # Each worker saves its own pause and stops its provider through its stage
+        # keeper. Freezing its whole tree at once killed that keeper mid-cleanup (#454).
+        live = [child for _, child, _, _ in active if child.poll() is None]
+        for child in live:
+            child.terminate()  # an unreaped child: its PID cannot have been reused
+        until = time.monotonic() + 8
+        while any(child.poll() is None for child in live) and time.monotonic() < until:
+            time.sleep(.05)
+        for fd in tuple(writers):
+            release(fd)  # owner loss for anything left, including a launch never recorded in active
+        lifeline.await_settled([row.get("supervision") for row, *_ in active], 3)
+        for _, child, tree, _ in active:
             try:
-                if child.poll() is None:
+                if child.poll() is None or tree.sample(notify=False):
                     tree.stop(child)
             except processes.ProcessError as error:
                 cleanup_errors.append(str(error))
@@ -437,7 +490,7 @@ def collect(state, workspace, run_dir, batch):
     expected = copy.deepcopy(batch["baseline"])
     tracked = set(git(workspace, "ls-files", "-z", "--cached").decode().split("\0"))
     for row in batch["workers"]:
-        if row.get("processes") and processes.live_processes(row["processes"]):
+        if worker_alive(row):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "A saved Builder is still running; no duplicate will be launched")
         directory = Path(row["run_dir"])
         result_path = directory / "result.json"
@@ -452,6 +505,14 @@ def collect(state, workspace, run_dir, batch):
             raise stopped
         if result.get("status") != "BUILT":
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']}: {result.get('reason', 'paused')}; {directory}")
+        if unverified(row):
+            receipt = lifeline.read(row["supervision"]) or {}
+            row["status"] = "PAUSED_ORCHESTRATOR_WORKER"  # a stopped member: offered for retry
+            autocode_status.persist(run_dir / "state.json", state)
+            raise s.Paused("PAUSED_ORCHESTRATOR_WORKER",
+                           f"Builder {row['milestone_id']} reported BUILT, but its lifeline cleanup is unverified "
+                           f"({receipt.get('phase', 'unreadable')}/{receipt.get('cause')}); inspect "
+                           f"{row['supervision']['receipt']}, then rerun it with --retry-builder {row['milestone_id']}")
         child = s.read(directory / "state.json")
         goals.execution_guard(child, child["implementation"])
         if (child["goal_contract"]["hash"] != batch["contract_hash"] or child["current_task"] != row["task"]
@@ -565,7 +626,7 @@ def dispatch(state, workspace, run_dir):
     batch = state.get("orchestration_batch")
     if batch and batch["contract_hash"] != state["goal_contract"]["hash"]:
         for row in batch["workers"]:
-            if row.get("processes") and processes.live_processes(row["processes"]):
+            if worker_alive(row):
                 raise s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "Wait for the previous plan's Builders before scheduling its replacement")
             s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
             if (Path(row["workspace"]) / ".git").exists():
@@ -668,14 +729,17 @@ def request_retry(state, run_dir, selected, *, issued=None):
     if not set(selected) <= set(rows):
         raise ValueError("--retry-builder must name a milestone in the current batch")
     for row in batch["workers"]:
-        if row.get("processes") and processes.live_processes(row["processes"]):
+        if worker_alive(row):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "A Builder is still running; wait before retrying")
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
+    held = []
     for mid in selected:
         result = Path(rows[mid]["run_dir"]) / "result.json"
         saved = s.read(result) if result.exists() else {}
         if saved.get("status") == "BUILT":
-            raise ValueError(f"Builder {mid} already completed; its work will be retained")
+            if not unverified(rows[mid]):
+                raise ValueError(f"Builder {mid} already completed; its work will be retained")
+            held.append(result)
         if saved.get("status") == builder_policy.SERIAL:
             raise ValueError(f"Builder {mid} left its stronger attempt to a serial build after this batch")
         refused = worker_quota.refused_retry(rows[mid], saved)
@@ -686,6 +750,10 @@ def request_retry(state, run_dir, selected, *, issued=None):
     except ImportError:
         import autocode_resolver_human as human
     human.supersede_operational(state, 'Operator explicitly selected stopped Builder members for retry')
+    for result in held:
+        # Archived, not left for the relaunch to copy: a relaunch that dies before its
+        # keeper arms leaves no receipt, and a held result must not then read as adoptable.
+        os.replace(result, result.with_name("result-history-" + uuid.uuid4().hex[:12] + ".json"))
     for mid in selected:
         rows[mid]["retry_requested"] = True
     state.setdefault("user_events", []).append({"kind": "builder_retry", "actor": "user_cli",

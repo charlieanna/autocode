@@ -39,10 +39,20 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(10, remaining)
         self.assertEqual(self.packet(), packet)
 
+    def test_a_declared_pair_of_null_deadlines_admits_without_a_deadline(self):
+        # A Builder worker's lifeline: each provider attempt keeps its own stage limit (#454).
+        packet = {**self.packet(), 'deadline': None, 'timeout_seconds': None}
+        self.assertEqual((packet, None), self.read(json.dumps(packet).encode() + b'\n'))
+        undeclared = {key: value for key, value in packet.items() if key not in ('deadline', 'timeout_seconds')}
+        with self.assertRaises(ValueError):
+            self.read(json.dumps(undeclared).encode() + b'\n')
+
     def test_invalid_owner_deadline_nonce_or_receipt_refuses_admission(self):
         for change in ({'schema': 2}, {'nonce': 'x' * 32}, {'receipt': 'relative'},
                        {'owner': {'pid': os.getpid(), 'birth_identity': 123}},
-                       {'deadline': 99}, {'timeout_seconds': True}, {'deadline': float('nan')}):
+                       {'deadline': 99}, {'timeout_seconds': True}, {'deadline': float('nan')},
+                       {'deadline': None}, {'timeout_seconds': None}, {'deadline': float('inf')},
+                       {'timeout_seconds': float('nan'), 'deadline': None}, {'deadline': False, 'timeout_seconds': None}):
             with self.subTest(change=change):
                 with self.assertRaises(ValueError):
                     self.read(json.dumps({**self.packet(), **change}).encode() + b'\n')
