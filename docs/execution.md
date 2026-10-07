@@ -744,7 +744,11 @@ work is not a stale handoff. The next Builder attempt is bound as at the packet'
 source when each file, checked one by one, holds either that source's content or
 what the packet's latest Builder attempt left, and Git HEAD has not moved. Any
 other content, such as a person's new edit while the run is paused, still pauses as
-`PAUSED_STALE_HANDOFF`. Because the check is per file, a file restored to its
+`PAUSED_STALE_HANDOFF`. `--resume-paused --accept-source-edit` hands that edit to the
+pending repair: its source revision becomes the current snapshot, and the packet bound
+to the replaced source stays on disk but is no longer what admission compares. The
+approved contract, task, budget, proof and evidence pins stay, and the command refuses
+when those changed or when the Resolver wrote the source. Because the check is per file, a file restored to its
 bound content, an out-of-scope edit re-applied exactly as the attempt left it, or
 a mix of the two states across files is admitted. That is safe: each file holds
 the packet's own source or AutoCode's own output, the assignment scope check still
