@@ -16,6 +16,7 @@ try:
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
     from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from .. import autocode_native_test_names as native_test_names
+    from .. import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -33,6 +34,7 @@ except ImportError:
     import autocode_design_plan as design_plan
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     import autocode_native_test_names as native_test_names
+    import autocode_verification_plan as verification_plan
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -184,6 +186,7 @@ capture it passing. Do not plan scratch copies outside the workspace, and do not
 missing prerequisite or ask the user to authorize it. Running the project's tests also creates files
 (__pycache__/, *.pyc, caches) and the runner keeps its own files under .autocode/: never cite these as
 evidence, and any check of which files changed must ignore them.
+""" + verification_plan.GIT_STATUS_RULE + """
 CONTRACT DELTA: contract_changes describes only changes from the current goal_contract revision in this
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.

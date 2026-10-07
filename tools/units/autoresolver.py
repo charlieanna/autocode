@@ -238,7 +238,7 @@ def prepare(state, stage, state_path, schema_dir):
               'is a Builder or Validator proposal, not accepted independent validation. Do not promote '
               'its checks, criterion statuses, or claims into accepted review evidence. Return a nonempty diagnosis '
               'and one bounded REWORK next_task with defect evidence and concrete validation_plan retests. '
-              + verification_plan.EXPECTED_FAILURE_RULE + ' '
+              + verification_plan.EXPECTED_FAILURE_RULE + ' ' + verification_plan.GIT_STATUS_RULE + ' '
               'Use kind=implement for a source correction, or kind=validate when the remaining defect is '
               'missing or invalid independent verification of unchanged work. A validate task dispatches '
               'the Validator; it neither authorizes source edits nor accepts prior evidence as current. '

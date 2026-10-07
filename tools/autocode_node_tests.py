@@ -6,10 +6,23 @@ Unsupported shell wrappers keep their normal exit-code-only behavior.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import re
 import shlex
 from pathlib import Path, PurePosixPath
+
+
+VALUE_OPTIONS = {"--require", "-r", "--import", "--conditions", "-C", "--loader",
+                 "--experimental-loader", "--test-concurrency", "--test-name-pattern",
+                 "--test-skip-pattern", "--test-timeout", "--test-isolation",
+                 "--experimental-test-isolation", "--test-shard", "--test-global-setup",
+                 "--test-coverage-branches", "--test-coverage-functions", "--test-coverage-lines",
+                 "--test-coverage-exclude", "--test-coverage-include", "--unhandled-rejections"}
+FLAG_OPTIONS = {"--test", "--test-only", "--test-force-exit", "--no-warnings", "--no-deprecation",
+                "--enable-source-maps", "--experimental-strip-types", "--no-strip-types",
+                "--experimental-transform-types", "--experimental-test-coverage",
+                "--experimental-test-module-mocks", "--experimental-vm-modules"}
 
 
 def command_words(command):
@@ -26,10 +39,67 @@ def command_words(command):
            or word in ("-e", "-p", "-i", "--interactive") for word in words[1:]):
         return None
     # --test after the end-of-options marker or a script name is just a script argument.
-    before_test = words[1:words.index("--test")]
-    if any(not word.startswith("--") or word == "--" for word in before_test):
+    index = 1
+    while index < len(words):
+        word = words[index]
+        if word == "--test":
+            return words
+        if word in VALUE_OPTIONS:
+            if index + 1 == len(words) or words[index + 1].startswith("-"):
+                return None
+            index += 2
+            continue
+        if word in FLAG_OPTIONS or ("=" in word and word.split("=", 1)[0] in VALUE_OPTIONS):
+            index += 1
+            continue
+        # An unknown option may consume --test as its value. A script or --
+        # makes it a script argument, so neither supplies a test collector.
         return None
-    return words
+    return None
+
+
+@dataclass(frozen=True)
+class Invocation:
+    node: str
+    arguments: tuple[str, ...]
+    command: str
+
+    def targeted(self, files):
+        """Retain the trusted runtime and options when selecting changed tests.
+
+        Unknown option arity or options after a path cannot safely be rewritten.
+        Keep the original suite in that case; it must still report named tests.
+        """
+        original = self.command
+        files = ["./" + path if path.startswith("-") else path for path in files]
+        kept, index, saw_path = [], 0, False
+        while index < len(self.arguments):
+            word = self.arguments[index]
+            if word == "--":
+                kept.append(word)
+                break
+            if word.startswith("-") and saw_path:
+                return original
+            if word in VALUE_OPTIONS:
+                if index + 1 == len(self.arguments) or self.arguments[index + 1].startswith("-"):
+                    return original
+                kept.extend(self.arguments[index:index + 2])
+                index += 2
+                continue
+            if word in FLAG_OPTIONS or ("=" in word and word.split("=", 1)[0] in VALUE_OPTIONS):
+                kept.append(word)
+            elif word.startswith("-"):
+                return original
+            else:
+                saw_path = True
+            index += 1
+        return shlex.join([self.node, *kept, *files])
+
+
+def parse(command):
+    """Keep one direct Node test invocation; shell wrappers remain unsupported."""
+    words = command_words(command)
+    return Invocation(words[0], tuple(words[1:]), command) if words else None
 
 
 def instrument(command, result_path):

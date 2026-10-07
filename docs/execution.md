@@ -344,7 +344,12 @@ before a PASS is accepted, the runner requires its own current execution of each
 - **What is refused.** A check that runs `git status` is refused before anything
   runs: it reads the working tree's state, not the product, and a program re-runs
   checks after the work is committed and merged, where it lists nothing
-  ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)).
+  ([bug note](bugs/2026-10-06-replay-uncommitted-git-state.md)). So a new plan
+  that names `git status` is refused when its author hands it in: a criterion's
+  verification method, a task's validation plan or requirements, a progressive
+  slice's check, a user's `--edit-goal`. The Planner, Plan Reviewer, Completion
+  Reviewer or Resolver gets its report back for repair, with every such row named.
+  A contract approved before this rule is not checked again ([bug note](bugs/2026-10-07-plan-names-git-status.md)).
 - **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
