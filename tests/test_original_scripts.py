@@ -387,6 +387,29 @@ class PrepareTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.prepare(patch)
 
+    def test_the_original_of_an_in_place_run_is_its_launch_state(self):
+        # #575: an in-place run starts from its checkout, uncommitted and untracked files included
+        # (verify.commit_worktree), so those definitions and tests are original, not the candidate's.
+        launch = manifest({"test": "node --test"}, workspaces=["packages/*"])
+        launch_test = self.CALC_TEST + "test('add 0', () => assert.equal(add(0, 0), 0));\n"
+        self.write({"package.json": launch, ".npmrc": "fund=false\naudit=false\n",
+                    "packages/c/package.json": manifest({"test": "node --test"}), "test/sub.test.js": "sub\n",
+                    "test/calc.test.js": launch_test})
+        self.base = verify.commit_worktree(self.root)
+        self.assertNotEqual(git(self.root, "rev-parse", "HEAD"), self.base)
+        self.assertIsNone(self.prepare())  # nothing changed since launch
+        self.write({"package.json": manifest({"test": "npm test --workspaces"}, workspaces=["packages/*"]),
+                    "packages/c/package.json": manifest({"test": "exit 0"}), "test/calc.test.js": self.CALC_TEST})
+        (self.root / "test/sub.test.js").unlink()
+        prepared = self.prepare()
+        self.assertEqual({"package.json": (launch, 0o644),
+                          "packages/c/package.json": (manifest({"test": "node --test"}), 0o644),
+                          "test/calc.test.js": (launch_test.encode(), 0o644),
+                          "test/sub.test.js": (b"sub\n", 0o644)}, prepared["files"])
+        self.assertEqual([], prepared["removed"])  # the launch's .npmrc is original, not an added file
+        self.assertEqual(["package.json", "packages/c/package.json"], prepared["definitions"])
+        self.assertEqual(["test/calc.test.js", "test/sub.test.js"], prepared["tests"])
+
     def test_a_linked_original_definition_cannot_be_restored(self):
         (self.root / "package.json").unlink()
         (self.root / "package.json").symlink_to("packages/a/package.json")

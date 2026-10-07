@@ -72,9 +72,14 @@ with the original definitions and the original tests put back
   that `package.json` (`jest.config.*`, `vitest.config.*`, `.mocharc*`,
   `ava.config.*`, `.c8rc*`, `.nycrc*`, `.taprc`, `karma.conf.*`), the proof is
   UNVERIFIED without the extra run, naming the file and the script.
-- The original is base with any reviewed patch applied, read through a private
-  index, so a follow-up that puts back the definitions the reviewed change
-  replaced is caught. The tree is built like the candidate's, with the same
+- The original is the run's base with any reviewed patch applied, read through
+  a private index, so a follow-up that puts back the definitions the reviewed
+  change replaced is caught. For an in-place run the base is the checkout as the
+  run started (#575: HEAD plus a commit of its uncommitted and untracked files),
+  so a `package.json`, `.npmrc` or test that was only in the working tree at
+  launch is original: put back when the candidate changes it, never treated as
+  added, and its suite is the one the base run ran. The candidate's files are
+  the paths `changed_files` reports against that base, read from the workspace. The tree is built like the candidate's, with the same
   dependencies, ignored inputs and timeout, but in a temporary folder outside the
   workspace, and removed afterwards. `regression.prove` keeps its run folder
   inside the workspace, and there Yarn 1 (which reads `.npmrc` and `.yarnrc` from
@@ -125,8 +130,14 @@ moved build step (now UNVERIFIED, naming it).
 `tests/test_package_suite_proof.py` (real git and npm, Yarn 1 and pnpm when
 present) covers each, also through `regression.prove`, and PASS for a widened
 script, unrelated scripts on a correct change and those legitimate changes.
+After master's #575 changed the in-place base, the same proof was checked on a
+launch with an uncommitted widened script and an untracked old test: the
+candidate's narrowed script is FAIL because the launch's script and test come
+back, and launch files the candidate leaves alone (an untracked `.npmrc`
+included) cause no second run; reading the original from HEAD instead gives
+PASS there.
 `tests/test_original_scripts.py` covers the restoration rules and the Git
-reading. The controls in `tests/test_verify.py` keep their verdicts: an unchanged
+reading, including the launch state. The controls in `tests/test_verify.py` keep their verdicts: an unchanged
 script with broken behavior is FAIL, a dependency-only change is PASS without a
 second run, a first project on a README-only base is PASS without one.
 
@@ -157,6 +168,9 @@ second run, a first project on a README-only base is PASS without one.
 - In `regression.prove` the base and candidate trees are still built inside the
   workspace, so Yarn 1 and pnpm apply the candidate's parent configuration to
   the base run too. The run here, outside the workspace, still decides: when it
-  fails, a passing base makes the proof FAIL and a failing one UNVERIFIED.
+  fails, a passing base makes the proof FAIL and a failing one UNVERIFIED. The
+  other side of that: configuration that is not in Git (a gitignored root
+  `.npmrc`) reaches Yarn 1 and pnpm in the base run but not in this run, so a
+  suite that needs it is FAIL or UNVERIFIED here.
 - The `make test` suite has the same flaw for its `Makefile`; that needs its own
   issue.

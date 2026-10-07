@@ -220,10 +220,12 @@ def prepare(repo, base, patch, changes, is_test_path):
 
     The original is ``base`` with ``patch`` applied, the code a follow-up is proven
     against, so a follow-up that undoes the patch's change is included although its
-    file matches ``base``. The patch is applied in a private index and object
-    directory, so nothing is written into the repository. A changed file's candidate
-    content is read from ``repo``'s working tree, which the candidate tree is built
-    from; any other file is as ``base`` has it.
+    file matches ``base``. ``base`` is the run's base commit, never HEAD: for an
+    in-place run it holds the files uncommitted or untracked at launch
+    (verify.commit_worktree), and ``changes`` is measured against it. The patch is
+    applied in a private index and object directory, so nothing is written into the
+    repository. A changed file's candidate content is read from ``repo``'s working
+    tree, which the candidate tree is built from; any other file is as ``base`` has it.
     """
     touched = set(changes)
     with tempfile.TemporaryDirectory(prefix="original-definitions-") as scratch:

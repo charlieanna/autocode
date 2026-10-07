@@ -68,11 +68,14 @@ class OriginalDefinitionsProofTests(unittest.TestCase):
                              base_suite=base, new_behavior=new_behavior, timeout=120, base_patch=base_patch,
                              dependencies_from=dependencies)
 
-    def proved(self, project, suite=None):
-        state = {"base_commit": project.base, "iteration": 1, "stages": [], "history": [],
+    def run_dir(self, project):
+        return project.root / ".autocode" / "runs" / "proof"
+
+    def proved(self, project, suite=None, base=None):
+        state = {"base_commit": base or project.base, "iteration": 1, "stages": [], "history": [],
                  "settings": {"regression": {"test_timeout": 120, **({"test_command": suite} if suite else {})}},
                  "goal_contract": {"body": {"task_kind": "build"}}}
-        run = project.root / ".autocode" / "runs" / "proof"
+        run = self.run_dir(project)
         run.mkdir(parents=True, exist_ok=True)
         return regression.prove(state, project.root, run)
 
@@ -92,6 +95,33 @@ class OriginalDefinitionsProofTests(unittest.TestCase):
         self.assertEqual(0, result["checks"][LABEL]["exit_code"], result)
         self.assertTrue(any("as originally defined" in note and "also passes" in note for note in result["notes"]),
                         result["notes"])
+
+    def test_an_in_place_run_is_judged_by_the_definitions_and_tests_it_launched_with(self):
+        # #575: an in-place run starts from its checkout, uncommitted and untracked files included. Here
+        # the launch widened HEAD's script to every test and added sub() with its test; the candidate
+        # breaks sub() and narrows the script again. Judged against HEAD, the original script would skip
+        # sub's test (and that test would count as added), so the proof would pass.
+        sub_test = NODE_TEST + "const {sub} = require('../sub.js');\ntest('sub', () => assert.equal(sub(3, 2), 1));\n"
+        launch = {"package.json": manifest({"test": "node --test"}), "sub.js": "exports.sub = (a, b) => a - b;\n",
+                  "test/sub.test.js": sub_test, ".npmrc": "fund=false\n"}
+        narrowed = manifest({"test": "node --test test/calc.test.js test/feature.test.js"})
+        project = self.project(seed({"test": "node --test test/calc.test.js"}), launch)
+        base = regression.launch_base(project.root, self.run_dir(project))
+        self.assertNotEqual(project.base, base)
+        project.write(change(FIXED, **{"sub.js": "exports.sub = (a, b) => a + b;\n", "package.json": narrowed}))
+        proof = self.proved(project, base=base)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual(0, proof["checks"]["suite_on_candidate"]["exit_code"], proof)
+        self.assertNotEqual(0, proof["checks"][LABEL]["exit_code"], proof)
+        self.assertTrue(any("as originally defined passes on base" in reason and "restored: package.json;" in reason
+                            for reason in proof["failures"]), proof["failures"])
+        # Launch files the candidate leaves alone, the untracked .npmrc included, are not its change.
+        project = self.project(seed({"test": "node --test test/calc.test.js"}), launch)
+        base = regression.launch_base(project.root, self.run_dir(project))
+        project.write(change(FIXED))
+        proof = self.proved(project, base=base)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertNotIn(LABEL, proof["checks"])
 
     def test_a_narrowed_script_that_the_test_script_runs_fails(self):
         scripts = {"test": "npm run test:unit --silent", "test:unit": "node --test"}
