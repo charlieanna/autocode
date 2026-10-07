@@ -165,11 +165,16 @@ def _manifest(state, store, checkout):
 
 
 class Supply:
-    """Exact launch inputs for one proof; uncertainty blocks execution and reuse."""
-    def __init__(self, checkout, store, generated, vendored, unverified, notes):
+    """Exact launch inputs for one proof; uncertainty blocks execution and reuse.
+
+    ``recorded``: a valid launch manifest backs ``generated`` and ``vendored``, so with nothing
+    ``unverified`` they are every ignored input the checkout held at launch, still unchanged
+    (autocode_verify._document_only_base reads it). Without one, an empty Supply says nothing."""
+    def __init__(self, checkout, store, generated, vendored, unverified, notes, *, recorded=False):
         self.checkout, self.store = Path(checkout), Path(store)
         self.generated, self.vendored = generated, vendored
         self.unverified, self.notes = unverified, notes
+        self.recorded = recorded
         self.identity = util.digest({'generated': generated, 'vendored': vendored, 'unverified': unverified})
 
     def copy_into(self, tree):
@@ -262,7 +267,7 @@ def supply(state, checkout, run_dir):
         if added:
             notes.append(f'Ignored {kind} files left out of every test copy (added since this in-place run started): '
                          + _names(added))
-    return Supply(checkout, store, selected['generated'], selected['vendored'], errors, notes)
+    return Supply(checkout, store, selected['generated'], selected['vendored'], errors, notes, recorded=True)
 
 
 def guard(state, workspace, run_dir):

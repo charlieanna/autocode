@@ -117,14 +117,14 @@ def _git(cwd, *args, check=True, env=None, input=None):
     return result.stdout
 
 
-def _document_only_base(workspace, base, *, dependencies_from=None, independent=None):
+def _document_only_base(workspace, base, *, dependencies_from=None, independent=None, ignored_inputs=None):
     """True when the base the proof runs holds no behavior: every entry of the
     pinned tree is a regular non-executable blob that is the root README.md or,
-    when ``dependencies_from`` is a checkout independent of the candidate, a
-    .gitignore or an empty file; and make_tree copies no git-ignored code from
-    ``dependencies_from`` into the proof trees (``generated_sources`` is empty;
-    the launch copies of an in-place run, autocode_launch_inputs, are files of
-    that same checkout, withheld when they changed or went missing).
+    when the candidate cannot have hidden ignored code (below), a Markdown
+    document (``.md``), a .gitignore or an empty file; and make_tree copies no
+    git-ignored code into the proof trees (``generated_sources`` of
+    ``dependencies_from`` is empty, and so is the launch inventory of an
+    in-place run, ``ignored_inputs``: autocode_launch_inputs.Supply).
 
     Source/test filename conventions cannot establish absence of existing
     behavior. Keep this positive inventory deliberately narrow: other non-empty
@@ -144,16 +144,27 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     checkpoint of an --in-place run works in a new worktree whose original
     checkout is that run's workspace (autocode_regression.proof_dependencies).
     There (or with no ``dependencies_from``) only the root README.md is
-    accepted, the rule this function had before .gitignore and empty files.
-    ``independent=None`` (or True) leaves the decision to the path comparison:
-    no caller can make the workspace independent of itself. Third-party
+    accepted, the rule this function had before .gitignore and empty files,
+    unless the in-place run's launch record binds its ignored inputs
+    (``ignored_inputs.recorded``, nothing ``unverified``): it was taken before
+    any provider ran, and supply refuses a recorded file that changed or went
+    missing, so the candidate cannot have hidden ignored code that existed then.
+    ``independent=None`` (or True) leaves the decision to the path comparison
+    or that record: no caller can make the workspace independent of itself. A
+    Markdown document is read, not run: it holds no more behavior than the root
+    README.md, but it can sit in any directory, beside ignored code. Third-party
     dependencies make_tree links or copies separately (node_modules, venvs, an
     ignored vendor/) count only where ``generated_sources`` lists a file, which
     it never does under node_modules or a venv
     (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
     """
-    separate = (independent is not False and bool(dependencies_from)
-                and Path(dependencies_from).resolve() != Path(workspace).resolve())
+    # An in-place run's launch record (autocode_launch_inputs.record, taken before any provider ran)
+    # lists the ignored code the checkout held at launch, and supply refuses (unverified) once any of
+    # it changed or went missing: the candidate cannot hide it, as in a separate checkout.
+    launch_bound = bool(ignored_inputs is not None and getattr(ignored_inputs, "recorded", False)
+                        and not ignored_inputs.unverified)
+    separate = independent is not False and (launch_bound or (
+        bool(dependencies_from) and Path(dependencies_from).resolve() != Path(workspace).resolve()))
     for entry in _git(workspace, "ls-tree", "-r", "-l", "-z", base).split("\0"):
         if not entry:
             continue
@@ -161,10 +172,12 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
         fields = metadata.split()  # mode, type, object, size ("-" for a submodule)
         if not separator or len(fields) != 4 or fields[:2] != ["100644", "blob"]:
             return False
+        name = PurePosixPath(path)
         if not (path == "README.md"
-                or (separate and (PurePosixPath(path).name == ".gitignore" or fields[3] == "0"))):
+                or (separate and (name.name == ".gitignore" or name.suffix == ".md" or fields[3] == "0"))):
             return False
-    return not generated_sources(dependencies_from)
+    launched = ignored_inputs.generated if ignored_inputs is not None else {}
+    return not generated_sources(dependencies_from) and not launched
 
 
 def _package_scripts(text) -> dict:
@@ -1317,7 +1330,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     instead of failing "a fix must change product code". A test that does not pass on the
     base then still blocks it, as a mis-tagged case or a failing regression.
 
-    ``ignored_inputs`` is make_tree's, for every scratch tree.
+    ``ignored_inputs`` is make_tree's, for every scratch tree; its launch record also tells
+    _document_only_base what ignored code an in-place checkout held at launch.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1421,7 +1435,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base,
                                                             dependencies_from=dependencies_from,
-                                                            independent=independent_dependencies))
+                                                            independent=independent_dependencies,
+                                                            ignored_inputs=ignored_inputs))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base,
                          script_redefined=_package_script_redefined(workspace, base, commands["suite"]))
