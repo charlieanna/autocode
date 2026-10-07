@@ -193,8 +193,9 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
 
     ``run`` is None in ``check`` mode (no AutoCode ran), and then there is nothing to
     judge. Otherwise it holds ``status``, the final status ``view`` (docs/task-run.md),
-    ``stages`` (saved stage names in order), ``answers`` (questions the driver answered)
-    and ``cli_calls`` (the kinds of CLI call the driver made).
+    ``stages`` (saved stage names in order), ``answers`` (questions the driver answered: id,
+    question, why, options and the answer given) and ``cli_calls`` (the kinds of CLI call the
+    driver made).
 
     ``workflow`` is the kind of job the run should have recognized; the harness
     reads it from the status view's ``workflow`` field (README, "Workflows").

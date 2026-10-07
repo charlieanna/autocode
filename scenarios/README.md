@@ -230,12 +230,15 @@ without `shop/refunds.py`, does not count); then `diagnosis_accepted` and
 running cap) are required.
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
-default and records each answer in `result.json`. It approves the plan it is
+default and records each answer in `result.json`, with the question's text, why and options. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
 does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
 exception is a scenario's explicit `[fake] answers`: a person's own answer to a
 question the driver never answers by default (a quota stop's `route-sol`, for
-example). The driver gives that answer, then resumes the pause it leaves once.
+example). The driver gives that answer, then resumes the pause it leaves once. A
+scenario may also answer ordinary clarifying questions this way when the person's own
+words are what it tests (`design-alerting-outcomes`); the driver uses them only when
+every question it is asked has one.
 
 ## Hybrid runs
 
@@ -695,6 +698,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `review-vacuous-tests` | review | The PR's tests pass without exercising the change. The reviewer must deliver a targeted test that fails on the patched code and passes once fixed; the oracle runs both. |
 | `design-review-planted` | design | A queue-migration design with three gaps (ordering vs. partition key, no idempotency boundary, no rollback). All three blocking, nothing invented, ordering put to the user as a question. |
 | `design-review-sound` | design | The same design with the gaps closed. No blocking concerns. |
+| `design-alerting-outcomes` | design | Issue #450: a vague request to monitor an AWS order pipeline's dead-letter queue and alert the team in Slack, in an empty workspace. The person answers with alert rules and no integration preference (`[fake] answers`). Requirements asks about outcomes and constraints (what triggers an alert, which channel and whether an existing integration or restriction binds, what an alert may contain), never which Slack API to use; the Planner recommends mechanisms with their tradeoffs, keeps the uncertain-delivery and deadline promises as blocking questions until the person decides them, and the person approves the exact plan, which authorizes no deployment. `check()` judges `design/alerting.json` without requiring any one AWS architecture: the person's rules kept as theirs, every mechanism choice with two or more options, tradeoffs and a recommendation recorded as `agent_proposed`, the channel a parameter rather than a blocker, reliability promises as the person decided them, deployment not authorized, nothing but `design/` changed. With a run it also reads the questions the driver answered (their text and options) and the status view's `approved_contract`. The scripted Requirements and Planner follow the outcome-question rules only when those rules are in their prompts (`harness/outcome_questions_provider.py`), so the fake run fails when a rule stops reaching its stage: run against AutoCode from before the rules, it asked "incoming webhook, Slack app with chat:write, or AWS Chatbot?", re-asked after "no preference", and was `FALSE_COMPLETE` on seven checks. Broken variants: `mechanism-as-user-decision`, `unsupported-guarantee`, `channel-as-blocker`, `deployment-authorized`. |
 | `discuss-cache-choice` | discuss | In-process vs. shared cache, decided by facts planted in the repository (four shared-nothing workers against a 60/hour upstream limit). Cites sources, weighs both options, writes no code, asks at most three questions. |
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |

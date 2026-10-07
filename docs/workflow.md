@@ -259,6 +259,25 @@ no second pass. The episode, and so the pass, is renewed only by your own new in
 non-delegated `--answer`, `--feedback`, or `--edit-goal`. Delegating a default, rejecting
 an assumption, or the model regenerating question IDs does not renew it.
 
+**Outcomes before mechanisms** ([#450](https://github.com/charlieanna/autocode/issues/450)).
+After reading the repository's conventions, the Requirements Gatherer asks you about outcomes
+and constraints: what must happen and when (conditions, thresholds, deadlines), where results
+go, what data may leave, and which organizational restrictions bind (approved services, an
+existing integration that must be used, accounts). It does not ask you to pick an API, service
+or integration mechanism unless one of your constraints makes that choice yours; it asks
+whether such a constraint exists ("Which channel should receive alerts, and must we use an
+existing integration?"). A channel, account or resource name that a provisional design can take
+as configuration is a parameter, not a blocking question. Reliability promises come up early,
+as your decisions: whether an alert whose delivery is uncertain is sent again (you may see it
+twice) or not (you may miss it), and whether a deadline is a target while everything is healthy
+or a guarantee that holds through an outage. A guarantee the design cannot support stays a
+blocking question until you accept a weaker one. The Planner recommends the mechanisms, naming
+the options and their tradeoffs, and records its choice as an `agent_proposed` assumption: a
+recommendation is never your decision and never permission to deploy, and approving a plan or
+a design document authorizes no deployment and no call to an outside service. The Plan Reviewer
+checks both. The rules are in `tools/autocode_outcome_questions.py`; the Builder, Tester and
+completion stages do not get them. The `design-alerting-outcomes` scenario covers them.
+
 Whenever planning stops for your answers, the displayed brief starts with a **Plan Preview**
 bound to that exact revision and requirements handoff. It lists what you said (quoted
 requirements), what was read from the workspace, the assumptions the plan would rely on,

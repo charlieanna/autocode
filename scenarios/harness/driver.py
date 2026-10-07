@@ -287,7 +287,8 @@ class Driver:
                 explicit = question["id"] in self.explicit_answers
                 answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
                 answers.append({"id": question["id"], "question": question.get("question"),
-                                "why": question.get("why"), "answer": answer,
+                                "why": question.get("why"), "options": list(question.get("options") or []),
+                                "answer": answer,
                                 **({"explicit": True} if explicit else {})})
                 pairs.append(f"{question['id']}={answer}")
                 if explicit and (need.get("route") or {}).get("question_id") == question["id"]:

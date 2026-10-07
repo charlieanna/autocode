@@ -1321,6 +1321,10 @@ def main() -> int:
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
     report = cite_receipts(report_for(stage, data))
+    if CONFIG.get("fault") == "outcome_questions" and not data.get("report_repair"):
+        # Fault "outcome_questions" (scenarios/catalog/design-alerting-outcomes, issue #450): planning asks and
+        # recommends as the outcome-question rules in its prompt say, and only then.
+        report = scripted_fault("outcome_questions_provider.py")["report_for"](stage, data, PROMPT, report)
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_RISK_OMIT') == '1':
         report['risk_observations'] = []
     if stage in ('astra_challenge', 'astra_finalize', 'plan_finalize') and os.environ.get('SCENARIO_FAKE_BRIEF_OMIT') == '1':

@@ -1008,6 +1008,65 @@ class RunChecksTests(unittest.TestCase):
         self.assertFalse(check.ok)
 
 
+def outcome_questions_provider() -> dict:
+    """The scripted planning of design-alerting-outcomes (harness/outcome_questions_provider.py), as the fake loads it."""
+    import runpy
+    return runpy.run_path(str(Path(__file__).resolve().parent / "harness" / "outcome_questions_provider.py"))
+
+
+class OutcomeQuestionsOracleTests(unittest.TestCase):
+    """Issue #450: design-alerting-outcomes judges how planning asked, from the run record. ``check`` cannot show
+    that (it has no run), so these build the record the scripted planning leaves with and without each rule."""
+
+    def setUp(self):
+        self.provider = outcome_questions_provider()
+        self.scenario = catalog.load("design-alerting-outcomes")
+        self.answers = dict(self.scenario.fake_answers)
+
+    def record(self, prompt):
+        """The run record of a completed run whose planning prompts were ``prompt``."""
+        provider = self.provider
+        asked = provider["requirements_questions"](prompt) + provider["planner_questions"](prompt)
+        data = {"saved_answers": {row["id"]: {} for row in asked},
+                "requirements_handoff": {"report": {"open_questions": asked[:3]}}}
+        draft = {"contract": {"technical_approach": ["Write the design document"], "accepted_assumptions": [],
+                              "permission_boundaries": ["Edit only design/ in this scenario workspace"],
+                              "open_blocking_questions": []}}
+        body = provider["report_for"]("astra_discovery", data, prompt, draft)["contract"]
+        kinds = ["start", "answer", "answer", "approve-plan", "resume"]
+        return {"status": "TASK_COMPLETE", "view": {"workflow": "design", "approved_contract": {"body": body}},
+                "stages": ["recognize_workflow", "review_design", "requirements_gather", "astra_discovery",
+                           "astra_challenge", "terra", "sol", "astra_review"],
+                "answers": [{"id": row["id"], "question": row["question"], "why": row["why"],
+                             "options": row["options"], "answer": self.answers[row["id"]]} for row in asked],
+                "cli_calls": kinds, "steps": [{"kind": kind, "exit": 0} for kind in kinds]}
+
+    def failing(self, prompt):
+        checks = self.scenario._oracle_module().process_checks(self.record(prompt))
+        return [check.name for check in checks if not check.ok]
+
+    def test_planning_that_follows_both_rules_passes(self):
+        self.assertEqual([], self.failing(self.provider["REQUIREMENTS_HEADING"] + self.provider["PLANNER_HEADING"]))
+
+    def test_requirements_without_its_rule_asks_which_slack_integration(self):
+        # The question the live run asked (2026-10-03): three mechanisms offered to the person.
+        self.assertEqual(["requirements_asked_about_outcomes_and_constraints", "no_mechanism_put_to_the_person"],
+                         self.failing(self.provider["PLANNER_HEADING"]))
+
+    def test_a_planner_without_its_rule_reasks_the_api_and_records_it_as_decided(self):
+        self.assertEqual(["no_mechanism_put_to_the_person", "no_mechanism_reasked_after_no_preference",
+                          "unsupported_guarantees_were_blockers", "approved_plan_recommends_mechanisms",
+                          "approved_plan_keeps_recommendations_as_proposals",
+                          "approved_plan_authorizes_no_deployment"],
+                         self.failing(self.provider["REQUIREMENTS_HEADING"]))
+
+    def test_a_plan_approved_before_the_guarantees_were_answered_fails(self):
+        record = self.record(self.provider["REQUIREMENTS_HEADING"] + self.provider["PLANNER_HEADING"])
+        record["steps"] = [{"kind": kind, "exit": 0} for kind in ("start", "answer", "approve-plan", "answer")]
+        checks = self.scenario._oracle_module().process_checks(record)
+        self.assertEqual(["unsupported_guarantees_were_blockers"], [check.name for check in checks if not check.ok])
+
+
 class ProgressiveLearningOracleTests(unittest.TestCase):
     def setUp(self):
         from harness.project import materialize
@@ -2184,6 +2243,33 @@ class FakeRunTests(unittest.TestCase):
                 result = self.run_fake(solution, "design-review-with-answers")
                 self.assertEqual(judged, result["verdict"], result["summary"])
                 self.assertIn(failing, [check["name"] for check in result["checks"] if not check["ok"]])
+
+    def test_a_monitoring_design_asks_about_outcomes_and_recommends_mechanisms(self):
+        # Issue #450, through the real CLI: each planning stage's saved prompt carries its own outcome-question
+        # rule and no execution stage's does; the scripted planning follows the rules it was given.
+        provider = outcome_questions_provider()
+        headings = {provider["REQUIREMENTS_HEADING"]: "requirements", provider["PLANNER_HEADING"]: "planner",
+                    provider["REVIEWER_HEADING"]: "reviewer"}
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=15)
+            result = run.run_one(catalog.load("design-alerting-outcomes"), args)
+            prompts = {path.name.removesuffix(".prompt.md"): {job for heading, job in headings.items()
+                                                              if heading in path.read_text()}
+                       for path in sorted(Path(result["run_dir"]).glob("iterations/*/*.prompt.md"))}
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["Q1", "Q2", "Q3", "Q4", "Q5"], [answer["id"] for answer in result["answers"]])
+        self.assertEqual({"requirements-gather-01": {"requirements"}, "discovery-01": {"planner"},
+                          "discovery-02": {"planner"}, "discovery-03": {"planner"},
+                          "plan-challenge-01": {"reviewer"}, "recognize-workflow-01": set(),
+                          "design-review-01": set(), "builder-01": set(), "validator-01": set(),
+                          "completion-review-01": set()}, prompts)
+
+    def test_a_monitoring_design_that_records_the_recommendation_as_decided_is_false_complete(self):
+        result = self.run_fake("broken/mechanism-as-user-decision", "design-alerting-outcomes")
+        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        self.assertEqual(["recommendations_are_not_the_persons_decisions", "assumptions_are_explicit"],
+                         [check["name"] for check in result["checks"] if not check["ok"]])
 
     def test_a_turn_after_a_stop_is_never_said_and_the_run_is_an_honest_blocker(self):
         # implement-design-conflict stops, as expected; a follow-up after its completion is never reached.

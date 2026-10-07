@@ -131,6 +131,12 @@ class RuleTableTests(unittest.TestCase):
         for stage in ("plan_review", "plan_finalize"):
             self.assertEqual(outcome_questions.REVIEWER_RULE, outcome_questions.rule(stage))
 
+    def test_the_scenario_fake_reads_these_headings(self):
+        source = (Path(__file__).resolve().parents[1] / "scenarios" / "harness"
+                  / "outcome_questions_provider.py").read_text()
+        for heading in HEADINGS:
+            self.assertIn(repr(heading), source)
+
     def test_each_rule_starts_with_its_own_heading(self):
         # The scenario harness's scripted model reads the headings (scenarios/ may not import tools/).
         for heading, text in zip(HEADINGS, (outcome_questions.REQUIREMENTS_RULE, outcome_questions.PLANNER_RULE,

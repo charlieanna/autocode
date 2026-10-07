@@ -1,0 +1,23 @@
+title = "Monitoring design: ask about outcomes, recommend the mechanism"
+category = "design"
+# Issue #450. A vague monitoring request in an empty workspace. The person supplies the alert rules and
+# has no preference for how alerts reach Slack. Requirements must ask about outcomes and constraints (what
+# triggers an alert, which channel, whether an existing integration binds, what an alert may contain),
+# never which Slack API to use; the Planner recommends mechanisms with their tradeoffs, keeps the
+# reliability promises the rules imply as blocking questions until the person decides them, and says
+# that approving the plan deploys nothing. The person approves the exact plan; the design is a document.
+# With the scripted model the planning stages behave as their prompts' outcome-question rules say
+# (harness/outcome_questions_provider.py), so the scenario fails when a rule stops reaching its stage.
+
+[fake]
+check = "python3 -c \"import json; assert isinstance(json.load(open('design/alerting.json')), dict); print('ok')\""
+fault = "outcome_questions"
+
+# The person's own answers (by the scripted questions' ids): the alert rules, the channel with no
+# integration preference or restriction, the privacy rule, then the two reliability decisions.
+[fake.answers]
+Q1 = "Alert when any message has waited in the dead-letter queue for 5 minutes or longer. One alert per incident, not one per message, and never a repeated alert for the same incident. The on-call team should hear about it within 10 minutes."
+Q2 = "#orders-oncall. We have no existing Slack integration and no restriction on which services we use, so no preference for how alerts reach Slack."
+Q3 = "Alerts may include counts and message IDs, never message bodies."
+Q4 = "Send it again: a duplicate is better than a missed alert"
+Q5 = "A target while AWS and Slack are healthy"
