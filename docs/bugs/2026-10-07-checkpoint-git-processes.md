@@ -25,3 +25,24 @@ index. Restoration uses the same verifier. Regression coverage includes binary
 and empty blobs, repeated object IDs, literal filenames, links, executable modes,
 bounded reads, protocol failures and process cleanup. Run evidence belongs in the
 pull request; the original Arena runs retain their frozen source and deadlines.
+
+## Checkpoints after Builder report repair
+
+The first real-model qualification of this fix at `98e8c5c` used Codex with
+`gpt-5.6-sol` for planning and review and `gpt-5.6-terra` for the Builder on a
+4,100-file repository. It completed the task and passed six independent behavior
+tests in 436.447 seconds, but the qualification result was **FAIL**: no checkpoint
+was saved, so its source could not be compared. The frozen evidence remains in
+`checkpoint-live-codex-v1` with the original command, deadline and result.
+
+The Builder changed one source file but omitted evidence references. Its accepted
+report-only repair changed no source files, as required. Checkpoint selection
+used that repair's empty execution delta and lost the original Builder delta.
+Checkpoint capture now follows the unique accepted repair receipt and original
+execution linkage, requiring matching task, contract, source and stage bindings
+and the pinned repaired-output hash. It uses only the original runner-observed
+paths; the repair's empty delta and model-declared paths are never rewritten or
+used as source truth. A saved original provider response is also valid when its
+JSON output was rejected before saving. Missing, ambiguous or changed provenance
+produces an unavailable checkpoint instead of an inferred capture. The existing
+source and Git tree equality guards still apply.

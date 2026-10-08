@@ -22,8 +22,10 @@ import tempfile
 
 try:
     from . import autocode_util as util, autocode_contract_identity as contract
+    from . import autocode_repair_provenance as repair_provenance
 except ImportError:
     import autocode_util as util, autocode_contract_identity as contract
+    import autocode_repair_provenance as repair_provenance
 
 
 def approved(state):
@@ -139,6 +141,66 @@ def capture_tree(workspace, source, directory):
     return commit
 
 
+def _saved_file(path):
+    return type(path) is str and bool(path) and Path(path).is_file()
+
+
+def _saved_original_report(original):
+    output = original.get('output')
+    if _saved_file(output) or _saved_file(original.get('response_text')):
+        return True
+    # Older OpenCode attempts saved the terminal response under this exact stem
+    # before the repair handler recorded response_text on the pending copy.
+    return (original.get('engine') == 'opencode' and type(output) is str and bool(output)
+            and _saved_file(str(Path(output).with_suffix('.response.txt'))))
+
+
+def builder_execution(state, accepted, implementation):
+    """Resolve a repaired handoff to its runner-observed implementation step.
+
+    A report-only turn has no source changes of its own. Its accepted, hash-pinned
+    repair receipt identifies the original command; model-declared paths are never
+    used. Missing or ambiguous provenance cannot create a checkpoint.
+    """
+    if not accepted.get('report_only') and accepted.get('stage') in ('terra', 'orchestrator'):
+        return accepted
+    stage = accepted.get('original_stage')
+    receipts = [row for row in state.get('report_repair_history', [])
+                if row.get('result') == 'accepted' and row.get('repair') == accepted]
+    if (not accepted.get('report_only') or stage not in ('terra', 'orchestrator')
+            or accepted.get('stage') != stage + '_report_repair'
+            or type(accepted.get('exit_code')) is not int or accepted['exit_code'] != 0
+            or accepted.get('rejected') or accepted.get('abandoned') or accepted.get('timed_out')
+            or accepted.get('changed_files') != [] or len(receipts) != 1
+            or type(accepted.get('applied_original_events')) is not str
+            or not accepted['applied_original_events']):
+        raise ValueError('Accepted Builder repair lacks unique read-only provenance')
+    receipt = repair_provenance.verify_accepted_repair(state, accepted)
+    originals = [row for row in state.get('stages', [])
+                 if row.get('output') == receipt.get('original_output')
+                 and row.get('events') == accepted['applied_original_events']]
+    if len(originals) != 1:
+        raise ValueError('Accepted Builder repair lacks a unique original execution')
+    original = originals[0]
+    if (original.get('stage') != stage or original.get('report_only')
+            or type(original.get('exit_code')) is not int or original['exit_code'] != 0
+            or original.get('abandoned') or original.get('timed_out')
+            or any(type(accepted.get(key)) is not str or not accepted[key]
+                   or accepted[key] != implementation.get(key)
+                   for key in ('task_id', 'contract_hash', 'source_revision'))
+            or any(original.get(key) != accepted.get(key) for key in
+                   ('task_id', 'contract_hash', 'source_revision', 'role', 'iteration',
+                    'schema', 'criteria_revision'))
+            or not original.get('role') or not original.get('schema')
+            or type(original.get('iteration')) is not int
+            or not _saved_file(original.get('events'))
+            or not _saved_original_report(original)
+            or type(original.get('changed_files')) is not list
+            or any(type(path) is not str or not path for path in original['changed_files'])):
+        raise ValueError('Accepted Builder repair has mismatched original execution provenance')
+    return original
+
+
 def update(state, run_dir):
     """Called only from the runner's durable writer after an applied Builder step."""
     implementation = state.get('implementation') or {}
@@ -157,15 +219,19 @@ def update(state, run_dir):
                       if row.get('task_id') == task['id'] and row.get('source_revision') == implementation['source_revision']
                       and row.get('stage', '').removesuffix('_report_repair') in ('terra', 'orchestrator')
                       and not row.get('rejected') and row.get('exit_code') == 0), {})
-        if not stage.get('changed_files'):
+        if not stage:
             return
         base = {'id': ident, 'task_id': task['id'], 'contract_hash': implementation['contract_hash'],
                 'source_revision': implementation['source_revision'], 'iteration': state.get('iteration'),
                 'at': stage.get('finished_at') or util.now(), 'label': task.get('objective') or 'Saved code change',
-                'milestone_id': task.get('milestone_id'), 'changed_files': deepcopy(stage['changed_files']),
+                'milestone_id': task.get('milestone_id'), 'changed_files': [],
                 'finding_ids': [row['id'] for row in state.get('findings_ledger', []) if row.get('id')],
                 'recorded_check': None}
         try:
+            execution = builder_execution(state, stage, implementation)
+            if not execution.get('changed_files'):
+                return
+            base['changed_files'] = deepcopy(execution['changed_files'])
             source = source_scope.snapshot(state['workspace'], state)
             if source['revision'] != implementation['source_revision']:
                 return
