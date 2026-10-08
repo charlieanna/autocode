@@ -1,0 +1,1 @@
+test -f review/findings.json && git status --porcelain | wc -l; # oracle: findings present, tree clean

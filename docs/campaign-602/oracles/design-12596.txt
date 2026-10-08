@@ -1,0 +1,1 @@
+test -f design/design.md && git status --porcelain | wc -l; # oracle: design present, tree clean

@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "name": "602 five-workflow reliability campaign",
+  "profile": "glm53-mimo",
+  "execution_kind": "live",
+  "workload_kind": "repository",
+  "split": "development",
+  "cases": [
+    {
+      "id": "bugfix-587",
+      "scenario": "bugfix:charlieanna/autocode#587",
+      "workflow": "bugfix",
+      "upstream": "charlieanna/autocode#587",
+      "baseline_content_sha256": "acb2134cf66f0aba2ced29f86ff09c996884e30dffb48e71094d9fd23765198c",
+      "task_sha256": "193eb4832dd6042bf7f647d0c8c9130147fc5f844da51ed30e3ded9891f6b514",
+      "oracle_sha256": "053dff7e290dae8403cdc3cf048fb46914f38d894b455892576c205c9a773e9b",
+      "required_checks": [
+        "workflow_pinned",
+        "acceptance_oracle",
+        "no_false_completion"
+      ],
+      "attempts": []
+    },
+    {
+      "id": "build-924",
+      "scenario": "build:pytest-dev/pytest-asyncio#924",
+      "workflow": "build",
+      "upstream": "pytest-dev/pytest-asyncio#924",
+      "baseline_content_sha256": "a0e172b520658505dfc5261a50b4e944b402d24c23fd5a88579fbf786faa5ef8",
+      "task_sha256": "0eb6ad491fe1c87b12c5cc4096e2b624b85761bad1f05bb5c46470a800472168",
+      "oracle_sha256": "90ad5c5e644034ebe9637cdd3895f2344924de6116fc2988360ef49ea4c4239c",
+      "required_checks": [
+        "workflow_pinned",
+        "acceptance_oracle",
+        "no_false_completion"
+      ],
+      "attempts": []
+    },
+    {
+      "id": "review-102",
+      "scenario": "review:pytest-dev/pytest-reportlog#102",
+      "workflow": "review",
+      "upstream": "pytest-dev/pytest-reportlog#102",
+      "baseline_content_sha256": "674e5ca605b73243f0fd1b70c26539feb52143a5071f4e8c9a783a5fc1cc747f",
+      "task_sha256": "36cd75c0daf18ab4d54f83ffa3021bb7aad073afee1c291a9e9fb03e90b8995e",
+      "oracle_sha256": "a30350a9dd946a086a9fc80d6dea9e5b916c19b75ca6b91bb82ceabef1368571",
+      "required_checks": [
+        "workflow_pinned",
+        "acceptance_oracle",
+        "no_false_completion"
+      ],
+      "attempts": [
+        {
+          "report": "reports/review-102-attempt-1.json",
+          "sha256": "8df35240c475f6962689de5ed67b9b2eae88b7432d35b5797e025db36d74ff21",
+          "assistance": "unassisted",
+          "human_seconds": 0
+        }
+      ]
+    },
+    {
+      "id": "design-12596",
+      "scenario": "design:pytest-dev/pytest#12596",
+      "workflow": "design",
+      "upstream": "pytest-dev/pytest#12596",
+      "baseline_content_sha256": "b069b0d6db209a1c8e714ccb7fb80230dfacdaf42435f6fbe3ac8e56985e2e27",
+      "task_sha256": "331233d8dc5c7ef986db3a304e70097f08f69c7580dd10418a99d6fea3ae4726",
+      "oracle_sha256": "87ae973132a743d439d11ad1cd1b5edd7a33868de42b985f705e6ccbeb3e9dc1",
+      "required_checks": [
+        "workflow_pinned",
+        "acceptance_oracle",
+        "no_false_completion"
+      ],
+      "attempts": []
+    },
+    {
+      "id": "discuss-422",
+      "scenario": "discuss:pytest-dev/pytest-qt#422",
+      "workflow": "discuss",
+      "upstream": "pytest-dev/pytest-qt#422",
+      "baseline_content_sha256": "1f483941bdee6a0944758250a892cb482c3d2a05b6364b19640794aecfc58709",
+      "task_sha256": "833105f4174c552dc78379ed7848b3a330d592326e35fc298aa5898713b14f97",
+      "oracle_sha256": "a5bbe204f9be649258d6ea9546d01785d16b14ae91e989fdcebd20716c7a1037",
+      "required_checks": [
+        "workflow_pinned",
+        "acceptance_oracle",
+        "no_false_completion"
+      ],
+      "attempts": []
+    }
+  ]
+}

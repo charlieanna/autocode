@@ -1,0 +1,1 @@
+git log --oneline origin/master..HEAD | wc -l; # oracle: each narrowing path exits 1

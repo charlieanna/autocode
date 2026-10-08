@@ -1,0 +1,1 @@
+test -f discuss/recommendation.md && git status --porcelain | wc -l; # oracle: recommendation cites repo facts, tree clean

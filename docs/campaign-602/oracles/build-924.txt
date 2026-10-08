@@ -1,0 +1,1 @@
+python -m pytest -q; # oracle: unset option warns/fails, suite green
