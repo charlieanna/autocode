@@ -117,8 +117,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
 
     def dispatch_code_stage(current, stage):
         progressive.guard_dispatch(current, stage)
-        if current.get('_failure_routing_enabled', True):
-            autopilot.builder_failure.dispatch_guard(current, stage, workspace)
+        autopilot.builder_failure.dispatch_guard(current, stage, workspace)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
         # retry lane blocks the serial writer launch here as well.
         if stage == "terra":

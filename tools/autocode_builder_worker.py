@@ -23,7 +23,27 @@ except ImportError:
 
 
 def execute(state, directory, workspace, mode):
+    def require_running():
+        runner.stop_policy.refuse_admission(state)
+        if state.get('status') != 'RUNNING':
+            raise runner.support.Paused(state['status'], state.get('stop_reason') or
+                                        'Worker requires explicit continuation before another stage')
+        if state.get('pause_intent') and not state['pause_intent'].get('acknowledged_at'):
+            raise runner.support.Paused('PAUSED_INTERVENTION', state.get('stop_reason') or
+                                        'Queued pause requires explicit continuation')
+
+    def repair_reports():
+        require_running()
+        while state.get('pending_report_repair'):
+            try:
+                runner.execute_report_repair(state, directory, workspace)
+            except runner.ReportRepairQueued:
+                pass
+            require_running()
+
+    runner.stop_policy.refuse_admission(state)
     runner.goals.execution_guard(state)
+    runner.autopilot.builder_failure.dispatch_guard(state, 'terra', workspace)
     runner.autopilot.builder_policy.guard(state)
     runner.autopilot.regression.before_review(state, None, workspace, directory)
     runner.opencode = runner.autocode_providers.resolve(state["settings"].get("provider", "opencode"))
@@ -49,35 +69,41 @@ def execute(state, directory, workspace, mode):
         if any(r.get("stage") == "orchestrator" and not r.get("finished_at")
                for r in parent.get("stages", [])):
             raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER", "Parent orchestrator stage is unfinished")
+        # Only the entry-time pause is resumed by the parent's explicit member retry.
+        # A pause committed during reconciliation or repair must stop this invocation.
+        if state.get('pause_intent') and not state['pause_intent'].get('acknowledged_at'):
+            state['pause_intent']['acknowledged_at'] = runner.now()
+            for receipt in state.get('applied_interventions', []):
+                if receipt.get('kind') == 'pause' and not receipt.get('resumed_at'):
+                    receipt['resumed_at'] = state['pause_intent']['acknowledged_at']
     if state.get("active_stage"):
+        if mode == 'retry':
+            state['status'] = 'RUNNING'  # The parent explicitly admitted this stopped member.
         try:
             runner.reconcile_active(state, directory, workspace)
         except runner.ReportRepairQueued:
             pass
         except runner.support.Paused as error:
             runner.result_application.raise_if_uncertain(error)
-            if mode != "retry" or not state.get("active_stage"):
+            active = state.get('active_stage') or {}
+            if (mode != "retry" or not active
+                    or active.get('stage') != 'terra' or active.get('report_only')):
                 raise
             runner.abandon_stage(state, directory, workspace, runner.attempt_id(state["active_stage"]))
             state["next_stage"] = "terra"
+            state['status'] = 'RUNNING'
+        require_running()
     if mode == "retry":
         runner.prepare_exhausted_execution_report_retry(state, directory, workspace)
-    while state.get("pending_report_repair"):
-        try:
-            runner.execute_report_repair(state, directory, workspace)
-        except runner.ReportRepairQueued:
-            continue
+        state['status'] = 'RUNNING'
+    repair_reports()
     if (state.get("next_stage") == "investigate_stuck"
             and (state.get("stuck_investigation") or {}).get("mode") == "builder_failure"):
         # A no-progress result queued this read-only classification at its durable
         # acceptance boundary. Use the controller's normal guards, accounting and
         # report repair; it alone decides whether another Builder is admitted.
         runner.autopilot.dispatch_unit(runner, state, "investigate_stuck", workspace, directory)
-        while state.get("pending_report_repair"):
-            try:
-                runner.execute_report_repair(state, directory, workspace)
-            except runner.ReportRepairQueued:
-                continue
+        repair_reports()
         if state.get("status") != "RUNNING" or state.get("next_stage") != "terra":
             status = state["status"] if state["status"] != "RUNNING" else "PAUSED_ORCHESTRATOR_WORKER"
             raise runner.support.Paused(status, state.get("stop_reason") or
@@ -88,8 +114,7 @@ def execute(state, directory, workspace, mode):
         if state.get("next_stage") not in (None, "terra"):
             raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER",
                                         "This Builder requires its queued controller stage before another execution")
-        if state.get('_failure_routing_enabled', True):
-            runner.autopilot.builder_failure.dispatch_guard(state, "terra", workspace)
+        runner.autopilot.builder_failure.dispatch_guard(state, "terra", workspace)
         state.update(status="RUNNING", next_stage="terra")
         prompt, metrics = stage_context.context_packet(state, "terra", directory / "state.json")
         prompt = test_examples.add_to_prompt(prompt, workspace, state.get("current_task"))
@@ -117,20 +142,22 @@ def execute(state, directory, workspace, mode):
                 workspace=workspace, run_dir=directory, state=state, schema=schema_path,
                 model=state["settings"]["roles"]["terra"]["model"], allow_write=True, dry_run=False)
             try:
-                runner.apply_result(state, "terra", value, record, workspace, directory)
+                runner.commit_stage_result(state, "terra", value, record, workspace, directory)
             except (ValueError, KeyError, runner.support.Paused) as error:
                 runner.reject_completed_stage(state, directory, record, error)
         except runner.ReportRepairQueued:
-            while state.get("pending_report_repair"):
-                try:
-                    runner.execute_report_repair(state, directory, workspace)
-                except runner.ReportRepairQueued:
-                    continue
+            repair_reports()
+    require_running()
     if not state.get('implementation') and state.get('no_progress_reports'):
-        if state['status'] == 'RUNNING' and state.get('next_stage') in ('terra', 'investigate_stuck'):
-            return execute(state, directory, workspace, 'retry')
-        status = state['status'] if state['status'] != 'RUNNING' else 'PAUSED_ORCHESTRATOR_WORKER'
-        raise runner.support.Paused(status, state.get('stop_reason') or 'No implementation progress')
+        if (state.get('next_stage') == 'investigate_stuck'
+                and (state.get('stuck_investigation') or {}).get('mode') == 'builder_failure'):
+            runner.autopilot.dispatch_unit(runner, state, 'investigate_stuck', workspace, directory)
+            repair_reports()
+        if state.get('next_stage') != 'terra':
+            raise runner.support.Paused('PAUSED_BUILDER_CLASSIFICATION',
+                'Isolated Builder returned without source changes and requires its bound Resolver handoff '
+                'before another writer attempt')
+        return execute(state, directory, workspace, 'retry')
     implementation = state.get("implementation", {})
     runner.goals.execution_guard(state, implementation)
     request = implementation.get("user_request", {})

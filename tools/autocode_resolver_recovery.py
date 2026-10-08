@@ -1038,9 +1038,8 @@ def _exhausted_builder(state, request, packet):
     classification_value = classification.classify({
         'record': next((row for row in packet.get('prior_attempts', [])
                         if row.get('output') == request['source_output']), {}),
-        'checks': facts, 'checks_verified': True,
-        'checkpoint': {'decision': 'needs_replan'} if row.get('needs_replan') else {},
-        'checkpoint_verified': bool(row.get('needs_replan'))})
+        # A stalled-approach checkpoint cannot renew spent execution authority.
+        'checks': facts, 'checks_verified': True})
     if classification_value != 'execution':
         return  # Non-execution decisions belong to the controller, never locked preview.
     candidate = copy.deepcopy(state)

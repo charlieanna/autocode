@@ -584,6 +584,30 @@ class FailureRoutingCLI(unittest.TestCase):
         self.drive('--resume-paused', codes=(2,))
         self.assertEqual(before, self.call_order())
         self.assert_no_strong()
+
+    def test_real_build_entrypoint_cannot_bypass_a_classification_hold(self):
+        self.seed()
+        self.env.update(BUILD_AUDIT_FAULT='no_change', FAILURE_ROUTING_DIAGNOSIS='unknown')
+        self.drive(codes=(2,))
+        original = self.status()
+        before = self.call_order()
+        result = self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused', '--no-chat'], (2,))
+        self.assertIn(original['view']['stop_reason'], result.stdout + result.stderr)
+        self.assertEqual(before, self.call_order())
+        self.assert_no_strong()
+
+    def test_real_build_entrypoint_cannot_bypass_an_operator_hold(self):
+        self.seed()
+        self.env.update(BUILD_AUDIT_FAULT='no_change', FAILURE_ROUTING_DIAGNOSIS='execution',
+                        FAILURE_ROUTING_NEEDS_USER='1')
+        self.drive(codes=(2,))
+        question = self.trace('investigate_stuck', 'diagnosis')[0]['report']['user_question']
+        self.assertTrue(question)
+        before = self.call_order()
+        result = self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused', '--no-chat'], (2,))
+        self.assertIn(question, result.stdout + result.stderr)
+        self.assertEqual(before, self.call_order())
+        self.assert_no_strong()
         self.assertFalse((self.project / 'main.py').exists())
 
 
