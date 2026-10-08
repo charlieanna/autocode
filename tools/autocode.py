@@ -1394,6 +1394,9 @@ def _main_body(unit=None) -> int:
         if stop_policy.applied_stop(state):
             return stop_policy.refuse_before_configure(write_json, state, state_path)
         state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
+        # The standalone unit entry points intentionally stop before Resolver
+        # routing; the full Autopilot entry point owns cause classification.
+        state['_failure_routing_enabled'] = unit is None
         try:
             code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
             if code is not None:

@@ -1,9 +1,12 @@
 """Runner-owned retry decisions. Models diagnose; configuration selects routes."""
 import copy
 try:
-    from . import autocode_util as s
+    from . import autocode_util as s, autocode_route_ladder as route_ladder
+    from .autocode_failure_classification import CLASSES
 except ImportError:
     import autocode_util as s
+    import autocode_route_ladder as route_ladder
+    from autocode_failure_classification import CLASSES
 
 # The stronger attempt is GPT-6 Sol at xhigh: Astra is too expensive and only for the
 # Resolver (user 2026-09-28). The default checkers also run GPT-6 Sol, so for the rest of
@@ -46,7 +49,7 @@ def configured(strong_model=None, provider=None):
         ('strong_reasoning_effort', 'strong_effort')) if name in declared}}
     config['strong_model'] = strong_model or config['strong_model']
     offered = getattr(provider, 'LISTED_MODELS', None)
-    if offered is not None and config['strong_model'] not in offered:
+    if route_ladder.unserved(config['strong_model'], offered):
         if strong_model:
             raise ValueError(f'--builder-strong-model {strong_model} is not a {provider.NAME} model: {", ".join(offered)}')
         config['strong_model'] = None
@@ -96,7 +99,8 @@ def guard(state):
         _take_deferred(state, current)
     if current['action'] == 'pause':
         raise s.Paused('PAUSED_BUILDER_RETRY_LIMIT',
-                       'Builder retry/escalation exhausted for this approved milestone; replan or change policy explicitly')
+                        'Execution failure: Builder retry/escalation exhausted for this approved milestone; '
+                        'replan or change policy explicitly before another Builder attempt')
 
 
 def failed_before(state, milestone_id):
@@ -207,17 +211,14 @@ def swap_checkers(state, current, config, model):
 
 def _escalate(state, current, config, route):
     """Move the Builder to the strong model, or say why this run cannot: (action, checkers, stop reason)."""
-    model = config['strong_model']
-    if not model:
+    if not config.get('strong_model'):
         return 'pause', {}, NO_STRONG_MODEL
     engine = route.get('engine', state['settings'].get('engine'))
     # A configured tool whose Builder has a bare model name spells its models itself; a tool
-    # that spells them provider/model (kilocode) keeps the policy it had, alias included.
+    # that spells them provider/model keeps the configured spelling, alias included.
     tool = _tool_route(state, route) and '/' not in str(current['initial_route'].get('model'))
-    if engine == 'opencode' and '/' not in model and not tool:
-        model = 'openai/' + model
-    elif engine == 'codex':
-        model = _bare(model)
+    model = (config['strong_model'] if tool else
+             route_ladder.format_model(route_ladder.normalize_model(config['strong_model']), engine))
     # Never undo explicit pins or silently change provider/transport.
     if route.get('model_pinned') or route.get('provider') not in (None, 'openai'):
         return 'pause', {}, EXHAUSTED
@@ -241,17 +242,45 @@ def _decide(state, current, action, evidence, reason, checkers, stop_reason):
     state.setdefault('sessions', {}).pop('terra', None)
     state.setdefault('builder_retry_decisions', []).append({
         'at': s.now(), 'owner': 'autoresolver', 'action': action, 'failure': evidence,
+        'failure_class': 'execution',
         'reason': reason, 'milestone_key': key(state), 'attempt': len(current['failures']),
         'selected_model': route['model'], 'selected_effort': route.get('reasoning_effort'),
         **({'checker_models': checkers} if checkers else {})})
     if action == 'pause':
-        state.update(status='PAUSED_BUILDER_RETRY_LIMIT', phase='PAUSED_OR_BLOCKED', stop_reason=stop_reason)
+        route_ladder.record_outcome(state, 'paused')
+        state.update(status='PAUSED_BUILDER_RETRY_LIMIT', phase='PAUSED_OR_BLOCKED',
+                     stop_reason='Execution failure: ' + stop_reason)
     elif action == 'defer':
-        state.update(status=SERIAL, stop_reason=stop_reason)
+        state.update(status=SERIAL, stop_reason='Execution failure: ' + stop_reason)
 
 
-def failure(state, evidence, reason):
-    """One persisted resolver decision per failure; restart cannot add authority."""
+def failure(state, evidence, reason, *, classification='execution'):
+    """One charge per execution failure; replay observes the lane's current gate.
+
+    Nonexecution actions are routing observations, not authority to replay a stage;
+    the controller validates their bound continuation before dispatch.
+    """
+    if not isinstance(classification, str) or classification not in CLASSES:
+        raise ValueError('Unknown Builder failure class')
+    if classification != 'execution':
+        # The controller consumes these decisions before assignment. They are not
+        # execution attempts: keep routes, sessions and the existing retry lane intact.
+        ident = key(state)
+        decisions = state.setdefault('builder_retry_decisions', [])
+        previous = next((row for row in reversed(decisions)
+                         if row.get('milestone_key') == ident and row.get('failure') == evidence
+                         and row.get('failure_class') == classification), None)
+        if previous is not None:
+            return previous['action']
+        action = {'plan': 'replan', 'operational': 'recover', 'unknown': 'investigate'}[classification]
+        route = state['settings']['roles']['terra']
+        current = state.get('builder_retries', {}).get(ident) or {}
+        decisions.append({'at': s.now(), 'owner': 'runner', 'action': action, 'failure': evidence,
+                          'failure_class': classification,
+                          'reason': f'{classification.capitalize()} failure: {reason}; next action: {action}',
+                          'milestone_key': ident, 'attempt': len(current.get('failures', [])),
+                          'selected_model': route['model'], 'selected_effort': route.get('reasoning_effort')})
+        return action
     if not enabled(state):
         state.update(status='PAUSED_NO_PROGRESS', phase='PAUSED_OR_BLOCKED', stop_reason=reason)
         return 'pause'

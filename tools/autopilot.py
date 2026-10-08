@@ -14,9 +14,11 @@ from pathlib import Path
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_jobs as jobs
     from . import autocode_stuck_job as stuck
+    from . import autocode_failure_classification as failure_classification, autocode_builder_failure as builder_failure
     from . import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
+    from . import autocode_route_ladder as route_ladder
     from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
     from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
     from . import autocode_planning_clarification as clarification
@@ -33,12 +35,14 @@ except ImportError:
     import autocode_verification_plan as verification_plan
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
+    import autocode_failure_classification as failure_classification, autocode_builder_failure as builder_failure
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     import autocode_escalation as escalation
     import autocode_findings as findings_ledger
     import autocode_builder_policy as builder_policy
+    import autocode_route_ladder as route_ladder
     import autocode_resolver_human as human
     import autocode_failures as failures, autocode_assignment as assignment, autocode_status
     import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
@@ -158,6 +162,8 @@ def admit_validation(runtime, state, stage, workspace, run_dir):
 def dispatch_unit(runtime, state, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
     progressive_state.guard_dispatch(state, stage)
+    if state.get('_failure_routing_enabled', True):
+        builder_failure.dispatch_guard(state, stage, workspace)
     if stage == 'terra':
         builder_policy.guard(state)
     runtime.milestones.dispatch_guard(state, stage)
@@ -474,6 +480,20 @@ def recover_retained_candidate(state, workspace):
     return True
 
 
+def route_builder_failure(state, evidence, reason, *, completed_record=None):
+    """Interpret non-execution actions before any assignment or strong-model mutation."""
+    if not state.get('_failure_routing_enabled', True):
+        return builder_policy.failure(state, evidence['record'].get('output'), reason)
+    row = milestones.progress(state)
+    if row and row.get('needs_replan') and state.get('workspace'):
+        current = source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)
+        if (current['revision'] == evidence['record'].get('source_revision')
+                and milestones.fresh_validation(state, current)):
+            evidence.update(checkpoint={'decision': 'needs_replan'}, checkpoint_verified=True)
+    return builder_failure.route(state, evidence, reason, enabled=stuck.enabled(state), max_calls=stuck.max_calls(state),
+                                 reassess=milestones.request_builder_reassessment, completed_record=completed_record)
+
+
 def apply_build_result(runtime, state, value, record, workspace, run_dir):
     assert_within_assignment(state, record)
     support.evidence_hashes(support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir)
@@ -509,7 +529,8 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
             state.setdefault('no_progress_reports', []).append(state.pop('implementation'))
             state.setdefault('unit_handoffs', {}).pop('autocode', None)
             state['next_stage'] = 'terra'
-            builder_policy.failure(state, record['output'], 'Builder completed an implementation attempt without source changes')
+            route_builder_failure(state, builder_failure.evidence(state, record),
+                                  'Builder completed an implementation attempt without source changes')
             return
         escalation.advance(state, "terra", trigger="no_progress",
                            detail="Builder completed a batch without source changes",
@@ -714,7 +735,7 @@ def apply_result(runtime, state, stage, value, record, workspace, run_dir):
     state.update(candidate)
 
 
-def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
+def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, continuation=False):
     """Autopilot alone interprets unit results and advances the workflow."""
     try:
         launch_inputs.guard(state, workspace, run_dir)
@@ -723,8 +744,24 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
     support, goals, planning = runtime.support, runtime.goals, runtime.planning
     workflow, milestones, escalation = runtime.workflow, runtime.milestones, runtime.escalation
     dispatch, save_record, now = runtime.dispatch, runtime.save_record, runtime.now
+    if continuation:
+        save_record = lambda _state, _record: None  # The accepted Resolver output is already saved.
+    else:
+        def save_record(current, completed):
+            runtime.save_record(current, completed)
+            builder_failure.finalize(current, completed, enabled=stuck.enabled(current), max_calls=stuck.max_calls(current))
     if stage in jobs.UNIT:
-        unit_module(stage).apply_job(stage, state, value, record, workspace, run_dir=run_dir)
+        continuation = unit_module(stage).apply_job(stage, state, value, record, workspace, run_dir=run_dir)
+        if stage == stuck.STAGE and isinstance(continuation, dict) and continuation.get('mode') == 'builder_failure':
+            evidence = continuation['failure_evidence']
+            evidence['diagnosis'] = continuation['diagnosis']
+            saved = continuation.get('resolver_continuation')
+            if saved and failure_classification.classify(evidence) == 'execution':
+                state['resolution_request']['failure_diagnosis'] = continuation['diagnosis']
+                _apply_result(runtime, state, 'astra_resolve', saved['value'], saved['record'], workspace, run_dir,
+                              continuation=True)
+            else:
+                route_builder_failure(state, evidence, continuation['reason'])
         return save_record(state, record)
     if stage == "astra_resolve":
         unit_module(stage).validate(state, value, record, workspace)
@@ -808,8 +845,11 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
     if (modern and stage == "astra_review" and value.get("status") == "REWORK"
             and not workflow.enabled(state)):
         # Keep the review authoritative whether its correction is assigned or diagnosed.
+        rework_policy.guard_pending_human(state)
         findings_ledger.record_decision(state, value, record)
-        if not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
+        if (milestones.progress(state) or {}).get('builder_reassessment'):
+            queue_resolution(state, value, record)
+        elif not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
             resolver_recovery.route_known_change(runtime, state, value, record, run_dir=run_dir, retry_policy=builder_policy)
         save_record(state, record)
         return
@@ -891,16 +931,38 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                     goals.record_decision(state, value)
                     save_record(state, record)
                     return
-            if stage in ("astra_review", "astra_resolve"):
+            if stage in ("astra_review", "astra_resolve") and not continuation:
                 state["iteration"] += 1
             if (stage == 'astra_resolve' and builder_policy.enabled(state)
-                    and value.get('next_task', {}).get('kind') == 'implement'):
+                    and value.get('next_task', {}).get('kind') == 'implement'
+                    and not (milestones.progress(state) or {}).get('builder_reassessment')):
                 request = state['resolution_request']
-                action = builder_policy.failure(state, request.get('source_output', request.get('review_output')), value['diagnosis'])
-                if action == 'pause':
+                source_output = request.get('source_output', request.get('review_output'))
+                original = next((row for row in reversed(state.get('stages', [])) if row.get('output') == source_output), {})
+                evidence = builder_failure.evidence(state, original)
+                evidence['diagnosis'] = request.get('failure_diagnosis')
+                validation = state.get('validation') or {}
+                if (validation.get('source_revision') == original.get('source_revision')
+                        and validation.get('task_id') == state.get('current_task', {}).get('id')
+                        and validation.get('contract_hash') == state['goal_contract']['hash']):
+                    accepted = next((row for row in state.get('stages', []) if row.get('output') == validation.get('output')
+                                     and row.get('stage') == 'sol' and not row.get('rejected')), None)
+                    if accepted:
+                        checked = copy.deepcopy(validation.get('checks', []))
+                        support.verify_checks(checked, workspace, accepted['events'],
+                                              **runtime.check_evidence_options(accepted))
+                        evidence['checks'] = builder_failure.check_facts(checked, accepted, workspace, read_events=support.events)
+                        evidence['checks_verified'] = True
+                action = route_builder_failure(state, evidence, value['diagnosis'], completed_record=record)
+                pending = state.get('pending_builder_failure') or state.get('stuck_investigation')
+                if action == 'investigate' and pending:
+                    pending['resolver_continuation'] = {
+                        'value': copy.deepcopy(value), 'record': copy.deepcopy(record)}
+                if action in ('pause', 'defer', 'investigate', 'replan', 'recover'):
                     # Exhaustion precedes assignment/replan gates and cannot be
                     # converted into another completion-owner/model round trip.
-                    state['next_stage'] = 'terra'
+                    if action in ('pause', 'defer'):
+                        state['next_stage'] = 'terra'
                     goals.record_decision(state, value)
                     save_record(state, record)
                     return
@@ -920,6 +982,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                                    trigger="validation_rework",
                                    detail=f"{validation_verdict}: {value['next_objective']}",
                                    struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
+            elif validation_verdict == "PASS":
+                route_ladder.record_outcome(state, "passed")
             state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else
                          "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
             if stage == "astra_resolve":
@@ -988,7 +1052,9 @@ def run(runtime, state, workspace, run_dir, args):
             raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
         if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
+        classifying = (current.get('next_stage') == 'investigate_stuck'
+                       and (current.get('stuck_investigation') or {}).get('mode') == 'builder_failure')
+        if (not repairing_before_upgrade and not classifying and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                 and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
             raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
         # Do not silently change auth/provider when local config changes.

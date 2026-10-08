@@ -155,7 +155,9 @@ class RecoveryPacketTests(unittest.TestCase):
                 "acceptance_criteria": [{"id": "C1", "criterion": "Return 3"}]}},
             "current_task": {"id": "T1", "kind": "implement", "milestone_id": "M1", "acceptance_criteria": ["C1"], "affected_paths": ["app.py"]},
             "stages": [{"stage": "sol", "output": str(self.validator), "events": str(self.events)}],
-            "validation": {"task_id": "T1", "output": str(self.validator), "verdict": "FAIL", "checks": [{
+            "validation": {"task_id": "T1", "contract_hash": "h", "contract_revision": 1,
+                           "source_revision": "s1", "reviewer_role": "sol",
+                           "output": str(self.validator), "verdict": "FAIL", "checks": [{
                 "command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}]}}
         self.record = {"stage": "astra_review", "output": str(self.output), "source_revision": "s1"}
         self.request = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": {str(self.output): util.file_hash(self.output),
@@ -1164,6 +1166,29 @@ class RecoveryPacketTests(unittest.TestCase):
                                                         run_dir=self.run, retry_policy=retry))
         self.assertEqual("known-correction", state["repair_plan"]["kind"])
         self.assertIn(str(raw), state["repair_plan"]["evidence_hashes"])
+
+    def test_attested_correction_with_verified_operational_check_does_not_charge_or_assign(self):
+        baseline = copy.deepcopy(self.state)
+        baseline_event = json.loads(self.events.read_text())
+        for metadata in ({'timed_out': True}, {'interrupted': True}, {'error': 'receipt unavailable'},
+                         {'supervision_errors': ['not stopped']}):
+            with self.subTest(metadata=metadata):
+                self.state = copy.deepcopy(baseline)
+                self.state['validation']['checks'][0].update(metadata)
+                event = copy.deepcopy(baseline_event)
+                event['item'].update(metadata)
+                self.events.write_text(json.dumps(event) + '\n')
+                decision, record, _, paths, runtime, retry = self.known_correction(self.run)
+                state, current_record = self.known_correction_prepared(decision, record, paths)
+                queued = copy.deepcopy(state['resolution_request'])
+                with patch.object(recovery.processes, 'recorded_worker_state', return_value={'checked': True, 'alive': False}):
+                    self.assertFalse(recovery.route_known_change(runtime, state, decision, current_record,
+                                                                 run_dir=self.run, retry_policy=retry))
+                runtime.support.verify_checks.assert_called_once()
+                runtime.lifecycle.assign_task.assert_not_called()
+                retry.failure.assert_not_called()
+                self.assertEqual(queued, {key: state['resolution_request'][key] for key in queued})
+                self.assertNotIn('repair_plan', state)
 
     def test_known_correction_is_held_only_by_a_repair_that_returned_a_result(self):
         # #422: the same change's earlier Builder dispatch, archived without a report, did not

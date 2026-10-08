@@ -45,6 +45,7 @@ that runs the probe. State keys written:
 """
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 from dataclasses import replace
@@ -95,6 +96,16 @@ SCHEMA = {
         "evidence_refs": TEXTS,
     },
 }
+
+
+def schema(state):
+    if (state.get('stuck_investigation') or {}).get('mode') != 'builder_failure':
+        return SCHEMA
+    result = copy.deepcopy(SCHEMA)
+    result['required'] += ['failure_class', 'failure_id']
+    result['properties'].update(failure_class={'type': 'string', 'enum': ['plan', 'execution', 'operational', 'unknown']},
+                                failure_id=TEXT)
+    return result
 
 # Repeated in a report-only repair of this stage (autocode_jobs.repair_rules): without them, both
 # repairs of a live run's rejected probe guessed where the cited files would be (2026-09-29).
@@ -295,12 +306,22 @@ def packet(state: dict, state_path, inventory: dict | None = None, engine: str |
             "execution_engine": engine, "workspace_inventory": inventory or {},
             # Present because every provider reads them.
             "goal_contract": state.get("goal_contract"), "current_task": state.get("current_task"),
-            "saved_answers": state.get("answers", {})}
+            "saved_answers": state.get("answers", {}),
+            **({'builder_failure': request['failure_evidence']} if request.get('mode') == 'builder_failure' else {})}
 
 
 def prompt(state: dict, state_path, inventory: dict | None = None, soft_budget_tokens: int = 10000,
            engine: str | None = None) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, state_path, inventory, engine), indent=2)
+    if state['stuck_investigation'].get('mode') == 'builder_failure':
+        text = ('Classify this specific Builder failure BEFORE retry/escalation, not an exhausted stage. '
+                'This mode overrides the generic retry advice below: recommendation is advisory only; '
+                'failure_class selects the bounded controller route and grants no retry by itself. '
+                'Return failure_id exactly from builder_failure and failure_class plan, execution, operational or unknown. '
+                'Cite only builder_failure.evidence_refs. Plan means an evidenced flawed approach within approved scope; '
+                'execution means concrete implementation failure; operational means tooling/transport; unknown means insufficient evidence. '
+                'Supply example and exactly one of probe/untestable for every classification. '
+                'Your report grants no retry, budget, approval or contract change.\n' + text)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
@@ -367,6 +388,20 @@ def release_route(state: dict) -> dict:
 def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> None:
     """``run_probe(command, files)`` runs the probe in a scratch tree with ``files`` copied in (the unit
     passes autocode_verify.scratch_run); without it a probed diagnosis is rejected rather than trusted."""
+    request = state['stuck_investigation']
+    if request.get('mode') == 'builder_failure':
+        try:
+            from . import autocode_builder_failure as builder_failure
+        except ImportError:
+            import autocode_builder_failure as builder_failure
+        builder_failure.guard(state, request, workspace)
+        failure = request['failure_evidence']
+        if (value.get('failure_id') != failure['failure_id'] or not value.get('evidence_refs')
+                or not set(value['evidence_refs']) <= set(failure['evidence_refs'])):
+            raise ValueError('Classification must cite the same pinned failure identity and allowed evidence')
+        check({**value, 'recommendation': 'retry', 'guidance': value['diagnosis']}, record.get('changed_files'))
+        if value['cause'] == 'needs_user' and not value['user_question'].strip():
+            raise ValueError('A classification that needs the user must state the decision')
     check(value, record.get("changed_files"))
     run_dir = state.get("run_dir") or (Path(record["output"]).parent if record.get("output") else None)
     cited = cited_files(value, workspace, run_dir)
@@ -375,6 +410,8 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         (lambda command: {"error": "no probe runner was given"})
     shown = run_probes([{"id": "the diagnosed cause", "example": value.get("example", ""), "probe": probe}],
                        runner, what="diagnosed cause", key="id") if probe else []
+    if request.get('mode') == 'builder_failure':
+        builder_failure.guard(state, request, workspace)
     request = state.pop("stuck_investigation")
     used = release_route(state)
     retry = value["recommendation"] == "retry" and request["status"] in RETRYABLE
@@ -385,7 +422,19 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
                  example=value.get("example", ""), probe=probe, untestable=value.get("untestable", ""),
                  probe_result=shown[0] if shown else None,
                  model=used.get("model"), engine=used.get("engine"), reasoning_effort=used.get("reasoning_effort"),
-                 output=record.get("output"), finished_at=now())
+                  output=record.get("output"), finished_at=now())
+    if request.get('mode') == 'builder_failure':
+        entry.update(outcome='classified', failure_class=value['failure_class'], failure_id=value['failure_id'])
+        if value['recommendation'] == 'pause' or value['cause'] == 'needs_user':
+            entry['outcome'] = 'paused'
+            question = '\nNeeds you: ' + value['user_question'] if value['user_question'] else ''
+            builder_failure.hold(state, request['failure_evidence'], request['status'],
+                                 request['reason'] + '\nInvestigator: ' + value['diagnosis'] + question)
+            return None
+        state.update(status='RUNNING', next_stage='terra', phase=request.get('phase') or 'EXECUTING')
+        return {**request, 'diagnosis': {key: value[key] for key in
+                ('failure_class', 'failure_id', 'evidence_refs', 'diagnosis', 'guidance', 'example',
+                 'recommendation', 'cause', 'user_question')}}
     state["next_stage"] = request["stage"]
     if not retry:
         restore(state, request, annotate(state, request["status"], request["reason"]))
@@ -433,6 +482,12 @@ def abandon(state: dict, error: str) -> tuple[str, str]:
     entry.update(outcome="investigation_failed", error=error, model=used.get("model"), finished_at=now())
     reason = f"{request['reason']}\n(The Investigator could not finish: {error})"
     restore(state, request, reason)
+    if request.get('mode') == 'builder_failure':
+        try:
+            from . import autocode_builder_failure as builder_failure
+        except ImportError:
+            import autocode_builder_failure as builder_failure
+        builder_failure.hold(state, request['failure_evidence'], request['status'], reason)
     return request["status"], reason
 
 
