@@ -57,8 +57,8 @@ class RejectedRepairRetryCLI(unittest.TestCase):
         driver = self.driver("retry")
         view = driver.drive(self.scenario.brief)
         retry = self.assert_repaired(driver, view)
-        self.assertEqual(["terra", "sol", "astra_review", "astra_resolve", "terra", "investigate_stuck",
-                          "terra", "sol", "astra_review"], self.stages(driver)[-9:])
+        self.assertEqual(["terra", "sol", "astra_review", "astra_resolve", "investigate_stuck", "terra",
+                          "investigate_stuck", "terra", "sol", "astra_review"], self.stages(driver)[-10:])
         # The Investigator's verified retry is the one attempt it promises, not a second novelty-free one.
         self.assertEqual(("explicit_retry", "investigation"),
                          (retry["recovery_novelty"]["reason"], retry["recovery_novelty"]["grant_kind"]))

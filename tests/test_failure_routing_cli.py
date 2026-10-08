@@ -59,7 +59,7 @@ class FailureRoutingCLI(unittest.TestCase):
 
     def seed(self, *, existing=None, goal='Deliver a CLI that prints hello', check=None,
              payload="print('hello')\n", objective='CLI prints hello', complete=True,
-             deliverable='main.py', criterion=None, verification=None):
+             deliverable='main.py', criterion=None, verification=None, planner_extra=()):
         if existing is not None:
             (self.project / 'main.py').write_text(existing)
             subprocess.run(['git', 'add', 'main.py'], cwd=self.project, check=True, capture_output=True)
@@ -74,11 +74,15 @@ class FailureRoutingCLI(unittest.TestCase):
             spec['contract']['acceptance_criteria'][0]['criterion'] = criterion
         if verification is not None:
             spec['contract']['acceptance_criteria'][0]['verification_method'] = verification
+        self.approve(spec, planner_extra=planner_extra)
+
+    def approve(self, spec, *, max_parallel=1, checker='gpt-5.6-sol', planner_extra=()):
         (self.root / 'plan.json').write_text(json.dumps(spec))
+        goal = spec['contract']['intended_outcome']
         self.call('autoplanner', [goal, '--engine', 'codex', '--in-place',
-            '--terra-model', 'gpt-6-luna', '--sol-model', 'gpt-5.6-sol',
-            '--completion-model', 'gpt-5.6-sol', '--builder-strong-model', 'gpt-5.4',
-            '--max-parallel-builders', '1', '--no-chat'], (2,))
+            '--terra-model', 'gpt-6-luna', '--sol-model', checker,
+            '--completion-model', checker, '--builder-strong-model', 'gpt-5.4',
+            '--max-parallel-builders', str(max_parallel), '--no-chat', *planner_extra], (2,))
         self.run = next((self.project / '.autocode/runs').iterdir())
         initial = self.status()
         self.approved_token = initial['contract_token']
@@ -86,6 +90,35 @@ class FailureRoutingCLI(unittest.TestCase):
                                   self.approved_token, '--no-chat'])
         self.initial_routes = self.status()['view']['routes']
         self.assertEqual([], self.trace('terra'))
+
+    def seed_parallel(self, *, wrong_plan=False, checker='gpt-5.6-sol'):
+        output = 'goodbye' if wrong_plan else 'hello'
+        if wrong_plan:
+            (self.project / 'main.py').write_text("print('goodbye')\n")
+            subprocess.run(['git', 'add', 'main.py'], cwd=self.project, check=True, capture_output=True)
+            subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=f@example.test',
+                            'commit', '-qm', 'Seed the flawed approved approach'], cwd=self.project,
+                           check=True, capture_output=True)
+        spec = build_fixture.plan(
+            [([], 'CLI prints ' + output, ['main.py']),
+             ([], 'Keep the independent sibling delivery', ['sibling.txt']),
+             (['M1', 'M2'], 'Integrate the hello CLI and sibling', ['done.py'])],
+            {'M1': {'main.py': 'print(' + repr(output) + ')\n'},
+             'M2': {'sibling.txt': 'preserved sibling\n'},
+             'M3': {'done.py': "from pathlib import Path\nprint(Path('sibling.txt').read_text().strip())\n"}},
+            {'M1': "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True)==" + repr(output + '\n'),
+             'M2': "from pathlib import Path; assert Path('sibling.txt').read_text()=='preserved sibling\\n'",
+             'M3': "import subprocess,sys; assert subprocess.check_output([sys.executable,'main.py'],text=True)=='hello\\n'; assert subprocess.check_output([sys.executable,'done.py'],text=True)=='preserved sibling\\n'"},
+            'Deliver a hello CLI and its independent sibling')
+        spec['complete_product'] = True
+        self.approve(spec, max_parallel=2, checker=checker)
+
+    def assert_retained_sibling(self):
+        siblings = [row for row in self.trace('terra') if row['handoff']['current_task']['milestone_id'] == 'M2']
+        self.assertEqual(1, len(siblings), self.call_order('terra'))
+        workspace = Path(siblings[0]['workspace']).resolve()
+        self.assertTrue(workspace.is_relative_to(self.project / '.autocode/builders'))
+        self.assertEqual('preserved sibling\n', (workspace / 'sibling.txt').read_text())
 
     def drive(self, *extra, codes=(0, 2)):
         return self.call('autocode', ['--run-dir', str(self.run), '--no-chat', *extra], codes)
@@ -118,6 +151,22 @@ class FailureRoutingCLI(unittest.TestCase):
                 return value
             time.sleep(.02)
         self.fail(f'{label} was not reached; controller exit={process.poll()}')
+
+    def test_fresh_disabled_stalled_review_limit_is_saved_before_any_builder(self):
+        self.seed(planner_extra=['--max-milestone-stalled-reviews', '0'])
+        status = self.status()
+        self.assertIsNone(status['milestone_checkpoint']['limits']['stalled_reviews'])
+        self.assertIsNone(status['settings']['milestone_checkpoints']['stalled_reviews'])
+        self.assertEqual([], self.trace('terra'), 'Inspection and approval must not launch a Builder')
+        self.assertEqual(self.approved_token, status['contract_token'])
+
+    def test_fresh_positive_stalled_review_limit_is_saved_before_any_builder(self):
+        self.seed(planner_extra=['--max-milestone-stalled-reviews', '1'])
+        status = self.status()
+        self.assertEqual(1, status['milestone_checkpoint']['limits']['stalled_reviews'])
+        self.assertEqual(1, status['settings']['milestone_checkpoints']['stalled_reviews'])
+        self.assertEqual([], self.trace('terra'), 'Configuration must not grant or spend an attempt')
+        self.assertEqual(self.approved_token, status['contract_token'])
 
     def test_uncertain_no_source_change_investigates_before_spending_and_refuses(self):
         self.seed()
@@ -195,6 +244,102 @@ class FailureRoutingCLI(unittest.TestCase):
         before = self.call_order()
         self.drive('--resume-paused', codes=(2,))
         self.assertEqual(before, self.call_order(), 'A stale classification must not mint another incident')
+
+    def test_parallel_unknown_failure_is_classified_once_and_keeps_its_sibling(self):
+        self.seed_parallel()
+        self.env.update(BUILD_AUDIT_FAULT='no_change', FAILURE_ROUTING_DIAGNOSIS='unknown')
+        self.call('autocode_build', ['--run-dir', str(self.run), '--no-chat'], (2,))
+        status = self.status()
+        self.assertNotEqual('TASK_COMPLETE', status['status'])
+        self.assertIn('without source changes', status['view']['stop_reason'])
+        self.assertEqual(2, len(self.trace('terra')))
+        self.assert_bound_read_only()
+        self.assert_no_strong()
+        self.assert_retained_sibling()
+        self.assertFalse((self.project / 'main.py').exists())
+        before = self.call_order()
+        self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused', '--no-chat'], (2,))
+        self.assertEqual(before, self.call_order(), 'Resume cannot bypass the worker classification hold')
+        self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused',
+                                    '--retry-builder', 'M1', '--no-chat'], (2,))
+        self.assertEqual(before, self.call_order(), 'An explicit worker retry cannot bypass the held failure identity')
+        self.assert_retained_sibling()
+
+    def test_parallel_execution_classification_repairs_before_retry_and_defers_strong_work(self):
+        self.seed_parallel(checker='openai/gpt-5.4')
+        self.env.update(BUILD_AUDIT_FAULT='escalate_success', FAILURE_ROUTING_DIAGNOSIS='execution',
+                        FAILURE_ROUTING_MALFORMED_DIAGNOSIS='1')
+        self.call('autocode_build', ['--run-dir', str(self.run), '--no-chat'])
+        builders = self.trace('terra')
+        self.assertEqual(['gpt-6-luna', 'gpt-6-luna'],
+            [row['model'] for row in builders if row['handoff']['current_task']['milestone_id'] == 'M1'])
+        self.assertEqual(1, len([row for row in builders if row['handoff']['current_task']['milestone_id'] == 'M2']))
+        diagnoses = [row for row in self.trace('investigate_stuck') if row['handoff'].get('builder_failure')]
+        self.assertEqual(2, len(diagnoses))
+        self.assertEqual(2, len(self.trace('investigate_stuck_report_repair', 'preserved_diagnosis_repair')))
+        for row in diagnoses:
+            self.assertEqual('read-only', row['argv'][row['argv'].index('--sandbox') + 1])
+            self.assertNotEqual(str(self.project), row['workspace'])
+            packet = row['handoff']['builder_failure']
+            self.assertEqual(row['handoff']['current_task']['id'], packet['binding']['task_id'])
+            self.assertTrue(packet['binding']['source_revision'])
+        self.assertFalse((self.project / 'main.py').exists(), 'The strong slot must stay deferred until sibling review')
+        self.assertEqual('preserved sibling\n', (self.project / 'sibling.txt').read_text())
+        self.drive(codes=(0,))
+        status = self.status()
+        self.assertEqual('TASK_COMPLETE', status['status'])
+        self.assertTrue(status['completion_current'])
+        builders = [row for row in self.trace('terra') if row['handoff']['current_task']['milestone_id'] == 'M1']
+        self.assertEqual(['gpt-6-luna', 'gpt-6-luna', 'gpt-5.4'], [row['model'] for row in builders])
+        self.assertEqual(str(self.project), builders[-1]['workspace'], 'Only the parent may spend the colliding strong slot')
+        calls = self.trace()
+        strong = calls.index(builders[-1])
+        sibling_check = next(i for i, row in enumerate(calls) if row['stage'] == 'sol'
+                             and row['handoff']['current_task']['milestone_id'] == 'M2')
+        self.assertLess(sibling_check, strong)
+        for row in self.trace('sol'):
+            if row['handoff']['current_task']['milestone_id'] == 'M1':
+                self.assertNotEqual('gpt-5.4', row['model'].removeprefix('openai/'),
+                                    'The escalated Builder cannot check its own work')
+        self.assertEqual(self.approved_token, status['contract_token'])
+        before = self.call_order()
+        self.drive(codes=(0,))
+        self.assertEqual(before, self.call_order(), 'Completion cannot replenish a worker lane')
+
+    def test_parallel_plan_classification_never_becomes_an_execution_retry(self):
+        self.seed_parallel(wrong_plan=True)
+        self.env.update(BUILD_AUDIT_FAULT='no_change', FAILURE_ROUTING_DIAGNOSIS='plan')
+        self.call('autocode_build', ['--run-dir', str(self.run), '--no-chat'], (2,))
+        self.assertNotEqual('TASK_COMPLETE', self.status()['status'])
+        self.assertEqual(2, len(self.trace('terra')))
+        self.assert_bound_read_only()
+        self.assert_no_strong()
+        self.assert_retained_sibling()
+        self.assertEqual("print('goodbye')\n", (self.project / 'main.py').read_text())
+        self.assertEqual('plan', self.trace('investigate_stuck', 'diagnosis')[0]['report']['failure_class'])
+        before = self.call_order()
+        self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused', '--no-chat'], (2,))
+        self.assertEqual(before, self.call_order(), 'A worker cannot grant its own changed approach')
+        self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused',
+                                    '--retry-builder', 'M1', '--no-chat'], (2,))
+        self.assertEqual(before, self.call_order(), 'Explicit retry must retain the queued non-writer continuation')
+        self.assertEqual("print('goodbye')\n", (self.project / 'main.py').read_text())
+        self.assert_retained_sibling()
+
+    def test_parallel_provider_failure_keeps_cause_and_does_not_classify_or_escalate(self):
+        self.seed_parallel()
+        self.env['BUILD_AUDIT_FAULT'] = 'crash'
+        self.call('autocode_build', ['--run-dir', str(self.run), '--no-chat'], (2,))
+        status = self.status()
+        self.assertNotEqual('TASK_COMPLETE', status['status'])
+        self.assertIn('terra exited 9', status['view']['stop_reason'])
+        self.assertEqual(2, len(self.trace('terra')))
+        self.assertEqual([], self.trace('investigate_stuck'))
+        self.assert_no_strong()
+        self.assert_retained_sibling()
+        before = self.call_order()
+        self.call('autocode_build', ['--run-dir', str(self.run), '--resume-paused', '--no-chat'], (2,))
+        self.assertEqual(before, self.call_order())
 
     def test_fulfilled_wrong_plan_requires_fresh_reassessment_not_stronger_builder(self):
         goodbye = "print('goodbye')\n"
@@ -340,6 +485,10 @@ class FailureRoutingCLI(unittest.TestCase):
         status = self.status()
         self.assertEqual(['gpt-6-luna', 'gpt-6-luna', 'gpt-5.4'],
                          [row['model'] for row in self.trace('terra')])
+        self.assertEqual(3, status['milestone_checkpoint']['limits']['stalled_reviews'])
+        self.assertTrue(status['milestone_checkpoint']['current']['needs_replan'])
+        self.assertEqual(3, status['milestone_checkpoint']['current']['reviews_without_progress'])
+        self.assertEqual(2, len(self.trace('astra_resolve')), 'Plan/novelty hold must suppress a third paid Resolver')
         self.assertNotEqual('TASK_COMPLETE', status['status'])
         self.assertEqual(self.approved_token, status['contract_token'])
         self.assertGreaterEqual(len(self.trace('sol')), 2)

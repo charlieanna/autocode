@@ -91,8 +91,13 @@ class SubprocessFlow(unittest.TestCase):
 
     def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
-        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
+        # Keep this a pure execution-budget fixture; default replan holds have public CLI coverage.
+        self.launch(['Build greeting', '--max-milestone-stalled-reviews', '0', '--chat'],
+                    2, answers='CLI\nyes\n')
         run, state = self.saved()
+        status = json.loads(self.launch(['--run-dir', str(run), '--status'], 0).stdout)
+        self.assertIsNone(status['milestone_checkpoint']['limits']['stalled_reviews'])
+        self.assertFalse(status['milestone_checkpoint']['current']['needs_replan'])
         # Identical defects need real operator grants before consuming the
         # remaining configured escalation, rather than fresh-session retries.
         for _ in range(2):

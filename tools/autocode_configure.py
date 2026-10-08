@@ -312,7 +312,10 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                     if getattr(args, 'max_milestone_seconds', None) is not None else milestones.DEFAULTS['max_seconds'],
                 "max_replans": (None if getattr(args, 'max_milestone_replans', None) == 0 else
                     getattr(args, 'max_milestone_replans', None)
-                    if getattr(args, 'max_milestone_replans', None) is not None else milestones.DEFAULTS['max_replans'])},
+                    if getattr(args, 'max_milestone_replans', None) is not None else milestones.DEFAULTS['max_replans']),
+                "stalled_reviews": (None if getattr(args, 'max_milestone_stalled_reviews', None) == 0 else
+                    getattr(args, 'max_milestone_stalled_reviews', None)
+                    if getattr(args, 'max_milestone_stalled_reviews', None) is not None else milestones.DEFAULTS['stalled_reviews'])},
             "headroom": {"enabled": args.headroom == "on", "verified": False},
             "regression": {key: value for key, value in (("test_command", getattr(args, "test_command", None)),
                            ("regression_command", getattr(args, "regression_command", None)),
