@@ -615,3 +615,17 @@ Extra instructions, altered envelopes and ordinary CLI tasks retain whole-task
 source semantics. Existing saved flattened tasks are not rewritten or reinterpreted.
 This format changes neither model routes nor the legacy/continuous handoff controls,
 and conveys no approval to implement.
+## Current verification ownership
+
+`status()` includes additive `verification_obligation` metadata when a scheduled
+clean replay is pending. It names the current obligation separately from the
+saved `runner_check`, including its phase, exact preparation admission and current
+native command custody. `runner_check_matches_current` tells whether the saved
+check describes that same command. Status binds the current attempt, admission,
+phase/owner and command hierarchy before inspecting liveness, including genuinely
+live workers; it does not require a stopped result merely to display them.
+An admitted or post-execution phase with no current custody borrows no earlier
+command's liveness. A legacy unbound marker or unavailable
+ownership remains held; status does not reconcile it, grant a retry or establish
+test success. Use the displayed supported recovery action and retain interrupted
+receipts separately from fresh verification.

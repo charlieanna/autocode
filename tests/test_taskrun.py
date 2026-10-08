@@ -45,8 +45,18 @@ class RunViewTests(unittest.TestCase):
                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
                           "efficiency", "recovery", "verification", "code_checkpoints", "routes",
                           "route_assignments", "liveness", "information_review", "tool_containment",
-                          "escalation_outcomes", "job_report_recovery"},
+                          "escalation_outcomes", "job_report_recovery", "verification_obligation"},
                          set(run_view.view({"status": "RUNNING"})))
+
+    def test_verification_obligation_is_additive_read_only_projection(self):
+        self.assertIsNone(run_view.view({"status": "RUNNING"})['verification_obligation'])
+        frontier = {'available': False, 'reason': 'Exact current custody is unavailable'}
+        shown = run_view.view({"status": "RUNNING"}, verification_obligation=frontier)
+        self.assertEqual(frontier, shown['verification_obligation'])
+        frontier['reason'] = 'Changed after projection'
+        self.assertEqual('Exact current custody is unavailable', shown['verification_obligation']['reason'])
+        self.assertEqual('RUNNING', shown['status'])
+        self.assertIsNone(shown['runner_check'])
 
     def test_evidence_is_empty_before_planning(self):
         self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [],

@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from copy import deepcopy
 
 import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression
@@ -33,6 +34,141 @@ FEATURE = "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n" \
           "    def test_t1_sub_is_correct(self):\n        self.assertEqual(1, calc.sub(3, 2))\n"
 FAILS_ONLY_ON_BASE = "import os\nimport calc\nif '/baseline' in os.getcwd():\n    calc.add = lambda a, b: -999\n"
 REPAIRS_CANDIDATE = "import calc\ncalc.add = lambda a, b: a + b\n"
+
+
+class SupplyTransportTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='supply-transport-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.checkout, self.store = self.root / 'project', self.root / 'launch-sources'
+        self.checkout.mkdir()
+        self.store.mkdir()
+        self.generated_bytes, self.vendor_bytes = b'VALUE = 41\n', b'OFFSET = 1\n'
+        self.generated_hash = hashlib.sha256(self.generated_bytes).hexdigest()
+        self.vendor_hash = hashlib.sha256(self.vendor_bytes).hexdigest()
+        (self.checkout / '_version.py').write_bytes(self.generated_bytes)
+        (self.checkout / 'vendor').mkdir()
+        (self.checkout / 'vendor' / 'library.py').write_bytes(self.vendor_bytes)
+        for path in (self.checkout / '_version.py', self.checkout / 'vendor' / 'library.py'):
+            path.chmod(0o644)
+        (self.store / self.generated_hash).write_bytes(self.generated_bytes)
+        self.supplied = launch_inputs.Supply(self.checkout, self.store,
+            {'_version.py': [self.generated_hash, 0o644]},
+            {'vendor/library.py': [self.vendor_hash, 0o644]}, [], ['Added input omitted'], recorded=True)
+
+    def restored(self, record=None):
+        return launch_inputs.Supply.from_transport(
+            self.supplied.to_transport() if record is None else record, checkout=self.checkout)
+
+    def destination(self, name):
+        path = self.root / name
+        path.mkdir()
+        return path
+
+    def test_round_trip_preserves_every_field_and_actual_copy_semantics(self):
+        restored = self.restored()
+        self.assertEqual(self.supplied.to_transport(), restored.to_transport())
+        self.assertEqual(self.supplied.identity, restored.identity)
+        tree = self.destination('copy')
+        restored.copy_into(tree)
+        self.assertEqual(self.generated_bytes, (tree / '_version.py').read_bytes())
+        self.assertEqual(self.vendor_bytes, (tree / 'vendor/library.py').read_bytes())
+        self.assertEqual(0o644, (tree / '_version.py').stat().st_mode & 0o777)
+
+    def test_transport_is_a_detached_primitive_snapshot_without_file_or_process_reads(self):
+        with mock.patch.object(launch_inputs, '_read', side_effect=AssertionError('unexpected source read')), \
+                mock.patch.object(launch_inputs.verify.subprocess, 'run', side_effect=AssertionError('unowned child')):
+            record = self.supplied.to_transport()
+            restored = self.restored(json.loads(json.dumps(record)))
+        record['notes'].append('changed after capture')
+        record['generated']['_version.py'][1] = 0o600
+        self.assertEqual(['Added input omitted'], restored.notes)
+        self.assertEqual(0o644, restored.generated['_version.py'][1])
+        self.assertEqual(0o644, self.supplied.generated['_version.py'][1])
+
+    def test_empty_recorded_and_unrecorded_supplies_remain_distinct(self):
+        for recorded in (False, True):
+            with self.subTest(recorded=recorded):
+                supplied = launch_inputs.Supply(self.checkout, self.store, {}, {}, [], [], recorded=recorded)
+                restored = launch_inputs.Supply.from_transport(supplied.to_transport(), checkout=self.checkout)
+                self.assertEqual(recorded, restored.recorded)
+                self.assertEqual(supplied.identity, restored.identity)
+                self.assertEqual({}, restored.generated)
+                self.assertEqual({}, restored.vendored)
+
+    def test_uncertainty_and_notes_are_retained_and_block_copy(self):
+        supplied = launch_inputs.Supply(self.checkout, self.store, {}, {},
+            ['Captured input changed'], ['Added vendor omitted'], recorded=False)
+        restored = launch_inputs.Supply.from_transport(supplied.to_transport(), checkout=self.checkout)
+        self.assertEqual(supplied.to_transport(), restored.to_transport())
+        with self.assertRaisesRegex(ValueError, 'Captured input changed'):
+            restored.copy_into(self.destination('uncertain'))
+
+    def test_changed_source_mode_and_missing_or_changed_capture_still_fail(self):
+        for kind in ('source', 'mode', 'missing-capture', 'changed-capture'):
+            with self.subTest(kind=kind):
+                source, captured = self.checkout / '_version.py', self.store / self.generated_hash
+                source.write_bytes(self.generated_bytes)
+                source.chmod(0o644)
+                captured.write_bytes(self.generated_bytes)
+                restored = self.restored()
+                if kind == 'source': source.write_bytes(b'VALUE = 99\n')
+                elif kind == 'mode': source.chmod(0o600)
+                elif kind == 'missing-capture': captured.unlink()
+                else: captured.write_bytes(b'VALUE = 99\n')
+                with self.assertRaises((OSError, ValueError)):
+                    restored.copy_into(self.destination(kind))
+
+    def test_symlink_and_fifo_cannot_supply_transported_source(self):
+        source = self.checkout / '_version.py'
+        restored = self.restored()
+        source.unlink()
+        source.symlink_to(self.store / self.generated_hash)
+        with self.assertRaises((OSError, ValueError)):
+            restored.copy_into(self.destination('symlink'))
+        source.unlink()
+        os.mkfifo(source)
+        with self.assertRaises((OSError, ValueError)):
+            restored.copy_into(self.destination('fifo'))
+
+    def test_malformed_transport_fields_fail_before_copy(self):
+        original = self.supplied.to_transport()
+        variants = []
+        for key, value in (('schema', True), ('kind', 'other'), ('recorded', 1),
+                           ('identity', '0' * 64), ('notes', 'not a list'),
+                           ('unverified', [None]), ('checkout', '/tmp/../foreign'),
+                           ('store', 'relative'), ('store', '/private/invalid\0root')):
+            record = deepcopy(original)
+            record[key] = value
+            variants.append(record)
+        for name, entry in (('../foreign', [self.generated_hash, 0o644]),
+                            ('invalid\0name', [self.generated_hash, 0o644]),
+                            ('.git/config', [self.generated_hash, 0o644]),
+                            ('_version.py', ['bad-hash', 0o644]),
+                            ('_version.py', [self.generated_hash, True])):
+            record = deepcopy(original)
+            record['generated'] = {name: entry}
+            variants.append(record)
+        record = deepcopy(original)
+        record['vendored'] = {'outside-vendor.py': [self.vendor_hash, 0o644]}
+        variants.append(record)
+        record = deepcopy(original)
+        record['extra'] = 'not part of the Supply'
+        variants.append(record)
+        for index, record in enumerate(variants):
+            with self.subTest(index=index), mock.patch.object(launch_inputs, '_read', side_effect=AssertionError('foreign read')):
+                with self.assertRaises(ValueError): self.restored(record)
+
+    def test_foreign_checkout_is_rejected_before_copy_or_inventory(self):
+        with mock.patch.object(launch_inputs, '_read', side_effect=AssertionError('foreign read')):
+            with self.assertRaisesRegex(ValueError, 'different checkout'):
+                launch_inputs.Supply.from_transport(self.supplied.to_transport(), checkout=self.root / 'foreign')
+
+    def test_transport_remains_bounded_by_the_existing_manifest_limit(self):
+        self.supplied.notes = ['x' * (8 * 1024 * 1024)]
+        with self.assertRaisesRegex(ValueError, 'manifest bound'):
+            self.supplied.to_transport()
 
 
 def git(root, *args):

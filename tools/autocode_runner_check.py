@@ -13,10 +13,12 @@ from pathlib import Path
 try:
     from . import autocode_process as processes, autocode_util as util
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_process as processes
     import autocode_util as util
     import autocode_command_supervision as command_supervision
+    import autocode_verification_schedule as schedule
 
 
 def _reconcile(record):
@@ -52,6 +54,30 @@ def clear(state, run_dir, persist):
             })
     state.pop("active_runner_check")
     persist(Path(run_dir) / "state.json", state)
+
+
+def recover_interrupted(state, run_dir, persist):
+    """Explicit resume after abandoning a model may retire its stopped check.
+
+    Existing active_runner_check is the sole state-derived input. All admission
+    authentication and native absence checks happen below this stateful layer.
+    """
+    if state.get('active_stage'):
+        raise command_supervision.receipts.OwnershipUncertain(
+            'Abandon the exact uncertain model attempt shown by status before recovering its verification')
+    recovered = schedule.recover_interrupted(Path(run_dir) / 'check-replay' / 'obligations',
+                                             state.get('active_runner_check'))
+    if recovered:
+        state.setdefault('user_events', []).append({
+            'kind': 'verification_interrupted_recovered', 'actor': 'user_cli',
+            'at': util.now(), **recovered,
+            'reason': ('Authenticated stopped ownership reconciled with existing completed evidence'
+                       if recovered['disposition'] in ('existing_completed_receipt',
+                                                      'published_existing_completed_receipt') else
+                       'Authenticated interrupted ownership reconciled; fresh verification is required'),
+        })
+    clear(state, run_dir, persist)
+    return recovered
 
 
 @contextmanager

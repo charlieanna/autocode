@@ -182,6 +182,64 @@ class Supply:
         self.recorded = recorded
         self.identity = util.digest({'generated': generated, 'vendored': vendored, 'unverified': unverified})
 
+    @staticmethod
+    def _transport_record(value):
+        """Validate a process handoff without scanning or changing launch policy."""
+        fields = {'schema', 'kind', 'checkout', 'store', 'generated', 'vendored',
+                  'unverified', 'notes', 'recorded', 'identity'}
+        if not isinstance(value, dict) or set(value) != fields:
+            raise ValueError('Invalid launch-input Supply transport fields')
+        if (type(value['schema']) is not int or value['schema'] != 1
+                or value['kind'] != 'launch_input_supply'
+                or type(value['recorded']) is not bool):
+            raise ValueError('Invalid launch-input Supply transport schema')
+        for field in ('checkout', 'store'):
+            name = value[field]
+            if (not isinstance(name, str) or '\0' in name or not Path(name).is_absolute()
+                    or str(Path(name)) != name or '..' in Path(name).parts):
+                raise ValueError('Supply transport requires exact absolute roots')
+        for kind in ('generated', 'vendored'):
+            files = value[kind]
+            if not isinstance(files, dict):
+                raise ValueError('Invalid Supply transport inventory')
+            for name, entry in files.items():
+                relative = PurePosixPath(name) if isinstance(name, str) else None
+                if (relative is None or not name or '\0' in name or name == '.' or relative.is_absolute()
+                        or '..' in relative.parts or '.git' in relative.parts or str(relative) != name
+                        or (kind == 'vendored' and not name.startswith('vendor/'))
+                        or not isinstance(entry, list) or len(entry) != 2
+                        or not isinstance(entry[0], str) or not _HASH.fullmatch(entry[0])
+                        or type(entry[1]) is not int or not 0 <= entry[1] <= 0o777):
+                    raise ValueError('Invalid Supply transport path, hash or mode')
+        for field in ('unverified', 'notes'):
+            if not isinstance(value[field], list) or not all(isinstance(item, str) for item in value[field]):
+                raise ValueError('Invalid Supply transport uncertainty or notes')
+        if (not isinstance(value['identity'], str) or not _HASH.fullmatch(value['identity'])
+                or value['identity'] != util.digest({key: value[key] for key in
+                                                    ('generated', 'vendored', 'unverified')})):
+            raise ValueError('Supply transport identity changed')
+        encoded = json.dumps(value, sort_keys=True, allow_nan=False).encode()
+        if len(encoded) > 8 * 1024 * 1024:
+            raise ValueError('Supply transport exceeds the launch-manifest bound')
+        return json.loads(encoded)
+
+    def to_transport(self):
+        """Freeze the existing Supply, including uncertainty, for its owned worker."""
+        return self._transport_record({'schema': 1, 'kind': 'launch_input_supply',
+            'checkout': str(self.checkout), 'store': str(self.store),
+            'generated': self.generated, 'vendored': self.vendored,
+            'unverified': self.unverified, 'notes': self.notes,
+            'recorded': self.recorded, 'identity': self.identity})
+
+    @classmethod
+    def from_transport(cls, value, *, checkout):
+        """Restore exact policy after worker admission; existing copy checks remain."""
+        value = cls._transport_record(value)
+        if value['checkout'] != str(Path(checkout)):
+            raise ValueError('Supply transport belongs to a different checkout')
+        return cls(value['checkout'], value['store'], value['generated'], value['vendored'],
+                   value['unverified'], value['notes'], recorded=value['recorded'])
+
     def copy_into(self, tree):
         if self.unverified:
             raise ValueError('; '.join(self.unverified))

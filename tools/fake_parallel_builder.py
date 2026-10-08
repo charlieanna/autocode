@@ -67,6 +67,14 @@ def report(data):
             "evidence": ["event:check"], "blocker": "", "agreed_limitations": [], "finding_dispositions": []}
 
 
+def repair_report(data):
+    original = data["original"]
+    result = json.loads(Path(original["output"]).read_text())
+    if original.get("stage") == "terra":
+        result.setdefault("summary", "Repaired report without replaying implementation")
+    return result
+
+
 def main():
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline fixture)")
@@ -78,8 +86,7 @@ def main():
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     if data.get("report_repair"):
-        result = json.loads(Path(data["original"]["output"]).read_text())
-        result["summary"] = "Repaired report without replaying implementation"
+        result = repair_report(data)
         Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return

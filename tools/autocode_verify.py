@@ -54,6 +54,7 @@ try:
     from . import autocode_test_setup as test_setup
     from . import autocode_first_suite as first_suite
     from . import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
+    from . import autocode_verification_preparation as preparation
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
@@ -67,6 +68,7 @@ except ImportError:
     import autocode_test_setup as test_setup
     import autocode_first_suite as first_suite
     import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
+    import autocode_verification_preparation as preparation
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -1689,6 +1691,32 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None,
     return bound
 
 
+class ScratchPatchError(ValueError):
+    """An unapplied patch has no execution receipt."""
+
+
+def prepare_scratch_tree(workspace, run_dir, *, patch=None, files=None, links=None, source_paths=(),
+                         dependencies_from=None, generated_record=None, generated_unrecorded=False,
+                         ignored_inputs=None):
+    """Existing copy operations, supplied to the owned preparation worker."""
+    workspace, run_dir = Path(workspace), Path(run_dir)
+    head = _git(workspace, "rev-parse", "HEAD").strip()
+    tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace,
+                     changed_files(workspace, head, source_paths=source_paths),
+                     dependencies_from=dependencies_from or workspace, generated_record=generated_record,
+                     generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
+    try:
+        if patch:
+            applied = subprocess.run(["git", "-C", str(tree), "apply", str(patch)], capture_output=True, text=True)
+            if applied.returncode:
+                raise ScratchPatchError(f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}")
+        scratch_overlay.apply(tree, files, links)
+    except BaseException:
+        remove_tree(workspace, tree)
+        raise
+    return tree
+
+
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
                 files=None, links=None, source_paths=(), dependencies_from=None,
                 generated_record=None, generated_unrecorded=False, ignored_inputs=None) -> dict:
@@ -1705,17 +1733,26 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
     every target also supplied in the overlay; candidate links are never written through.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
-    head = _git(workspace, "rev-parse", "HEAD").strip()
-    tree = make_tree(workspace, head, run_dir / "scratch" / "tree", workspace, changed_files(workspace, head, source_paths=source_paths),
-                     dependencies_from=dependencies_from or workspace, generated_record=generated_record,
-                     generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
+    parameters = {'patch': str(patch) if patch else None, 'files': files, 'links': links,
+                  'source_paths': list(source_paths), 'dependencies_from': str(dependencies_from) if dependencies_from else None,
+                  'generated_record': generated_record, 'generated_unrecorded': generated_unrecorded,
+                  'ignored_inputs': ignored_inputs}
+    owned_preparation = preparation.active()
+    if owned_preparation:
+        if ignored_inputs is not None:
+            encode = getattr(ignored_inputs, 'to_transport', None)
+            if not callable(encode):
+                raise ValueError('Owned preparation needs explicit launch-input Supply transport')
+            parameters = {**parameters, 'ignored_inputs': encode()}
+        return preparation.launch('execute', workspace, run_dir,
+            {**parameters, 'tests': list(tests), 'command': command, 'timeout': timeout}, timeout=timeout,
+            env=dict(agent_env.scrubbed(os.environ), PYTHONDONTWRITEBYTECODE='1'))
     try:
-        if patch:
-            applied = subprocess.run(["git", "-C", str(tree), "apply", str(patch)], capture_output=True, text=True)
-            if applied.returncode:
-                return {"error": f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}",
-                        "results": None}
-        scratch_overlay.apply(tree, files, links)
+        tree = prepare_scratch_tree(workspace, run_dir, **parameters)
+    except ScratchPatchError as error:
+        return {'error': str(error), 'results': None}
+    ownership_uncertain = False
+    try:
         if command is None:
             python = python_for(workspace)
             framework = detect_framework(tree, python=python)
@@ -1750,8 +1787,12 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
                     if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
                         return {**receipt, "error": "Test command reported zero tests or incomplete output"}
         return {**receipt, "error": receipt.get("error") or ""}
+    except command_receipt.OwnershipUncertain:
+        ownership_uncertain = True
+        raise
     finally:
-        remove_tree(workspace, tree)
+        if not ownership_uncertain:
+            remove_tree(workspace, tree)
 
 
 def baseline(workspace, base, run_dir, *, framework, suite_command, timeout=DEFAULT_TIMEOUT,

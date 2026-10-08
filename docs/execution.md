@@ -610,6 +610,21 @@ retained count in `no_progress_batches`. Other holds that pause as
 name their own action instead.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
+If `PAUSED_VERIFICATION_UNCERTAIN` names an unfinished clean verification,
+first abandon the exact model attempt displayed by status, when present, then
+use `--resume-paused`. Explicit resume authenticates that verification's original
+command admission and terminal cleanup and checks every recorded native process
+identity. A missing, corrupt, unbound or unfinished receipt, a symlinked or
+nonregular artifact, a live process or denied inspection keeps the pause.
+Authenticated stopped ownership can retire the pending obligation only after
+publishing a durable interrupted receipt. That receipt preserves the admitted
+context, reports an unknown exit and duration, and supplies no passing evidence
+or reusable result; verification must execute again. If its original completed
+receipt was saved before interruption, it is preserved. When only its completed
+pointer is missing, explicit recovery additionally authenticates the original
+collected command result, exact admission and unchanged output before publishing
+that pointer. Recovery never supplies a missing result or collected exit. Status and
+ordinary dispatch cannot perform this recovery.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
 explicitly override them. For example, resume a run paused at its iteration ceiling with
 `--resume-paused --max-iterations 25` to set the total ceiling to 25. Changing a limit

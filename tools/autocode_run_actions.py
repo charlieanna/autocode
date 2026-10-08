@@ -48,6 +48,7 @@ try:
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
+    from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
@@ -80,6 +81,7 @@ except ImportError:
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
     import autocode_run_records as records
+    import autocode_runner_check as runner_check
     import autocode_stop as stop
     import autocode_accepted_source as accepted_source
     import autocode_support as support
@@ -493,6 +495,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     # Recovery interprets terminal artifacts only. It never replays a model call.
     try:
         if args.resume_paused:
+            if state.get('status') in ('PAUSED_VERIFICATION_UNCERTAIN', 'PAUSED_STAGE_ABANDONED'):
+                runner_check.recover_interrupted(state, run_dir, runner.write_json)
             # Acknowledgement is not a new spending/recovery allowance.
             # Counts, elapsed time, repair attempts and receipts persist;
             # an operator who fixed the cause grants more explicitly

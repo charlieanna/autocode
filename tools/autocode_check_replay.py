@@ -189,6 +189,7 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                     lambda directory: scratch_run(workspace, directory, command=command, timeout=timeout),
                     reuse_allowed=eligible and binding["execution"].get("reuse_supported", False),
                     reason=reason,
+                    owned_preparation=True,
                     # Reuse the previous check's *post-execution* measurement
                     # only inside this invocation, never across restarts. Every
                     # execution still receives a fresh after-context check.
