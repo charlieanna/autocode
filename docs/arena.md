@@ -424,3 +424,19 @@ outcomes and comparison rejection cases. They substitute oracle transport and th
 TaskRun boundary; they do not establish live-provider performance. The shared
 supervisor and TaskRun have their own integration suites. A live Arena attempt that
 reaches the changed path is still required before marking the PR ready.
+
+## Reliability table
+
+Dated sweep rows live in `docs/reliability-sweeps.json`. The published table is
+generated, never edited by hand (#694):
+
+```sh
+python tools/reliability_table.py docs/reliability-sweeps.json > docs/reliability-table.md
+python tools/reliability_table.py docs/reliability-sweeps.json --readme   # short README copy
+```
+
+Fake-provider and live-model rows are separate tables and are never mixed. Each
+row names the master commit the sweep ran on. Add a row after a sweep with the
+date, profile, commit, mode, run/pass/false-completion counts and a note that
+points at the run's bug file or evidence directory. The generator refuses a row
+whose counts do not add up or whose mode is neither `live` nor `fake`.
