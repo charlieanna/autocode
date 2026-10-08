@@ -48,6 +48,10 @@ def check(project, scenario, run=None):
                         "" if follows else "outside its rejected options, the design must cite the decision "
                         "(note or shared-file), use the shared METADATA_CACHE_DIR and say how a write becomes "
                         "visible atomically"))
+    freshness = freshness_policy(text)
+    missing_policy = [name for name, satisfied in freshness.items() if not satisfied]
+    checks.append(Check("design_settles_freshness", not missing_policy,
+                        "missing freshness decisions: " + ", ".join(missing_policy) if missing_policy else ""))
     modules, signatures = named_interface(text)
     defined, params = definitions(project)
     seeded = seed_callables(scenario.seed)
@@ -98,19 +102,81 @@ def decided(text):
     return "\n".join(kept)
 
 
+def freshness_policy(text):
+    """Explicit decisions, outside rejected options; report each absent obligation."""
+    patterns = {
+        "ttl": r"\bttl\b|ttl_seconds|time.to.live",
+        "caller_configurable": r"caller.configur|caller.{0,40}(?:controls?|chooses?|sets?|supplies?).{0,40}\bttl(?:_seconds)?\b"
+                               r"|(?:configur\w*|parameter|argument).{0,100}\bttl(?:_seconds)?\b"
+                               r"|\bttl(?:_seconds)?\b.{0,100}(?:configur\w*|parameter|argument)",
+        "default_3600": r"default.{0,40}(?:\b3,?600\b|\b(?:one|1).hour\b)"
+                        r"|(?:\b3,?600\b|\b(?:one|1).hour\b).{0,40}default"
+                        r"|\bttl\s*:\s*(?:float|int)\s*=\s*3600",
+        "injectable_clock": r"inject\w*.{0,40}\bclock\b|\bclock\b.{0,60}Callable\["
+                            r"|`clock`.{0,60}(?:zero.argument|callable)",
+        "expiry_at_equality": r"(?:>=|greater than or equal|at (?:least|or after)).{0,40}(?:ttl|time.to.live)"
+                              r"|younger than.{0,40}(?:ttl|time.to.live)"
+                              r"|(?:age|elapsed|clock).{0,120}<(?!=).{0,40}(?:ttl|time.to.live)",
+        "no_stale": r"(?:never|no|not).{0,40}stale|stale.{0,40}(?:never|not|forbidden)",
+        "single_refresh": r"\bfetch(?:es|ing)?(?:\([^)]*\))?`?\s+(?:new\s+)?(?:metadata\s+)?(?:exactly\s+|only\s+)?once\b",
+        "atomic_publication": r"os\.replace|\brename|\batomic",
+        "worker_reuse": r"workers?.{0,100}(?:reus\w*|shared)|(?:reus\w*|shared).{0,100}workers?",
+        "upstream_errors": r"(?:propagat\w*|rais\w*|return\w*).{0,100}(?:upstream|fetch|HTTP).{0,40}errors?"
+                           r"|(?:upstream|fetch|HTTP).{0,80}(?:errors?|fail\w*).{0,100}(?:propagat\w*|rais\w*|return\w*)",
+    }
+    text = decided(text)
+    policy = {name: bool(re.search(pattern, text, re.I | re.S)) for name, pattern in patterns.items()}
+    for span in SPAN.findall(text):
+        try:
+            function = ast.parse("def " + span.strip() + ": pass").body[0]
+        except SyntaxError:
+            continue
+        if isinstance(function, ast.FunctionDef) and any(arg.arg in ("ttl", "ttl_seconds") for arg in
+                [*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs]):
+            policy["caller_configurable"] = True
+    # Positive clauses cannot override an explicit contradictory policy elsewhere in the design.
+    if re.search(r"\b(?:exclud\w*|except|not(?:\s+at)?)\s+(?:at\s+)?equality\b"
+                 r"|\b(?:fresh|hit|reuse)\b[^.\n]{0,100}<=\s*`?ttl"
+                 r"|\b(?:expir\w*|stale)\b[^.\n]{0,100}>(?!=)\s*`?ttl", text, re.I):
+        policy["expiry_at_equality"] = False
+    if re.search(r"\bttl(?:_seconds)?\b[^.\n]{0,60}\b(?:fixed|hard.coded|not configurable)\b"
+                 r"|\b(?:fixed|hard.coded)\b[^.\n]{0,60}\bttl(?:_seconds)?\b"
+                 r"|\bcallers?[^.\n]{0,40}(?:cannot|can't|may not)[^.\n]{0,40}(?:override|configure|set|change)", text, re.I):
+        policy["caller_configurable"] = False
+    return policy
+
+
 def named_interface(text):
     """The app/ modules and the callables the design names in code spans: {name: parameters or None}.
 
     `Name(a, b)` with plain parameter names is a signature the code must have; `name()` or a call with
     arguments (`Name(os.environ.get(...), 3600)`) only names the callable. `_name(...)` is a private
     helper and fixes nothing: a live design listed its helpers as example names, and the build merged
-    two of them."""
+    two of them. An argument declared Callable is an injected callback, not another exported
+    function; a separately declared typed function with that name still binds the build."""
     spans = SPAN.findall(text)
     modules = sorted({span for span in spans if MODULE.match(span)})
-    signatures = {}
+    callbacks = set()
+    declarations = {}
+    for span in spans:
+        try:
+            function = ast.parse("def " + span.strip() + ": pass").body[0]
+        except SyntaxError:
+            continue
+        if not isinstance(function, ast.FunctionDef):
+            continue
+        positional = [*function.args.posonlyargs, *function.args.args]
+        arguments = [*positional, *function.args.kwonlyargs]
+        if function.returns or function.args.kwonlyargs or function.args.defaults or any(arg.annotation for arg in arguments):
+            declarations[function.name] = [arg.arg for arg in positional]
+        for argument in arguments:
+            if ((argument.annotation and "Callable" in ast.unparse(argument.annotation))
+                    or re.search(r"`" + re.escape(argument.arg) + r"`.{0,60}(?:zero.argument|callable|callback)", text, re.I)):
+                callbacks.add(argument.arg)
+    signatures = {name: args for name, args in declarations.items() if not name.startswith("_")}
     for span in spans:
         match = SIGNATURE.match(span.strip())
-        if not match or match.group(1).startswith("_"):
+        if not match or match.group(1).startswith("_") or match.group(1) in callbacks:
             continue
         names = [part.strip() for part in match.group(2).split(",") if part.strip()]
         exact = bool(names) and all(IDENTIFIER.match(name) for name in names)

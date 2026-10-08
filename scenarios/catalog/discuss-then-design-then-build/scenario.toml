@@ -16,7 +16,7 @@ turn_paths = [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
 
 [[turn]]
 after = "complete"
-say = "Shared it is; design it."
+say = "Shared it is; design it. Settle freshness in the design: TTL is caller-configurable with a 3600-second default. Use an injectable clock; an entry expires when elapsed clock time >= TTL, including at equality. Never serve stale metadata. On expiration fetch new metadata once, publish it atomically, and let the other workers reuse it; propagate upstream errors rather than returning expired data. Record these decisions in the approved design so the later build needs no freshness-policy question. The design turn must write only docs/design/. The later build must edit only app/ and tests/; preserve the decision note, approved design and root README.md. Prescribe socket-free test fixtures: controlled urllib.request.urlopen responses and process synchronization using pipes or file barriers, not a local HTTP server or socket-backed manager. Tests must not require network or loopback binding permission."
 
 [[turn]]
 after = "complete"

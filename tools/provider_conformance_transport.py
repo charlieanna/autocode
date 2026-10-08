@@ -81,7 +81,7 @@ def execute(*, adapter, workspace, directory, model, effort, session, allow_writ
             argv += ["resume", session]
         argv += ["-", "--json", "--output-schema", str(schema_path), "-o", str(report_path), "--model", model]
     else:
-        prompt = adapter.prompt_for_schema(prompt, schema, event_path)
+        # The probe supplies its schema and matches native shell calls, not capture wrappers.
         launch_kwargs = {}
         if hasattr(adapter, "parse_opencode_version"):
             launch_kwargs["opencode_version"] = adapter.local_settings(workspace, env=env)["version"]

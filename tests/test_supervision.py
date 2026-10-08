@@ -256,6 +256,27 @@ signal.pause()
         self.assertEqual(child.supervision, saved[0])
         self.assertEqual('stopped', supervision.receipt(saved[0])['phase'])
 
+    def test_verified_abnormal_stop_is_distinct_from_unknown_or_uncertain_cleanup(self):
+        read_receipt = supervision.receipt
+        cases = [('stage_deadline', 'stopped', None, supervision.VerifiedStop),
+                 ('unknown_cause', 'stopped', None, supervision.SupervisionError),
+                 ('stage_deadline', 'uncertain', 'not collected', supervision.SupervisionError)]
+        for index, (cause, phase, cleanup, expected) in enumerate(cases):
+            def terminal(metadata):
+                value = read_receipt(metadata)
+                return {**value, 'cause': cause, 'phase': phase, 'cleanup_error': cleanup} if value and value.get('phase') == 'stopped' else value
+            with self.subTest(cause=cause, phase=phase), patch.object(supervision, 'receipt', side_effect=terminal):
+                with self.assertRaises(expected) as caught:
+                    with supervision.launch([sys.executable, '-c', 'print("partial artifact")'],
+                                            receipt_path=self.root / f'receipt-{index}.json', timeout=30,
+                                            start_new_session=True, stdout=subprocess.PIPE, text=True) as child:
+                        output, _ = child.communicate(timeout=20)
+                        self.assertEqual('partial artifact\n', output)
+                self.assertIs(type(caught.exception), expected)
+                if expected is supervision.VerifiedStop:
+                    self.assertEqual('stage_deadline', caught.exception.cause)
+                self.assertFalse(processes.live_processes(read_receipt(child.supervision)['processes']))
+
     def test_owner_sigkill_stops_provider_and_retains_cause_without_touching_sentinel(self):
         sentinel = subprocess.Popen([sys.executable,'-c','import sys; sys.stdin.read()'], stdin=subprocess.PIPE)
         self.addCleanup(self.stop_owner, sentinel)
