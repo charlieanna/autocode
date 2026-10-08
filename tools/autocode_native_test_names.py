@@ -31,13 +31,13 @@ A name is requested (``requested``) when all of these hold:
   the sentence's end, at a description's first comma or semicolon that no name follows ("the test
   TestA, which must not break TestB"), and at a name inside a description ("TestA for the parser and
   make sure TestServer, TestClient still pass"; a file path such as TestData/golden.json is not a name
-  there). A name further from the word, such as "the tests pass
-  on TestNet" or "a test for TestHelper misuse", asks for nothing. So does one in a clause that negates
-  or gives an example ("do not name the test TestFixed", "like the test TestReadAll"), or one offered
-  with an alternative ("a test TestA or similar"). A later message of the user's that says "instead of",
-  "rather than" or "not" right before a name withdraws it: a subtest path alone (so "TestA/empty and
-  TestA/one, but not TestA/two" keeps the first two), a test function with the paths of it that earlier
-  messages asked for ("Add the Go test TestA/empty instead of TestA" asks for TestA/empty).
+  there). A name further from the word, such as "the tests pass on TestNet" or "a test for TestHelper
+  misuse", asks for nothing. So does one in a clause that negates or gives an example ("do not name the
+  test TestFixed", "like the test TestReadAll"), or one offered with an alternative ("a test TestA or
+  similar"). A later message of the user's that says "instead of", "rather than" or "not" right before a
+  name withdraws it: a subtest path alone (so "TestA/empty and TestA/one, but not TestA/two" keeps the
+  first two), a test function with the paths of it that earlier messages asked for ("Add the Go test
+  TestA/empty instead of TestA" asks for TestA/empty).
 - The runner's regression proof will run Go tests: an explicit ``go test`` regression command, else the
   framework autocode_verify detects in the workspace, chosen as autocode_regression.prove chooses it.
   Elsewhere TestParser is a Python or Java class, not a test the proof reports.
@@ -59,18 +59,16 @@ verification_method names that test and no other, for the Validator to check (a 
 run to a pass, such as one that skips without a database). A requested test function is accounted for by
 itself or any of its subtests (TestA/case); a requested subtest path by itself, a path under it or its
 whole test function, which runs every subtest it has, never by a sibling path, which the runner binds
-to that sibling's outcome only. A marked
-criterion that mentions, in its verification_method or its own text, a requested name no marked
-criterion declares, while declaring another identifier (or none the runner reads), is the prose alias of
-#498 (also when an ordinary criterion leaves that name to the Validator; a criterion naming a subtest
-path is told that path, one naming only its function the first requested path under it), and one that
-declares a
-respelling (test_fixed_returns_two, which the Go matcher would bind to Test_fixed_returns_two) does not
-keep the requested name. Two criteria never declare the same requested test. Criteria without a
-requested name keep the default test_<criterion id>_... convention. The goal lifecycle calls ``check``
-on every draft install and at approval (validate_body with the draft's origin), so a refused draft is
-never installed and a saved one cannot be approved, whatever a review accepted. Planning stages get
-``rule``.
+to that sibling's outcome only. A marked criterion that mentions, in its verification_method or its own
+text, a requested name no marked criterion declares, while declaring another identifier (or none the
+runner reads), is the prose alias of #498 (also when an ordinary criterion leaves that name to the
+Validator; a criterion naming a subtest path is told that path, one naming only its function the first
+requested path under it), and one that declares a respelling (test_fixed_returns_two, which the Go
+matcher would bind to Test_fixed_returns_two) does not keep the requested name. Two criteria never
+declare the same requested test. Criteria without a requested name keep the default
+test_<criterion id>_... convention. The goal lifecycle calls ``check`` on every draft install and at
+approval (validate_body with the draft's origin), so a refused draft is never installed and a saved one
+cannot be approved, whatever a review accepted. Planning stages get ``rule``.
 """
 from __future__ import annotations
 
