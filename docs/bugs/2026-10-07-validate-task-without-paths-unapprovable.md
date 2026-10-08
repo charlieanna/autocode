@@ -49,11 +49,23 @@ also allow `[]` when the paths "cannot be established".
 
   Unit tests in `tests/test_planning.py` cover the draft check and the path fallback.
 
-## What remains
+## Follow-up (#667)
 
-- **Saved runs.** A run saved at `AWAITING_GOAL_APPROVAL` with an unassignable implement
-  task still fails at approval. Its recourse is `--feedback`, which plans again.
-- **Checkpoints switched on later.** A plan whose milestone checkpoints were switched on
-  after it was drafted is checked only at approval, as before.
-- **Progressive runs.** The draft probe leaves out the progressive delegation, so
-  `guard_assignment` still checks an implement first task's paths only at approval.
+- **Saved runs and later checkpoint activation.** At the locked CLI boundary, a recorded
+  unapproved draft's first task is checked under the current settings before it is shown or
+  approved. An unassignable authored draft goes to the existing bounded report repair path.
+  Adaptive review cannot rewrite the Planner's task in its schema, so its Planner repairs
+  the draft and an independent review follows. The spent review allowance is retained;
+  automatic correction grants neither extra review capacity nor approval. A missing authored
+  report keeps the existing refusal and requires explicit feedback or a user edit.
+- **Progressive runs.** Draft checking uses the candidate first slice's ownership and the
+  same pure assignment guard used by execution. A validate task naming no paths inherits
+  the slice's paths. This structural check creates no delegation or active slice: approval
+  still authenticates and seals the reviewed proposal, and execution rechecks it.
+- **Coverage.** The CLI tests emulate saved drafts, both adaptive and fully finalized,
+  already-repaired Planner reports, and checkpoints enabled after drafting. They require
+  no provider launch when an invalid old token is refused or the plan is shown, a refreshed
+  approval token after repair, and preservation of the spent review count. The progressive
+  planning regression rejects a first task inside the product grant but outside the first
+  slice. The separate execution-guard test deliberately bypasses preflight to retain its
+  atomic rejection coverage for an older draft.

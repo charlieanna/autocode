@@ -125,6 +125,15 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.plan()
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
 
+    def test_first_task_outside_first_slice_is_rejected_during_planning(self):
+        # The whole-product grant includes both files; only the concrete first slice owns greet.py.
+        self.body["milestones"][0]["affected_paths"].append("future.py")
+        self.first["affected_paths"] = ["future.py"]
+        with self.assertRaisesRegex(ValueError, "exceeds active slice writable ownership"):
+            self.plan()
+        self.assertNotEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        self.assertFalse(self.state.get("current_task"))
+
     def test_reviewed_initial_slice_activates_before_joint_task_without_an_extra_call(self):
         self.approve()
         self.assertEqual("terra", self.state["next_stage"])

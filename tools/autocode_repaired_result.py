@@ -8,9 +8,11 @@ from pathlib import Path
 
 try:
     from . import autocode_result_application as result_application, autocode_source_scope as source_scope
+    from . import autocode_draft_assignment as draft_assignment
 except ImportError:
     import autocode_result_application as result_application
     import autocode_source_scope as source_scope
+    import autocode_draft_assignment as draft_assignment
 
 
 def accept(runtime, owner, run_dir, workspace, value, repair_record):
@@ -18,6 +20,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
     def apply(state):
         pending = state['pending_report_repair']
         original = deepcopy(pending['original'])
+        previous_planning = deepcopy(state.get("planning") or {})
         current = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
         if (current['revision'] != original['source_revision']
                 or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
@@ -36,6 +39,7 @@ def accept(runtime, owner, run_dir, workspace, value, repair_record):
             original.update(output=repair_record['output'], repaired_by=repair_record['events'],
                             rejected=False, report_repaired=True)
             runtime.apply_result(state, original['stage'], value, original, workspace, run_dir)
+            draft_assignment.retain_review_allowance(state, previous_planning, original)
         except (ValueError, KeyError, runtime.support.Paused) as error:
             # Rejection is authoritative. Uncertain command ownership propagates
             # before archival; ordinary report rejection updates the real owner.

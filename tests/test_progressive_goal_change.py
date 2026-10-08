@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import autocode as runner
@@ -290,10 +291,13 @@ class GoalChangeTests(unittest.TestCase):
     def test_assignment_rejection_cannot_publish_approval_or_retirement(self):
         self.after_s1()
         self.first["affected_paths"] = ["outside.py"]
-        self.revise()
-        before = copy.deepcopy(self.state)
-        with self.assertRaisesRegex(ValueError, "exceeds active slice"):
-            lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        # Emulate an older draft that missed structural preflight. The execution guard must
+        # still reject after sealing, atomically; the separate planning regression tests preflight.
+        with patch.object(lifecycle, "validate_initial_task", return_value=None):
+            self.revise()
+            before = copy.deepcopy(self.state)
+            with self.assertRaisesRegex(ValueError, "exceeds active slice"):
+                lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
         self.assertEqual(before, self.state)
 
     def test_conflicting_visible_retirement_cannot_reach_approval(self):
