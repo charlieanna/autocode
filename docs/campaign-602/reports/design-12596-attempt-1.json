@@ -1,0 +1,43 @@
+{
+  "report_version": 2,
+  "attempt_id": "design-12596-attempt-1",
+  "run_identity": "1b704970225e6d141a31a49a70d00706eea13ce0df77164eea41d9a2163b5458",
+  "profile": "glm53-mimo",
+  "profile_detail": {
+    "provider": "opencode"
+  },
+  "scenario": "design:pytest-dev/pytest#12596",
+  "oracle_sha256": "87ae973132a743d439d11ad1cd1b5edd7a33868de42b985f705e6ccbeb3e9dc1",
+  "candidate_revision": "b59933e1738eb94c81b562dbc5d47bdd95369223e41eeeaf7717d4c58bd6307c",
+  "runner_status": "TASK_COMPLETE",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "workflow_pinned",
+      "ok": true
+    },
+    {
+      "name": "acceptance_oracle",
+      "ok": true
+    },
+    {
+      "name": "no_false_completion",
+      "ok": true
+    }
+  ],
+  "measurement": {
+    "schema_version": 1,
+    "execution_kind": "live",
+    "workload_kind": "repository",
+    "baseline_content_sha256": "b069b0d6db209a1c8e714ccb7fb80230dfacdaf42435f6fbe3ac8e56985e2e27",
+    "task_sha256": "331233d8dc5c7ef986db3a304e70097f08f69c7580dd10418a99d6fea3ae4726",
+    "elapsed_seconds": 1500,
+    "usage": {
+      "estimated_api_equivalent_usd": null,
+      "known_estimated_api_equivalent_usd": null,
+      "pricing_basis": {
+        "kind": "unknown"
+      }
+    }
+  }
+}

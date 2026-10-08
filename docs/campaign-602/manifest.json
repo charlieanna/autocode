@@ -71,7 +71,14 @@
         "acceptance_oracle",
         "no_false_completion"
       ],
-      "attempts": []
+      "attempts": [
+        {
+          "report": "reports/design-12596-attempt-1.json",
+          "sha256": "76425f19084b58778089c8dd4e15c69f0bd0ee8e4803d7688c7bee9155139e27",
+          "assistance": "unassisted",
+          "human_seconds": 60
+        }
+      ]
     },
     {
       "id": "discuss-422",
