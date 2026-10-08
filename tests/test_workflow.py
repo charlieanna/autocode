@@ -99,6 +99,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(1,len(self.state['stages']))
         self.assertEqual(1,len(self.state['history']))
 
+    def test_glm_first_v1_complete_is_refused_not_rework_without_the_runner_observation(self):
+        # #451 open item: under glm_first_v1 the checkpoint report holds the validation
+        # and the decision together, so its decision is written before the runner's
+        # observation. A COMPLETE there is refused (fail closed), not turned into REWORK.
+        self.enable()
+        self.assertEqual(workflow.MODE, self.state['settings']['workflow']['mode'])
+        # A disclosed CLI output format is a runner observation (brief_acceptance).
+        # The contract has no sealed manifest, so the observation is not ready.
+        self.state['task'] = ('Build a to-do CLI. `todo.py list` prints every to-do '
+                              'as `ID TEXT [open|done]` one per line and exits 0.')
+        report, record = self.report(), self.record()
+        self.assertEqual('COMPLETE', report['decision']['status'])
+        with self.assertRaises((s.Paused, ValueError)) as caught:
+            self.apply(report, record)
+        message = ' '.join(str(arg) for arg in getattr(caught.exception, 'args', ())) or str(caught.exception)
+        status = getattr(caught.exception, 'status', '')
+        # Fail closed: either the completion gate or the runner's observation refuses
+        # the COMPLETE claim. It is never rewritten into a REWORK task.
+        self.assertTrue(status == 'PAUSED_COMPLETION_GATE'
+                        or 'original brief' in message.lower() or 'observation' in message.lower(),
+                        message)
+        self.assertNotEqual('TASK_COMPLETE', self.state.get('status'))
+        self.assertNotEqual('REWORK', self.state.get('status'))
+        task = self.state.get('current_task') or {}
+        self.assertNotEqual('REWORK', task.get('kind'))
+        self.assertNotEqual('REWORK', task.get('next_objective') or task.get('objective') or '')
+        # The decision the checkpoint wrote is still COMPLETE, not a correction.
+        self.assertNotIn('REWORK', message)
+
     def test_missing_evidence_does_not_partially_accept_validation(self):
         self.enable();report=self.report();report['validation']['checks'][0]['evidence_ref']='event:missing'
         report['validation']['checks'][0]['command']='never-executed-command'
