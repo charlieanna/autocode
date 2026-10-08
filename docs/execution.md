@@ -819,7 +819,12 @@ Operational responses use `--resolver-request ID --resolver-token TOKEN
 `--resolver-response leave_paused`. They are information, not implicit permission
 to retry, increase limits, change scope or approve work. The response returns to
 Resolver, and an unchanged stopped condition is not repeatedly reissued as a
-new question. Explicit administrative actions remain separately validated.
+new question. Explicit administrative actions remain separately validated. The
+status view names the response as the request's `action`, and `--answer` to such
+a request is refused with the same form. When a blocker's answer is a decision
+about the approved contract (a criterion Resolver proved contradictory), the
+information is retained and the hold that follows names the path that applies
+it: `--edit-goal body.json`, then `--approve-goal`.
 
 Corrective information is evaluated once. Accepting `provide_information` schedules
 one Resolver re-evaluation, bound to the request ID and token, the response, the
