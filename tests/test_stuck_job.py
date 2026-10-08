@@ -120,7 +120,7 @@ class BuilderFailureClassificationTests(unittest.TestCase):
     def test_pre_escalation_report_is_mode_specific_and_bound_to_evidence(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
-            self.assertTrue(builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3))
+            self.assertTrue(builder_failure.queue(state, evidence, 'Empty diff', enabled=True))
             request = autoresolver.prepare_stuck(state, Path(root) / 'state.json')
             self.assertFalse(request.allow_write)
             self.assertIn('failure_class', request.schema['required'])
@@ -132,12 +132,12 @@ class BuilderFailureClassificationTests(unittest.TestCase):
             self.assertEqual(2, state['no_progress_batches'])
             self.assertEqual(['earlier'], state['builder_retries']['existing']['failures'])
             self.assertNotIn('in_force', state.get('stuck_investigation', {}))
-            self.assertFalse(builder_failure.queue(state, evidence, 'Same failure', enabled=True, max_calls=3))
+            self.assertFalse(builder_failure.queue(state, evidence, 'Same failure', enabled=True))
 
     def test_stale_identity_and_uncited_evidence_cannot_grant_continuation(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
-            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True)
             for failure_id, refs in [('other', evidence['evidence_refs']), (evidence['failure_id'], ['other'])]:
                 with self.assertRaises(ValueError):
                     stuck.apply(state, report(failure_class='execution', failure_id=failure_id, evidence_refs=refs),
@@ -146,10 +146,13 @@ class BuilderFailureClassificationTests(unittest.TestCase):
             with self.assertRaises(util.Paused):
                 autoresolver.prepare_stuck(state, Path(root) / 'state.json')
 
-    def test_existing_call_limit_refuses_a_new_failure_without_resetting_any_lane(self):
+    def test_the_milestones_classification_limit_refuses_a_new_failure_without_resetting_any_lane(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
-            self.assertFalse(builder_failure.queue(state, evidence, 'Unknown', enabled=True, max_calls=0))
+            milestone = builder_failure.policy.key(state)
+            state['stuck_investigations'] = [{'identity': f'builder-failure:{n}', 'trigger': 'builder_failure',
+                                              'milestone_key': milestone, 'outcome': 'classified'} for n in range(3)]
+            self.assertFalse(builder_failure.queue(state, evidence, 'Unknown', enabled=True))
             self.assertEqual('PAUSED_BUILDER_CLASSIFICATION', state['status'])
             self.assertEqual(['earlier'], state['builder_retries']['existing']['failures'])
 
@@ -161,7 +164,7 @@ class BuilderFailureClassificationTests(unittest.TestCase):
                                      'evidence_refs': evidence['evidence_refs']}
             before = copy.deepcopy(state['settings']['roles'])
             reassess = []
-            action = builder_failure.route(state, evidence, 'Provider timed out', enabled=True, max_calls=3,
+            action = builder_failure.route(state, evidence, 'Provider timed out', enabled=True,
                                            reassess=lambda *args: reassess.append(args))
             self.assertEqual('recover', action)
             self.assertEqual('PAUSED_PROVIDER_TIMEOUT', state['status'])
@@ -173,7 +176,7 @@ class BuilderFailureClassificationTests(unittest.TestCase):
     def test_valid_execution_diagnosis_needing_user_is_an_operator_hold_not_a_retry(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
-            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True)
             value = report('pause', failure_class='execution', failure_id=evidence['failure_id'],
                            evidence_refs=evidence['evidence_refs'], example='The assigned approach needs a scope decision',
                            untestable='Only the operator can approve the requested scope', user_question='May this change scope?')
@@ -191,20 +194,20 @@ class BuilderFailureClassificationTests(unittest.TestCase):
             rebuilt = builder_failure.evidence(state, {**evidence['record'], 'output': str(alias)})
             self.assertEqual(evidence['failure_id'], rebuilt['failure_id'])
             self.assertEqual(evidence['evidence_refs'], rebuilt['evidence_refs'])
-            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
-            self.assertFalse(builder_failure.queue(state, rebuilt, 'Alias replay', enabled=True, max_calls=3))
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True)
+            self.assertFalse(builder_failure.queue(state, rebuilt, 'Alias replay', enabled=True))
 
     def test_accepting_current_completed_attempt_defers_admission_until_normal_save(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
             completed = {**evidence['record'], 'stage': 'terra', 'exit_code': 0}
             state['active_stage'] = completed
-            self.assertFalse(builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3,
+            self.assertFalse(builder_failure.queue(state, evidence, 'Empty diff', enabled=True,
                                                    completed_record=completed))
             self.assertNotIn('stuck_investigations', state)
             self.assertIs(completed, state['active_stage'])
             with self.assertRaises(util.Paused):
-                builder_failure.finalize(state, completed, enabled=True, max_calls=3)
+                builder_failure.finalize(state, completed, enabled=True)
 
     def test_foreign_active_attempt_and_uncertain_ownership_cannot_defer_or_spend_a_call(self):
         with tempfile.TemporaryDirectory() as root:
@@ -212,7 +215,7 @@ class BuilderFailureClassificationTests(unittest.TestCase):
             for extra in ({'active_stage': {'output': 'foreign.json', 'stage': 'terra', 'exit_code': 0}},
                           {'active_stage': evidence['record'], 'uncertain_artifacts': ['uncollected']}):
                 held = {**copy.deepcopy(state), **extra}
-                self.assertFalse(builder_failure.queue(held, evidence, 'Empty diff', enabled=True, max_calls=3,
+                self.assertFalse(builder_failure.queue(held, evidence, 'Empty diff', enabled=True,
                                                        completed_record={**evidence['record'], 'stage': 'terra', 'exit_code': 0}))
                 self.assertNotIn('pending_builder_failure', held)
                 self.assertNotIn('stuck_investigations', held)
@@ -243,7 +246,7 @@ class BuilderFailureClassificationTests(unittest.TestCase):
         # not park every builder-failure classification in report repair.
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
-            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True)
             value = report(failure_class='execution', failure_id=evidence['failure_id'],
                            evidence_refs=evidence['evidence_refs'],
                            probe="python -c 'raise SystemExit(0)'", untestable='')

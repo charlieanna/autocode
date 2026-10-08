@@ -3,6 +3,8 @@
 Writes the existing stuck investigation record/history and pending_builder_failure:
 queue defers that record during result acceptance; finalize consumes it only after
 the matching completed record is saved. No retry grant or budget is created.
+Classifications have their own budget per milestone (classified, policy.classification_limit);
+they do not count toward the run's stuck investigations (#686).
 builder_failure_hold retains non-execution/operator pauses; dispatch_guard reads
 it before a writer or diagnosis call, and retires it only on changed bound work.
 """
@@ -83,7 +85,14 @@ def dispatch_guard(state, stage, workspace):
     raise util.Paused(held['status'], held['reason'])
 
 
-def queue(state, value, reason, *, enabled, max_calls, completed_record=None):
+def classified(state):
+    """This milestone's classification history rows; rows saved before #686 name no milestone."""
+    milestone = policy.key(state)
+    return [row for row in state.get('stuck_investigations') or []
+            if row.get('trigger') == 'builder_failure' and row.get('milestone_key') == milestone]
+
+
+def queue(state, value, reason, *, enabled, completed_record=None):
     key = 'builder-failure:' + value['failure_id']
     history = state.get('stuck_investigations') or []
     active = state.get('active_stage')
@@ -102,7 +111,8 @@ def queue(state, value, reason, *, enabled, max_calls, completed_record=None):
     if (not enabled or state.get('active_stage') or state.get('uncertain_artifacts')
             or state.get('pending_report_repair') or not value['evidence_refs']
             or value['record'].get('output') not in value['binding']['evidence_hashes']
-            or any(row.get('identity') == key for row in history) or len(history) >= max_calls):
+            or any(row.get('identity') == key for row in history)
+            or len(classified(state)) >= policy.classification_limit(state)):
         hold(state, value, 'PAUSED_BUILDER_CLASSIFICATION',
              reason + '; failure classification requires reconciled evidence or operator action')
         return False
@@ -114,12 +124,12 @@ def queue(state, value, reason, *, enabled, max_calls, completed_record=None):
     state.setdefault('stuck_investigations', []).append({
         'identity': key, 'stage': 'terra', 'status': request['status'],
         'reason': reason, 'requested_at': request['requested_at'],
-        'outcome': 'investigating', 'trigger': 'builder_failure'})
+        'outcome': 'investigating', 'trigger': 'builder_failure', 'milestone_key': policy.key(state)})
     state.update(status='RUNNING', phase='INVESTIGATING', next_stage='investigate_stuck')
     return True
 
 
-def finalize(state, record, *, enabled, max_calls):
+def finalize(state, record, *, enabled):
     pending = state.get('pending_builder_failure')
     if not pending:
         return
@@ -130,7 +140,7 @@ def finalize(state, record, *, enabled, max_calls):
         raise util.Paused('PAUSED_BUILDER_CLASSIFICATION', 'Completed failure boundary is not reconciled')
     guard(state, pending, state['workspace'])
     state.pop('pending_builder_failure')
-    queue(state, pending['failure_evidence'], pending['reason'], enabled=enabled, max_calls=max_calls)
+    queue(state, pending['failure_evidence'], pending['reason'], enabled=enabled)
     if pending.get('resolver_continuation') and state.get('stuck_investigation'):
         state['stuck_investigation']['resolver_continuation'] = pending['resolver_continuation']
 
@@ -192,12 +202,12 @@ def check_facts(checks, record, workspace, *, read_events):
     return facts
 
 
-def route(state, evidence, reason, *, enabled, max_calls, reassess, completed_record=None):
+def route(state, evidence, reason, *, enabled, reassess, completed_record=None):
     """Consume cause-specific policy actions before assignment or stronger routing."""
     action = policy.failure(state, evidence['record'].get('output'), reason,
                             classification=classification.classify(evidence))
     if action == 'investigate':
-        queue(state, evidence, reason, enabled=enabled, max_calls=max_calls, completed_record=completed_record)
+        queue(state, evidence, reason, enabled=enabled, completed_record=completed_record)
     elif action == 'replan':
         if state.get('resolution_request'):
             state.setdefault('resolution_history', []).append({

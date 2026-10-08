@@ -490,7 +490,7 @@ def route_builder_failure(state, evidence, reason, *, completed_record=None):
         if (current['revision'] == evidence['record'].get('source_revision')
                 and milestones.fresh_validation(state, current)):
             evidence.update(checkpoint={'decision': 'needs_replan'}, checkpoint_verified=True)
-    return builder_failure.route(state, evidence, reason, enabled=stuck.enabled(state), max_calls=stuck.max_calls(state),
+    return builder_failure.route(state, evidence, reason, enabled=stuck.enabled(state),
                                  reassess=milestones.request_builder_reassessment, completed_record=completed_record)
 
 
@@ -749,7 +749,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
     else:
         def save_record(current, completed):
             runtime.save_record(current, completed)
-            builder_failure.finalize(current, completed, enabled=stuck.enabled(current), max_calls=stuck.max_calls(current))
+            builder_failure.finalize(current, completed, enabled=stuck.enabled(current))
     if stage in jobs.UNIT:
         continuation = unit_module(stage).apply_job(stage, state, value, record, workspace, run_dir=run_dir)
         if stage == stuck.STAGE and isinstance(continuation, dict) and continuation.get('mode') == 'builder_failure':

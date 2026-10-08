@@ -72,6 +72,14 @@ def key(state, task=None):
     return s.digest([state.get('goal_contract', {}).get('hash'), sorted(members)])
 
 
+def classification_limit(state):
+    """Builder failures one milestone may have classified (#686): as many as its lane takes, the
+    one it pauses on included. That is the ordinary retries, the stronger attempt (or one more
+    ordinary retry in its place), then the pause, so classifying never stops a milestone sooner."""
+    count = ((state.get('settings') or {}).get('builder_retry') or {}).get('ordinary_retries')
+    return (count if type(count) is int and 0 <= count <= 3 else DEFAULTS['ordinary_retries']) + 2
+
+
 def lane(state):
     ident = key(state)
     lanes = state.setdefault('builder_retries', {})
