@@ -27,6 +27,7 @@ try:
     from . import autocode_operational_information as operational_information
     from . import autocode_member_stop as member_stop
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_risk_disclosure as risk_disclosure
     from . import autocode_route_ladder as route_ladder
     from . import autocode_accepted_source as accepted_source
     from . import autocode_component_plan as component_plan
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_operational_information as operational_information
     import autocode_member_stop as member_stop
     import autocode_containment_policy as containment_policy
+    import autocode_risk_disclosure as risk_disclosure
     import autocode_route_ladder as route_ladder
     import autocode_accepted_source as accepted_source
     import autocode_component_plan as component_plan
@@ -274,7 +276,8 @@ def evidence(state: dict) -> dict:
                       The view does not read the workspace: after rework, validator_status
                       still reports that validation until a newer one replaces it. Compare
                       this revision to the workspace before treating the status as current.
-    findings          the findings ledger: id, status, severity, finding
+    findings          the findings ledger: id, status, severity, finding, source (sol: Tester,
+                      astra: Completion Reviewer, runner: a failed runner lifecycle observation, #451)
     finding_scope_moves  present once an approved revision moved criteria that open findings cite:
                       one row per finding it re-attributed (autocode_finding_rescope): finding, from,
                       to (every resulting row's id, milestone_id, criteria), contract_token, at
@@ -283,6 +286,9 @@ def evidence(state: dict) -> dict:
     test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
     check_replay      the current validation's checks as the runner itself re-ran them in a clean copy
                       (autocode_check_replay): verdict, source_revision and one row per command, else None
+    unverified_risk_claims  durability or concurrency promises in the person's own words that no runner
+                      protocol proves (autocode_risk_disclosure): kind, source_id, quote, reason; [] when none.
+                      Disclosure only: a PASS never verifies them
     """
     contract = (state.get("goal_contract") or {}).get("body") or {}
     criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
@@ -312,7 +318,7 @@ def evidence(state: dict) -> dict:
            if state.get("settings", {}).get("protected_tests") else {}),
         "acceptance": acceptance,
         "validator_source_revision": validation.get("source_revision"),
-        "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
+        "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding", "source")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
         **({"finding_scope_moves": moves} if moves else {}),
         "regression_proof": {key: proof.get(key) for key in
@@ -329,6 +335,7 @@ def evidence(state: dict) -> dict:
                                       "error", "tail", "purpose", "scheduling", "results")}
                                      for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,
+        "unverified_risk_claims": risk_disclosure.view(state),
     }
 
 

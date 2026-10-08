@@ -25,6 +25,22 @@ except ImportError:
     import autocode_command_receipt as command_receipt
 
 PASS, FAIL = 'PASS', 'FAIL'
+
+
+class LifecycleFailure(ValueError):
+    """The candidate failed a mandatory lifecycle observation: a product defect, not a bad report.
+
+    ``result`` is the complete pinned FAIL result (summary, transcripts). check_replay keeps it in
+    its saved replay, which the Tester's report path returns instead of raising, so the failing
+    observation goes to repair (autocode_risk_findings). Every other caller still sees the
+    ValueError it always saw.
+    """
+
+    def __init__(self, message, result):
+        super().__init__(message)
+        self.result = result
+
+
 _HASH = re.compile(r'[0-9a-f]{64}\Z')
 _RESULT_KEYS = frozenset({'verdict', 'source_revision', 'contract_hash', 'manifest_hash',
                          'target_inventory_hash', 'timeout_seconds', 'checks', 'summary', 'summary_sha256'})
@@ -123,9 +139,19 @@ def replay(state, workspace, out, scratch_run, *, timeout, source_revision,
     result = {**result, 'summary': str(summary), 'summary_sha256': util.file_hash(summary)}
     if result['verdict'] != PASS:
         failed = next(row for row in checks if row['error'])
-        raise ValueError('The mandatory risk lifecycle observation did not pass on this candidate: '
-                         + failed['error'] + f'. Receipt: {summary}')
+        raise LifecycleFailure('The mandatory risk lifecycle observation did not pass on this candidate: '
+                               + failed['error'] + f'. Receipt: {summary}', result)
     return result
+
+
+def failure_reason(state):
+    """The saved validation's failed lifecycle observation, in words, or None."""
+    result = ((state.get('validation') or {}).get('check_replay') or {}).get('risk_acceptance')
+    if not isinstance(result, dict) or result.get('verdict') != FAIL:
+        return None
+    failed = next((row for row in result.get('checks') or [] if isinstance(row, dict) and row.get('error')), None)
+    return (str((failed or {}).get('error') or 'Mandatory lifecycle observation failed')[:600]
+            + (f". Receipt: {result['summary']}" if result.get('summary') else ''))
 
 
 def ready(state, current_revision):

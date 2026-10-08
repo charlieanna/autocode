@@ -62,6 +62,11 @@ class LeaseOracleTests(unittest.TestCase):
         proc = self.check_hidden(overlay=SCENARIO / "broken" / "process-local-tokens", every_file=True)
         self.assert_rejected_by(proc, [PROCESS_TEST])
 
+    def test_non_atomic_claims_fail_only_the_contention_test(self):
+        # #451: choosing a job and leasing it in separate transactions lets racing workers lease one job.
+        proc = self.check_hidden(overlay=SCENARIO / "broken" / "non-atomic-claim", every_file=True)
+        self.assert_rejected_by(proc, ["test_concurrent_claims_are_unique"])
+
     def test_typeerror_for_bools_is_allowed(self):
         proc = self.check_hidden(claim_variant(
             "isinstance(now, bool) or isinstance(lease_seconds, bool)",

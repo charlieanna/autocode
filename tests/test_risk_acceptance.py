@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import unittest
+from pathlib import Path
 
 import autocode_risk_acceptance as risk
 
@@ -117,6 +118,149 @@ class RiskAcceptanceTests(unittest.TestCase):
         self.assertIn('fresh_opaque_token', declarations[0]['missing'])
         with self.assertRaisesRegex(ValueError, 'unsupported'):
             risk.bind([source(changed)], [proposal(declarations[0])], public_targets=TARGETS)
+
+    def test_an_unsupported_declaration_names_the_missing_facts_with_or_without_a_reviewer_row(self):
+        # #451: a reworded brief used to stop on "requires exactly one independent observation"
+        # when the Reviewer left the unsupported row out, which named neither the gap nor the fix.
+        changed = QUEUE.replace('token is fresh and opaque on every claim', 'tokens identify claims')
+        declaration = risk.inventory([source(changed)], TARGETS)[0]
+        self.assertEqual(['fresh_opaque_token'], declaration['missing'])
+        for rows in ([], [proposal(declaration)]):
+            with self.subTest(rows=len(rows)), self.assertRaisesRegex(
+                    ValueError, r'unsupported: LeaseQueue\(\.\.\.\).*does not state: the token is fresh and opaque '
+                                r'on every claim \(fresh_opaque_token\).*feedback that says it changes LeaseQueue'):
+                risk.bind([source(changed)], rows, public_targets=TARGETS)
+
+    def test_held_out_paraphrases_of_the_catalog_briefs_keep_the_same_proof(self):
+        # #451: renaming LeaseQueue(path) to LeaseQueue(db_path) let the token mutant complete with no
+        # lifecycle proof. These rewordings never appear in a catalog brief; each must keep the same
+        # supported declaration, so the same fixed protocol runs.
+        catalog = Path(__file__).resolve().parents[1] / 'scenarios' / 'catalog'
+        queue = (catalog / 'ladder-18-durable-lease-queue' / 'brief.md').read_text()
+        outbox = (catalog / 'ladder-19-transactional-outbox' / 'brief.md').read_text()
+        cases = {
+            'queue db_path': (queue, [('LeaseQueue(path)', 'LeaseQueue(db_path)')]),
+            'queue database': (queue, [('LeaseQueue(path)', 'LeaseQueue( database )')]),
+            'queue token wording': (queue, [('token is fresh and opaque on every claim',
+                                             'every claim issues a new unguessable token')]),
+            'queue both': (queue, [('LeaseQueue(path)', 'LeaseQueue(filename)'),
+                                   ('token is fresh and opaque on every claim',
+                                    'each claim returns a unique random token')]),
+            'outbox sqlite_path': (outbox, [('Store(path)', 'Store(sqlite_path)')]),
+        }
+        for label, (brief, replacements) in cases.items():
+            with self.subTest(label):
+                original = risk.inventory([source(brief)], TARGETS)
+                text = brief
+                for old, new in replacements:
+                    self.assertIn(old, text)
+                    text = text.replace(old, new)
+                reworded = risk.inventory([source(text)], TARGETS)
+                self.assertEqual(1, len(original))
+                self.assertEqual(1, len(reworded))
+                self.assertTrue(reworded[0]['supported'], reworded[0]['missing'])
+                for key in ('protocol', 'class_name', 'constructor', 'methods', 'promises', 'allowed_modules'):
+                    self.assertEqual(original[0][key], reworded[0][key], key)
+                manifest = risk.bind([source(text)], [proposal(reworded[0])], public_targets=TARGETS)
+                self.assertEqual(original[0]['class_name'], manifest['observations'][0]['target']['class_name'])
+
+    def test_contention_is_promised_only_where_the_source_states_it_for_that_api(self):
+        # #451: a stated contention promise adds the runner's race to the same observation; durability
+        # wording alone, an exclusion, or no statement adds nothing.
+        contention = risk.protocols.CONTENTION
+        queue_sentence = 'Enqueue and claims must be atomic under contention and survive restart.'
+        outbox_sentence = 'Concurrent create_order requests for the same key commit once.'
+        cases = [(QUEUE, True), (OUTBOX, True),
+                 (QUEUE.replace(queue_sentence, 'Enqueue and claims survive restart.'), False),
+                 (QUEUE.replace(queue_sentence, 'Enqueue and claims need not be atomic under contention; '
+                                                'they survive restart.'), False),
+                 (QUEUE.replace(queue_sentence, 'Claims made concurrently by many workers stay atomic, '
+                                                'and jobs survive restart.'), True),
+                 # Any negation in the clause keeps it unraced (the grammar cannot place it); it is disclosed.
+                 (QUEUE.replace(queue_sentence, 'Enqueue and claims must be atomic under contention, so a job '
+                                                'is never leased twice, and survive restart.'), False),
+                 (OUTBOX.replace(outbox_sentence, ''), False),
+                 (OUTBOX.replace(outbox_sentence, 'Concurrent create_order requests are out of scope.'), False),
+                 (OUTBOX.replace(outbox_sentence, 'create_order calls made in parallel for one key succeed once.'), True)]
+        for text, promised in cases:
+            with self.subTest(text=text[-160:]):
+                declaration = risk.inventory([source(text)], TARGETS)[0]
+                self.assertTrue(declaration['supported'], declaration['missing'])
+                self.assertEqual(promised, contention in declaration['promises'])
+                manifest = risk.bind([source(text)], [proposal(declaration)], public_targets=TARGETS)
+                self.assertEqual(manifest, risk.verify([source(text)], manifest, public_targets=TARGETS))
+        # The promise comes from the person's words: dropping or inventing it cannot pass verification.
+        declaration = risk.inventory([source(QUEUE)], TARGETS)[0]
+        manifest = risk.bind([source(QUEUE)], [proposal(declaration)], public_targets=TARGETS)
+        for promises in (declaration['promises'][:-1], declaration['promises'] + ['performance_limit']):
+            forged = copy.deepcopy(manifest)
+            row = forged['observations'][0]
+            row['declaration']['promises'] = promises
+            row['hash'] = risk.digest({key: value for key, value in row.items() if key != 'hash'})
+            forged['hash'] = risk.digest({key: value for key, value in forged.items() if key != 'hash'})
+            with self.subTest(promises=promises[-1]), self.assertRaises(ValueError):
+                risk.verify([source(QUEUE)], forged, public_targets=TARGETS)
+
+    def test_a_capitalized_call_without_a_lifecycle_family_declares_nothing(self):
+        for text in ('Path(root_dir) holds durable files that survive restart. Include tests.',
+                     'Build Counter(items) with durable restart semantics and a claim on correctness.'):
+            self.assertEqual(risk.inventory([source(text)], TARGETS), [])
+        # An exception call inside the API description neither declares nor truncates the queue.
+        text = QUEUE.replace('raises ValueError for a conflicting payload',
+                             'raises ValueError(message) for a conflicting payload')
+        rows = risk.inventory([source(text)], TARGETS)
+        self.assertEqual([('LeaseQueue', True, text)], [(row['class_name'], row['supported'], row['source_quote'])
+                                                        for row in rows])
+
+    def test_a_renamed_storage_argument_declares_only_a_full_lifecycle_api(self):
+        # #451 accepts LeaseQueue(db_path), but a storage-like argument other than `path` must not pull
+        # an ordinary task into a lifecycle proof it can never satisfy: it declares a family only when
+        # the API names that family's core methods (enqueue, claim and ack; create_order and publish).
+        ordinary = ['Write TodoList(filename) with add(item) and claim(item); the list must survive restart.',
+                    'Make TaskBoard(data_dir) where users claim(task) tasks; durable storage please.',
+                    'Build Blog(db_path) with publish(post) and drafts(). Reopening the app keeps drafts.',
+                    'Write Client(base_url) with publish(message) to our outbox endpoint.']
+        for text in ordinary:
+            with self.subTest(text=text):
+                self.assertEqual([], risk.inventory([source(text)], TARGETS))
+                self.assertEqual([], risk.bind([source(text)], [], public_targets=TARGETS)['observations'])
+        # `Name(path)` keeps its earlier recognition: the same weak text stays explicitly unsupported.
+        legacy = 'Build Blog(path) with publish(post) and drafts(). Reopening the app keeps drafts.'
+        self.assertEqual([False], [row['supported'] for row in risk.inventory([source(legacy)], TARGETS)])
+        # A renamed argument with the family's core API is still a declaration, gaps included.
+        gap = QUEUE.replace('LeaseQueue(path)', 'LeaseQueue(db_path)').replace(
+            'token is fresh and opaque on every claim', 'tokens identify claims')
+        self.assertEqual([(False, ['fresh_opaque_token'])],
+                         [(row['supported'], row['missing']) for row in risk.inventory([source(gap)], TARGETS)])
+        outbox = OUTBOX.replace('Store(path)', 'Store(db_file)')
+        self.assertEqual([True], [row['supported'] for row in risk.inventory([source(outbox)], TARGETS)])
+
+    def test_a_renamed_argument_call_that_declares_nothing_never_splits_a_declaration(self):
+        # The renamed-argument match (#451) made `Logger(log_file)` a declaration boundary: placed
+        # between LeaseQueue(path) and its methods, it took the API text, so LeaseQueue declared nothing
+        # and Logger became an unsupported queue the plan could never satisfy. A renamed-argument call
+        # that declares no family is not a boundary; `Name(path)` splits a source as it always did.
+        for brief, first_sentence in ((QUEUE, 'threads. '), (OUTBOX, 'outbox. ')):
+            original = risk.inventory([source(brief)], TARGETS)
+            for extra in ('Diagnostics go through Logger(log_file). ', 'Settings load from Config(config_path). '):
+                text = brief.replace(first_sentence, first_sentence + extra, 1)
+                with self.subTest(extra=extra, constructor=original[0]['constructor']):
+                    rows = risk.inventory([source(text)], TARGETS)
+                    self.assertEqual(1, len(rows))
+                    self.assertTrue(rows[0]['supported'], rows[0]['missing'])
+                    for key in ('protocol', 'class_name', 'constructor', 'methods', 'promises'):
+                        self.assertEqual(original[0][key], rows[0][key], key)
+                    self.assertIn(extra.strip(), rows[0]['source_quote'])
+        # A negated renamed-argument family is no boundary either.
+        text = QUEUE.replace('threads. ', 'threads. Do not build Archive(db_path) with enqueue(id), claim(now) and '
+                                          'ack(id). ', 1)
+        self.assertEqual([('LeaseQueue', True)], [(row['constructor'], row['supported'])
+                                                  for row in risk.inventory([source(text)], TARGETS)])
+        # A renamed-argument call that declares a family still starts its own declaration.
+        second = 'Separately build JobQueue(db_path) with enqueue(id, payload), claim(now) and ack(id); it is durable.'
+        rows = risk.inventory([source(QUEUE + '\n\n' + second)], TARGETS)
+        self.assertEqual([('JobQueue', False), ('LeaseQueue', True)],
+                         sorted((row['constructor'], row['supported']) for row in rows))
 
     def test_module_binding_requires_original_target_and_human_import(self):
         text = 'from leasequeue import LeaseQueue\n' + QUEUE

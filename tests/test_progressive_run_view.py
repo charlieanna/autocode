@@ -55,7 +55,7 @@ class ProgressiveRunViewTests(unittest.TestCase):
                     "evidence": {"outcome": None, "base_commit": None, "acceptance": [],
                                  "validator_source_revision": None,
                                  "findings": [], "regression_proof": None, "test_cases": [],
-                                 "check_replay": None}}
+                                 "check_replay": None, "unverified_risk_claims": []}}
         result = run_view.view(state)
         self.assertEqual({key: result[key] for key in expected}, expected)
         self.assertNotIn('progressive', result)
