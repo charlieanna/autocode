@@ -14,6 +14,11 @@ stopped every time with `/bin/sh: 1: Syntax error: EOF in backquote substitution
 that cited the step was refused, with "A Validator report cannot change it: the plan's author must reword
 that step", and the run paused at `PAUSED_INVALID_OUTPUT`. The command could not have run anywhere.
 
+It was not the only one. Across the plans recorded by about 70 live runs that day (2,356 distinct plan
+rows, 369 commands that `commands()` extracts), 5 commands could not be parsed. All of them were backticks
+inside double quotes, in `python3 -c "..."` or inside an `sh -c '... "```" ...'` script. No command that
+`/bin/sh` can parse was refused.
+
 ## Fix
 
 `autocode_verification_plan.refuse_new_plan` now refuses both problems in one repair: a row that names
