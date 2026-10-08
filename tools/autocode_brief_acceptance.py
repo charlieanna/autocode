@@ -275,16 +275,23 @@ def _format_pattern(declaration, steps, bindings):
     def placeholder(name):
         if name not in variables and name != 'ID':
             return re.escape(name)  # e.g. SUCCESS is literal, not a wildcard
+        if name == 'ID':
+            bound = bindings.get(name)
+            # The listing's IDs are the program's; the format is ID TEXT […].
+            # Keep the exact bound ID only when it has whitespace and cannot be
+            # one opaque token. ID stability is an oracle check, not this format.
+            if bound is not None and any(character.isspace() for character in steps[bound['step']]['argv'][bound['argument']]):
+                used.add(name)
+                return re.escape(steps[bound['step']]['argv'][bound['argument']])
+            return r'[^\s]+'  # opaque source-declared ID; never invent ID1
         if name in bindings:
             binding = bindings[name]
             used.add(name)
             return re.escape(steps[binding['step']]['argv'][binding['argument']])
-        if name == 'ID':
-            return r'[^\s]+'  # opaque source-declared ID; never invent ID1
         raise ValueError(f'Output placeholder {name} must be tied to an invocation argument')
 
     pattern = _render(declaration['literal'], placeholder)
-    if used != set(bindings):
+    if used != {name for name in bindings if name != 'ID' or any(character.isspace() for character in steps[bindings[name]['step']]['argv'][bindings[name]['argument']])}:
         raise ValueError('Placeholder bindings must occur in the source-derived output template')
     return pattern
 

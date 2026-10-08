@@ -360,6 +360,37 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertFalse(result["reuse_supported"])
         self.assertEqual(1, len(result["unbound_editables"]))
 
+    def test_controller_editable_binds_its_package_not_the_rest_of_its_checkout(self):
+        # CI installs AutoCode editable and runs test modules side by side in that checkout: a file another
+        # module writes there, outside the package, must not change a proof's identity mid-run (#665).
+        project = Project({"app.py": "VALUE = 1\n", ".gitignore": ".venv\n"})
+        self.addCleanup(project.close)
+        controller = Path(verify.__file__).resolve().parent.parent
+        package = Path(verify.__file__).resolve().parent.relative_to(controller).as_posix()
+        site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
+        project.write({".venv/pyvenv.cfg": "include-system-site-packages = false\n", ".venv/bin/.keep": "",
+                       f"{site}/autocode_cli-1.dist-info/direct_url.json": json.dumps({
+                           "dir_info": {"editable": True}, "url": controller.as_uri()})})
+        python = project.root / ".venv/bin/python"
+        python.symlink_to(sys._base_executable)
+        snapshot = util.snapshot
+
+        def identity(**files):
+            def controller_snapshot(path):
+                if Path(path).resolve() != controller:
+                    return snapshot(path)
+                inventory = {f"{package}/autocode_verify.py": "v1", **files}
+                return {"head": "h", "files": inventory, "revision": util.digest({"head": "h", "files": inventory})}
+            with mock.patch.object(util, "snapshot", side_effect=controller_snapshot):
+                return verify.execution_identity(project.root, command=f"{python} -m unittest -v")
+
+        base = identity()
+        self.assertEqual([str(controller)], list(base["editable_sources"]))
+        self.assertTrue(base["cache_binding_complete"])
+        elsewhere = identity(**{"tests/stray-output.json": "x", ".tmp-run/note.txt": "y"})
+        self.assertEqual(base, elsewhere)
+        self.assertNotEqual(base["editable_sources"], identity(**{f"{package}/new_module.py": "x"})["editable_sources"])
+
     def test_unreadable_controller_editable_source_keeps_valid_checks_fresh(self):
         project = Project({"app.py": "VALUE = 1\n",
                            "test_app.py": "import unittest\nfrom app import VALUE\nclass Case(unittest.TestCase):\n"
