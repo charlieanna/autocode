@@ -82,7 +82,8 @@ def _observation(data, expected):
         outputs.append(_decode(row['stdout_base64']))
         _decode(row['stderr_base64'])
     output = outputs[expected['proposal']['observe_step']]
-    reason = acceptance.output_reason(output, expected['pattern'], acceptance.line_pattern(expected))
+    reason = acceptance.output_reason(output, expected['pattern'], acceptance.line_pattern(expected),
+                                      acceptance.required_values(expected))
     if reason:
         raise ValueError('Actual ' + reason)
     return observed

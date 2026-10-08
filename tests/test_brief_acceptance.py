@@ -468,6 +468,27 @@ class BriefAcceptanceTests(unittest.TestCase):
             b'1 milk open\n2 bread done\n3 eggs open\n', observation['pattern'],
             brief.line_pattern(observation)))
 
+    def test_listing_that_omits_an_added_item_is_refused(self):
+        # Completeness residual from #452: every value the steps introduced before
+        # the listing must appear. Dropping bread while printing milk is not a pass.
+        steps = [{'argv': ['add', 'milk']}, {'argv': ['add', 'bread']}, {'argv': ['list']}]
+        manifest = brief.bind(self.sources, [{**listing_proposal(self.sources), 'steps': steps,
+                                              'observe_step': 2,
+                                              'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}]}])
+        observation = manifest['observations'][0]
+        required = brief.required_values(observation)
+        self.assertEqual(['bread', 'milk'], required)
+        line = brief.line_pattern(observation)
+        self.assertIn('omits an item', brief.output_reason(
+            b'1 milk [open]\n', observation['pattern'], line, required))
+        self.assertEqual('', brief.output_reason(
+            b'1 milk [open]\n2 bread [done]\n', observation['pattern'], line, required))
+        self.assertEqual('', brief.output_reason(
+            b'2 bread [done]\n1 milk [open]\n', observation['pattern'], line, required))
+        code, observed, _ = self.run_candidate(printing(b'1 milk [open]\n'), manifest=manifest)
+        self.assertEqual(1, code)
+        self.assertIn('omits an item', observed['reason'])
+
     def test_every_listed_line_must_have_the_declared_format(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
         observation = manifest['observations'][0]
