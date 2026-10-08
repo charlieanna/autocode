@@ -572,5 +572,53 @@ class PermanentDeleteTests(unittest.TestCase):
         self.assertIn('inspected', ' '.join(receipt['errors']))
 
 
+class PackedRefTipGuardTests(unittest.TestCase):
+    """#668: a packed-ref delete fires more than one prepared transaction."""
+
+    def setUp(self):
+        from dashboard_git_delete import _GUARD
+        self.root = Path(tempfile.mkdtemp(prefix='branch-guard-'))
+        self.addCleanup(shutil.rmtree, self.root, True)
+        subprocess.run(['git', 'init', '-q'], cwd=self.root, check=True)
+        for key, value in (('user.name', 'T'), ('user.email', 't@e.test')):
+            subprocess.run(['git', 'config', key, value], cwd=self.root, check=True)
+        (self.root / 'a.txt').write_text('x\n')
+        subprocess.run(['git', 'add', 'a.txt'], cwd=self.root, check=True)
+        subprocess.run(['git', 'commit', '-qm', 'init'], cwd=self.root, check=True)
+        subprocess.run(['git', 'branch', 'feature'], cwd=self.root, check=True)
+        subprocess.run(['git', 'pack-refs', '--all'], cwd=self.root, check=True)
+        self.head = subprocess.run(['git', 'rev-parse', 'refs/heads/feature'], cwd=self.root,
+                                   capture_output=True, text=True, check=True).stdout.strip()
+        self.reference = 'refs/heads/feature'
+        self.zero = '0' * len(self.head)
+        hooks = self.root / 'hooks'
+        hooks.mkdir()
+        self.script = hooks / 'guard.py'
+        self.script.write_text('reference = ' + repr(self.reference) + '\n'
+                               + 'head = ' + repr(self.head) + '\n'
+                               + 'original_hook = ' + repr('') + '\n' + _GUARD)
+
+    def guard(self, stage, data):
+        return subprocess.run([sys.executable, str(self.script), stage], input=data,
+                              capture_output=True, text=True, cwd=self.root)
+
+    def test_a_second_prepared_transaction_that_already_sees_the_ref_gone_is_accepted(self):
+        # packed-refs update noise plus the target row; rev-parse finds no ref.
+        noise = f'{self.zero} {self.zero} packed-refs\n{self.zero} {self.zero} {self.reference}\n'
+        self.assertEqual(0, self.guard('prepared', noise).returncode)
+
+    def test_the_first_prepared_transaction_still_binds_the_confirmed_tip(self):
+        data = f'{self.head} {self.zero} {self.reference}\n'
+        self.assertEqual(0, self.guard('prepared', data).returncode)
+        moved = f'{self.zero} {self.zero} {self.reference}\n'
+        # Ref is packed and still at head; a zero old-value deletion is accepted.
+        self.assertEqual(0, self.guard('prepared', moved).returncode)
+
+    def test_a_moved_tip_or_a_foreign_ref_is_still_refused(self):
+        other = '1' * len(self.head)
+        self.assertEqual(1, self.guard('prepared', f'{other} {self.zero} {self.reference}\n').returncode)
+        self.assertEqual(1, self.guard('prepared', f'{self.head} {self.zero} refs/heads/other\n').returncode)
+
+
 if __name__ == '__main__':
     unittest.main()

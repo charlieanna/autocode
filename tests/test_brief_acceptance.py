@@ -489,15 +489,57 @@ class BriefAcceptanceTests(unittest.TestCase):
         self.assertEqual(1, code)
         self.assertIn('omits an item', observed['reason'])
 
+    def test_exact_listing_and_absent_item_refuse_the_noop_remove_and_duplicates(self):
+        # #644: a remove that does nothing, a duplicated item, a copied ID and a
+        # literal placeholder ID must not pass an exact listing.
+        text = ('`todo.py add TEXT` appends a to-do and exits 0; `todo.py remove ID` deletes the to-do and exits 0; '
+                '`todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0.')
+        records = sources(text)
+        dec = brief.inventory(records)[0]
+        steps = [{'argv': ['add', 'buy milk']}, {'argv': ['add', 'walk dog']},
+                 {'argv': ['remove', '1']}, {'argv': ['list']}]
+        proposal = {'declaration_id': dec['id'], 'criterion_ids': ['AC1'],
+                    'steps': steps, 'observe_step': 3,
+                    'bindings': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}],
+                    'expect': [{'placeholder': 'TEXT', 'step': 1, 'argument': 1}],
+                    'absent': [{'placeholder': 'TEXT', 'step': 0, 'argument': 1}]}
+        observation = brief.bind(records, [proposal])['observations'][0]
+        self.assertEqual(['walk dog'], brief.required_values(observation))
+        self.assertEqual(['buy milk'], brief.absent_values(observation))
+        # Omitting expect/absent keeps a VERSION 1 proposal's sealed hash unchanged.
+        plain = brief.bind(self.sources, [listing_proposal(self.sources)])['observations'][0]
+        self.assertNotIn('expect', plain['proposal'])
+        self.assertNotIn('absent', plain['proposal'])
+        self.assertEqual({'declaration', 'proposal', 'pattern', 'hash'}, set(plain))
+        line = brief.line_pattern(observation)
+        required, absent = brief.required_values(observation), brief.absent_values(observation)
+        for listing, wanted in (
+            (b'1 buy milk [open]\n2 walk dog [open]\n', 'still lists'),
+            (b'2 walk dog [done]\n3 walk dog [open]\n', 'exactly once'),
+            (b'2 walk dog [done]\n2 walk dog [open]\n', 'repeats an ID'),
+            (b'ID walk dog [done]\n', 'placeholder name'),
+            (b'2 buy milk [done]\n3 walk dog [open]\n', 'still lists'),
+            (b'2 walk dog [open]\n', ''),
+        ):
+            with self.subTest(listing=listing):
+                reason = brief.output_reason(listing, observation['pattern'], line, required, absent, exact=True)
+                if wanted:
+                    self.assertIn(wanted, reason, reason)
+                else:
+                    self.assertEqual('', reason)
+
     def test_every_listed_line_must_have_the_declared_format(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
         observation = manifest['observations'][0]
         # Derived from the sealed manifest, never stored in it: no new hash or manifest version.
         self.assertEqual(r'[^\s]+\ (?:buy\ milk|walk\ dog)\ \[(?:open|done)\]', brief.line_pattern(observation))
         self.assertEqual({'declaration', 'proposal', 'pattern', 'hash'}, set(observation))
+        required, absent = brief.required_values(observation), brief.absent_values(observation)
+        exact = observation['proposal'].get('expect') is not None
         for listing, accepted, replayed in LISTINGS:
             with self.subTest(listing=listing):
-                reason = brief.output_reason(listing, observation['pattern'], brief.line_pattern(observation))
+                reason = brief.output_reason(listing, observation['pattern'], brief.line_pattern(observation),
+                                             required, absent, exact=exact)
                 self.assertEqual(accepted, reason == '', reason)
                 if not replayed:
                     continue

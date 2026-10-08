@@ -22,12 +22,17 @@ if os.path.isfile(original_hook) and os.access(original_hook, os.X_OK):
 if stage == 'prepared':
     # branch -D may emit zero as the unspecified old OID. Read the real
     # ref while its prepared transaction holds the lock, before commit.
+    # A packed-ref delete can fire more than one prepared transaction (and
+    # extra rows for the packed-refs update). The tip guard is on the target
+    # ref's own row; a later prepared may already see that ref gone (#668).
     zero = '0' * len(head)
     rows = [line.split() for line in data.decode().splitlines()]
+    target = [row for row in rows if len(row) >= 3 and row[2] == reference]
     actual = subprocess.run(['git', 'rev-parse', '--verify', reference],
                             capture_output=True, text=True)
-    if (rows not in ([[head, zero, reference]], [[zero, zero, reference]])
-            or actual.returncode or actual.stdout.strip() != head):
+    current = actual.stdout.strip() if actual.returncode == 0 else None
+    if (len(target) != 1 or target[0] not in ([head, zero, reference], [zero, zero, reference])
+            or (current is not None and current != head)):
         sys.stderr.write('Branch changed since confirmation; branch retained\n')
         raise SystemExit(1)
     # Git branch also checks worktree ownership. Check again with the reference
