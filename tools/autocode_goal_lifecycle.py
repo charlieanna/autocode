@@ -16,9 +16,9 @@ except ImportError:
 import copy
 
 try:
-    from . import autocode_draft_examples as examples
+    from . import autocode_draft_examples as examples, autocode_base_examples as base_examples
 except ImportError:
-    import autocode_draft_examples as examples
+    import autocode_draft_examples as examples, autocode_base_examples as base_examples
 import difflib
 import json
 from pathlib import Path
@@ -405,6 +405,7 @@ def render(state, run_dir=None):
     lines += approval_view.field_lines(
         verification_plan.obligations(state, progressive_context=progressive_state.context(state)))
     lines += examples.review_notes(state)
+    lines += base_examples.notes(state)
     declared = contract.get("declared_changes") or []
     if declared:
         lines += ["", "Declared contract changes:"]
@@ -481,6 +482,10 @@ def present(state, run_dir=None):
         state["displayed_handoff"] = handoff_ref(state)
     if public:
         state["displayed_review"] = review_token(state)
+    if state.get("goal_contract"):
+        # Advisory base-revision check (#676): runs the planned commands on the base revision once for each
+        # distinct set of planned examples; render() only reads what this recorded.
+        base_examples.check(state)
     return render(state, run_dir)
 
 
