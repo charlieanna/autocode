@@ -19,8 +19,10 @@ CODEX_DEFAULT_MODELS={'astra':'gpt-5.6-sol','terra':'gpt-5.6-terra','sol':'gpt-5
 GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completion':'glm-5.3'}
 DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
 REASONING_EFFORTS={'low','medium','high','xhigh','max'}
-BARE_OPENAI_ALIASES={'gpt-5.6-sol','gpt-5.6-terra','gpt-6-astra'}
-MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
+try:
+ from .dashboard_setup import MODEL_ID, BARE_OPENAI_ALIASES, OPENAI_ALIAS_ROLES, conversation_model_fields
+except ImportError:
+ from dashboard_setup import MODEL_ID, BARE_OPENAI_ALIASES, OPENAI_ALIAS_ROLES, conversation_model_fields
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
 def pending_decisions(state):
@@ -145,16 +147,16 @@ class ModelCatalogue:
                 if not values:
                     raise ValueError('No usable model identifiers were returned')
             else:
-                code, stdout, stderr = self._read_command()
+                code, stdout, _ = self._read_command()
                 if code:
-                    raise ValueError((stderr.strip() or 'opencode models exited with status ' + str(code))[:400])
+                    raise ValueError('The model-listing command did not complete successfully')
                 values = sorted({line.strip() for line in stdout.splitlines() if MODEL_ID.fullmatch(line.strip())})
                 if not values:
                     raise ValueError('No usable provider/model identifiers were returned')
         except subprocess.TimeoutExpired:
             error = 'Model catalogue lookup timed out.'
-        except (OSError, ValueError, RuntimeError) as failure:
-            error = 'Model catalogue unavailable: ' + str(failure)
+        except Exception:
+            error = 'Model catalogue unavailable. Check the provider installation and model listing in your terminal.'
         finally:
             with self.lock:
                 if not error and values:
@@ -410,26 +412,27 @@ class LegacyConsole:
   try:key=str(Path(run or ws).resolve())
   except OSError:key=str(run or ws)
   return list(self.actions.get(key,[]))
- def joint_models(self,d):
+ def joint_models(self,d,*,catalogue=None,check_catalogue=True):
+  catalogue_source=catalogue or self.catalogue;provider=catalogue_source.provider
   explicit={role:d.get(role+'_model','') for role in ('glm','plan_reviewer','astra','terra','sol','completion')}
   if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Model choices must be strings')
   chosen={role:value for role,value in explicit.items() if value}
-  if self.run_provider!='opencode':
+  if provider!='opencode':
    if any(any(c.isspace() for c in value) for value in chosen.values()):raise ValueError('Model names cannot contain whitespace')
-   if chosen:
-    catalogue=self.catalogue.fetch()
+   if chosen and check_catalogue:
+    catalogue=catalogue_source.fetch()
     if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')
     for value in chosen.values():
-     if value not in catalogue['models']:raise ValueError('Choose a current model from the '+self.run_provider+' catalogue')
+     if value not in catalogue['models']:raise ValueError('Choose a current model from the '+provider+' catalogue')
    return chosen
   # Retain bare OpenAI aliases in older conversations. The runner expands them
   # to openai/model on OpenCode; they never select a separate Codex login.
   opencode_choices={role:value for role,value in chosen.items()
-                    if not (role in ('astra','sol','completion') and value in BARE_OPENAI_ALIASES)}
+                    if not (role in OPENAI_ALIAS_ROLES and value in BARE_OPENAI_ALIASES)}
   for role,value in opencode_choices.items():
    if not MODEL_ID.fullmatch(value):raise ValueError(role.title()+' requires an OpenCode provider/model identifier')
-  if opencode_choices:
-   catalogue=self.catalogue.fetch()
+  if opencode_choices and check_catalogue:
+   catalogue=catalogue_source.fetch()
    if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')
    for value in opencode_choices.values():
     if value not in catalogue['models']:raise ValueError('Choose a current provider/model identifier from the catalogue')
@@ -464,15 +467,16 @@ class LegacyConsole:
   if engine not in ('opencode','codex'):raise ValueError('Unsupported engine')
   if ws not in self.created_workspaces and ws not in self.explicit:self.created_workspaces.append(ws)
   if engine=='opencode':
-   chosen=self.joint_models(d);efforts=self.joint_efforts(d)
-   extra=[goal,'--engine','opencode','--provider',self.run_provider,'--joint-planning','--no-chat']
+   provider='opencode' if d.get('conversation_handoff') else self.run_provider
+   chosen=self.conversation_models(d) if d.get('conversation_handoff') else self.joint_models(d);efforts=self.joint_efforts(d)
+   extra=[goal,'--engine','opencode','--provider',provider,'--joint-planning','--no-chat']
    if d.get('conversation_handoff'):
     handoff=Path(d['conversation_handoff']).resolve()
     if not handoff.is_relative_to(ws/'.autocode/conversation-handoffs'):raise ValueError('Conversation handoff must be staged in the selected project')
     extra+=['--conversation-handoff',str(handoff)]
    for role,value in chosen.items():extra+=['--'+role.replace('_','-')+'-model',value]
    for role,value in efforts.items():extra+=['--'+role.replace('_','-')+'-reasoning-effort',value]
-   return self.enqueue(ws,None,'Create OpenCode task' if self.run_provider=='opencode' else 'Create '+self.run_provider+' task',extra)
+   return self.enqueue(ws,None,'Create OpenCode task' if provider=='opencode' else 'Create '+provider+' task',extra)
   if d.get('glm_model'):raise ValueError('Planner discovery requires the default joint-planning engine')
   models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
   for r,m in models.items():
@@ -555,14 +559,10 @@ except ImportError:  # Support running this file directly from a source checkout
 class Console(CheckpointMixin, SetupMixin, PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
  def model_catalogue(self,refresh=False):
   result=self.catalogue.fetch(refresh=refresh)
-  try:
-   from ..autocode_planner_routes import MANDATED_ROUTES, RUNNER_POLICY_ROLES
-  except ImportError:
-   from autocode_planner_routes import MANDATED_ROUTES, RUNNER_POLICY_ROLES
-  route_roles={**RUNNER_POLICY_ROLES,'glm':'requirements_gatherer'}
-  return {**result,'conversation_defaults':{role:MANDATED_ROUTES[name]['model'] for role,name in route_roles.items()},
-          'conversation_efforts':{role:MANDATED_ROUTES[name]['reasoning_effort'] for role,name in route_roles.items()},
-          'conversation_routes':MANDATED_ROUTES}
+  conversations=result if self.run_provider=='opencode' else self.conversation_catalogue.fetch(refresh=refresh)
+  return {**result,**conversation_model_fields(),'conversation_catalogue':conversations,
+          'conversation_readiness':self.conversation_model_readiness({},catalogue=conversations,refresh_transport=refresh),
+          'conversation_provider':'opencode'}
 
 # Static presentation is kept separate from the read-only adapter and mutation API.
 INDEX = re.sub(r'\{\{role:(\w+)\}\}',lambda match:ROLE_NAMES['roles'][match[1]],Path(__file__).with_name('dashboard.html').read_text())
@@ -661,12 +661,12 @@ class Handler(BaseHTTPRequestHandler):
    elif self.path=='/api/conversations':x=self.console.conversation_create(d)
    elif self.path=='/api/conversation/archive':x=self.console.conversation_archive(d)
    elif self.path=='/api/conversation/message':
-    self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.send(d.get('id'),d.get('text'),d.get('request_id'))
+    self.console.require_unarchived_conversation(d.get('id'),model_work=True);x=self.console.conversations.send(d.get('id'),d.get('text'),d.get('request_id'))
    elif self.path=='/api/conversation/refresh-draft':
-    self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.refresh_draft(d.get('id'),requirements_revision=d.get('requirements_revision'),logical_turn_id=d.get('logical_turn_id'),request_id=d.get('request_id'))
+    self.console.require_unarchived_conversation(d.get('id'),model_work=True);x=self.console.conversations.refresh_draft(d.get('id'),requirements_revision=d.get('requirements_revision'),logical_turn_id=d.get('logical_turn_id'),request_id=d.get('request_id'))
    elif self.path=='/api/conversation/confirm-scope':x=self.console.confirm_conversation_scope(d)
    elif self.path=='/api/conversation/retry':
-    self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.retry(d.get('id'))
+    self.console.require_unarchived_conversation(d.get('id'),model_work=True);x=self.console.conversations.retry(d.get('id'))
    elif self.path=='/api/conversation/attach':x=self.console.conversation_attach(d)
    elif self.path=='/api/chat':x=self.console.chat(d)
    elif self.path=='/api/create':x=self.console.create(d)

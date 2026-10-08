@@ -12,7 +12,7 @@ function start(){return new Promise((resolve,reject)=>{server=spawn(process.env.
  assert.equal(data('()=>document.querySelector("#workspace-setup-card").closest("#draft-messages")!==null'),true);
  for(const [name,w,h] of [['desktop',1440,1024],['tablet',1024,768],['mobile',390,844]]){
   browser('set','viewport',String(w),String(h));
-  if(name!=='desktop'){if(w<700)click('#nav-toggle');click('#workspace-setup');wait('!!document.querySelector("#workspace-setup-card")');}
+   if(name!=='desktop'){if(w<700)click('#nav-toggle');click('#workspace-setup');wait('!!document.querySelector("#workspace-setup-card")&&!!setupReport&&!setupCheckBusy');}
   assert.match(data('()=>document.querySelector("#setup-checklist").textContent'),/Python.*Missing.*Git.*Missing.*OpenCode.*Missing/s);
   assert.match(data('()=>document.querySelector("#setup-checklist").textContent'),/accounts.*Not verified/s);
   assert.equal(data('()=>document.body.innerText.includes("SECRET_UI_fixture_token")'),false);
@@ -34,9 +34,32 @@ function start(){return new Promise((resolve,reject)=>{server=spawn(process.env.
   const scopeAction=data('()=>{const b=[...document.querySelectorAll("#draft-problem button")].find(b=>b.textContent==="Confirm this project folder");if(!b)return null;b.id="confirm-project-folder";const r=b.getBoundingClientRect();return {inChat:!!b.closest("#draft-conversation"),width:r.width,height:r.height}}');
   assert.ok(scopeAction?.inChat&&scopeAction.width>=44&&scopeAction.height>=44,JSON.stringify(scopeAction));
   assert.equal(data('()=>document.querySelector("#draft-send").disabled'),true);
-  click('#confirm-project-folder');wait('latestConversation&&!latestConversation.project_scope_error');
+   data('()=>{const b=[...document.querySelectorAll("#draft-problem button")].find(b=>b.textContent==="Confirm this project folder");b.click();return true}');wait('latestConversation&&!latestConversation.project_scope_error');
   assert.equal(data('()=>latestConversation.messages.length'),0,'confirmation is not a user message or provider dispatch');
-  browser('reload');wait('latestConversation&&!latestConversation.project_scope_confirmation');
+   browser('reload');wait('latestConversation&&!latestConversation.project_scope_confirmation');
+
+   click('#draft-conversation [data-view="tasks"]');click('[data-new-task]');
+   data('()=>{showNewTask("");return true}');wait('currentView==="new-task"&&!document.querySelector("#new-task").hidden');
+   fs.writeFileSync(fixture.transport,JSON.stringify({status:'ok',data:{version:'2.0.20+SECRET-UI-fixture-token'}}));
+   data('()=>{loadModels(true);return true}');wait('conversationTransport.transport==="unsupported"&&!modelCatalogue.loading');
+   assert.equal(data('()=>document.querySelector("#create-submit").disabled'),true);
+   assert.equal(data('()=>document.querySelector("#create-model-catalogue-gate").hidden'),false);
+   assert.equal(data('()=>currentView'),'new-task','admission is checked in the visible form, not hidden controls');
+   assert.match(data('()=>document.querySelector("#create-model-catalogue-status").textContent'),/OpenCode 1.x/);
+   assert.equal(data('()=>document.body.innerText.includes("SECRET-UI-fixture-token")'),false);
+   fs.writeFileSync(fixture.transport,JSON.stringify({status:'ok',data:{version:'1.18.33'}}));
+   data('()=>{document.querySelector("#retry-models").click();return true}');wait('conversationTransport.transport==="available"&&!document.querySelector("#create-submit").disabled');
+   assert.equal(data('()=>conversationModelReadiness().authentication'),'unknown');
+   fs.writeFileSync(fixture.catalogue,'import sys\nprint("SECRET_UI_fixture_token",file=sys.stderr)\nraise SystemExit(1)\n');
+   data('()=>{loadModels(true);return true}');wait('!!modelCatalogue.error&&!modelCatalogue.loading');
+   assert.equal(data('()=>document.body.innerText.includes("SECRET_UI_fixture_token")'),false);
+   assert.equal(data('()=>document.querySelector("#create-submit").disabled'),true);
+   fs.writeFileSync(fixture.catalogue,'print('+JSON.stringify(fixture.models.join('\n'))+')\n');
+   data('()=>{document.querySelector("#retry-models").click();return true}');wait('!document.querySelector("#create-submit").disabled');
+   data('()=>{showNewTask("");document.querySelector("#create-submit").scrollIntoView({block:"center",behavior:"instant"});return true}');
+   assert.equal(data('()=>currentView'),'new-task');
+   assert.equal(data('()=>document.documentElement.scrollWidth>innerWidth'),false);
+   const admission=path.join(evidence,name+'-admission.png');browser('screenshot',admission);captures.push(admission);
 
  }
  browser('set','viewport','1440','1024');click('#workspace-setup');wait('!!document.querySelector("#workspace-setup-card")');

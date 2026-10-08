@@ -110,12 +110,13 @@ class ConversationMixin(VerificationViewMixin):
         models = data.get('models', {})
         if not isinstance(models, dict):
             raise ValueError('Models must be an object')
-        chosen = self.joint_models(models)
+        text = data.get('text')
+        empty = data.get('empty') is True and (not isinstance(text, str) or not text.strip())
+        chosen = self.conversation_models(models, require_available=not empty, visual=data.get('visual') is True)
         efforts = self.joint_efforts(models)
         settings = {key + '_model': value for key, value in chosen.items()}
         settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
-        text = data.get('text')
-        if data.get('empty') is True and (not isinstance(text, str) or not text.strip()):
+        if empty:
             # Pre-send creation: activating a New conversation control opens a
             # saved empty conversation carrying the validated project scope
             # before any message exists. The first send continues this record.
@@ -245,7 +246,7 @@ class ConversationMixin(VerificationViewMixin):
 
             if doc.get('status') != 'ready':
                 raise ValueError('Wait for the current conversation reply before attaching a project')
-            self.joint_models(doc.get('models', {}))
+            self.conversation_models(doc.get('models', {}), visual=doc.get('visual') is True)
             self.joint_efforts(doc.get('models', {}))
             raw = data.get('project') or data.get('workspace')
             if not isinstance(raw, str) or not raw.strip():
@@ -533,6 +534,7 @@ class ConversationMixin(VerificationViewMixin):
             return copy.deepcopy(self._save_chat(run, row))
 
     def task_view(self, workspace, run):
+        state = {}
         try:
             state = json.loads((run / 'state.json').read_text())
             if not isinstance(state, dict):
@@ -548,7 +550,7 @@ class ConversationMixin(VerificationViewMixin):
         view['recorded_counts'] = view.get('counts', {})
         view['counts'] = {'pass': counts['checked'], 'fail': counts['failed'], 'unknown': counts['unchecked']}
         view['screenshots'] = screenshot_evidence(view)
-        view['transcript'] = transcript(view)
+        view['transcript'] = transcript(view, state=state)
         actions = self.action_log(workspace, run)
         if view.get('startup_action'):
             actions = [view.pop('startup_action'), *actions]
