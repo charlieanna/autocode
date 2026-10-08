@@ -611,6 +611,38 @@ approve, about eight `program run` passes, a change request, a revision and a
 plan approval per workstream run), roughly four times a typical fake scenario.
 A live run spends about one run per workstream run, the plan included.
 
+## Components and local Compose
+
+`category = "components"` drives an architecture run, commits its design in the
+fresh scenario project, builds components through `autocode components`, integrates
+them, then invokes `--run-local`. The component tasks retain ordinary planning,
+review and completion gates. See [task lanes](../docs/task-lanes.md#running-the-combined-system-locally).
+
+`local-compose-two-services` connects a link service to an analytics service.
+Default `--fake` uses scripted models and a fake Docker CLI transport backed by
+actual stdlib HTTP service processes; it does not contact a real Docker daemon.
+Real containers require explicit `--local-docker`; live component runs without
+that opt-in are skipped. Public sample images need no registry credentials, so
+an anonymous Docker environment is sufficient; no authentication change is required.
+
+The oracle starts a separate fresh stack and creates a random link unknown to the
+product smoke check. It verifies health, real redirects, the click-event boundary,
+repeated collection without double counting and unknown-link refusal. Run-level
+checks also inspect emitted wiring, loopback-only ports, product smoke and cleanup.
+The successful oracle path has 14 checks with fake transport and 15 with real Docker,
+including independent real-engine cleanup; these are check counts, not pass evidence.
+Each product/oracle project is separately torn down, and the real oracle checks for
+remaining project-labeled containers, networks and images. Interrupted drives remain
+`INTERRUPTED_UNGRADED` rather than grading unfinished work.
+
+```sh
+$PY scenarios/run.py run local-compose-two-services --fake
+$PY scenarios/run.py run local-compose-two-services --fake --local-docker
+$PY scenarios/run.py run local-compose-two-services --profile openai-only --local-docker --i-authorize-live-model-spend
+$PY examples/local-compose/run.py                 # reference oracle, no models or Docker
+$PY examples/local-compose/run.py --docker        # reference product with real local Docker
+```
+
 ## Comparing with a plain agent
 
 AutoCode adds stages so that its results can be trusted. `compare` measures
@@ -705,7 +737,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `greenfield-todo-cli` | greenfield | Durable state and failure cases that must not corrupt data. |
 | `port-policy-go` | port | Porting C# to Go against golden vectors. Requires `go`. |
 | `parallel-diamond` | parallel | Four milestones where two can be built in parallel. The scripted run plans the same diamond and each Builder applies only its own milestone, so the orchestrator really schedules B and C as one parallel batch. |
-| `architecture-two-services` | architecture | A two-component design with contracts and an acyclic dependency graph; no code. |
+| `architecture-two-services` | architecture | A two-component design with contracts, acyclic build/runtime dependency graphs, per-component runtime blocks and cross-service `smoke.json`; no application code or Docker startup. |
 | `review-planted-defects` | review | A PR with green tests, two planted regressions (timeout reconciliation dropped, `.de` never-retry policy lost) and one nit. Both regressions blocking, nothing else blocking, tree untouched. |
 | `review-clean-pr` | review | The same refactor done right. Must approve; a blocking finding is invented. |
 | `review-vacuous-tests` | review | The PR's tests pass without exercising the change. The reviewer must deliver a targeted test that fails on the patched code and passes once fixed; the oracle runs both. |
@@ -717,9 +749,10 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `design-review-with-answers` | conversation | Issue #185: a design review asks which ordering consumers need, and each reply revises the same review in the same run. Before any answer ordering is a question, not a blocker; after "Ordering is per-domain." it is blocking (a transfer moves a domain to another registry, splitting its events across `registry_id` partitions); after "Per-registry is fine." that concern is resolved under the same id. The migration gap stays blocking, the unowned DLQ is advisory, nothing is renumbered or invented, and each turn runs only the Architect and changes only the review. The oracle reads the report's `revisions` trail and each turn's kept report. |
 | `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. The design and build turns each have their plan approved. |
 | `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies the journey `capture-and-find` by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
+| `local-compose-two-services` | components | Architecture -> independent component TaskRuns -> integration -> local runtime smoke, with an independent fresh-key HTTP oracle and cleanup. Fake transport is the default for `--fake`; real Docker is explicit `--local-docker`. See [Components and local Compose](#components-and-local-compose). |
 
-Planned next: Figma design → implementation, and multi-service systems started
-with `docker compose` and checked end to end.
+Planned next: Figma design → implementation. Multi-service local Compose is now
+represented by the components category above, without implying live qualification.
 
 ## Running the live ladder
 

@@ -32,11 +32,11 @@ CATALOG = Path(__file__).resolve().parent.parent / "catalog"
 # a conversation moves one run between several of them, turn by turn; a program
 # splits one request into workstreams, each its own run (README, "Programs").
 CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architecture", "figma", "system",
-              "review", "design", "discuss", "investigate", "conversation", "program")
+              "review", "design", "discuss", "investigate", "conversation", "program", "components")
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
-KEYS = {"title", "category", "requires", "fake", "run", "turn", "hybrid", "program"}
+KEYS = {"title", "category", "requires", "fake", "run", "turn", "hybrid", "program", "brief_from", "components"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "turn_paths", "answers"}
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
@@ -107,6 +107,7 @@ class Scenario:
     program_max_parallel: int = 2
     program_revise: dict = field(default_factory=dict)
     program_changes: tuple[dict, ...] = ()
+    components_architecture: str = ""
 
     @property
     def seed(self) -> Path:
@@ -190,7 +191,20 @@ def load(scenario_id: str) -> Scenario:
     # The scripted model tells turns apart by the message the handoff's task starts with (it serves
     # turn_paths and per-turn reports by it), so a message may not begin another (an identical one
     # does) or the brief, which is turn 0's task.
-    brief = (root / "brief.md").read_text().strip()
+    brief_from = meta.get("brief_from")
+    if brief_from is not None and (not isinstance(brief_from, str) or not brief_from
+                                   or Path(brief_from).name != brief_from or brief_from == scenario_id):
+        raise ValueError(f"{scenario_id}: brief_from must name a different catalog scenario")
+    brief = ((CATALOG / brief_from / "brief.md") if brief_from else root / "brief.md").read_text().strip()
+    components = meta.get("components", {})
+    if not isinstance(components, dict) or (components and (
+            meta["category"] != "components" or set(components) != {"architecture"})):
+        raise ValueError(f"{scenario_id}: [components] needs category components and only architecture")
+    architecture = components.get("architecture", "")
+    if meta["category"] == "components" and (not isinstance(architecture, str) or not architecture
+            or Path(architecture).name != architecture or architecture == scenario_id
+            or not (CATALOG / architecture / "scenario.toml").is_file()):
+        raise ValueError(f"{scenario_id}: components architecture must name a different existing catalog scenario")
     says = [turn.say for turn in turns]
     if any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says))) \
             or any(brief.startswith(say) for say in says):
@@ -208,7 +222,7 @@ def load(scenario_id: str) -> Scenario:
         fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())),
         hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
         program_max_parallel=program.get("max_parallel", 2), program_revise=program.get("revise", {}),
-        program_changes=tuple(program.get("change", ())))
+        program_changes=tuple(program.get("change", ())), components_architecture=architecture)
 
 
 def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:

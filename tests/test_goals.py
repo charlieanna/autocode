@@ -145,6 +145,113 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("WAITING_FOR_USER", self.state["status"])
         self.assertFalse(g.approved(self.state))
 
+    def component_input(self, component="gateway"):
+        self.state["task"] = (f"Implement the {component} component of a larger system: HTTP service. "
+            f"Own only the directory components/{component}/; do not create or edit any file outside it. "
+            "Do not implement or stub another component's directory; integration happens separately.")
+        self.state["settings"]["regression"] = {"test_root": f"components/{component}"}
+
+    def test_component_wrong_root_draft_never_reaches_builder(self):
+        self.component_input()
+        previous = copy.deepcopy(self.state.get("goal_contract"))
+        calls = []
+        def planner(**kwargs):
+            calls.append(kwargs["allow_write"])
+            return {"contract": body(), "summary": "Ownership is covered; enthusiastically approved"}, {
+                "stage": "astra_discovery", "iteration": 1, "role": "astra",
+                "output": str(self.run / "draft.json"), "duration_seconds": 0.01}
+        self.assertNotEqual(0, self.invoke(role=planner))
+        self.assertTrue(calls)
+        self.assertFalse(any(calls))
+        self.assertEqual(previous, self.state.get("goal_contract"))
+
+    def test_component_observed_store_deferred_flow_cannot_be_installed(self):
+        self.component_input("store")
+        proposed = body()
+        proposed["milestones"][0]["affected_paths"] = ["components/store/"]
+        proposed["deliverables"] = ["components/store/server.py", "components/store/Dockerfile"]
+        proposed["end_to_end_flow"] = [
+            "`docker build -f components/store/Dockerfile components/store/` builds the store image "
+            "from its own directory as build context (exercised at integration time; this run verifies "
+            "the Dockerfile by inspection).",
+            "The container starts as a long-lived service; GET /health answers 2xx once ready.",
+            "A client POSTs /notes and GETs /notes/1; the gateway (built separately) proxies these calls "
+            "at integration time per architecture/smoke.json."]
+        proposed["permission_boundaries"] = ["No network access: tests and the service open local sockets "
+            "only; the Docker base image is referenced but the image is not built in this run."]
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "Component plan"):
+            lifecycle.install_draft(self.state, proposed, origin="test")
+        self.assertEqual(before, self.state)
+
+    def test_component_retained_bad_approval_is_atomic_and_old_approval_cannot_dispatch(self):
+        for output, flow in [("server.py", None), ("/tmp/marker", None), ("server.py ", None),
+                (None, "Run the container and build the Docker image."),
+                (None, "docker build components/gateway/, deferred to separate integration."),
+                (None, " \t `docker build components/gateway/` at integration time.")]:
+            with self.subTest(output=output, flow=flow):
+                self.state["task"] = "Build a service"
+                proposed = body()
+                proposed["milestones"][0]["affected_paths"] = ["components/gateway/"]
+                proposed["deliverables"] = [output or "components/gateway/server.py"]
+                if flow:
+                    proposed["end_to_end_flow"] = [flow]
+                    proposed["permission_boundaries"] = ["No docker build."] if "and" in flow else ["Local Docker allowed."]
+                lifecycle.install_draft(self.state, proposed, origin="test")
+                lifecycle.human.evaluate(self.state)
+                lifecycle.present(self.state)
+                self.component_input()
+                selected = g.token(self.state["goal_contract"])
+                before = copy.deepcopy(self.state)
+                with self.assertRaisesRegex(ValueError, "Component plan"):
+                    lifecycle.approve(self.state, selected)
+                self.assertEqual(before, self.state)
+                # Seed a genuine old approval before restoring the caller brief.
+                self.state["task"] = "Build a service"
+                lifecycle.approve(self.state, selected)
+                self.component_input()
+                self.state["validation"] = {"source_revision": "pinned", "evidence_hashes": {"proof": "saved"}}
+                before = {key: copy.deepcopy(self.state.get(key)) for key in ("goal_contract", "validation", "user_events")}
+                self.assertNotEqual(0, self.invoke("--no-chat"))
+                self.assertEqual("PAUSED_COMPONENT_PLAN", self.state["status"])
+                self.assertEqual(before, {key: self.state.get(key) for key in before})
+
+    def test_component_pause_requires_public_edit_and_fresh_approval(self):
+        self.approve()
+        self.component_input()
+        self.invoke("--no-chat")
+        old = copy.deepcopy(self.state["goal_contract"])
+        self.assertEqual("PAUSED_COMPONENT_PLAN", self.state["status"])
+        self.assertEqual("--edit-goal FILE", runner.run_view.view(self.state)["needs"].get("action"))
+        before = (self.run / "state.json").read_bytes()
+        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat"))
+        self.assertIn("--edit-goal", self.stdout)
+        self.assertEqual(before, (self.run / "state.json").read_bytes())
+        corrected = body()
+        corrected["milestones"][0]["affected_paths"] = ["components/gateway/server.py"]
+        corrected["deliverables"] = ["components/gateway/server.py"]
+        corrected["end_to_end_flow"] += ["`docker build components/gateway/` is not required in this run."]
+        path = self.run / "corrected.json"
+        s.atomic_json(path, corrected)
+        self.assertEqual(0, self.invoke("--edit-goal", str(path)))
+        self.assertFalse(g.approved(self.state))
+        selected = g.token(self.state["goal_contract"])
+        self.assertNotEqual(g.token(old), selected)
+        before = (self.run / "state.json").read_bytes()
+        self.assertEqual(2, self.invoke("--approve-goal", g.token(old)))
+        self.assertEqual(before, (self.run / "state.json").read_bytes())
+        self.assertEqual(0, self.invoke("--approve-goal", selected))
+        self.assertTrue(g.approved(self.state))
+        g.execution_guard(self.state)
+
+    def test_component_pause_accepts_feedback_without_dispatch(self):
+        self.approve()
+        self.component_input()
+        self.invoke("--no-chat")
+        self.assertEqual(0, self.invoke("--feedback", "Draft only component-local paths and executable HTTP flow."))
+        self.assertFalse(g.approved(self.state))
+        self.assertEqual("RUNNING", self.state["status"])
+
     def test_existing_answers_persist_and_cannot_be_asked_again(self):
         self.draft(questions=True)
         self.assertEqual(0, self.invoke("--answer", "Q1=CLI"))

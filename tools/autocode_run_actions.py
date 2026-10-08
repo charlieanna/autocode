@@ -790,6 +790,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             state.pop('stop_reason', None)
             runner.write_json(state_path, state)
     if state["status"] != "RUNNING":
+        if state['status'] == 'PAUSED_COMPONENT_PLAN':
+            print(f"{state['status']}: {state.get('stop_reason', '')}")
+            print(run_finder.continue_hint(run_dir, state, args.unit))
+            return 2
         # A pre-v0.5.4 terminal response with one missing event
         # citation can be repaired without implementation replay.  It
         # is deliberately gated on an explicit resume and exact pins.

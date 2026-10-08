@@ -182,9 +182,9 @@ def choose(start, action: str, flags: str = "", unit: str | None = None) -> Cand
     raise RunNotFound(_ambiguous_message(search, unfinished, flags, unit, action))
 
 
-# Pauses `autocode resume` only shows: nothing guards them on relaunch, so acknowledging one would
-# rerun its stage before the user acted (the Design Reviewer would rewrite <design>.blockers.json).
-WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT",)
+# These pauses need corrected input or a corrected, freshly approved contract,
+# not acknowledgment of an unchanged retry.
+WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT", "PAUSED_COMPONENT_PLAN")
 
 
 def resume_acknowledges(status) -> bool:
@@ -215,6 +215,9 @@ def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
     if run.finished:
         hint = f"It has finished ({run.status}); show it with: {_command(run, '--status')}"
         return hint + (f'; continue it with: {_command(run, "--follow-up")} "TEXT"' if run.complete else "")
+    if run.status == 'PAUSED_COMPONENT_PLAN':
+        return (f"Correct the component plan with: {_command(run, '--edit-goal FILE')} "
+                f"(or {_command(run, '--feedback TEXT')} to request a new draft); the corrected plan needs fresh approval.")
     flags = f"--unit {unit}" if unit else ""
     if run.owner:
         return (f"`{OWNER_COMMAND[run.owner]}` drives it: rerun that command to advance it, or relaunch "

@@ -86,13 +86,21 @@ def contract(spec: dict, final: bool = False, task: str = "") -> dict:
         "accepted_assumptions": [{"text": "The scripted deliverable is correct", "basis": "agent_proposed", "answer_id": ""}],
         "delegated_decisions": [],
         "acceptance_criteria": [{"id": "C1", "criterion": "The check command passes",
-                                 "verification_method": spec["check"], "human_review": False}],
+                                 "verification_method": f"test: {spec['test']}" if spec.get("test") else spec["check"],
+                                 "human_review": False}],
         "open_blocking_questions": [],
     }
     if final:
         body["initial_task"] = {"kind": "implement", "milestone_id": "M1", "objective": spec["description"],
                                 "affected_paths": paths, "requirements": [spec["description"]],
                                 "acceptance_criteria": ["C1"], "validation_plan": [spec["check"]]}
+    for field in ("end_to_end_flow", "permission_boundaries"):
+        if field in spec:
+            body[field] = spec[field]
+    if "plan_paths" in spec:
+        body["milestones"][0]["affected_paths"] = spec["plan_paths"]
+        if final:
+            body["initial_task"]["affected_paths"] = spec["plan_paths"]
     return body
 
 

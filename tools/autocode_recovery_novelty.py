@@ -66,7 +66,7 @@ def classify(*, status=None, user_request=None, observation=None):
     return {"PAUSED_TASK_PREFLIGHT": "setup", "PAUSED_PROVIDER_CAPACITY": "provider_transient",
             "PAUSED_RATE_LIMIT": "provider_transient", "PAUSED_PERMISSION": "permission",
             "PAUSED_PROVIDER_TIMEOUT": "runtime", "PAUSED_STALE_VALIDATION": "evidence_gap",
-            "PAUSED_INVALID_OUTPUT": "evidence_gap"}.get(status) or {
+            "PAUSED_INVALID_OUTPUT": "evidence_gap", "PAUSED_COMPONENT_PLAN": "product"}.get(status) or {
             "runtime_correction": "runtime", "reproduced_implementation_failure": "implementation",
             "missing_proof": "evidence_gap"}.get(observation, "unresolved")
 

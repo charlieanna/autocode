@@ -1,0 +1,12 @@
+title = "Architecture through two running services and cross-service smoke"
+category = "components"
+brief_from = "architecture-two-services"
+
+[components]
+architecture = "architecture-two-services"
+
+[fake]
+check = "python3 -m py_compile components/link-service/server.py components/analytics-service/server.py"
+
+[run]
+timeout_minutes = 15

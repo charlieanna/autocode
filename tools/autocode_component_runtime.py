@@ -402,6 +402,33 @@ def require_runnable(component_ids: Iterable[str], runtimes: Mapping[str, Compon
         raise ValueError("running the combined system needs at least one component of kind service")
 
 
+def architecture_contract(task: str) -> dict:
+    """Expose the validated runtime grammar to a requested runnable architecture."""
+    if "components.json" not in task or not re.search(r"\bruntime\b|\bsmoke\b|\bcompose\b", task, re.I):
+        return {}
+    return {"runtime_kinds": {kind: sorted({"kind", *KIND_KEYS[kind]}) for kind in KINDS},
+            "start_image": START_IMAGE, "smoke_file": SMOKE_FILE, "smoke_keys": list(SMOKE_KEYS),
+            "smoke_step_keys": list(STEP_KEYS), "smoke_methods": list(METHODS),
+            "instruction": "Deliver a runtime block for EVERY component, including libraries, and smoke.json "
+            "as architecture design data, not a user-editing step after building. A service requires integer "
+            "port 1-65535, health HTTP path, and exactly one of start (shell command in start_image; files "
+            "copied to /app, no packages preinstalled) or dockerfile (relative component path). A worker has "
+            "no port and optional health argv. A database requires port, dockerfile and health argv. A library "
+            "carries only kind. Running ids are lowercase DNS labels starting with a letter, not localhost. "
+            "runtime_depends_on is a separate acyclic list of service/database ids, not build depends_on. "
+            "Services listen on 0.0.0.0:$PORT. A service dependency supplies ID_URL=http://id:port; a database "
+            "supplies ID_HOST and ID_PORT (uppercase, hyphens become underscores). Builders use those variables, "
+            "never hard-coded addresses. Optional env contains NAME:string literals, never host secrets or "
+            "reserved generated variables. No volumes, host socket, privilege or host networking. smoke.json "
+            "is {version:1, steps:[...]} with 1-30 ordered HTTP requests to services: service, method, path "
+            "starting '/', expect_status and optional body/expect_json. capture maps variables to top-level "
+            "response keys; only later paths/bodies may use {{name}}. expect_json is an object subset or exact "
+            "other JSON value, without placeholders. GET/DELETE have no body. Include a cross-component write/read "
+            "flow that fails for wrong runtime wiring, not only health endpoints. Keep concrete endpoints and "
+            "payload schemas in descriptions/contracts. Do not start Docker or deliver application code in "
+            "the architecture task."}
+
+
 # The smoke check: ARCHITECTURE/smoke.json, beside components.json. Read only to run
 # the combined system; never part of the saved build's identity.
 SMOKE_FILE = "smoke.json"

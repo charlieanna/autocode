@@ -1,5 +1,7 @@
 """A grading result is publishable only after its owned processes stop."""
 import json
+import os
+import signal
 from contextlib import nullcontext
 import subprocess
 import sys
@@ -51,6 +53,95 @@ class GraderExitObservationTests(unittest.TestCase):
 
 
 class GraderProcessTests(unittest.TestCase):
+    def test_first_deadline_clock_interrupt_cleans_up_after_initial_sample(self):
+        child = Mock(pid=77)
+        root = {'pid': 77, 'group': 77}
+        tree = Mock(known={})
+        events = []
+        tree.sample.side_effect = lambda: events.append('sample')
+        tree.stop.side_effect = lambda child: events.append('stop')
+        def interrupt():
+            events.append('clock')
+            raise KeyboardInterrupt
+        with patch.object(processes, 'ProcessTree', return_value=tree), \
+                patch.object(grader, '_leader', return_value=root), \
+                patch.object(processes, 'identity', return_value=root), \
+                patch.object(grader, '_capture_group') as capture, \
+                patch.object(grader.time, 'monotonic', side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                grader.wait(child, 10)
+        self.assertEqual(['sample', 'clock', 'stop'], events)
+        capture.assert_called_once_with(tree, child, root)
+        child.wait.assert_not_called()
+
+    def test_bootstrap_observation_failures_stop_without_publishing_result(self):
+        for stage in ('leader', 'sample', 'capture'):
+            with self.subTest(stage=stage):
+                child = Mock(pid=77)
+                root = {'pid': 77, 'group': 77, 'state': grader.psutil.STATUS_ZOMBIE}
+                tree = Mock(known={})
+                failure = processes.ProcessError('bootstrap ownership uncertain')
+                if stage == 'sample':
+                    tree.sample.side_effect = failure
+                with patch.object(processes, 'ProcessTree', return_value=tree), \
+                        patch.object(grader, '_leader', side_effect=failure if stage == 'leader' else None,
+                                     return_value=root), \
+                        patch.object(processes, 'identity', return_value=root), \
+                        patch.object(processes, 'matches', return_value=True), \
+                        patch.object(grader, '_capture_group',
+                                     side_effect=failure if stage == 'capture' else None):
+                    with self.assertRaisesRegex(processes.ProcessError, 'ownership uncertain'):
+                        grader.wait(child, 10)
+                tree.stop.assert_called_once_with(child)
+                child.wait.assert_not_called()
+
+    def test_first_clock_sigterm_stops_ready_detached_helper_and_preserves_sentinel(self):
+        ready_read, ready_write = os.pipe()
+        script = ("import os,subprocess,sys\n"
+                  "helper=subprocess.Popen([sys.executable,'-c',"
+                  "'import os; r,w=os.pipe(); os.read(r,1)'],start_new_session=True)\n"
+                  "os.write(int(sys.argv[1]),str(helper.pid).encode()+b'\\n')\n"
+                  "r,w=os.pipe(); os.read(r,1)\n")
+        sentinel = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'],
+                                    stdin=subprocess.PIPE)
+        child = None
+        cleanup = None
+        before = signal.getsignal(signal.SIGTERM)
+        try:
+            child = subprocess.Popen([sys.executable, '-c', script, str(ready_write)],
+                                     pass_fds=(ready_write,), start_new_session=True)
+            os.close(ready_write)
+            ready_write = None
+            helper_pid = int(os.read(ready_read, 64))
+            cleanup = processes.ProcessTree(child.pid, lambda rows: None)
+            cleanup.capture_root()
+            cleanup.sample()
+            real_time = grader.time
+            clock = Mock(wraps=real_time)
+            def interrupt():
+                signal.raise_signal(signal.SIGTERM)
+                return real_time.monotonic()
+            clock.monotonic.side_effect = interrupt
+            with processes.interruption_handler(), patch.object(grader, 'time', clock):
+                with self.assertRaises(KeyboardInterrupt):
+                    grader.wait(child, 10)
+            self.assertEqual(1, clock.monotonic.call_count)
+            self.assertIn(helper_pid, cleanup.known)
+            self.assertEqual([], processes.live_processes(list(cleanup.known.values())))
+            self.assertIsNotNone(child.returncode)
+            self.assertIsNone(sentinel.poll())
+            self.assertEqual(before, signal.getsignal(signal.SIGTERM))
+        finally:
+            os.close(ready_read)
+            if ready_write is not None:
+                os.close(ready_write)
+            if cleanup is not None:
+                cleanup.stop(child)
+            elif child is not None:
+                grader.wait(child, 0)
+            sentinel.stdin.close()
+            sentinel.wait(timeout=5)
+
     def fixture(self, root):
         # Children block on their own pipe, so parent exit cannot release them.
         code = ("import subprocess,sys,json\nfrom pathlib import Path\n"

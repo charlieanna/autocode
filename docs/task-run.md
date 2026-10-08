@@ -56,10 +56,16 @@ code the run starts from (`base_commit`), not part of its change. `options`
 (engine and model flags) are passed whenever the run starts or advances. Any
 rejected command raises `TaskRunError` with AutoCode's message.
 
-Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
+Inputs fixed when a run starts, such as `--ui-run` and `--test-root`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
-and reattachment use the saved design settings.
+and reattachment use the saved settings. For scoped Python proof, use
+`start_options=("--test-root", "components/api/")`; the root selects tests, not
+generic write ownership. Generated component runs bind their original ownership
+declaration to this caller-selected root before plan approval and execution.
+At `PAUSED_COMPONENT_PLAN`, `needs` remains `kind: resume` with additive
+`edit_required`, `action: --edit-goal FILE` and `feedback_action: --feedback TEXT`.
+Correct the draft and approve its fresh token; an unchanged resume is not a repair.
 
 A caller that keeps each invocation's output, as `autocode program` keeps a
 workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
