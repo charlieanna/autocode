@@ -34,6 +34,7 @@ try:
     from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    from . import autocode_worker_quota as worker_quota
     from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_regression as regression, autocode_verify as verify
     import autocode_launch_inputs as launch_inputs
     import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
     import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
@@ -306,6 +308,23 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                                              questions=published.get('questions') if entry.get('status') == 'pending' else None)
         # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
         refusal = refusal or job_route.settings_refusal(args, state, settings)
+        # Check a parallel retry before saving the settings beside it. The actual retry repeats
+        # these checks. A collected refusal (Paused, #541) still asks its question there; only a
+        # stop carrying its member payload proceeds there. Other stops reject before settings
+        # are saved. A parent-only Builder route change cannot reach its child.
+        if not refusal and args.retry_builder and state.get('next_stage') != 'terra':
+            try:
+                member = runner.dispatch.member_retry_refusal(state, args.retry_builder)
+            except support.Paused as error:
+                member = error
+            rejected = isinstance(member, ValueError) or (
+                isinstance(member, support.Paused) and not getattr(member, 'quota_worker', None))
+            reason = (str(member) if rejected else worker_quota.retry_route_refusal(
+                state, args.retry_builder, state["settings"], settings,
+                asked=worker_quota.asked_member(state, resolver_human.current(state))))
+            if reason:
+                refusal = (reason.rstrip('.') + ". Nothing was saved, including this invocation's "
+                           "settings; they are saved by the same command without --retry-builder.")
         if refusal:
             parser.error(refusal)
         paused_for = origin.get('pause_status')

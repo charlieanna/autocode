@@ -31,5 +31,6 @@
   "tests.test_rejected_repair_retry": "38 s locally (Linux, one module at a time), 2026-10-06; two scripted feature-stock-refusals runs through the real CLI, plan to completion",
   "tests.test_launch_state_cli": "Two real CLI launches with the fake provider, each through planning to a human question; #540, 2026-10-06",
   "tests.test_operational_information": "71 s locally (Linux, 4 CPUs, one module at a time) for thirteen tests; each drives the real CLI through plan, operational pause, provide_information and resume; the control table is in test_operational_information_controls, 2026-10-06",
-  "tests.test_cmd_only_report_cli": "three scripted greenfield-greeting-cli runs through the real CLI (Codex and a sessionless tool), 25 to 55 s each locally (Linux, 4 CPUs, contended); #512, 2026-10-07"
+  "tests.test_cmd_only_report_cli": "three scripted greenfield-greeting-cli runs through the real CLI (Codex and a sessionless tool), 25 to 55 s each locally (Linux, 4 CPUs, contended); #512, 2026-10-07",
+  "tests.test_member_stop_settings": "Real CLI and worker processes through planning, parallel member stops, settings changes and completion; exceeds 10 s locally, 2026-10-07"
 }

@@ -419,6 +419,40 @@ def projection(state):
             'user_request': public['request'] if public else None}
 
 
+def pending_issued(state):
+    """The published receipt's pending ledger entry, including one a settings write left stale."""
+    public = state.get(PUBLIC) or {}
+    entry = ((state.get('resolver') or {}).get('human_escalations') or {}).get(public.get('request_id'))
+    if (isinstance(entry, dict) and entry.get('status') == 'pending'
+            and support.digest(entry.get('identity') or {}) == public.get('request_id')):
+        return entry
+    return None
+
+
+def withdrawn(state):
+    """The last active operational proposal if withdrawn and no other request is open.
+
+    Re-publishing an identity keeps its first issued_at, so its latest withdrawal or response
+    identifies the current frontier. A consumed response is never a withdrawn request.
+    """
+    ledger = (state.get('resolver') or {}).get('human_escalations') or {}
+    entries = [(key, entry) for key, entry in ledger.items() if isinstance(entry, dict)] if isinstance(ledger, dict) else []
+    if state.get(PUBLIC) or state.get(PRIVATE) or not entries:
+        return None
+    def activity(item):
+        entry = item[1]
+        response = entry.get('response')
+        return max(str(entry.get('issued_at') or ''), str(entry.get('superseded_at') or ''),
+                   str(response.get('at') or '') if isinstance(response, dict) else '')
+    key, entry = max(entries, key=activity)
+    identity = entry.get('identity') or {}
+    if (entry.get('status') != 'superseded' or identity.get('issuer') != 'resolver'
+            or support.digest(identity) != key):
+        return None
+    proposal = identity.get('proposal') or {}
+    return copy.deepcopy(proposal) if proposal.get('scope') == 'operational_exhaustion' else None
+
+
 def stale_request_message(state):
     """How to answer after the displayed request stopped being current."""
     live = current(state)
