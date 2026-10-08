@@ -43,6 +43,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
@@ -74,6 +75,7 @@ except ImportError:
     import autocode_quota_route as quota_route
     import autocode_worker_quota as worker_quota
     import autocode_resolver_human as resolver_human
+    import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
@@ -83,6 +85,12 @@ except ImportError:
     import autocode_support as support
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
+
+
+# An --answer to a published blocker or operational request. The refusal names the form the
+# request takes, so the person is not sent to look for it (#675).
+OPERATIONAL_NOT_ANSWER = ('Use --resolver-response for this operational request; it is not a requirements '
+                          'answer. The form is: ' + recovery_limits.RESPONSE_COMMAND)
 
 
 def explicit_recovery_requested(args):
@@ -384,8 +392,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     print(lifecycle.render(state))
                     return 2
         step = member_stop.next_step(state)  # a member's model stop names its one control (#541)
+        # A blocker's answer is retained, never applied to the contract: say what applies it (#675).
         print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
-              'the run remains paused without repeating the same request.' + (' ' + step if step else ''))
+              'the run remains paused without repeating the same request.'
+              + (' ' + step if step else '')
+              + resolver_human.contract_decision_advice(resolver_human.held_response_scope(state)))
         return 2
     default_budget_kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
                            'PAUSED_TIME_LIMIT': 'max_seconds',
@@ -661,7 +672,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                         raise
                     published = fresh
                 if published['scope'] in ('blocker', 'operational_exhaustion'):
-                    raise ValueError('Use --resolver-response for this operational request; it is not a requirements answer')
+                    raise ValueError(OPERATIONAL_NOT_ANSWER)
             if args.approve_goal and (not published or published['scope'] != 'goal_approval'):
                 raise ValueError('Goal approval requires a current AutoResolver-issued plan request')
             if args.approve_review and (not published or published['scope'] != 'human_review'):
@@ -826,8 +837,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         # Refuse every other answer to an operational request here, before an uncertain attempt is
         # reconciled: reconciling it again would retire the request the person is reading.
         if published and published['scope'] in ('blocker', 'operational_exhaustion'):
-            print('Input rejected: Use --resolver-response for this operational request; '
-                  'it is not a requirements answer', file=sys.stderr)
+            print('Input rejected: ' + OPERATIONAL_NOT_ANSWER, file=sys.stderr)
             return 2
         return None
     if published and published['scope'] != 'operational_exhaustion':

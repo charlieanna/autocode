@@ -20,7 +20,7 @@ State key written here (and read by autocode_run_view, autopilot):
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from . import autocode_adaptive_planning as adaptive
@@ -286,3 +286,31 @@ def planner_stage(state: dict) -> str:
 def kind(state: dict) -> str | None:
     """The recognized workflow, or None before recognition (and for runs that predate it)."""
     return (state.get("workflow") or {}).get("kind")
+
+
+def design_rewrites(state: dict, body: dict) -> list[tuple[str, str]]:
+    """(planned path, earlier file) for each file an earlier turn of this conversation wrote that a new
+    design's plan would let its Builder change, unless the newest message names that file.
+
+    A design job proposing a design writes that design. A live design turn's plan also listed the
+    decision record the discuss turn had written (docs/decisions/metadata-cache.json) in its
+    affected_paths, and its Builder rewrote it (#664). A planned directory that holds such a file
+    counts too: the Builder may change anything under it. Other jobs, and a design review, are
+    not checked here."""
+    if kind(state) != "design" or (state.get("design_review") or {}).get("mode") != "propose":
+        return []
+    turns = state.get("turns") or []
+    earlier = list(dict.fromkeys(str(path).strip().removeprefix("./") for turn in turns
+                                 for path in (turn.get("previous") or {}).get("wrote") or [] if str(path).strip()))
+    said = str((turns[-1] if turns else {}).get("say") or "")
+    asked = {path for path in earlier if path in said or PurePosixPath(path).name in said}
+    tasks = [body.get("initial_task") or {}, *(body.get("milestones") or [])]
+    planned = dict.fromkeys(str(path).strip().removeprefix("./") for task in tasks
+                            for path in task.get("affected_paths") or [] if str(path).strip())
+    found = []
+    for path in planned:
+        folder = path.rstrip("/") + "/"
+        for done in earlier:
+            if done not in asked and (done == path.rstrip("/") or done.startswith(folder)):
+                found.append((path, done))
+    return found

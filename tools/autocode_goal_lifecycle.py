@@ -198,6 +198,13 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
         verification_plan.refuse_new_plan(
             [(f"Acceptance criterion {row['id']}'s verification_method", row["verification_method"])
              for row in body["acceptance_criteria"]] + steps, requirements)
+        rewrites = workflows.design_rewrites(state, body)
+        if rewrites:
+            raise ValueError(
+                "A design job writes its design; it does not change what an earlier turn of this conversation "
+                "wrote unless the user's message asks for that file: "
+                + "; ".join(f"affected_paths {path!r} would let the Builder change {done}" for path, done in rewrites)
+                + ". Read those files, and keep them out of every milestone's and the initial_task's affected_paths.")
     changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
     previous = state.get("goal_contract")

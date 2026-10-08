@@ -417,7 +417,7 @@ run is waiting for:
 | `kind` | Waiting for | Extra fields | Answer with |
 | --- | --- | --- | --- |
 | `approve_plan` | approval of the plan AutoCode displayed | `token` | Approve the plan |
-| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, with the current `resolver_token`; the questions left return under a new one |
+| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope`; with `resolver_scope` `blocker` or `operational_exhaustion` (and no `route`), `action` is the response command | Answer, with the current `resolver_token`; the questions left return under a new one. A `blocker` or `operational_exhaustion` request refuses `--answer` and takes `action` (`respond_operational()`) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
@@ -428,7 +428,12 @@ run is waiting for:
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
-the run; a caller must not answer it with a proposed default.
+the run; a caller must not answer it with a proposed default. Its `action` is
+the response command. A `blocker` is often a decision about the approved
+contract (a criterion Resolver proved contradictory): the response is retained
+as information and never edits the contract, so after it the run holds and
+`needs.reason` names the path that applies such a decision, `--edit-goal
+body.json` followed by `--approve-goal`.
 
 When a role's quota ran out or its provider's content filter refused it, the `answer`
 need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current_model`,

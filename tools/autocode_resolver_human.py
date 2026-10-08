@@ -13,11 +13,13 @@ from pathlib import Path
 try:
     from . import autocode_support as support, autocode_operational_information as information
     from . import autocode_bug_questions as bug_questions, autocode_member_stop as member_stop
+    from . import autocode_recovery_limits as recovery_limits
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
     import autocode_support as support, autocode_bug_questions as bug_questions
     import autocode_operational_information as information
     import autocode_member_stop as member_stop
+    import autocode_recovery_limits as recovery_limits
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 
 
@@ -477,6 +479,10 @@ def supersede_operational(state, reason):
     return True
 
 
+RESPONSE_RECEIVED = ('AutoResolver received the human response; no execution, approval or additional '
+                     'allowance was authorized.')
+
+
 def respond_operational(state, request_id, request_token, action, text=''):
     """Store human input for the resolver; this is not retry or approval consent."""
     old = state.get('resolver', {}).get('human_escalations', {}).get(request_id, {})
@@ -504,8 +510,32 @@ def respond_operational(state, request_id, request_token, action, text=''):
     previous = proposal['origin'].get('pause_status') or proposal['previous_status']
     state.update(status=previous if str(previous).startswith('PAUSED_') else 'PAUSED_RESOLVER',
                  phase='PAUSED_OR_BLOCKED',
-                 stop_reason='AutoResolver received the human response; no execution, approval or additional allowance was authorized.')
+                 stop_reason=RESPONSE_RECEIVED + contract_decision_advice(public['scope'], action))
     return copy.deepcopy(event)
+
+
+def contract_decision_advice(scope, action='provide_information') -> str:
+    """The sentence a blocker's retained information needs, or '' (#675).
+
+    A blocker is the Resolver's diagnosis asking a person, and its answer is often a decision
+    about the approved contract (a criterion the Resolver proved contradictory). Information is
+    retained, never applied to the contract, so the hold says what does apply it. An exhausted
+    operational recovery is re-evaluated by autocode_operational_information instead, and
+    leave_paused asks for nothing.
+    """
+    if scope != 'blocker' or action != 'provide_information':
+        return ''
+    return ' ' + recovery_limits.CONTRACT_DECISION_ADVICE
+
+
+def held_response_scope(state):
+    """The scope of the consumed request whose response holds the run at this frontier, or None."""
+    resolver = state.get('resolver') or {}
+    frontier = resolver.get('human_response_frontier') or {}
+    entry = (resolver.get('human_escalations') or {}).get(frontier.get('request_id'))
+    if not isinstance(entry, dict):
+        return None
+    return (((entry.get('identity') or {}).get('proposal') or {}).get('scope'))
 
 
 def review_operational_response(state):

@@ -38,7 +38,10 @@ a refusal the planner could not satisfy:
 
 - It has the form of a Go test function (`Test` then an upper-case letter, digit
   or underscore). `TestMain` is Go's test-binary hook and `TestXxx` Go's own
-  placeholder; neither is a test to write.
+  placeholder; neither is a test to write. A subtest path
+  (`TestCacheExpiry/expired`) is requested as the user wrote it; a quoted one
+  with its spaces as the underscores Go runs it under (`"TestA/empty input"`
+  is `TestA/empty_input`).
 - The user wrote it (task, brief feedback, own answers; not a delegated default
   or model text) as a test to add. It must come right after "test", "tests" or
   "func" ("function", "case", "named" or "called" may come between), as in "add
@@ -50,19 +53,28 @@ a refusal the planner could not satisfy:
   ends at the sentence's end, at a description's first comma or semicolon that
   no name follows ("the test TestA, which must not break TestB"), and at a
   name inside a description ("TestA for the parser and make sure TestServer,
-  TestClient still pass"). A name
+  TestClient still pass"; a file path such as `TestData/golden.json` is not a
+  name there). "func" without a Go signature needs test context: "test" or
+  "tests" in its clause ("the test func TestA"), or "test", "tests",
+  "regression" or a `*_test.go` file in its sentence, or a lead-in naming tests
+  above its list item, unless a return value or a production file follows the
+  name ("a func named TestConnection that returns an error", "... to
+  product.go"). A name
   further away ("the tests pass on TestNet", "a test
   for TestHelper misuse") asks for nothing; so does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test
   TestReadAll", "e.g. TestA") or one offered with an alternative ("a test TestA
   or similar"). A clause restarts after a comma, "and", "but" or "then".
 - A later message of the user's that says "instead of", "rather than" or "not"
-  right before a name withdraws it.
+  right before a name withdraws it; right before a test function, it also
+  withdraws the paths of it that earlier messages asked for ("Add the Go test
+  TestA/empty instead of TestA" asks for `TestA/empty`).
 - The regression proof will run Go tests (an explicit `go test` command, else
   the framework `autocode_verify` detects, as `autocode_regression.prove`
   chooses). In Python or Java, `TestParser` is a class.
-- The project's `*_test.go` files do not already declare it as a top-level
-  function taking one pointer to `T` or `qualifier.T`, with no return values.
+- The project's `*_test.go` files do not already declare it (for a subtest path,
+  its function) as a top-level function taking one pointer to `T` or
+  `qualifier.T`, with no return values.
   Comments, string literals, references, methods and production helpers do not
   establish an existing test. Compilation, build selection and execution stay
   with Go; this is a declaration inventory.
@@ -70,12 +82,17 @@ a refusal the planner could not satisfy:
 - The user has not settled it. The user's own `--edit-goal` is never refused by
   this check, and a name their latest edit leaves unaccounted for is no longer
   required of the planners' later drafts (joint planning reviews an edit again).
+  When "Build it." follows a proposed design, the design job's contracts are
+  archived and the build is planned afresh (#614); an edit of the design plan
+  settles nothing for the build's tests.
 
 A requested name is accounted for when one `test:` or `guard:` criterion
-declares exactly that identifier, in the user's spelling (a subtest
-`TestA/case` counts), or when an ordinary criterion's verification method names
-it and no other test, for the Validator: a test the runner cannot run to a pass,
-such as one that skips without a database, could otherwise never be proven. A
+declares exactly that identifier, in the user's spelling (for a requested test
+function a subtest `TestA/case` counts; for a requested subtest path, the path,
+a path under it or its whole test function counts, never a sibling path), or
+when an ordinary criterion's verification method names it in the same way and
+no other test, for the Validator: a test the runner cannot run to a pass, such as one that skips
+without a database, could otherwise never be proven. A
 respelling such as `test_fixed_returns_two` is refused: the Go matcher would
 bind it to `Test_fixed_returns_two` and the proof would pass without the
 requested identifier. A marked criterion that mentions a requested name no
@@ -125,6 +142,55 @@ proof. Eight added regression methods fail against the unchanged guard; all 47
 focused tests, including real Go proof, pass with the correction. Fresh live
 verification of this corrected guard remains required.
 
+## Follow-up after #630 (#651)
+
+Three cases still misjudged requested names on master after #630 (`deb3a7a`).
+Each has a test in `tests/test_native_test_names.py` that fails there.
+
+- A subtest path asked for nothing and ended its list. "Add the Go test
+  TestCacheExpiry/expired." requested no name, so the draft `test:
+  test_ac1_cache_expiry — resolves to TestCacheExpiry/expired` was accepted:
+  the #498 alias by another route. "Add the Go tests TestCacheExpiry/expired
+  and TestCacheRetainsFresh." lost the later name too. A subtest path is now
+  requested as written, and the planning rule and the refusal both ask for
+  `test: TestCacheExpiry/expired`. "Instead of" the full path withdraws that
+  path only, so "TestA/empty and TestA/one, but not TestA/two" keeps the first
+  two.
+- "Add a func named TestConnection that returns an error" (or "a func
+  called") counted as a requested test. A plain `test_<id>` draft was refused,
+  and the planner was told to declare a test named like the production
+  function. "func" without a signature now needs test context in its sentence
+  and no return value or production file right after the name.
+
+The adversarial review of that fix (2026-10-08) found four more gaps, each now
+covered by a test that fails without its fix:
+
+- A requested path was checked through its function, so declaring
+  `TestCacheExpiry/expired` accounted for a requested `TestCacheExpiry/fresh`
+  too, and `test: test_ac2_cache_fresh — resolves to TestCacheExpiry/fresh` was
+  accepted: the runner binds a declared path to that path's outcome only, so
+  the second criterion was proven by nothing. A withdrawn sibling path
+  (`TestA/two`) likewise accounted for the requested ones. A requested path is
+  now accounted for by itself, a path under it or its whole function only.
+- The refusal matched a criterion by function, so it could tell a criterion
+  that names `TestA/one` to write `TestA/empty`. It now names the path the
+  criterion refers to, and a criterion naming only another subtest refers to
+  none.
+- The first B fix dropped requests master detected, whose test context was a
+  `*_test.go` file, "test" after the name, an apposition or a list lead-in
+  ("Add a func named TestParse in parser_test.go"), while "To test retries,
+  add a func named TestConnection that returns an error" was still requested.
+- Withdrawing a function withdrew a path of it asked for in the same message
+  ("Add the Go test TestA/empty instead of TestA" asked for nothing), and a
+  capitalised file path in a description (`TestData/golden.json`) ended an
+  inline list.
+- An edit of a design job's plan settled the build's names. When "Build it."
+  follows a proposed design, `autocode_follow_up.plan_afresh` archives the
+  design job's contracts. The user's `--edit-goal` of that design plan still
+  counted as their word on the build's tests, so nothing was requested and the
+  #498 aliased draft was accepted. Only edits made after the archived contract
+  count now.
+
 ## Limits
 
 - Phrasings outside that grammar are not detected ("TestA must check X", "add
@@ -153,6 +219,16 @@ verification of this corrected guard remains required.
 - A bug fix proven by its Investigator's cases names tests after the case IDs
   (`test_t1_...`); a brief asking for native names there is not covered.
 - Python `test_` names asked for in a brief get no equivalent check.
+- A plan declaring the whole function `TestCacheExpiry` accounts for a
+  requested `TestCacheExpiry/expired`: the runner proves the function and every
+  subtest it runs, but does not check that the requested subtest is among them.
+  A subtest asked for under a test that already exists asks for nothing, since
+  subtest names live in strings. An unquoted path is read up to the first space
+  ("TestA/empty input" asks for `TestA/empty`).
+- "func" test context is a few words ("test", "tests", "regression", a
+  `*_test.go` file, a lead-in) and production evidence two forms ("that
+  returns", a target `.go` file not ending `_test.go`); "a testing func named
+  TestA" asks for nothing.
 - The diagnostic above does not qualify the corrected guard. A fresh live run
   must activate it on the exact original brief and reach matched fail-to-pass
   and preservation proof before that qualification is claimed.

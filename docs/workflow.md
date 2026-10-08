@@ -26,7 +26,9 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
               (small or large; the short path for small fixes is off until the full path is dependable)
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
-            a request for a NEW design → the build pipeline below
+            a request for a NEW design → the build pipeline below; its plan may not change a file an
+            earlier turn of the same conversation wrote (a discussion's decision record) unless your
+            newest message names it, so the design job writes its design and only reads the rest
    discuss → Analyst only: an answer with evidence tied to repository files (and the note the
             request asks for, written by the runner), repository untouched, run complete
    (a design review's or a discussion's questions do not hold the run: it completes, and you
