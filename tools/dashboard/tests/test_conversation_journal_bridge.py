@@ -8,7 +8,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from agent_console import Console
+from agent_console import Console, CODEX_DEFAULT_MODELS
+from autocode_planner_routes import MANDATED_ROUTES
 import autocode_conversation as protocol
 import autocode_support as support
 import autocode_goals as goals
@@ -52,7 +53,10 @@ class JournalBridgeTests(unittest.TestCase):
                                conversation_provider=gatherer, conversation_planner=planner)
         self.addCleanup(self.console.pool.shutdown, wait=True)
         self.addCleanup(lambda: self.console.conversations.close())
-        self.console.catalogue.fetch = lambda **kwargs: {'usable': True, 'models': ['openai/gpt-6-sol']}
+        self.available = sorted({route['model'] for route in MANDATED_ROUTES.values()} |
+                                {'openai/' + model for model in CODEX_DEFAULT_MODELS.values()})
+        self.console.catalogue.fetch = lambda **kwargs: {'usable': True, 'models': self.available}
+        self.console._probe_conversation_transport = lambda *_: {'status': 'ok', 'data': {'version': '1.18.33'}}
         store = self.console.conversations.continuous
         store.pool.shutdown(wait=True)
         store.pool = InlinePool()
@@ -100,7 +104,7 @@ class JournalBridgeTests(unittest.TestCase):
                 doc = self.console.conversation_get(doc['id'])
         self.assertEqual('ready', doc['status'])
         handoff = store.handoff(doc['id'])
-        available = ['openai/gpt-6-sol', *[value for key, value in doc['models'].items() if key.endswith('_model')]]
+        available = sorted(set(self.available) | {route['model'] for route in doc.get('configured_routes', {}).values()})
         self.console.catalogue.fetch = lambda **kwargs: {'usable': True, 'models': available}
         self.console.conversation_attach({'id': doc['id'], 'workspace': str(self.workspace)})
         args = self.actions[-1][-1]

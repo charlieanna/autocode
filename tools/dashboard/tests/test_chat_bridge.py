@@ -113,11 +113,16 @@ class ChatFixture:
         return 'Planner: ' + messages[-1]['text']
 
     def make_console(self):
+        from autocode_planner_routes import MANDATED_ROUTES
+        from dashboard_setup import BARE_OPENAI_ALIASES
         console = Console([self.workspace], self.fake, lambda: None,
                           conversation_root=self.root / 'dashboard/conversations',
                           conversation_provider=self.provider)
         console.catalogue.fetch = lambda **kwargs: {
-            'usable': True, 'models': ['zai-coding-plan/glm-5.3', 'zai-coding-plan/glm-5.3-flash']}
+            'usable': True, 'models': sorted({route['model'] for route in MANDATED_ROUTES.values()} |
+                                            {'openai/' + name for name in BARE_OPENAI_ALIASES} |
+                                            {'zai-coding-plan/glm-5.3-flash'})}
+        console._probe_conversation_transport = lambda *_: {'status': 'ok', 'data': {'version': '1.18.33'}}
         def close():
             console.pool.shutdown(wait=True)
             if console._conversation_store is not None:
