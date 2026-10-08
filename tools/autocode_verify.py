@@ -181,6 +181,26 @@ def _document_only_base(workspace, base, *, dependencies_from=None, independent=
     return not generated_sources(dependencies_from) and not launched
 
 
+def _no_go_project(workspace, base, copied) -> bool:
+    """True when the pinned base holds no Go project the suite could preserve.
+
+    Every entry must be a regular file. A submodule or link can hide Go source
+    the listing does not show, so either one keeps the ordinary base-suite rule.
+    ``copied`` is ignored source make_tree puts into the proof trees; a ``.go``
+    file there is existing Go behavior even though it is not in the commit.
+    """
+    paths = []
+    for entry in _git(workspace, "ls-tree", "-r", "-l", "-z", base).split("\0"):
+        if not entry:
+            continue
+        metadata, separator, path = entry.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 4 or fields[:2] != ["100644", "blob"]:
+            return False
+        paths.append(path)
+    return not first_suite.contains_go_project([*paths, *copied])
+
+
 def _package_scripts(text) -> dict:
     try:
         package = json.loads(text or "{}")
@@ -1742,6 +1762,14 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                                  workspace, test_changes, dependencies_from=dependencies_from,
                                                  patch=base_patch, generated_record=generated_record,
                                                  generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
+        # A base with no Go project cannot run `go test` (no module, or no packages).
+        # The same fact lets the suite comparison and, when the base run reports nothing,
+        # the regression comparison treat that as absence rather than a broken suite (#685).
+        no_go_project = bool(new_behavior and not preserve and not base_patch
+                             and framework is not None and framework.name == "go"
+                             and _no_go_project(workspace, base, _copied_generated(
+                                 dependencies_from, generated_record, generated_unrecorded,
+                                 ignored_inputs)))
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
             on_candidate = run_suite(framework, commands["regression"], trees["candidate"], run_dir,
@@ -1753,7 +1781,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "regression-on-base", timeout=timeout)
                 checks["regression_on_base"] = on_base
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
-                              new_behavior=new_behavior, preserve_only=preserve, known_failures=lambda: _pre_existing(
+                              new_behavior=new_behavior, preserve_only=preserve,
+                              absent_go_base=no_go_project and _go_test(commands["regression"] or ""),
+                              known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
                                   timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch,
                                   generated_record=generated_record, generated_unrecorded=generated_unrecorded,
@@ -1795,6 +1825,13 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                                             dependencies_from=dependencies_from,
                                                             independent=independent_dependencies,
                                                             ignored_inputs=ignored_inputs))
+            # A first Go project on a base that has code in another language (a C#
+            # port, for example) has no Go suite to preserve. `go test` then reports
+            # no packages — inside a parent module that the candidate just added,
+            # "matched no packages" — and that is not a broken base suite. A base
+            # that already has a Go module or Go source keeps the ordinary rule.
+            allow_absent_go = bool(no_go_project and comparable and comparable.get("base") == base
+                                   and _go_test(commands["suite"] or ""))
             # The base's own suite definition, executed over the candidate's product code,
             # decides preservation for an exit-code-only script-driven suite (#587). The
             # trigger is evidential — passing base, completed exit-0 candidate suite, no
@@ -1811,7 +1848,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                     generated_record=generated_record, generated_unrecorded=generated_unrecorded,
                     ignored_inputs=ignored_inputs)
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
-                         allow_empty_base=allow_empty_base, base_definition=base_definition)
+                         allow_empty_base=allow_empty_base, allow_absent_go=allow_absent_go,
+                         base_definition=base_definition)
             # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
             hidden = [path for path in _copied_generated(dependencies_from, generated_record, generated_unrecorded,
                                                          ignored_inputs) if is_test_path(path)]
@@ -1861,7 +1899,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
 
 def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures,
-                      new_behavior=False, preserve_only=False, seam_names=None):
+                      new_behavior=False, preserve_only=False, absent_go_base=False, seam_names=None):
     """Judge the targeted runs of the changed test files.
 
     With per-test results, the proof is a named test that ran and failed on base
@@ -1926,6 +1964,15 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
             unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
             return
         if base is None:
+            # Outside a module, `go test` on the new files exits before any test event.
+            # Those tests did not pass on a base that has no Go project (#685).
+            if (new_behavior and not preserve_only and absent_go_base and passed
+                    and on_base is not None and first_suite.go_reported_nothing(on_base)):
+                names = sorted(passed)
+                proof["fail_to_pass"] = names
+                proof["pass_to_pass"] = []
+                proof["not_run_on_base"] = names
+                return
             # A module that reads a seam while loading can stop the whole run before it reports any test.
             seam = seam_names(on_base) if seam_names and not new_behavior else []
             unverified.append("The regression run on the base code reported no test results"
@@ -2053,7 +2100,7 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
 
 
 def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False,
-                 base_definition=None):
+                 allow_absent_go=False, base_definition=None):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -2073,6 +2120,9 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
         if new:
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         return
+    # A first Go suite reports the pattern as a build failure, or no results at all.
+    # That is absence of a Go project, not a collection error to preserve (#685).
+    absent_go = first_suite.absent_go_suite(base_receipt, on_candidate, no_go_project=allow_absent_go)
     # A module that never imported, collected or built is not an executed test; a failed
     # hook or cancellation is (Node and Vitest report both as collection errors, so only
     # ``uncollected`` carries the rule, #503). Keep comparison below so a separately
@@ -2080,12 +2130,13 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     # parsers without ``uncollected`` fall back to collection_errors and fail closed.
     for label, results in (("base", base_results), ("candidate", candidate)):
         collection = (results or {}).get("uncollected", (results or {}).get("collection_errors")) or []
-        if collection:
+        if collection and not (label == "base" and absent_go):
             unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
                               + ", ".join(collection[:5]))
     # Incompleteness only makes the absence of a failure unproven (#421): a candidate
     # failure that was observed passing on base stays FAIL below.
-    if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
+    if not absent_go and (base_receipt.get("timed_out")
+                          or (base_results is not None and not base_results.get("complete"))):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
     if candidate is not None and not candidate.get("total"):
         unverified.append("The project suite reported zero tests or incomplete per-test results")
@@ -2120,6 +2171,10 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
                           ("passed", "failed", "skipped", "collection_errors"))
                   and on_candidate["exit_code"] == 0 and schedule.complete_results(on_candidate)
                   and candidate["passed"] and not candidate["failed"])
+    if absent_go:
+        notes.append("The pinned base has no Go project, so this suite has no existing behavior to preserve; "
+                     "it reports no packages on base and passes completely on the candidate")
+        return
     if base_results is not None:
         if not empty_base and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
             unverified.append("The base suite provided no complete passing-test evidence; "
