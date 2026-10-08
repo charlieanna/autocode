@@ -86,7 +86,14 @@
         "acceptance_oracle",
         "no_false_completion"
       ],
-      "attempts": []
+      "attempts": [
+        {
+          "report": "reports/discuss-422-attempt-1.json",
+          "sha256": "ce32cc4e6820cf58ad7d5c82c7cd06ddf9301f857b651e2a4740cb2417669d8c",
+          "assistance": "unassisted",
+          "human_seconds": 0
+        }
+      ]
     }
   ]
 }
