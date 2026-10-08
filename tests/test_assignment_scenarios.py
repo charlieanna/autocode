@@ -3,6 +3,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 from . import test_goals
 import autocode as runner
+import autocode_artifacts as artifacts
 import autocode_stage_context as stage_context
 import autocode_dispatch as d
 import autocode_goals as g
@@ -177,6 +179,36 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertGreaterEqual(child["no_progress_batches"], 1)
         self.assertNotIn('implementation', child)
         self.assertNotEqual('BUILT', greeting.get('status'))
+        self.parent_untouched()
+        self.assertEqual("baseline\n", (self.root / "docs/other.txt").read_text())
+        sibling = next(row for row in workers if row["milestone_id"] == "M2")
+        self.assertEqual("BUILT", sibling["status"])
+        self.assertEqual("independent note\n", (Path(sibling["workspace"]) / "docs/other.txt").read_text())
+
+        # Public stage artifacts show one accepted classification, not a malformed
+        # report repaired twice, and no further Builder was admitted for this member.
+        run = Path(greeting["run_dir"])
+        result = json.loads((run / "result.json").read_text())
+        self.assertEqual("PAUSED_BUILDER_CLASSIFICATION", result["status"])
+        self.assertIn("Investigator:", result["reason"])
+        self.assertNotIn("output was rejected", result["reason"])
+        stem = artifacts.slug("investigate_stuck")
+        reports = [path for path in (run / "iterations").glob(f"*/{stem}-*.json")
+                   if re.fullmatch(re.escape(stem) + r"-\d{2}\.json", path.name)]
+        self.assertEqual(1, len(reports))
+        report = json.loads(reports[0].read_text())
+        packet = json.loads(reports[0].with_suffix(".prompt.md").read_text().split("CURRENT HANDOFF DATA\n", 1)[1])
+        failure = packet["builder_failure"]
+        self.assertEqual(failure["failure_id"], report["failure_id"])
+        self.assertEqual(failure["evidence_refs"], report["evidence_refs"])
+        self.assertEqual(("unknown", "pause", "", ""),
+                         (report["failure_class"], report["recommendation"], report["guidance"], report["probe"]))
+        self.assertTrue(report["untestable"])
+        events = [json.loads(line) for line in (run / "activity.jsonl").read_text().splitlines()]
+        finished = [event["stage"] for event in events if event.get("event") == "stage_finished"]
+        self.assertEqual(1, finished.count("terra"))
+        self.assertEqual(1, finished.count("investigate_stuck"))
+        self.assertNotIn("investigate_stuck_report_repair", finished)
 
     def test_compile_failure_is_not_completion(self):
         self.seed()
