@@ -19,7 +19,7 @@ autocode doctor --workspace /path/to/project
 autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
-OpenCode is the default engine. To use a logged-in Codex CLI instead, add
+OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
 
@@ -38,6 +38,7 @@ python tools/reliability_table.py docs/reliability-sweeps.json
 | Date | Profile | Runs | Passed | False completions |
 | --- | --- | ---: | ---: | ---: |
 | 2026-10-08 | glm53-mimo | 3 | 2 | 0 |
+| 2026-10-08 | glm53-mimo | 1 | 1 | 0 |
 | 2026-10-07 | glm53-openai | 3 | 2 | 0 |
 | 2026-10-04 | claude-tiers | 9 | 8 | 0 |
 | 2026-10-01 | claude-tiers | 2 | 1 | 1 |
