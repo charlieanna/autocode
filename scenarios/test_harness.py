@@ -856,7 +856,8 @@ class DriverAnswerTests(unittest.TestCase):
 
     def test_substantive_default_is_preserved_even_when_it_is_not_an_option(self):
         for default in ("Keep the existing behavior.",
-                        "No default value should be persisted; reject absent keys."):
+                        "No default value should be persisted; reject absent keys.",
+                        "  Deny external writes.  "):
             with self.subTest(default=default):
                 self.call.reset_mock()
                 self.driver.serve({"kind": "answer", "questions": [
@@ -865,26 +866,32 @@ class DriverAnswerTests(unittest.TestCase):
 
     def test_placeholder_options_are_skipped_for_a_concrete_choice(self):
         for default in ("No default", " NO DEFAULT: user selection required.",
-                        "No proposed default is available."):
+                        "No proposed default is available.", None, "", " \t "):
             with self.subTest(default=default):
                 self.call.reset_mock()
                 self.driver.serve({"kind": "answer", "questions": [
                     {"id": "Q1", "proposed_default": default,
-                     "options": ["", "No default; ask the user.", "Other (please specify)",
+                     "options": ["", "  ", "No default; ask the user.", "Other (please specify)",
                                  "Specify another rounding rule.", "Use ties to even."]}]})
                 self.call.assert_called_once_with("answer", "--answer", "Q1=Use ties to even.", action=True)
 
     def test_no_concrete_choice_refuses_the_batch_without_recording_unsent_answers(self):
-        for options in ([], ["Other", "Specify another result.", "Ask the user.", "No default."]):
-            with self.subTest(options=options):
-                need = {"kind": "answer", "resolver_token": "token", "questions": [
-                    {"id": "Q1", "proposed_default": "Keep current behavior."},
-                    {"id": "Q2", "proposed_default": "No default; user selection required.",
-                     "options": options}]}
-                with self.assertRaisesRegex(DriveError, "Q2.*no concrete option"):
-                    self.driver.serve(need)
-                self.call.assert_not_called()
-                self.assertEqual([], self.driver.answers)
+        for default in (None, "", " \t ", "No default; user selection required."):
+            for options in (None, [], ["Other", "Specify another result.", "Ask the user.", "No default."]):
+                with self.subTest(default=default, options=options):
+                    self.call.reset_mock()
+                    self.driver.answers.clear()
+                    question = {"id": "Q2"}
+                    if default is not None:
+                        question["proposed_default"] = default
+                    if options is not None:
+                        question["options"] = options
+                    need = {"kind": "answer", "resolver_token": "token", "questions": [
+                        {"id": "Q1", "proposed_default": "Keep current behavior."}, question]}
+                    with self.assertRaisesRegex(DriveError, "Q2.*no concrete option"):
+                        self.driver.serve(need)
+                    self.call.assert_not_called()
+                    self.assertEqual([], self.driver.answers)
 
     def test_multiple_answers_are_submitted_with_one_resolver_token(self):
         self.driver.serve({"kind": "answer", "resolver_token": "shared", "questions": [
@@ -895,11 +902,20 @@ class DriverAnswerTests(unittest.TestCase):
                                           "--resolver-token", "shared", action=True)
         self.assertEqual(["Q1", "Q2"], [answer["id"] for answer in self.driver.answers])
 
-    def test_existing_missing_default_fallbacks_remain_unchanged(self):
+    def test_missing_default_uses_a_concrete_offered_option(self):
         self.driver.serve({"kind": "answer", "questions": [
-            {"id": "Q1", "options": ["Keep data.", "Remove data."]}, {"id": "Q2"}]})
-        self.call.assert_called_once_with("answer", "--answer", "Q1=Keep data.",
-                                          "--answer", "Q2=yes", action=True)
+            {"id": "Q1", "options": ["Keep data.", "Remove data."]}]})
+        self.call.assert_called_once_with("answer", "--answer", "Q1=Keep data.", action=True)
+
+    def test_explicit_answer_supplies_freeform_input_without_a_default(self):
+        answer = "5 failures within 60 seconds"
+        self.driver.explicit_answers = {"Q1": answer}
+        self.driver.serve({"kind": "answer", "resolver_token": "token", "questions": [
+            {"id": "Q1", "question": "What threshold and window?", "proposed_default": "", "options": []}]})
+        self.call.assert_called_once_with("answer", "--answer", f"Q1={answer}",
+                                          "--resolver-token", "token", action=True)
+        self.assertTrue(self.driver.answers[0]["explicit"])
+        self.assertEqual(answer, self.driver.answers[0]["answer"])
 
 
 # Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).

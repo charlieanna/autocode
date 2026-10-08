@@ -239,7 +239,9 @@ without `shop/refunds.py`, does not count); then `diagnosis_accepted` and
 running cap) are required.
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
-default and records each answer in `result.json`. It approves the plan it is
+default or the first concrete offered option and records each answer in `result.json`.
+If neither exists, it requires explicit fixture or person input; it never invents
+an answer for a freeform question. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
 does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
 exception is a scenario's explicit `[fake] answers`: a person's own answer to a
