@@ -46,17 +46,28 @@ def _object(properties):
 
 
 _STRING = {'type': 'string'}
-PROPOSAL_SCHEMA = _object({
-    'declaration_id': _STRING,
-    'criterion_ids': {'type': 'array', 'minItems': 1, 'items': _STRING, 'uniqueItems': True},
-    'steps': {'type': 'array', 'minItems': 1, 'maxItems': MAX_STEPS,
-              'items': _object({'argv': {'type': 'array', 'minItems': 1,
-                                       'maxItems': MAX_ARGUMENTS, 'items': _STRING}})},
-    'observe_step': {'type': 'integer', 'minimum': 0},
-    'bindings': {'type': 'array', 'items': _object({
-        'placeholder': _STRING, 'step': {'type': 'integer', 'minimum': 0},
-        'argument': {'type': 'integer', 'minimum': 0}})},
-})
+_BINDING = _object({
+    'placeholder': _STRING, 'step': {'type': 'integer', 'minimum': 0},
+    'argument': {'type': 'integer', 'minimum': 0}})
+# expect/absent are optional (#644): a listing's exact items, or items that must
+# be gone. Omitting them keeps a VERSION 1 proposal's sealed hash unchanged.
+PROPOSAL_REQUIRED = ('declaration_id', 'criterion_ids', 'steps', 'observe_step', 'bindings')
+PROPOSAL_OPTIONAL = ('expect', 'absent')
+PROPOSAL_SCHEMA = {
+    'type': 'object', 'additionalProperties': False,
+    'required': list(PROPOSAL_REQUIRED),
+    'properties': {
+        'declaration_id': _STRING,
+        'criterion_ids': {'type': 'array', 'minItems': 1, 'items': _STRING, 'uniqueItems': True},
+        'steps': {'type': 'array', 'minItems': 1, 'maxItems': MAX_STEPS,
+                  'items': _object({'argv': {'type': 'array', 'minItems': 1,
+                                           'maxItems': MAX_ARGUMENTS, 'items': _STRING}})},
+        'observe_step': {'type': 'integer', 'minimum': 0},
+        'bindings': {'type': 'array', 'items': _BINDING},
+        'expect': {'type': 'array', 'items': _BINDING},
+        'absent': {'type': 'array', 'items': _BINDING},
+    },
+}
 PROPOSALS_SCHEMA = {'type': 'array', 'items': PROPOSAL_SCHEMA}
 # These are trusted authorization records supplied by the caller, never fields
 # accepted from a Planner/Builder observation proposal.
@@ -335,25 +346,42 @@ def line_pattern(observation):
 
 
 def required_values(observation):
-    """Exact non-ID values the observation's steps introduced before the listing.
+    """Exact non-ID values the listing must show, each exactly once (#644).
 
-    Completeness for this bounded slice: every value the steps introduced (an
-    `add TEXT`, …) before the listing must show up on some printed line. Without
-    this a listing that drops the other items still passed whenever the bound
-    TEXT was present (#452 residual). IDs are the program's; their stability is
-    an oracle check.
+    When the proposal names ``expect``, those step-bound values are the listing's
+    exact items. Otherwise every non-ID value the steps introduced before the
+    listing must show up (the #452 completeness rule). Values named in ``absent``
+    are never required. IDs are the program's; their stability is an oracle check.
     """
     _, supplied = _supplied(observation)
-    return sorted({value for name, values in supplied.items() if name != 'ID' for value in values})
+    proposal = observation['proposal']
+    if proposal.get('expect') is not None:
+        return sorted({_bound_value(observation, row) for row in proposal['expect']})
+    gone = {_bound_value(observation, row) for row in proposal.get('absent') or ()}
+    return sorted({value for name, values in supplied.items() if name != 'ID'
+                   for value in values if value not in gone})
 
 
-def output_reason(output, pattern, line, required=()):
+def absent_values(observation):
+    """Values the Plan Reviewer named that must not appear (#644)."""
+    proposal = observation['proposal']
+    return sorted({_bound_value(observation, row) for row in proposal.get('absent') or ()})
+
+
+def _bound_value(observation, binding):
+    steps = observation['proposal']['steps']
+    return steps[binding['step']]['argv'][binding['argument']]
+
+
+def output_reason(output, pattern, line, required=(), absent=(), exact=False):
     """'' when stdout bytes are the declared `one per line` listing, else why not.
 
     One optional final LF or CRLF; one kind of line ending (CRLF when the output ends
     with one, or has no final LF and contains one); every line fullmatches `line` or is
     the observed item `pattern`, and at least one line is that item. Every value in
-    `required` (see required_values) must appear as a whole field on some valid line.
+    `required` (see required_values) must appear as a whole field on some valid line;
+    with ``exact`` each appears exactly once and no other non-ID field does. No value
+    in `absent` may appear. IDs are unique and never a declaration placeholder name.
     The item alone is always a valid listing, as before the per-line rule. No other
     normalization. _RUNNER repeats this rule inside the clean replay.
     """
@@ -365,14 +393,30 @@ def output_reason(output, pattern, line, required=()):
         return 'CLI output is not UTF-8 text in this bounded slice'
     rows = text.split('\r\n' if crlf else '\n')
     items = [re.fullmatch(pattern, row) is not None for row in rows]
-    if (any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items))
-            or not any(items)):
+    if any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items)):
         return 'CLI output differs from the original brief format'
+    # The bound item alone is always a listing; once the observation names its
+    # items (#644), those names are the authority instead of that one item.
+    if not any(items) and not required:
+        return 'CLI output differs from the original brief format'
+    ids = [row.split(' ', 1)[0] for row, item in zip(rows, items) if item or re.fullmatch(line, row)]
+    if len(set(ids)) != len(ids):
+        return 'CLI listing repeats an ID'
+    if any(ident in ('ID', 'TEXT') for ident in ids):
+        return 'CLI listing uses a placeholder name as an ID'
+    for value in absent or ():
+        needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
+        if any((item or re.fullmatch(line, row)) and needle.search(row)
+               for row, item in zip(rows, items)):
+            return 'CLI output still lists an item the observation removed'
     for value in required or ():
         needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
-        if not any((item or re.fullmatch(line, row)) and needle.search(row)
-                   for row, item in zip(rows, items)):
+        hits = sum(1 for row, item in zip(rows, items)
+                   if (item or re.fullmatch(line, row)) and needle.search(row))
+        if hits == 0:
             return 'CLI output omits an item the observation introduced'
+        if exact and hits != 1:
+            return 'CLI listing does not show each expected item exactly once'
     return ''
 
 
@@ -385,7 +429,10 @@ def normalized_proposal(declaration, proposal):
     are shifted. Provenance hashes the stored form, so this must be the single
     rewrite both bind() and the Plan Reviewer receipt check use.
     """
-    _exact(proposal, PROPOSAL_SCHEMA['required'], 'Observation proposal')
+    keys = set(proposal) if isinstance(proposal, dict) else set()
+    if not set(PROPOSAL_REQUIRED) <= keys or keys - set(PROPOSAL_REQUIRED) - set(PROPOSAL_OPTIONAL):
+        raise ValueError(f'Observation proposal needs exactly {sorted(PROPOSAL_REQUIRED)} '
+                         f'(optional {sorted(PROPOSAL_OPTIONAL)})')
     criteria = proposal['criterion_ids']
     if (not isinstance(criteria, list) or not criteria or any(not isinstance(cid, str) or not _ID.fullmatch(cid) for cid in criteria)
             or len(set(criteria)) != len(criteria)):
@@ -446,6 +493,29 @@ def normalized_proposal(declaration, proposal):
     normalized = json.loads(json.dumps(proposal))
     normalized['steps'] = steps
     normalized['bindings'] = normalized_bindings
+    for field, label in (('expect', 'Expected listing item'), ('absent', 'Absent listing item')):
+        if field not in proposal:
+            continue
+        rows = proposal[field]
+        if not isinstance(rows, list):
+            raise ValueError(f'{label} bindings must be a list')
+        out, seen = [], set()
+        for binding in rows:
+            _exact(binding, ('placeholder', 'step', 'argument'), label)
+            name = _string(binding['placeholder'], 'Placeholder')
+            step = _index(binding['step'], len(steps), f'{label} step')
+            argument = binding['argument']
+            if type(argument) is not int:
+                raise ValueError(f'{label} argument must be an index into the invocation argv')
+            argument -= offsets[step]
+            argument = _index(argument, len(steps[step]['argv']), f'{label} argument')
+            if step > observe or patterns[step][argument] != name or not _PLACEHOLDER.fullmatch(name):
+                raise ValueError(f'{label} must uniquely name the corresponding source argument placeholder')
+            if (step, argument) in seen:
+                raise ValueError(f'{label} bindings must be unique')
+            seen.add((step, argument))
+            out.append({'placeholder': name, 'step': step, 'argument': argument})
+        normalized[field] = out
     return normalized, patterns, bindings
 
 
@@ -477,7 +547,9 @@ def bind(sources, proposals, *, inactive=()):
     by_id = {row['id']: row for row in declared}
     proposed = {}
     for proposal in proposals:
-        _exact(proposal, PROPOSAL_SCHEMA['required'], 'Observation proposal')
+        keys = set(proposal) if isinstance(proposal, dict) else set()
+        if not set(PROPOSAL_REQUIRED) <= keys or keys - set(PROPOSAL_REQUIRED) - set(PROPOSAL_OPTIONAL):
+            raise ValueError('Observation declarations must be known and unique')
         ident = proposal['declaration_id']
         if not isinstance(ident, str) or ident not in by_id or ident in proposed:
             raise ValueError('Observation declarations must be known and unique')
@@ -540,10 +612,29 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
         else:
             lines=text.split('\r\n' if crlf else '\n')
             items=[re.fullmatch(case['pattern'],line) is not None for line in lines]
-            if any('\r' in line or '\n' in line or not (item or re.fullmatch(case['line_pattern'],line)) for line,item in zip(lines,items)) or not any(items):
+            if any('\r' in line or '\n' in line or not (item or re.fullmatch(case['line_pattern'],line)) for line,item in zip(lines,items)):
                 reason='CLI output differs from the original brief format'
-            elif any(not any((item or re.fullmatch(case['line_pattern'],line)) and re.search(r'(?<!\S)'+re.escape(value)+r'(?!\S)',line) for line,item in zip(lines,items)) for value in case.get('required') or ()):
-                reason='CLI output omits an item the observation introduced'
+            elif not any(items) and not (case.get('required') or ()):
+                reason='CLI output differs from the original brief format'
+            else:
+                ids=[line.split(' ',1)[0] for line,item in zip(lines,items) if item or re.fullmatch(case['line_pattern'],line)]
+                def shown(value,line,item):
+                    return (item or re.fullmatch(case['line_pattern'],line)) and re.search(r'(?<!\S)'+re.escape(value)+r'(?!\S)',line)
+                if len(set(ids))!=len(ids):
+                    reason='CLI listing repeats an ID'
+                elif any(ident in ('ID','TEXT') for ident in ids):
+                    reason='CLI listing uses a placeholder name as an ID'
+                elif any(shown(value,line,item) for value in case.get('absent') or () for line,item in zip(lines,items)):
+                    reason='CLI output still lists an item the observation removed'
+                else:
+                    for value in case.get('required') or ():
+                        hits=sum(1 for line,item in zip(lines,items) if shown(value,line,item))
+                        if hits==0:
+                            reason='CLI output omits an item the observation introduced'
+                            break
+                        if case.get('exact') and hits!=1:
+                            reason='CLI listing does not show each expected item exactly once'
+                            break
 print(json.dumps({'verdict':'FAIL' if reason else 'PASS','observation_hash':case['hash'],'steps':rows,'reason':reason},sort_keys=True))
 sys.exit(1 if reason else 0)
 '''
@@ -565,6 +656,8 @@ def commands(sources, manifest, *, inactive=(), python='python3', timeout=15):
                    'observe_step': observation['proposal']['observe_step'],
                    'pattern': observation['pattern'], 'line_pattern': line_pattern(observation),
                    'required': required_values(observation),
+                   'absent': absent_values(observation),
+                   'exact': observation['proposal'].get('expect') is not None,
                    'hash': observation['hash'], 'timeout': timeout}
         result.append(shlex.join([python, '-I', '-c', _RUNNER, json.dumps(payload, sort_keys=True, ensure_ascii=False)]))
     return result
