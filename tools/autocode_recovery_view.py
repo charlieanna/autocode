@@ -13,10 +13,12 @@ from pathlib import PurePath
 try:
     from .autocode_role_names import role_name
     from . import autocode_builder_policy as builder_policy, autocode_quota_route as quota_route
+    from . import autocode_member_stop as member_stop
 except ImportError:
     from autocode_role_names import role_name
     import autocode_builder_policy as builder_policy
     import autocode_quota_route as quota_route
+    import autocode_member_stop as member_stop
 
 ACTIVE = {'RUNNING', 'DISCOVERING', 'EXECUTING', 'TASK_COMPLETE', 'COMPLETE'}
 # These inputs bind the displayed stopped frontier. Polling timestamps and
@@ -170,11 +172,13 @@ def _parallel_members(state):
     if any(row.get('status') in ('RUNNING', 'PENDING') for row in workers):
         return []
     # A member stopped on its model (quota or its provider's content filter) is asked route-terra, never
-    # offered a retry on the same model (#465). --retry-builder still reruns a quota-stopped member when
-    # named explicitly; it refuses a refused one (autocode_worker_quota.refused_retry).
+    # offered a retry on the same model while that question is open (#465). Once a person answered it
+    # without a model (information, or leaving it paused), its own control is the one way on (#541,
+    # autocode_member_stop): a quota-stopped member reruns unchanged, a refused one is asked again.
+    answered = (member_stop.answered(state) or ({},))[0].get('milestone_id')
     return [row['milestone_id'] for row in workers
             if isinstance(row.get('milestone_id'), str) and row.get('milestone_id')
-            and row.get('status') not in quota_route.STATUSES
+            and (row['milestone_id'] == answered or row.get('status') not in quota_route.STATUSES)
             and (str(row.get('status', '')).startswith(('PAUSED_', 'FAILED', 'BLOCKED'))
                  or row.get('status') == 'INTERRUPTED')]
 
@@ -255,7 +259,8 @@ def project(state, need=None):
     elif cause in ('PAUSED_REQUESTED', 'PAUSED_INTERVENTION', 'PAUSED_INTERRUPTED', 'PAUSED_RATE_LIMIT', 'PAUSED_PROVIDER_CAPACITY', 'PAUSED_STAGE_ABANDONED', 'PAUSED_INVALID_OUTPUT') and not active and not state.get('active_runner_check'):
         actions.append(_action('resume', 'Resume after correction', 'Continue from this saved pause after its cause is corrected. Existing model pins, limits and approval gates still apply.'))
     for member in _parallel_members(state):
-        actions.append(_action('retry_builder', 'Retry Builder task ' + member,
-            'Retry only this stopped batch member. Completed members and their work are kept. The runner rechecks worker liveness and the approved batch.', milestone_ids=[member]))
+        label, effect = member_stop.card(state, member) or ('Retry Builder task ' + member,
+            'Retry only this stopped batch member. Completed members and their work are kept. The runner rechecks worker liveness and the approved batch.')
+        actions.append(_action('retry_builder', label, effect, milestone_ids=[member]))
     actions.append(_action('feedback', 'Explain what should change', 'Draft corrective information in chat. Sending it follows the existing confirmation or current-request path.'))
     return result

@@ -172,6 +172,44 @@ class ContentFilterRouteTests(unittest.TestCase):
         self.assertEqual("Configured models that pass the launch rules for the Builder: anthropic/claude-sonnet-5-5.",
                          asked["recommendation"])
 
+    def test_a_refused_member_retry_points_only_at_what_is_open(self):
+        # #541: --retry-builder of a refused batch member never names a question that is not open. With
+        # none open, the answered member's stop is collected again (its question is asked again, nothing
+        # launches); another refused member is asked about after it.
+        shutil.copyfile(FIXTURE, self.events)
+        rows, results = {}, {}
+        for mid in ("M1", "M2"):
+            directory = self.root / mid
+            directory.mkdir()
+            (directory / "state.json").write_text(json.dumps({"settings": {"roles": {"terra": {"model": MIMO}}}}))
+            rows[mid] = {"milestone_id": mid, "run_dir": str(directory), "workspace": str(directory),
+                         "status": "PAUSED_CONTENT_FILTER"}
+            results[mid] = {"status": "PAUSED_CONTENT_FILTER", "quota_worker": {
+                "role": "terra", "milestone_id": mid, "run_dir": str(directory), "workspace": str(directory),
+                "model": MIMO, "events": str(self.events), "attempt_id": "001/builder-01"}}
+        origin = {"pause_status": "PAUSED_CONTENT_FILTER",
+                  "quota_worker": {**results["M1"]["quota_worker"], "pause_status": "PAUSED_CONTENT_FILTER"}}
+        state = {"status": "PAUSED_CONTENT_FILTER", "next_stage": "orchestrator",
+                 "settings": {"roles": {"terra": {"model": MIMO}}},
+                 "orchestration_batch": {"status": "BUILDING", "workers": list(rows.values())},
+                 "resolver": {"human_response_frontier": {"request_id": "r1", "pause_status": "PAUSED_CONTENT_FILTER"},
+                              "human_escalations": {"r1": {"status": "consumed",
+                                                           "identity": {"proposal": {"origin": origin}}}}}}
+        retry = lambda mid, asked: worker_quota.refused_retry(state, rows[mid], results[mid], asked=asked)
+        self.assertIn("in answer to its open route-terra question", str(retry("M1", "M1")))
+        self.assertIn("once the open request about Builder M1 is answered", str(retry("M2", "M1")))
+        again = retry("M1", None)
+        self.assertEqual(("PAUSED_CONTENT_FILTER", "M1"), (again.status, again.quota_worker["milestone_id"]))
+        self.assertIn("Milestone M1: Builder: the provider's content filter refused the response", str(again))
+        first = "continues from Builder M1's stop first, with --resume-paused --retry-builder M1"
+        self.assertIn(first, str(retry("M2", None)))
+        # A quota-stopped answered member reruns rather than being asked about; the message says only what is true.
+        for record in (state, origin, origin["quota_worker"], state["resolver"]["human_response_frontier"]):
+            record["pause_status" if record is not state else "status"] = "PAUSED_BUDGET"
+        rows["M1"]["status"] = "PAUSED_BUDGET"
+        self.assertIn(first, str(retry("M2", None)))
+        self.assertNotIn("asks about Builder M1", str(retry("M2", None)))
+
     def test_a_batch_member_lists_and_accepts_only_models_its_answer_takes(self):
         # #465: Builder M2 of a parallel batch was refused on MiMo after a sibling's answer had moved the
         # Builder route to another provider's model. Its question and answer are about the model M2 ran on,
