@@ -126,7 +126,7 @@ class ManifestTests(unittest.TestCase):
         value = manifest(); value["workstreams"][2]["depends_on"] = []
         with self.assertRaisesRegex(ValueError, "must \\(transitively\\) depend on the walking skeleton contracts"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"][2].update(depends_on=[], skeleton_exempt="Lesson text only; nothing runs")
+        value = manifest(); value["workstreams"][2].update(kind="content", depends_on=[], skeleton_exempt="Lesson text only; nothing runs")
         program.validate_manifest(value)
         value = manifest(); value["workstreams"][0].pop("skeleton")
         with self.assertRaisesRegex(ValueError, "exactly one code workstream skeleton"):
@@ -245,8 +245,8 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(str(self.root / "run"), value["source_run"])
         # The first milestone without dependencies is the walking skeleton; the approved flow is the main journey.
         self.assertTrue(by_id["M1"]["skeleton"])
-        self.assertEqual([{"id": "J1", "name": "Main user journey", "steps": goal_fixtures.body()["end_to_end_flow"]}],
-                         value["journeys"])
+        self.assertEqual({"id": "J1", "name": "Main user journey", "steps": goal_fixtures.body()["end_to_end_flow"]}, value["journeys"][0])
+        self.assertEqual(["skeleton-journey"], by_id["M1"]["journeys"])
 
     def test_every_child_receives_the_complete_approved_contract(self):
         body = goal_fixtures.body(human=True)
@@ -360,8 +360,7 @@ class ProgramHarness(unittest.TestCase):
     def approved_plan_view(run, saved):
         """The plan in force a completed build run's status view shows (autocode_run_view.approved_contract): its
         own, approved by the person, keeping every id its brief said the workstream inherits."""
-        body = {"acceptance_criteria": [{"id": cid, "criterion": f"{cid} holds", "verification_method": "a test"}
-                                        for cid in saved.get("inherits", [])]}
+        body = {"acceptance_criteria": list(saved.get("definitions", {}).values()), **saved.get("boundaries", {})}
         digest = hashlib.sha256(json.dumps({"run": run.name, "body": body}, sort_keys=True).encode()).hexdigest()
         return {"revision": 1, "hash": digest, "token": f"r1:{digest}", "task_id": run.name,
                 "approved_at": "2026-10-07T00:00:00Z", "body": body}
@@ -379,6 +378,22 @@ class ProgramHarness(unittest.TestCase):
         if saved.get("status") == "TASK_COMPLETE":
             view["approved_contract"] = self.approved_plan_view(state.parent, saved)
         view.update(saved.get("view", {}))
+        # Older test cases spell conforming fixture criteria by id; expand only absent definitions,
+        # never repair an explicitly weakened definition or human-review obligation.
+        plan = view.get("approved_contract")
+        if plan:
+            for row in plan["body"].get("acceptance_criteria", []):
+                if "criterion" not in row:
+                    row.update(saved.get("definitions", {}).get(row["id"], {}))
+            for key, values in saved.get("boundaries", {}).items():
+                plan["body"].setdefault(key, values)
+        plan = view.get("displayed_plan")
+        if plan:
+            for row in plan.get("acceptance_criteria", []):
+                if isinstance(row, dict) and "criterion" not in row:
+                    row.update(saved.get("definitions", {}).get(row.get("id"), {}))
+            for key, values in saved.get("boundaries", {}).items():
+                plan.setdefault(key, values)
         if view.get("approved_contract") is None:
             view.pop("approved_contract", None)  # as the real view leaves it out
         return subprocess.CompletedProcess(command, 0, json.dumps({"view": view}), "")
@@ -408,12 +423,18 @@ class ProgramHarness(unittest.TestCase):
             run = Path(command[command.index("--run-dir") + 1])
             saved = json.loads((run / "state.json").read_text())
             wid, inherits = saved["workstream"], saved.get("inherits", [])
+            definitions, boundaries = saved.get("definitions", {}), saved.get("boundaries", {})
         else:
             brief = command[2]
             wid = re.search(r"PROGRAM WORKSTREAM (\S+)", brief).group(1)
             # Its plan keeps the ids its brief says it inherits (compose_brief), as a conforming planner's does.
             found = re.search(r"with exactly this id \(([^)]*)\)", brief)
             inherits = found.group(1).split(", ") if found else []
+            value = program.validate_manifest(json.loads((self.root / "program.json").read_text()))
+            definitions = program.agreement.definitions(value, wid)
+            parent, shared = (value.get("contract") or {}).get("body") or {}, value.get("shared") or {}
+            boundaries = {key: list(dict.fromkeys(parent.get(key, []) + shared.get(key, [])))
+                          for key in ("constraints", "permission_boundaries", "scope_exclusions")}
             run = workspace / ".autocode/runs" / f"run-{wid}-{len(self.launches) + 1}"
             run.mkdir(parents=True)
         self.launches.append({"id": wid, "workspace": str(workspace), "brief": brief, "run_dir": str(run), "files": sorted(
@@ -436,7 +457,7 @@ class ProgramHarness(unittest.TestCase):
                                ({"J1": "verified", **self.journey_status}.items() if wid == "integration" else ())],
                 "check_replay": {"verdict": "PASS", "checks": [{"command": c, "exit_code": 0} for c in checks]}})
         (run / "state.json").write_text(json.dumps({"status": outcome, "workstream": wid, "workspace": str(workspace),
-                                                    "inherits": inherits, "view": view}))
+                                                     "inherits": inherits, "definitions": definitions, "boundaries": boundaries, "view": view}))
         return subprocess.CompletedProcess(command, 0 if outcome == "TASK_COMPLETE" else 2, "", "")
 
     def approve(self, path):
@@ -479,6 +500,18 @@ class ProgramHarness(unittest.TestCase):
 
 
 class ExecutionTests(ProgramHarness):
+    def test_program_source_staging_works_when_metadata_directory_is_gitignored(self):
+        (self.project / ".gitignore").write_text(".autocode/\n")
+        git(self.project, "add", ".gitignore")
+        git(self.project, *program.GIT_IDENTITY, "commit", "-qm", "Ignore metadata")
+        path = self.write_manifest(manifest())
+        self.child_extra_files["integration"] = {" notes.txt": "literal path\n"}
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        files = self.integration_files(result)
+        self.assertIn("a/service.py", files)
+        self.assertEqual("literal path", git(self.project, "show", f"{result['integration_branch']}: notes.txt"))
+        self.assertFalse(any(path.startswith(".autocode/") for path in files))
     def test_waves_run_in_dependency_order_and_merge_onto_the_integration_branch(self):
         path = self.write_manifest(manifest())
         code, result = self.run_program(path)
@@ -620,8 +653,7 @@ class ExecutionTests(ProgramHarness):
         (workspace / "contracts").mkdir()
         git(workspace, "mv", "README.md", "contracts/README.md")
         git(workspace, *program.GIT_IDENTITY, "commit", "-qm", "Rename foreign file")
-        run_state = Path(record["run_dir"]) / "state.json"
-        run_state.write_text(json.dumps({"status": "TASK_COMPLETE"}))
+        self.set_child(record, status="TASK_COMPLETE")
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_OWNERSHIP"), (code, result["status"]))
         self.assertIn("README.md", result["next"])
@@ -646,7 +678,7 @@ class ExecutionTests(ProgramHarness):
         git(workspace, "add", "-f", ".autocode/note.txt")
         git(workspace, *program.GIT_IDENTITY, "commit", "-qm", "Accidental metadata")
         metadata.unlink()
-        (Path(record["run_dir"]) / "state.json").write_text(json.dumps({"status": "TASK_COMPLETE"}))
+        self.set_child(record, status="TASK_COMPLETE")
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_OWNERSHIP"), (code, result["status"]))
         self.assertNotIn(".autocode/note.txt", self.integration_files(result))
