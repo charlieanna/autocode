@@ -560,6 +560,251 @@ process.exit(failed ? 1 : 0);
                                              "narrow.js": NARROW}))
             self.assertNarrowed(self.verified(project))
 
+    # --- the second review round: sixteen more reproduced wrong verdicts ---------------------------
+
+    def test_r18_every_argument_of_a_child_process_call_and_every_binding_of_the_module_count(self):
+        # A product selector read outside the exec parentheses narrowed the suite when the tests were
+        # passed as an args array, or the function was aliased, .call'ed or promisified (r2's rule bypassed).
+        test = NODE_TEST + ("const {add} = require('../calc.js');\nconst {precision} = require('../config.js');\n"
+                            "test('add', () => assert.equal(add(2, 3).toFixed(precision), '5.00'));\n")
+        runners = {
+            "spawnSync with an args array": "const {spawnSync} = require('child_process');\nconst {tests} = require('./config.js');\n"
+                                            "process.exit(spawnSync('node', ['--test', ...tests], {stdio: 'inherit'}).status);\n",
+            "execFileSync": "const {execFileSync} = require('child_process');\nconst {tests} = require('./config.js');\n"
+                            "execFileSync('node', ['--test', ...tests], {stdio: 'inherit'});\n",
+            "an alias": "const {execSync: run} = require('child_process');\nconst {tests} = require('./config.js');\n"
+                        "run('node --test ' + tests.join(' '), {stdio: 'inherit'});\n",
+            ".call": "const cp = require('child_process');\nconst {tests} = require('./config.js');\n"
+                     "cp.execSync.call(cp, 'node --test ' + tests.join(' '), {stdio: 'inherit'});\n",
+            "promisify under another name": "const run = require('util').promisify(require('child_process').exec);\n"
+                                            "run('node --test ' + require('./config.js').tests.join(' ')).then("
+                                            "r => process.stdout.write(r.stdout), "
+                                            "e => { process.stdout.write(e.stdout || ''); process.exitCode = 1; });\n",
+        }
+        for name, runner_text in runners.items():
+            with self.subTest(name):
+                project = self.project(
+                    {**seed({"test": "node run-tests.js"}), "test/calc.test.js": test, "test/other.test.js": OTHER_TEST,
+                     "run-tests.js": runner_text,
+                     "config.js": "module.exports = {tests: ['test/calc.test.js', 'test/other.test.js'], precision: 2};\n"},
+                    change(**{"config.js": "module.exports = {tests: ['test/other.test.js'], precision: 2};\n"}))
+                result = self.verified(project)
+                self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+                self.assertTrue(any("config.js, which the base tests also import" in reason for reason in result["unverified"]),
+                                result["unverified"])
+
+    def test_r19_a_child_script_started_from_literal_arguments_is_the_bases(self):
+        child = "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n"
+        runners = {"execSync": "require('child_process').execSync('node scripts/child.js', {stdio: 'inherit'});\n",
+                   "fork": "const {fork} = require('child_process');\n"
+                           "fork('./scripts/child.js').on('exit', code => process.exit(code));\n",
+                   "spawnSync": "const {spawnSync} = require('child_process');\n"
+                                "process.exit(spawnSync('node', ['scripts/child.js'], {stdio: 'inherit'}).status);\n"}
+        for name, runner_text in runners.items():
+            with self.subTest(name):
+                project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                        "scripts/child.js": child, "run-tests.js": runner_text},
+                                       change(**{"scripts/child.js": child.replace("test/calc.test.js ", "")}))
+                self.assertNarrowed(self.verified(project))
+
+    def test_r20_a_runner_with_a_hashbang_line_is_read(self):
+        runner_text = ("#!/usr/bin/env node\nrequire('child_process').execSync('node --test test/calc.test.js test/other.test.js', "
+                       "{stdio: 'inherit'});\n")
+        new_module = {"mul.js": "exports.mul = (a, b) => a * b;\n",
+                      "test/mul.test.js": NODE_TEST + "const {mul} = require('../mul.js');\ntest('mul', () => assert.equal(mul(2, 3), 6));\n"}
+        with self.subTest("run by node"):
+            project = self.project({**seed({"test": "node scripts/run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "scripts/run-tests.js": runner_text}, new_module)
+            self.assertPreserved(self.verified(project))
+        with self.subTest("run directly"):
+            project = self.project({**seed({"test": "./scripts/run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "scripts/run-tests.js": runner_text}, {})
+            os.chmod(project.root / "scripts/run-tests.js", 0o755)
+            self.commit(project)
+            project.write(new_module)
+            self.assertPreserved(self.verified(project))
+        with self.subTest("narrowed"):
+            project = self.project({**seed({"test": "node scripts/run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "scripts/run-tests.js": runner_text},
+                                   change(**{"scripts/run-tests.js": runner_text.replace("test/calc.test.js ", "")}))
+            self.assertNarrowed(self.verified(project))
+
+    def test_r21_a_regexp_exec_in_a_runner_that_loads_the_product_is_no_child_process(self):
+        runner_text = ("const {add} = require('./calc.js');\nconst m = /^(\\d+)$/.exec(String(add(1, 1)));\n"
+                       "if (!m) throw new Error('smoke');\n"
+                       "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n")
+        base = {**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST, "run-tests.js": runner_text}
+        with self.subTest("a correct change"):
+            self.assertPreserved(self.verified(self.project(base, change(FIXED))))
+        with self.subTest("a narrowed runner"):
+            project = self.project(base, change(**{"run-tests.js": runner_text.replace("test/calc.test.js ", "")}))
+            self.assertNarrowed(self.verified(project))
+
+    def test_r22_options_before_a_shells_c_or_nodes_e_do_not_hide_the_runner(self):
+        runner_text = "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n"
+        narrowed = runner_text.replace("test/calc.test.js ", "")
+        cases = {
+            "bash -lc": ("bash -lc 'node run-tests.js'", {"run-tests.js": runner_text}, {"run-tests.js": narrowed}),
+            "sh -e -c": ("sh -e -c 'node run-tests.js'", {"run-tests.js": runner_text}, {"run-tests.js": narrowed}),
+            "bash -euo pipefail -c": ("bash -euo pipefail -c 'node run-tests.js'", {"run-tests.js": runner_text},
+                                      {"run-tests.js": narrowed}),
+            "node --no-warnings -e": ("node --no-warnings -e \"require('./scripts/run-tests.js')\"",
+                                      {"scripts/run-tests.js": runner_text}, {"scripts/run-tests.js": narrowed}),
+            "node -r x -e": ("node -r ./setup.js -e \"require('./scripts/run-tests.js')\"",
+                             {"scripts/run-tests.js": runner_text, "setup.js": "// nothing\n"}, {"scripts/run-tests.js": narrowed}),
+        }
+        for name, (script, files, narrowed_files) in cases.items():
+            with self.subTest(name):
+                project = self.project({**seed({"test": script}), "test/other.test.js": OTHER_TEST, **files},
+                                       change(**narrowed_files))
+                self.assertNarrowed(self.verified(project))
+
+    def test_r23_a_workspace_packages_script_is_seeded_however_it_is_selected(self):
+        runner_text = "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n"
+        package = {"packages/pkg/package.json": json.dumps({"name": "pkg", "version": "1.0.0",
+                                                            "scripts": {"check": "node run.js"}}) + "\n",
+                   "packages/pkg/run.js": runner_text, "packages/pkg/calc.js": CALC,
+                   "packages/pkg/test/calc.test.js": CALC_TEST, "packages/pkg/test/other.test.js": OTHER_TEST}
+        narrowed = {"packages/pkg/calc.js": BROKEN, "packages/pkg/run.js": runner_text.replace("test/calc.test.js ", ""),
+                    "packages/pkg/test/feature.test.js": FEATURE_TEST}
+
+        def root(script, **fields):
+            return json.dumps({"name": "root", "version": "1.0.0", "private": True, **fields, "scripts": {"test": script}}) + "\n"
+
+        workspace = "packages:\n  - packages/*\n"
+        cases = {
+            "npm --workspace": ("npm test", {"package.json": root("npm --workspace packages/pkg run check", workspaces=["packages/*"])}),
+            "npm --prefix": ("npm test", {"package.json": root("npm --prefix packages/pkg run check")}),
+        }
+        if shutil.which("pnpm"):
+            cases["pnpm --filter"] = ("pnpm test", {"package.json": root("pnpm --filter pkg run check"), "pnpm-workspace.yaml": workspace})
+            cases["a chained pnpm -r"] = ("pnpm test", {"package.json": root("pnpm -r run check"), "pnpm-workspace.yaml": workspace})
+        if shutil.which("yarn"):
+            cases["yarn workspace"] = ("yarn test", {"package.json": root("yarn workspace pkg run check", workspaces=["packages/*"])})
+        for name, (suite, files) in cases.items():
+            with self.subTest(name):
+                self.assertNarrowed(self.verified(self.project({**files, **package}, narrowed), suite))
+
+    def test_r24_a_name_node_tries_before_the_pinned_file_cannot_be_added(self):
+        cases = {
+            "an extensionless file before select.js": ({"run-tests.js": runner("./select", inline=True), "select.js": BOTH},
+                                                       {"select": NARROW}),
+            "selectors.js before selectors/index.js": ({"run-tests.js": runner("./selectors", inline=True), "selectors/index.js": BOTH},
+                                                       {"selectors.js": NARROW}),
+        }
+        for name, (files, shadow) in cases.items():
+            with self.subTest(name):
+                project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST, **files},
+                                       change(**shadow))
+                self.assertNarrowed(self.verified(project))
+        with self.subTest("an extensionless command file before scripts/run.js"):
+            project = self.project({**seed({"test": "node scripts/run"}), "test/other.test.js": OTHER_TEST,
+                                    "scripts/run.js": runner("./select-tests.js", inline=True), "scripts/select-tests.js": BOTH},
+                                   change(**{"scripts/run": "require('child_process').execSync('node --test test/other.test.js', "
+                                                            "{stdio: 'inherit'});\n"}))
+            self.assertNarrowed(self.verified(project))
+
+    def test_r25_a_folder_where_a_pinned_file_or_link_was_is_refused(self):
+        with self.subTest("a folder where the pinned selector was"):
+            project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "run-tests.js": runner("./scripts/select-tests.js", inline=True),
+                                    "scripts/select-tests.js": BOTH}, {})
+            os.unlink(project.root / "scripts/select-tests.js")
+            project.write(change(**{"scripts/select-tests.js/index.js": NARROW}))
+            result = self.verified(project)
+            self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+            self.assertTrue(any("put scripts/select-tests.js/index.js below the file or link scripts/select-tests.js" in reason
+                                for reason in result["unverified"]), result["unverified"])
+        with self.subTest("a folder where the pinned runner was"):
+            runner_text = "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n"
+            project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "run-tests.js": runner_text}, {})
+            os.unlink(project.root / "run-tests.js")
+            project.write(change(**{"run-tests.js/index.js": runner_text.replace("test/calc.test.js ", "")}))
+            result = self.verified(project)
+            self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        with self.subTest("a folder where the pinned link was"):
+            project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "run-tests.js": runner("./scripts/select-tests.js", inline=True),
+                                    "tooling/select-tests.js": BOTH}, {})
+            self.link(project, {"scripts": "tooling"})
+            os.unlink(project.root / "scripts")
+            project.write(change(**{"scripts/select-tests.js": NARROW}))
+            result = self.verified(project)
+            self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+            self.assertTrue(any("put scripts/select-tests.js below the file or link scripts" in reason
+                                for reason in result["unverified"]), result["unverified"])
+
+    def test_r26_pattern_map_entries_resolve_as_node_does(self):
+        cases = {
+            "imports pattern": ({"imports": {"#x/*": "./scripts/*.js"}}, '"#x/select-tests"', {"imports": {"#x/*": "./narrow.js"}}),
+            "exports pattern": ({"exports": {".": "./calc.js", "./select/*": "./scripts/*.js"}}, '"calc/select/select-tests"',
+                                {"exports": {".": "./calc.js", "./select/*": "./narrow.js"}}),
+        }
+        for name, (fields, specifier, narrowed) in cases.items():
+            with self.subTest(name):
+                runner_text = ('require("child_process").execSync("node --test " + require(%s).join(" "), '
+                               '{stdio: "inherit"});\n' % specifier)
+                project = self.project({**seed({"test": "node run-tests.js"}, **fields), "test/other.test.js": OTHER_TEST,
+                                        "run-tests.js": runner_text, "scripts/select-tests.js": BOTH},
+                                       change(**{"package.json": manifest({"test": "node run-tests.js"}, **narrowed),
+                                                 "narrow.js": NARROW}))
+                self.assertNarrowed(self.verified(project))
+
+    def test_r27_a_conditional_map_entry_pins_the_file_node_loads(self):
+        with self.subTest("the import condition of an ESM runner"):
+            conditions = {"require": "./scripts/select-tests.js", "import": "./scripts/select-tests.mjs"}
+            project = self.project(
+                {**seed({"test": "node run-tests.mjs"}, imports={"#select": conditions}), "test/other.test.js": OTHER_TEST,
+                 "run-tests.mjs": "import {execSync} from 'node:child_process';\n"
+                                  "execSync('node --test ' + (await import('#select')).default.join(' '), {stdio: 'inherit'});\n",
+                 "scripts/select-tests.js": BOTH,
+                 "scripts/select-tests.mjs": "export default ['test/calc.test.js', 'test/other.test.js'];\n"},
+                change(**{"scripts/select-tests.mjs": "export default ['test/other.test.js'];\n"}))
+            self.assertNarrowed(self.verified(project))
+        with self.subTest("the first matching condition in map order"):
+            conditions = {"default": "./scripts/first.js", "require": "./scripts/select-tests.js"}
+            project = self.project(
+                {**seed({"test": "node run-tests.js"}, imports={"#select": conditions}), "test/other.test.js": OTHER_TEST,
+                 "run-tests.js": runner("#select", inline=True), "scripts/first.js": BOTH, "scripts/select-tests.js": BOTH},
+                change(**{"scripts/first.js": NARROW}))
+            self.assertNarrowed(self.verified(project))
+
+    def test_r28_an_added_nested_manifest_cannot_rescope_a_pinned_runner(self):
+        with self.subTest("a closer imports map"):
+            project = self.project(
+                {**seed({"test": "node scripts/run.js"}, imports={"#select": "./scripts/select-tests.js"}),
+                 "test/other.test.js": OTHER_TEST, "scripts/run.js": runner("#select", inline=True), "scripts/select-tests.js": BOTH},
+                change(**{"scripts/package.json": '{"imports": {"#select": "./narrow.js"}}\n', "scripts/narrow.js": NARROW}))
+            self.assertNarrowed(self.verified(project, "npm test --silent"))
+        with self.subTest("a folder main before its index"):
+            project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "run-tests.js": runner("./scripts", inline=True), "scripts/index.js": BOTH},
+                                   change(**{"scripts/package.json": '{"main": "narrow.js"}\n', "scripts/narrow.js": NARROW}))
+            self.assertNarrowed(self.verified(project, "npm test --silent"))
+        with self.subTest("control: a nested manifest that changes nothing a pinned runner loads"):
+            project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "run-tests.js": runner("./scripts", inline=True), "scripts/index.js": BOTH},
+                                   change(FIXED, **{"scripts/package.json": '{"type": "commonjs"}\n'}))
+            self.assertPreserved(self.verified(project, "npm test --silent"))
+
+    def test_r29_what_a_configuration_file_loads_is_the_bases(self):
+        project = self.project({**seed({"test": "jest"}), "test/other.test.js": OTHER_TEST, ".gitignore": "node_modules/\n",
+                                "babel.config.js": "module.exports = require('./babel.base.js');\n",
+                                "babel.base.js": "module.exports = {};\n"},
+                               change(**{"babel.base.js": "module.exports = {skip: ['test/calc.test.js']};\n"}))
+        self.install(project, "jest", JEST)
+        self.assertNarrowed(self.verified(project, dependencies=project.root))
+
+    def test_r30_npm_aliases_of_test_seed_the_test_script(self):
+        runner_text = "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n"
+        for suite in ("npm t", "npm tst"):
+            with self.subTest(suite=suite):
+                project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                        "run-tests.js": runner_text},
+                                       change(**{"run-tests.js": runner_text.replace("test/calc.test.js ", "")}))
+                self.assertNarrowed(self.verified(project, suite))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -494,24 +494,36 @@ its package-manager, task-runner, test-runner and transpiler configuration
 (`.npmrc`, `.yarnrc*`, `.pnpmfile.*`, `bunfig.toml`, `turbo.json`,
 `jest.config.*`, `playwright.config.*`, `.mocharc*`, `babel.config.*`,
 `tsconfig*.json` and the like, and whatever a link of that name points at), its
-tests (and what a linked test points at), and the runner files the suite
-command and the package scripts it runs reach: through shell words, inline
-`node -e` code, `require`/`import` literals, links, and the manifest fields a
-`#` import, a self-reference or a folder resolves through. The fix keeps its
-own product code and the `package.json` fields that load it (`type`, `main`,
-`exports`, `imports`, dependencies), except a field a pinned file resolves
-through. That run happens whenever the base suite ran to the end without
-per-test results, the fix's suite exited 0 and nothing has failed yet. If it
-fails, the proof is FAIL when the base suite passed and `UNVERIFIED` when the
-base suite already failed, and the reason names the changed files the run kept
-as the base has them. When both runs name their tests, they are compared test
-by test. If a runner reaches its selector through a variable, a computed path, a
-shell variable, glob or substitution, or a file the base tests also import, the
-proof is `UNVERIFIED` only when the fix also changed a file that is neither a
-test, product code the tests import, a definition file nor documentation. A
-file or link put where a folder holding part of the definition was is never
-placed: the proof is `UNVERIFIED` and names the folder
-([#652 note](bugs/2026-10-07-base-definition-gaps.md)).
+what the JavaScript configuration in the folders a command runs in loads
+(`babel.config.js` requiring `./babel.base.js`, a `tsconfig.json` `extends`),
+its tests (and what a linked test points at), and the runner files the suite
+command and the package scripts it runs reach, in whichever workspace package
+they are selected (`npm --workspace pkg run check`, `pnpm --filter`, `yarn
+workspace`, `turbo run`, `npm t`): through shell words, a shell's `-c` operand
+and node's `-e` code whatever options precede them, `require`/`import`
+literals, links, the manifest fields a `#` import, a self-reference or a folder
+resolves through (a pattern or conditional entry read as Node reads it), and
+the child processes a runner starts from literal arguments
+(`execSync('node scripts/child.js')`, `fork('./child.js')`, `spawnSync('node',
+['child.js'])`). Every name Node would try before the file it loads, and every
+`package.json` an added one could re-scope a pinned file through, stays absent.
+The fix keeps its own product code and the `package.json` fields that load it
+(`type`, `main`, `exports`, `imports`, dependencies), except a field a pinned
+file resolves through. That run happens whenever the base suite ran to the end
+without per-test results, the fix's suite exited 0 and nothing has failed yet.
+If it fails, the proof is FAIL when the base suite passed and `UNVERIFIED` when
+the base suite already failed, and the reason names the changed files the run
+kept as the base has them. When both runs name their tests, they are compared
+test by test. If a runner reaches its selector through a variable, a computed
+path, a shell variable, glob or substitution, if it starts a child process from
+computed arguments or uses a child-process module other than as plain calls
+(an alias passed on, `promisify`, `.call`) while loading a file the base tests
+also import, or if a configuration file loads such a file, the proof is
+`UNVERIFIED` only when the fix also changed a file that is neither a test,
+product code the tests import, a definition file nor documentation. A file or
+link put where a folder holding part of the definition was, or a folder put
+where a pinned file or link was, is never placed: the proof is `UNVERIFIED`
+and names the path ([#652 note](bugs/2026-10-07-base-definition-gaps.md)).
 
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's

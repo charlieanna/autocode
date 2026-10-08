@@ -1345,9 +1345,11 @@ def _run_suite_base_definition(framework, suite_command, workspace, base, change
     # The changed paths the extra run keeps as the base has them, named when its verdict needs them.
     held = sorted(path for path in changes if path in found.pinned or suite_definition.is_definition_file(path))
     if plan["blocked"]:
-        # A file or link where a folder holding a pinned path was cannot be placed without losing that path.
+        # A file or link where a folder holding a pinned path was, or a path below a pinned file or
+        # link, cannot be placed without losing that path.
         return {"run": None, "held": held, "boundary": "the candidate put " + ", ".join(
-            f"{path} where the folder holding {kept} was" for path, kept in plan["blocked"][:3])
+            f"{path} where the folder holding {kept} was" if kept.startswith(path + "/")
+            else f"{path} below the file or link {kept}" for path, kept in plan["blocked"][:3])
             + ", which the base suite definition keeps"}
     if found.boundary and plan["unclassified"]:
         # Without the runner closure only a change to tests, product code or definition files can

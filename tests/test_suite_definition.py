@@ -70,13 +70,16 @@ class DefinitionFileTests(unittest.TestCase):
 
 
 class ScannerTests(unittest.TestCase):
+    def sites(self, text):
+        return [(site.specifier, site.inside_exec) for site in suite_definition.import_sites(text)]
+
     def test_comments_are_masked(self):
         # #652 G6: an apostrophe in a comment opened a phantom string that swallowed the require.
         text = "// Don't add tests here\nconst list = require('./select.js');\n/* require('./old.js') */\n"
-        self.assertEqual([("./select.js", False)], suite_definition.import_sites(text))
+        self.assertEqual([("./select.js", False)], self.sites(text))
 
     def test_template_literals(self):
-        sites = suite_definition.import_sites
+        sites = self.sites
         self.assertEqual([("./plain.js", False)], sites("require(`./plain.js`);\n"))
         self.assertEqual([(None, False)], sites("import(`./routes/${name}.js`);\n"))
         # Code inside a substitution is still read, and `//` inside template text is not a comment.
@@ -86,11 +89,11 @@ class ScannerTests(unittest.TestCase):
 
     def test_a_literal_inside_an_exec_argument(self):
         text = "require('child_process').execSync('node --test ' + require('./list.js').join(' '));\n"
-        self.assertIn(("./list.js", True), suite_definition.import_sites(text))
+        self.assertIn(("./list.js", True), self.sites(text))
 
     def test_regex_literals_are_masked(self):
         # #652 review: a quote, // or /* inside a regex opened a phantom string or comment that hid the require.
-        sites = suite_definition.import_sites
+        sites = self.sites
         for prefix in ("const cwd = process.cwd().replace(/\\/*$/, '');\n",
                        "if (/don't/.test(process.env.X)) {}\n",
                        "const q = s.replace(/'/g, \"'\\\\''\");\n",
@@ -112,7 +115,80 @@ class ScannerTests(unittest.TestCase):
 
     def test_two_static_imports_on_one_line(self):
         self.assertEqual([("./a.js", False), ("./b.js", False)],
-                         suite_definition.import_sites("import './a.js'; import './b.js';\n"))
+                         self.sites("import './a.js'; import './b.js';\n"))
+
+    def test_a_hashbang_line_is_a_comment(self):
+        # #652 review: `#!/usr/bin/env node` was read as a regex literal, so every runner with one was unreadable.
+        self.assertEqual([("./x.js", False)], self.sites("#!/usr/bin/env node\nrequire('./x.js');\n"))
+        self.assertEqual([], self.sites("#!/usr/bin/env node\n"))
+
+    def test_a_site_says_how_it_loads(self):
+        # A conditional exports/imports entry resolves by the load kind (#652 review).
+        text = "require('./a'); import('./b'); import './c';\nimport x from './d';\nexport {y} from './e';\n"
+        self.assertEqual({("./a", "require"), ("./b", "import"), ("./c", "import"), ("./d", "import"), ("./e", "import")},
+                         {(site.specifier, site.kind) for site in suite_definition.import_sites(text)})
+
+    def test_every_argument_of_a_child_process_call_is_judged(self):
+        # #652 review: only the first argument was judged, so spawnSync('node', [...tests]) counted as literal.
+        computed = suite_definition.exec_computed
+        for text in ("const {spawnSync} = require('child_process');\nspawnSync('node', ['--test', ...tests]);\n",
+                     "const {execFileSync} = require('child_process');\nexecFileSync('node', ['--test', ...tests]);\n",
+                     "const cp = require('child_process');\ncp.execSync(cmd);\n",
+                     "require('child_process').execSync('node --test ' + list.join(' '));\n",
+                     "execSync(`node --test ${file}`);\n",
+                     "spawnSync(process.execPath, ['--test', ...spec]);\n",
+                     "import {execa} from 'execa';\nawait execa('node', args);\n",
+                     "require('child_process').execSync('node run.js', {cwd: process.env.DIR});\n"):
+            with self.subTest(text=text):
+                self.assertTrue(computed(text))
+        for text in ("require('child_process').execSync('node --test test/a.test.js', {stdio: 'inherit'});\n",
+                     "const {spawnSync} = require('node:child_process');\n"
+                     "spawnSync(process.execPath, ['--test', 'test/a.test.js', ...process.argv.slice(2)], "
+                     "{stdio: 'inherit', env: {...process.env, FORCE_COLOR: '1'}, timeout: 5000, cwd: __dirname});\n",
+                     "import {fork} from 'child_process';\nfork('./scripts/child.js', [], {cwd: '..'});\n",
+                     "const {$} = require('zx');\nawait $`node --test test/a.test.js`;\n",
+                     "(await import('node:child_process')).execSync('ls');\n"):
+            with self.subTest(text=text):
+                self.assertFalse(computed(text))
+
+    def test_a_child_process_binding_used_other_than_as_a_call_is_opaque(self):
+        # #652 review: an aliased, promisified or .call'ed child_process function was no exec call at all.
+        for text in ("const {execSync: run} = require('child_process');\nrun('node --test ' + tests.join(' '));\n",
+                     "const cp = require('child_process');\ncp.execSync.call(cp, 'node --test ' + tests.join(' '));\n",
+                     "const run = require('util').promisify(require('child_process').exec);\nrun('node --test x');\n",
+                     "import * as cp from 'node:child_process';\nconst run = cp.execSync;\nrun('x');\n",
+                     "const {...cp} = require('child_process');\n",
+                     "import {execSync as sh} from 'child_process';\nmodule.exports = {sh};\n"):
+            with self.subTest(text=text):
+                self.assertTrue(suite_definition.exec_computed(text))
+        aliased = "const {execSync: run} = require('child_process');\nrun('node --test test/a.test.js');\n"
+        _, children, opaque = suite_definition.scan_source(aliased)
+        self.assertEqual("", opaque)
+        self.assertEqual([["node --test test/a.test.js"]], [child.arguments for child in children])
+
+    def test_a_method_named_exec_or_fork_on_something_else_is_no_child_process(self):
+        # #652 review: /re/.exec(line), cluster.fork() and db.exec(sql) counted as computed child processes.
+        for text in ("const m = /^(\\d+)$/.exec(line);\n", "cluster.fork();\n", "db.exec(sql);\n", "statement.exec();\n",
+                     "pool.spawn(worker);\n", "const {fork} = require('cluster');\nfork();\n"):
+            with self.subTest(text=text):
+                self.assertFalse(suite_definition.exec_computed(text))
+
+    def test_the_command_a_literal_child_process_runs(self):
+        def first(text, directory=".", folder="scripts"):
+            return suite_definition._child_command(suite_definition.scan_source(text)[1][0], directory, folder)
+        self.assertEqual(("node scripts/child.js", "."),
+                         first("require('child_process').execSync('node scripts/child.js', {stdio: 'inherit'});\n"))
+        self.assertEqual(("node ./scripts/child.js", "."),
+                         first("const {fork} = require('child_process');\nfork('./scripts/child.js');\n"))
+        self.assertEqual(("node scripts/child.js --flag", "."),
+                         first("const {spawnSync} = require('child_process');\nspawnSync('node', ['scripts/child.js', '--flag']);\n"))
+        self.assertEqual(("node --test 'a b.js'", "."),
+                         first("require('child_process').execFileSync(process.execPath, ['--test', 'a b.js']);\n"))
+        self.assertEqual(("node run.js", "lib"), first("require('child_process').execSync('node run.js', {cwd: 'lib'});\n"))
+        self.assertEqual(("node run.js", "scripts"),
+                         first("require('child_process').execSync('node run.js', {cwd: __dirname});\n"))
+        self.assertIsNone(first("require('child_process').execSync('node run.js', {cwd: '/tmp'});\n"))
+        self.assertIsNone(first("require('child_process').execSync('node run.js', {cwd: '../elsewhere'});\n"))
 
 
 class ShellTests(unittest.TestCase):
@@ -161,18 +237,70 @@ class ShellTests(unittest.TestCase):
         self.assertEqual("", reason)
         self.assertNotIn("/dev/null", [word for word, _ in bindings])
 
+    def test_options_before_a_shells_c_or_nodes_e_do_not_hide_the_operand(self):
+        # #652 review: `bash -lc '...'`, `sh -e -c '...'` and `node --no-warnings -e "..."` left the operand a word.
+        for command in ("bash -lc 'node scripts/run-tests.js'", "sh -e -c 'node scripts/run-tests.js'",
+                        "bash -euo pipefail -c 'node scripts/run-tests.js'", "bash --posix -c 'node scripts/run-tests.js'"):
+            with self.subTest(command):
+                bindings, reason = self.words(command)
+                self.assertEqual("", reason)
+                self.assertIn(("scripts/run-tests.js", "."), bindings)
+                self.assertNotIn(("node scripts/run-tests.js", "."), bindings)
+        for command in ("node --no-warnings -e \"require('./scripts/run-tests.js')\"",
+                        "node -r ./setup.js -e \"require('./scripts/run-tests.js')\"",
+                        "node --require=./setup.js --no-warnings -pe \"require('./scripts/run-tests.js')\""):
+            with self.subTest(command):
+                bindings, reason = self.words(command)
+                self.assertEqual("", reason)
+                self.assertIn(("./scripts/run-tests.js", "."), bindings)
+        bindings, reason = self.words("node -r ./setup.js --test test/calc.test.js")
+        self.assertEqual("", reason)
+        self.assertIn(("./setup.js", "."), bindings)
+        self.assertIn(("test/calc.test.js", "."), bindings)
+
+    def test_inline_javascript_child_processes_are_command_lines(self):
+        bindings, reason = self.words("node -e \"require('child_process').execSync('node scripts/run-tests.js')\"")
+        self.assertEqual("", reason)
+        self.assertIn(("scripts/run-tests.js", "."), bindings)
+
 
 class ReferenceTests(unittest.TestCase):
+    SCRIPTS = {"test": "x", "unit": "y", "lint": "z", "start": "s"}
+    EVERY = {"test", "unit", "lint", "start", "check"}
+
+    def refs(self, *words):
+        found, _ = suite_definition._script_references([(word, ".") for word in words], self.SCRIPTS, self.EVERY)
+        return found
+
     def test_scripts_a_command_runs_by_name(self):
-        scripts = {"test": "x", "unit": "y", "lint": "z", "start": "s"}
-        refs = suite_definition._script_references
-        self.assertEqual([("test", True)], refs([("npm", "."), ("test", ".")], scripts))
-        self.assertEqual([("unit", True)], refs([("pnpm", "."), ("-r", "."), ("run", "."), ("unit", ".")], scripts))
-        self.assertEqual([("lint", True)], refs([("yarn", "."), ("lint", ".")], scripts))
-        self.assertEqual({("lint", False), ("unit", False)},
-                         set(refs([("run-s", "."), ("lint", "."), ("unit", ".")], scripts)))
-        self.assertEqual([("unit", False)], refs([("concurrently", "."), ("npm:unit", ".")], scripts))
-        self.assertEqual([], refs([("node", "."), ("run.js", ".")], scripts))
+        self.assertEqual([("test", True)], self.refs("npm", "test"))
+        self.assertEqual([("unit", True)], self.refs("pnpm", "-r", "run", "unit"))
+        self.assertEqual([("lint", True)], self.refs("yarn", "lint"))
+        self.assertEqual({("lint", False), ("unit", False)}, set(self.refs("run-s", "lint", "unit")))
+        self.assertEqual([("unit", False)], self.refs("concurrently", "npm:unit"))
+        self.assertEqual([], self.refs("node", "run.js"))
+
+    def test_workspace_selectors_aliases_and_task_runners(self):
+        # #652 review: `npm --workspace pkg run check`, `pnpm --filter pkg run check`, `yarn workspace pkg run check`,
+        # a chained `pnpm -r run check` and `npm t` seeded nothing.
+        for words in (("npm", "--workspace", "packages/pkg", "run", "check"), ("npm", "-w", "pkg", "run", "check"),
+                      ("npm", "--prefix", "packages/pkg", "run", "check"), ("pnpm", "--filter", "pkg", "run", "check"),
+                      ("pnpm", "--filter", "pkg", "check"), ("yarn", "workspace", "pkg", "run", "check"),
+                      ("yarn", "workspace", "pkg", "check"), ("pnpm", "-r", "run", "check"),
+                      ("turbo", "run", "check"), ("lerna", "run", "check", "--scope", "pkg"), ("nx", "run-many", "-t", "check"),
+                      ("yarn", "workspaces", "foreach", "-A", "run", "check")):
+            with self.subTest(words):
+                self.assertEqual([("check", True)], self.refs(*words))
+        for words in (("npm", "t"), ("npm", "tst"), ("pnpm", "t"), ("npm", "run-script", "test")):
+            with self.subTest(words):
+                self.assertEqual([("test", True)], self.refs(*words))
+        self.assertEqual([], self.refs("npm", "ci"))
+
+    def test_the_words_of_an_invocation_name_no_file(self):
+        words = ("npm", "--workspace", "packages/pkg", "run", "check", "node", "extra.js")
+        found, consumed = suite_definition._script_references([(word, ".") for word in words], self.SCRIPTS, self.EVERY)
+        self.assertEqual([("check", True)], found)
+        self.assertEqual({0, 1, 2, 3, 4}, consumed)
 
 
 class ManifestMergeTests(unittest.TestCase):
@@ -311,7 +439,6 @@ class DefinitionTests(unittest.TestCase):
         found = repository.definition()
         self.assertIn("scripts/config.js", found.pinned)
         self.assertNotIn("config.js", found.pinned)
-        self.assertEqual([], suite_definition._module_paths("./config", "scripts")[:0])
 
     def test_links_among_tests_and_runners_are_followed(self):
         # #652 review: only definition-named links were followed, so a linked selector or test was placeable.
@@ -432,6 +559,147 @@ class DefinitionTests(unittest.TestCase):
         self.assertNotIn("scripts", plan["overlay"])
         self.assertIn("README.md", plan["overlay"])
         self.assertEqual(["selectors/select.js"], plan["unclassified"])
+
+    def test_a_child_process_started_from_literal_arguments_is_followed(self):
+        # #652 review: a child script named by an exec literal was neither pinned nor a boundary.
+        child = "require('child_process').execSync('node --test test/a.test.js', {stdio: 'inherit'});\n"
+        for text in ("require('child_process').execSync('node scripts/child.js', {stdio: 'inherit'});\n",
+                     "const {fork} = require('child_process');\nfork('./scripts/child.js');\n",
+                     "const {spawnSync} = require('child_process');\n"
+                     "process.exit(spawnSync('node', ['scripts/child.js'], {stdio: 'inherit'}).status);\n",
+                     "require('child_process').execSync('node child.js', {cwd: 'scripts'});\n",
+                     "require('child_process').execSync('npm run child');\n"):
+            with self.subTest(text=text):
+                repository = Repository(self, {
+                    "package.json": json.dumps({"scripts": {"test": "node run-tests.js", "child": "node scripts/child.js"}}),
+                    "run-tests.js": text, "scripts/child.js": child, "test/a.test.js": "1;\n"})
+                found = repository.definition()
+                self.assertEqual("", found.boundary)
+                self.assertIn("scripts/child.js", found.pinned)
+        computed = Repository(self, {"package.json": json.dumps({"scripts": {"test": "node run-tests.js"}}),
+                                     "run-tests.js": "require('child_process').execSync('node --test $(cat list.txt)');\n",
+                                     "test/a.test.js": "1;\n"}).definition()
+        self.assertIn("in the child process run-tests.js starts, the word", computed.boundary)
+
+    def test_an_aliased_child_process_call_reaching_the_product_is_a_conflict(self):
+        # #652 review: r2's rule was bypassed by an args array, an alias, .call and promisify.
+        files = {"package.json": json.dumps({"scripts": {"test": "node run-tests.js"}}),
+                 "config.js": "module.exports = {tests: ['test/a.test.js']};\n", "test/a.test.js": "require('../config.js');\n"}
+        for text in ("const {spawnSync} = require('child_process');\nconst {tests} = require('./config.js');\n"
+                     "spawnSync('node', ['--test', ...tests]);\n",
+                     "const {execSync: run} = require('child_process');\n"
+                     "run('node --test ' + require('./config.js').tests.join(' '));\n",
+                     "const cp = require('child_process');\ncp.execSync.call(cp, 'node --test ' + require('./config.js').tests.join(' '));\n",
+                     "const run = require('util').promisify(require('child_process').exec);\n"
+                     "run('node --test ' + require('./config.js').tests.join(' '));\n"):
+            with self.subTest(text=text):
+                found = Repository(self, {**files, "run-tests.js": text}).definition()
+                self.assertIn("config.js, which the base tests also import", found.boundary)
+                self.assertEqual({"config.js"}, set(found.conflicts))
+        # A RegExp's exec is no child process: the runner loads the product and runs a literal command.
+        smoke = ("const {add} = require('./calc.js');\nif (!/^\\d+$/.exec(String(add(1, 1)))) throw new Error('smoke');\n"
+                 "require('child_process').execSync('node --test test/a.test.js');\n")
+        found = Repository(self, {"package.json": json.dumps({"scripts": {"test": "node run-tests.js"}}),
+                                  "calc.js": "exports.add = (a, b) => a + b;\n", "test/a.test.js": "require('../calc.js');\n",
+                                  "run-tests.js": smoke}).definition()
+        self.assertEqual("", found.boundary)
+
+    def test_a_runner_with_a_hashbang_line_is_read(self):
+        repository = Repository(self, {"package.json": json.dumps({"scripts": {"test": "node scripts/run"}}),
+                                       "scripts/run.js": "#!/usr/bin/env node\n" + self.RUNNER.replace("./scripts/select", "./select"),
+                                       "scripts/select.js": "module.exports = [];\n", "test/a.test.js": "1;\n"})
+        found = repository.definition()
+        self.assertEqual("", found.boundary)
+        self.assertIn("scripts/select.js", found.pinned)
+
+    def test_names_node_tries_before_the_file_it_loads_stay_absent(self):
+        # #652 review: a candidate-added `select` (no extension), `selectors.js` or `scripts/run` shadowed the pinned file.
+        repository = Repository(self, {
+            "package.json": json.dumps({"scripts": {"test": "node scripts/run"}}),
+            "scripts/run.js": "require('child_process').execSync('node --test ' + require('./select').concat(require('../selectors')).join(' '));\n",
+            "scripts/select.js": "module.exports = [];\n", "selectors/index.js": "module.exports = [];\n", "test/a.test.js": "1;\n"})
+        found = repository.definition()
+        self.assertEqual("", found.boundary)
+        self.assertLessEqual({"scripts/run", "scripts/select", "selectors", "selectors.js", "selectors/package.json"},
+                             found.pinned - found.present)
+        self.assertLessEqual({"scripts/run.js", "scripts/select.js", "selectors/index.js"}, found.present)
+
+    def test_pattern_and_conditional_map_entries_resolve_as_node_does(self):
+        # #652 review: a `#x/*` entry was unreadable without holding the field, and a conditional entry was
+        # read in a fixed order instead of the load kind's conditions in the object's order.
+        runner = "require('child_process').execSync('node --test ' + require(%s).join(' '));\n"
+        esm = "import {execSync} from 'node:child_process';\nexecSync('node --test ' + (await import('#select')).default.join(' '));\n"
+        cases = {
+            "imports pattern": ({"imports": {"#x/*": "./scripts/*.js"}}, "lib/run.js", runner % "'#x/select'", "scripts/select.js"),
+            "exports pattern": ({"exports": {".": "./calc.js", "./s/*": "./scripts/*.js"}}, "lib/run.js",
+                                runner % "'calc/s/select'", "scripts/select.js"),
+            "the require condition": ({"imports": {"#select": {"import": "./scripts/select.mjs", "require": "./scripts/select.js"}}},
+                                      "lib/run.js", runner % "'#select'", "scripts/select.js"),
+            "the first matching condition": ({"imports": {"#select": {"default": "./scripts/first.js", "require": "./scripts/select.js"}}},
+                                             "lib/run.js", runner % "'#select'", "scripts/first.js"),
+            "the import condition": ({"imports": {"#select": {"require": "./scripts/select.js", "import": "./scripts/select.mjs"}}},
+                                     "lib/run.mjs", esm, "scripts/select.mjs"),
+        }
+        for name, (fields, path, text, expected) in cases.items():
+            with self.subTest(name):
+                repository = Repository(self, {
+                    "package.json": json.dumps({"name": "calc", **fields, "scripts": {"test": "node " + path}}), path: text,
+                    "scripts/select.js": "module.exports = [];\n", "scripts/select.mjs": "export default [];\n",
+                    "scripts/first.js": "module.exports = [];\n", "test/a.test.js": "1;\n"})
+                found = repository.definition()
+                self.assertEqual("", found.boundary)
+                self.assertIn(expected, found.pinned)
+                self.assertTrue(found.used_fields.get("package.json"))
+        custom = Repository(self, {
+            "package.json": json.dumps({"imports": {"#select": {"custom": "./a.js", "default": "./b.js"}},
+                                        "scripts": {"test": "node run.js"}}),
+            "run.js": runner % "'#select'", "a.js": "1;\n", "b.js": "1;\n", "test/a.test.js": "1;\n"}).definition()
+        self.assertIn("--conditions", custom.boundary)
+        self.assertEqual({"imports"}, set(custom.used_fields["package.json"]))
+
+    def test_manifests_an_added_one_could_rescope_a_pinned_file_through_stay_absent(self):
+        # #652 review: an added scripts/package.json with an imports map or a main redirected the pinned runner.
+        repository = Repository(self, {
+            "package.json": json.dumps({"imports": {"#select": "./scripts/select.js"}, "scripts": {"test": "node scripts/run.js"}}),
+            "scripts/run.js": "require('child_process').execSync('node --test ' + require('#select').concat(require('./tools')).join(' '));\n",
+            "scripts/select.js": "module.exports = [];\n", "scripts/tools/index.js": "module.exports = [];\n", "test/a.test.js": "1;\n"})
+        found = repository.definition()
+        self.assertEqual("", found.boundary)
+        self.assertLessEqual({"scripts/package.json", "scripts/tools/package.json", "test/package.json"},
+                             found.pinned - found.present)
+        repository.write({"scripts/package.json": '{"imports": {"#select": "./narrow.js"}}\n'})
+        plan = suite_definition.plan(repository.root, {"scripts/package.json": "added"}, found, is_test=verify.is_test_path)
+        self.assertEqual({}, plan["manifests"])
+
+    def test_javascript_configuration_is_followed(self):
+        # #652 review: babel.config.js = require('./babel.base.js') pinned the config but not what it loads.
+        repository = Repository(self, {
+            "package.json": json.dumps({"scripts": {"test": "jest"}}),
+            "babel.config.js": "module.exports = require('./babel.base.js');\n", "babel.base.js": "module.exports = {};\n",
+            "jest.config.js": "module.exports = {...require('./jest.base'), rootDir: __dirname};\n", "jest.base.js": "module.exports = {};\n",
+            "tsconfig.json": '{\n  // comments are allowed here\n  "extends": "./config/base",\n}\n', "config/base.json": "{}\n",
+            "packages/a/jest.config.js": "module.exports = require(process.env.X);\n", "test/a.test.js": "1;\n"})
+        found = repository.definition()
+        self.assertEqual("", found.boundary)  # packages/a's computed require: no command runs there
+        self.assertLessEqual({"babel.base.js", "jest.base.js", "config/base.json"}, found.pinned)
+        product = Repository(self, {
+            "package.json": json.dumps({"scripts": {"test": "jest"}}), "calc.js": "exports.skip = [];\n",
+            "jest.config.js": "module.exports = {skip: require('./calc.js').skip};\n",
+            "test/a.test.js": "require('../calc.js');\n"}).definition()
+        self.assertIn("jest.config.js reaches calc.js, which the base tests also import", product.boundary)
+
+    def test_the_plan_refuses_a_folder_below_a_pinned_file_or_link(self):
+        # #652 review: a folder put where a pinned file was made the tree builder unlink the pinned file.
+        repository = Repository(self, {"package.json": json.dumps({"scripts": {"test": "node run-tests.js"}}),
+                                       "run-tests.js": self.RUNNER,
+                                       "scripts/select.js": "module.exports = ['test/a.test.js'];\n", "test/a.test.js": "1;\n"})
+        found = repository.definition()
+        plan = suite_definition.plan(repository.root, {"scripts/select.js": "deleted", "scripts/select.js/index.js": "added",
+                                                       "run-tests.js": "deleted", "run-tests.js/index.js": "added"},
+                                     found, is_test=verify.is_test_path)
+        self.assertEqual([("run-tests.js/index.js", "run-tests.js"), ("scripts/select.js/index.js", "scripts/select.js")],
+                         plan["blocked"])
+        self.assertEqual({}, plan["overlay"])
 
     def test_many_test_files_are_read_through_one_git_process(self):
         # #652 G11: reading each test file spawned one git process.

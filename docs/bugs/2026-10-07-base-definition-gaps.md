@@ -102,7 +102,65 @@ unit test in `tests/test_suite_definition.py`, and they fall into seven causes:
   per-test results through a reporter the base never used skipped the extra run; it now
   runs whenever the base run has none.
 
-**Out of scope (G8):** a selector reached only through a shell script
-(`node --test $(node list.js)`) or a data file a runner reads with `fs`. The
-closure follows import sites only, so narrowing such a selector to an existing
-test still passes. That needs its own issue.
+## Third round
+
+The same review on the second round's result found sixteen more reproduced wrong
+verdicts, fourteen of them a false PASS, again in `test_r*` and the unit tests:
+
+- **Child processes were judged by their first argument and by the called name.**
+  `spawnSync('node', ['--test', ...tests])` looked literal because `'node'` was; an
+  aliased (`const {execSync: run}`), `.call`'ed or promisified-under-another-name
+  function was no exec call at all; `/re/.exec(line)`, `cluster.fork()` and `db.exec(sql)`
+  were; and a child script started from a literal (`execSync('node scripts/child.js')`,
+  `fork('./scripts/child.js')`) was neither pinned nor a boundary. The scanner now binds
+  the child-process modules a file loads (`child_process`, `execa`, `cross-spawn`, `zx`,
+  `shelljs`, …) to their local names, reads every argument of each call (strings, arrays,
+  option objects, and inert atoms such as `process.execPath`, `...process.env` or
+  `__dirname`), follows a literal call as a command line in the right directory, and
+  treats any other use of a binding as opaque. A product file reached in-process is a
+  conflict when any child process is computed or the use is opaque; a method named
+  `exec` or `fork` on something else is nothing.
+- **A hashbang line was a regex.** `#!/usr/bin/env node` made every such runner
+  unreadable and the proof UNVERIFIED for any added file. It is a comment now.
+- **An option before a shell's `-c` or node's `-e` hid the operand.** `bash -lc '…'`,
+  `sh -e -c '…'`, `node --no-warnings -e "…"` and `node -r ./setup.js -e "…"` left the
+  command line or code an ordinary word. The options are skipped, `-lc` counts as `-c`,
+  and `-r`'s value is a word.
+- **Workspace selectors and npm's aliases seeded no script.** `npm --workspace pkg run
+  check`, `npm --prefix`, `pnpm --filter pkg run check`, `yarn workspace pkg run check`, a
+  chained `pnpm -r run check` whose script exists only in a package, and `npm t` / `npm
+  tst` left the closure empty but established. The package-manager scan now walks every
+  positional word to the script name, resolves it against every manifest, knows `turbo`,
+  `lerna` and `nx`, and maps `t` and `tst` to `test`; the words of an invocation name no
+  file.
+- **Names earlier in Node's resolution order were not pinned absent.** A candidate-added
+  extensionless `select` beat the pinned `select.js`, `selectors.js` beat
+  `selectors/index.js`, and `scripts/run` beat `scripts/run.js` for `node scripts/run`.
+  Resolution now follows Node's order (a file, then a folder's manifest, then its index)
+  and pins absent every name it tried before the hit.
+- **Map entries were read unlike Node.** A pattern entry (`#x/*`) was unreadable without
+  recording the field as used, so the candidate's map redirected the pinned runner; a
+  conditional entry was read in a fixed order (`require` before `default` before
+  `import`), so the file Node loads for `import()` or for `{default, require}` was not
+  pinned. Patterns resolve as Node resolves them, conditions are matched in the object's
+  order against the load kind's set (an unknown condition is a boundary), and the field is
+  held before its entry is read.
+- **An added nested `package.json` re-scoped a pinned runner.** `scripts/package.json`
+  with an `imports` map or a `main` entered the tree because it held only kept fields,
+  and became the package scope of `scripts/run.js` or the folder's entry before its
+  index. Every manifest the scope walk steps over for a pinned file or test, and a
+  folder's manifest tried before its index, is pinned absent.
+- **A folder where a pinned file or link was removed it.** The blocked rule refused only
+  a file or link where a pinned folder was; `scripts/select-tests.js/index.js` made the
+  tree builder unlink the pinned file. The rule is symmetric now.
+- **Definition files were pinned but never read.** `babel.config.js` requiring
+  `./babel.base.js` left the base config placeable. The JavaScript configuration in the
+  folders a command runs in, and above them (Babel and TypeScript walk up), is scanned as
+  configuration: what it loads is pinned, and a product file it loads is a conflict; a
+  JSON `extends` is followed.
+
+**Out of scope (G8):** a selector reached only through a shell substitution
+(`node --test $(node list.js)`) or a data file a runner reads with `fs`. A
+substitution or glob in a package script or in a child process's literal command
+is a boundary; a data file is not seen, so narrowing such a selector to an
+existing test still passes. That needs its own issue.
