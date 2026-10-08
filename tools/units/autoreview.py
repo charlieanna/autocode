@@ -81,7 +81,8 @@ def prepare(state, stage, state_path, schema_dir):
         schema["properties"]["recovery_change"] = deepcopy(novelty.CHANGE_SCHEMA)
         request = replace(request, schema=schema)
         # The Completion Reviewer writes the next task's plan, as the Planner and the Resolver do (#185).
-        note = novelty.INSTRUCTION + "\n" + verification_plan.GIT_STATUS_RULE + "\n"
+        note = (novelty.INSTRUCTION + "\n" + verification_plan.GIT_STATUS_RULE + "\n"
+                + verification_plan.SHELL_SYNTAX_RULE + "\n")
         if progressive_state.enabled(state):
             schema = deepcopy(request.schema)
             schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}
@@ -97,8 +98,8 @@ def prepare(state, stage, state_path, schema_dir):
                           metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4})
     if stage == "astra_checkpoint":
         # Under reviewer routing this decision is applied as the Completion Reviewer's, next_task included.
-        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n",
-                                        "\n" + verification_plan.GIT_STATUS_RULE + "\n\nCURRENT HANDOFF DATA\n", 1)
+        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", "\n" + verification_plan.GIT_STATUS_RULE + "\n"
+                                        + verification_plan.SHELL_SYNTAX_RULE + "\n\nCURRENT HANDOFF DATA\n", 1)
         request = replace(request, prompt=prompt,
                           metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4})
     if stage == "sol" and state.get("current_task", {}).get("milestone_ids"):

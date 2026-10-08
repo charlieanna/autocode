@@ -135,6 +135,19 @@ def finalize(state, record, *, enabled, max_calls):
         state['stuck_investigation']['resolver_continuation'] = pending['resolver_continuation']
 
 
+def probe_containment_error():
+    """None when a classification probe can be held read-only, else why not.
+
+    Platforms without macOS sandbox-exec cannot deny write/read/restore forgery
+    during a probe. Callers fail closed there: the Investigator states an
+    untestable advisory cause instead of a shown probe (see readonly_probe).
+    """
+    sandbox = Path('/usr/bin/sandbox-exec')
+    if sys.platform != 'darwin' or not sandbox.is_file():
+        return 'Read-only classification probe containment is unavailable on this platform'
+    return None
+
+
 def readonly_probe(command):
     """A classification probe may inspect scratch evidence, never manufacture it.
 
@@ -143,11 +156,11 @@ def readonly_probe(command):
     cited files and chmod/unlink. Platforms without this enforcement fail closed;
     the Investigator may instead state an explicitly untestable advisory cause.
     """
-    sandbox = Path('/usr/bin/sandbox-exec')
-    if sys.platform != 'darwin' or not sandbox.is_file():
-        raise ValueError('Read-only classification probe containment is unavailable on this platform')
+    reason = probe_containment_error()
+    if reason:
+        raise ValueError(reason)
     profile = '(version 1)(allow default)(deny file-write*)'
-    return shlex.join([str(sandbox), '-p', profile, '/bin/sh', '-c', command])
+    return shlex.join(['/usr/bin/sandbox-exec', '-p', profile, '/bin/sh', '-c', command])
 
 
 def check_facts(checks, record, workspace, *, read_events):

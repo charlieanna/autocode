@@ -406,6 +406,16 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     run_dir = state.get("run_dir") or (Path(record["output"]).parent if record.get("output") else None)
     cited = cited_files(value, workspace, run_dir)
     probe = value.get("probe", "").strip()
+    untestable = value.get("untestable", "").strip()
+    if probe and request.get('mode') == 'builder_failure':
+        # Fail closed where the probe cannot be held read-only (see
+        # builder_failure.readonly_probe): do not run an uncontained command and
+        # do not reject an otherwise valid classification. Keep it as the
+        # explicitly untestable advisory cause the schema already allows.
+        reason = builder_failure.probe_containment_error()
+        if reason:
+            untestable = untestable or reason
+            probe = ''
     runner = (lambda command: run_probe(command, cited)) if run_probe else \
         (lambda command: {"error": "no probe runner was given"})
     shown = run_probes([{"id": "the diagnosed cause", "example": value.get("example", ""), "probe": probe}],
@@ -419,7 +429,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     entry = next(row for row in reversed(state["stuck_investigations"]) if row["identity"] == request["identity"])
     entry.update(outcome=outcome, diagnosis=value["diagnosis"], cause=value["cause"], guidance=value["guidance"],
                  user_question=value["user_question"], evidence_refs=value["evidence_refs"],
-                 example=value.get("example", ""), probe=probe, untestable=value.get("untestable", ""),
+                 example=value.get("example", ""), probe=probe, untestable=untestable,
                  probe_result=shown[0] if shown else None,
                  model=used.get("model"), engine=used.get("engine"), reasoning_effort=used.get("reasoning_effort"),
                   output=record.get("output"), finished_at=now())

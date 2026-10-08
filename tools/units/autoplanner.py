@@ -186,7 +186,7 @@ capture it passing. Do not plan scratch copies outside the workspace, and do not
 missing prerequisite or ask the user to authorize it. Running the project's tests also creates files
 (__pycache__/, *.pyc, caches) and the runner keeps its own files under .autocode/: never cite these as
 evidence, and any check of which files changed must ignore them.
-""" + verification_plan.GIT_STATUS_RULE + """
+""" + verification_plan.GIT_STATUS_RULE + "\n" + verification_plan.SHELL_SYNTAX_RULE + """
 CONTRACT DELTA: contract_changes describes only changes from the current goal_contract revision in this
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.

@@ -2,7 +2,8 @@
 
 Pure APIs: inventory(sources), bind(sources, proposals), verify(sources, manifest),
 commands(sources, manifest), preserve(previous, proposed, replacements=()),
-line_pattern(observation), output_reason(output, pattern, line).
+line_pattern(observation), required_values(observation),
+output_reason(output, pattern, line, required=()).
 Sources are already-authenticated human records supplied by the caller; this
 module does not authenticate events or import an AutoCode controller. Supported
 syntax is an explicit `script.py ARGS` declaration that prints/outputs `FORMAT`
@@ -296,15 +297,8 @@ def _format_pattern(declaration, steps, bindings):
     return pattern
 
 
-def line_pattern(observation):
-    """Any one listed line of a canonical observation's `one per line` output.
-
-    The sealed item pattern names one item; a listing prints every item
-    (issue #452 live runs). Each line keeps the declaration's literal bytes and
-    finite alternatives, ID stays opaque, and every other argument placeholder
-    may only be a value the observation's own steps supplied up to the listing.
-    Derived from the verified manifest, never stored in it or model-supplied.
-    """
+def _supplied(observation):
+    """placeholder -> values the observation's steps supplied up to the listing."""
     declaration, proposal = observation['declaration'], observation['proposal']
     variables, supplied = _variables(declaration), {}
     for step in proposal['steps'][:proposal['observe_step'] + 1]:
@@ -315,11 +309,24 @@ def line_pattern(observation):
         for word, value in zip(command, step['argv']):
             if word in variables:
                 supplied.setdefault(word, set()).add(value)
+    return declaration, supplied
+
+
+def line_pattern(observation):
+    """Any one listed line of a canonical observation's `one per line` output.
+
+    The sealed item pattern names one item; a listing prints every item
+    (issue #452 live runs). Each line keeps the declaration's literal bytes and
+    finite alternatives, ID stays opaque, and every other argument placeholder
+    may only be a value the observation's own steps supplied up to the listing.
+    Derived from the verified manifest, never stored in it or model-supplied.
+    """
+    declaration, supplied = _supplied(observation)
 
     def placeholder(name):
         if name == 'ID':
             return r'[^\s]+'
-        if name not in variables:
+        if name not in _variables(declaration):
             return re.escape(name)
         values = sorted(supplied.get(name, ()))
         return '(?:' + '|'.join(re.escape(value) for value in values) + ')' if values else '(?!)'
@@ -327,14 +334,28 @@ def line_pattern(observation):
     return _render(declaration['literal'], placeholder)
 
 
-def output_reason(output, pattern, line):
+def required_values(observation):
+    """Exact non-ID values the observation's steps introduced before the listing.
+
+    Completeness for this bounded slice: every value the steps introduced (an
+    `add TEXT`, …) before the listing must show up on some printed line. Without
+    this a listing that drops the other items still passed whenever the bound
+    TEXT was present (#452 residual). IDs are the program's; their stability is
+    an oracle check.
+    """
+    _, supplied = _supplied(observation)
+    return sorted({value for name, values in supplied.items() if name != 'ID' for value in values})
+
+
+def output_reason(output, pattern, line, required=()):
     """'' when stdout bytes are the declared `one per line` listing, else why not.
 
     One optional final LF or CRLF; one kind of line ending (CRLF when the output ends
     with one, or has no final LF and contains one); every line fullmatches `line` or is
-    the observed item `pattern`, and at least one line is that item. The item alone is
-    always a valid listing, as before the per-line rule. No other normalization.
-    _RUNNER repeats this rule inside the clean replay.
+    the observed item `pattern`, and at least one line is that item. Every value in
+    `required` (see required_values) must appear as a whole field on some valid line.
+    The item alone is always a valid listing, as before the per-line rule. No other
+    normalization. _RUNNER repeats this rule inside the clean replay.
     """
     crlf = output.endswith(b'\r\n') or (not output.endswith(b'\n') and b'\r\n' in output)
     body = output[:-2] if output.endswith(b'\r\n') else output[:-1] if output.endswith(b'\n') else output
@@ -347,6 +368,11 @@ def output_reason(output, pattern, line):
     if (any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items))
             or not any(items)):
         return 'CLI output differs from the original brief format'
+    for value in required or ():
+        needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
+        if not any((item or re.fullmatch(line, row)) and needle.search(row)
+                   for row, item in zip(rows, items)):
+            return 'CLI output omits an item the observation introduced'
     return ''
 
 
@@ -516,6 +542,8 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
             items=[re.fullmatch(case['pattern'],line) is not None for line in lines]
             if any('\r' in line or '\n' in line or not (item or re.fullmatch(case['line_pattern'],line)) for line,item in zip(lines,items)) or not any(items):
                 reason='CLI output differs from the original brief format'
+            elif any(not any((item or re.fullmatch(case['line_pattern'],line)) and re.search(r'(?<!\S)'+re.escape(value)+r'(?!\S)',line) for line,item in zip(lines,items)) for value in case.get('required') or ()):
+                reason='CLI output omits an item the observation introduced'
 print(json.dumps({'verdict':'FAIL' if reason else 'PASS','observation_hash':case['hash'],'steps':rows,'reason':reason},sort_keys=True))
 sys.exit(1 if reason else 0)
 '''
@@ -536,6 +564,7 @@ def commands(sources, manifest, *, inactive=(), python='python3', timeout=15):
                    'steps': observation['proposal']['steps'],
                    'observe_step': observation['proposal']['observe_step'],
                    'pattern': observation['pattern'], 'line_pattern': line_pattern(observation),
+                   'required': required_values(observation),
                    'hash': observation['hash'], 'timeout': timeout}
         result.append(shlex.join([python, '-I', '-c', _RUNNER, json.dumps(payload, sort_keys=True, ensure_ascii=False)]))
     return result

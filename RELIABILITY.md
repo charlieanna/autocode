@@ -49,6 +49,16 @@ reviews are satisfied, and the dashboard reflects the saved result. Missing evid
 stays unverified. Claims of dependable project completion require these live trials;
 passing fixture tests alone does not establish model effectiveness.
 
+On the default profile (2026-10-07, master 4e7e6895, profile `glm53-openai`: GLM-5.3 producers, GPT-6
+verifiers, one run of each case; details in docs/bugs/2026-10-07-default-profile-reliability-cases.md):
+all three deliveries were correct and none completed falsely. The bug-fix and to-do cases completed
+with no person (18 and 35 minutes, no Validator report sent back). The feature case stopped honestly:
+the Requirements stage had derived an exact-output example from the brief's layout rule and miscounted
+its padding, the Plan Reviewer approved it, and the Resolver proved the contradiction and asked (#676).
+The person's approval of the Resolver's own recommendation then had no named path: the view pointed to
+`--answer`, which the CLI refused; `--resolver-response` was accepted and held forever; `--edit-goal`,
+which finished the run (oracle 6/6), was named nowhere (#675).
+
 On Claude models (2026-10-04, master e8366ad, profile `claude-tiers`, three runs of each case;
 details in docs/bugs/2026-10-04-claude-reliability-cases.md): 8 of 9 runs passed and none completed
 falsely. The feature and bug-fix cases passed 3 of 3. The to-do case passed 2 of 3: one run stopped
