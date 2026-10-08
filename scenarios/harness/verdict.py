@@ -34,6 +34,26 @@ DIAGNOSIS_VERDICTS = (CORRECT, INCORRECT, UNSCORED, NOT_EXERCISED)
 COMPLETE_STATUSES = ("TASK_COMPLETE", "COMPLETE")
 STOPPED_PREFIXES = ("PAUSED_", "BLOCKED_HUMAN", "AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER")
 
+# Why a run is not a pass, for campaigns that must not mix a wrong deliverable with a
+# provider outage or a budget death (#455). The verdict stays the contract; this is a
+# secondary class. Reuses the existing status/stop_reason vocabulary, never a second one.
+STOP_CLASS_PASSED = "passed"
+STOP_CLASS_FALSE = "false_completion"       # claimed done; wrong or should have stopped
+STOP_CLASS_SAFETY = "safety_stop"           # correct pause/blocker for a person or a real defect
+STOP_CLASS_PROVIDER = "provider_failure"    # provider, transport, or sandbox/setup
+STOP_CLASS_HARNESS = "harness_failure"      # the harness or oracle broke; no judgement
+STOP_CLASS_BUDGET = "budget_exhaustion"     # time, attempt or supervision budget
+STOP_CLASS_NOT_EXERCISED = "not_exercised"
+STOP_CLASS_SKIPPED = "skipped"
+STOP_CLASSES = (STOP_CLASS_PASSED, STOP_CLASS_FALSE, STOP_CLASS_SAFETY, STOP_CLASS_PROVIDER,
+                STOP_CLASS_HARNESS, STOP_CLASS_BUDGET, STOP_CLASS_NOT_EXERCISED, STOP_CLASS_SKIPPED)
+
+# Status words that name a provider/setup stop, not a product decision.
+_PROVIDER_STATUS = ("PAUSED_TOOL_CONTAINMENT", "PAUSED_PROVIDER_TIMEOUT", "PAUSED_CONTENT_FILTER",
+                    "PAUSED_AUTH", "PAUSED_QUOTA_ROUTE", "PAUSED_PROVIDER")
+_BUDGET_STATUS = ("PAUSED_BUDGET", "PAUSED_INTERRUPTED", "PAUSED_ITERATION_LIMIT",
+                  "PAUSED_TIME_BUDGET", "PAUSED_STAGE_TIMEOUT")
+
 
 @dataclass
 class OracleResult:
@@ -155,6 +175,38 @@ def change_not_reached(outcome: str, text: str, changes: list[dict]) -> tuple[st
     if outcome == PASS:
         return NOT_EXERCISED, f"{never} ({outcome}: {text})"
     return outcome, f"{text}; {never}"
+
+
+def stop_class(outcome: str, status: str = "", summary: str = "") -> str:
+    """Classify why this verdict is not a pass (or that it is). Secondary to ``verdict``.
+
+    Separate outcomes for #455: false completion, correct safety stop, provider/setup
+    failure, harness failure, and budget exhaustion. Reads only the existing status and
+    the summary the judge already produced; it never invents a new stop name.
+    """
+    if outcome == PASS:
+        return STOP_CLASS_PASSED
+    if outcome == FALSE_COMPLETE:
+        return STOP_CLASS_FALSE
+    if outcome == SKIPPED:
+        return STOP_CLASS_SKIPPED
+    if outcome == NOT_EXERCISED:
+        return STOP_CLASS_NOT_EXERCISED
+    if outcome in (INTERRUPTED_UNGRADED, PENDING_UNGRADED):
+        return STOP_CLASS_BUDGET
+    if outcome == ERROR:
+        # judge() reports ERROR only for an oracle crash or an unexpected final status:
+        # the harness cannot judge, so this is a harness failure, not a product one.
+        return STOP_CLASS_HARNESS
+    # HONEST_BLOCKER and program stops: split the pause by what stopped it.
+    text = f"{status} {summary}"
+    if status in _PROVIDER_STATUS or any(word in text.lower() for word in
+                                         ("sandbox-exec", "tool containment", "provider exit",
+                                          "content filter", "opencode exhausted", "auth")):
+        return STOP_CLASS_PROVIDER
+    if status in _BUDGET_STATUS or "budget" in text.lower() or "time budget" in text.lower():
+        return STOP_CLASS_BUDGET
+    return STOP_CLASS_SAFETY
 
 
 def judge(status: str, oracle: OracleResult, expected: str = "complete") -> tuple[str, str]:

@@ -550,7 +550,10 @@ def cmd_stats(args) -> int:
 
 
 def finish(out: Path, result: dict, outcome: str, summary: str) -> dict:
-    result.update(verdict=outcome, summary=summary)
+    result.update(verdict=outcome, summary=summary,
+                  # Secondary class for campaigns (#455); the verdict stays the contract.
+                  stop_class=verdict.stop_class(outcome, result.get("status") or result.get("runner_status") or "",
+                                                summary))
     attempts.atomic_json(out / "result.json", result, max_bytes=None)
     attempts.finish(out, outcome)
     return result
