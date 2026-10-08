@@ -406,6 +406,58 @@ class DraftExampleRevisionTests(unittest.TestCase):
                 revision_guard(state, after, changes, "glm_revise")
 
 
+class LayoutExampleRevisionTests(unittest.TestCase):
+    """#676: a model-derived table row whose column padding was miscounted (a live run approved ten
+    spaces where the brief's rule gives twelve, and the Resolver had to stop the run for a person)."""
+
+    def inputs(self, before, after):
+        criterion = ('Given two rows with labels `2025-W10 core` and `2025-W11 extra`, when '
+                     '`python3 -m timesheet --by-project` runs, then it writes exactly '
+                     f'`{before}` to stdout and writes empty stderr.')
+        body = {"acceptance_criteria": [{"id": "AC1", "criterion": criterion,
+                "verification_method": "test: test_ac1_by_project_total", "human_review": False}],
+                "required_behaviors": ["Total the hours per project"], "scope_exclusions": [],
+                "constraints": [], "important_failure_cases": [], "permission_boundaries": ["No network"]}
+        concern = {"id": "C_PAD", "blocking": True,
+                   "concern": f"AC1 pads the total row wrongly: `{before}` must be `{after}`."}
+        state = {"task": "Show the hours per project, right-aligned in the same 0.00h column.",
+                 "goal_contract": {"body": body, "origin": "glm_draft", "approval_status": "draft",
+                                   "approval_event": None},
+                 "planning": {"reports": {"astra_challenge": {"report": {"concerns": [concern]}}}}}
+        revised = copy.deepcopy(body)
+        revised["acceptance_criteria"][0]["criterion"] = criterion.replace(before, after)
+        receipt = [{"item": "AC1", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": revised["acceptance_criteria"][0]["criterion"],
+                    "example_correction": {"concern_id": "C_PAD", "before": before, "after": after}}]
+        return state, revised, receipt
+
+    def test_padding_of_a_table_row_is_corrected_without_a_question(self):
+        before = 'total' + ' ' * 10 + '15.50h\\n'
+        after = 'total' + ' ' * 12 + '15.50h\\n'
+        state, revised, changes = self.inputs(before, after)
+        self.assertEqual(changes, revision_guard(state, revised, changes, "glm_revise"))
+
+    def test_a_word_or_number_inside_the_row_cannot_change_under_the_padding_receipt(self):
+        before = 'total' + ' ' * 10 + '15.50h\\n'
+        for after in ('total' + ' ' * 12 + '16.50h\\n', 'totals' + ' ' * 11 + '15.50h\\n',
+                      'total' + ' ' * 12 + '15.50h\\n15.50h\\n'):
+            state, revised, changes = self.inputs(before, after)
+            with self.subTest(after=after), self.assertRaises(ValueError):
+                revision_guard(state, revised, changes, "glm_revise")
+
+    def test_a_padding_literal_the_user_wrote_is_protected(self):
+        before = 'total' + ' ' * 10 + '15.50h\\n'
+        after = 'total' + ' ' * 12 + '15.50h\\n'
+        state, revised, changes = self.inputs(before, after)
+        state["task"] += " Expected: `" + before + "`"
+        with self.assertRaises(ValueError):
+            revision_guard(state, revised, changes, "glm_revise")
+
+    def test_a_row_without_a_number_is_not_padding(self):
+        from autocode_draft_examples import layout_padding
+        self.assertFalse(layout_padding('name' + ' ' * 4 + 'city\\n', 'name' + ' ' * 6 + 'city\\n'))
+
+
 class ExampleCorrectionSchemaTests(unittest.TestCase):
     """A contract change that is not a draft example correction says example_correction: null."""
 
