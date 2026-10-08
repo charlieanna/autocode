@@ -2534,7 +2534,8 @@ class StockRefusalsRunTests(unittest.TestCase):
         result, state, proofs = self.run_fake()
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual(["recognize_workflow", "astra_discovery", "astra_challenge", "terra", "sol", "astra_review",
-                          "astra_resolve", "terra", "sol", "astra_review"], result["metrics"]["model_stage_names"])
+                          "astra_resolve", "investigate_stuck", "terra", "sol", "astra_review"],
+                         result["metrics"]["model_stage_names"])
         # The proof failed, AutoResolver ran (not the direct Builder repair of #294), and the next proof passed.
         self.assertEqual(["FAIL", "PASS"], proofs)
         self.assertEqual(1, len(state["resolution_history"]))
@@ -2566,7 +2567,9 @@ class StockRefusalsRunTests(unittest.TestCase):
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
         self.assertEqual("RESOLVER_PENDING", result["runner_status"])
         self.assertEqual(1, result["metrics"]["model_stage_names"].count("astra_resolve"))
-        self.assertEqual(["retry"], [row["action"] for row in state["builder_retry_decisions"]])
+        self.assertEqual(1, result["metrics"]["model_stage_names"].count("investigate_stuck"))
+        # Classifying an unknown failure precedes the one bounded execution retry.
+        self.assertEqual(["investigate", "retry"], [row["action"] for row in state["builder_retry_decisions"]])
         self.assertEqual({"FAIL"}, set(proofs))
         diagnosis = result["diagnosis"]
         self.assertEqual((verdict.INCORRECT, 1), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
@@ -2679,7 +2682,7 @@ class HybridRunTests(unittest.TestCase):
     counts only calls the live side served; nothing about how a model diagnoses."""
 
     SCRIPTED = ["recognize_workflow", "astra_discovery", "astra_challenge", "terra"]
-    LIVE = ["sol", "astra_review", "astra_resolve", "terra", "sol", "astra_review"]
+    LIVE = ["sol", "astra_review", "astra_resolve", "investigate_stuck", "terra", "sol", "astra_review"]
 
     def run_hybrid(self, out, **fields):
         args = argparse.Namespace(**{"fake": True, "profile": None, "provider": None, "fake_solution": "reference",
@@ -2749,7 +2752,7 @@ class HybridRunTests(unittest.TestCase):
             self.assertEqual("hybrid", state["settings"]["provider"])
             served = [json.loads(line) for line in (Path(result["evidence"]) / "live-tool.jsonl").read_text()
                       .splitlines()]
-            self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "builder",
+            self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "reviewer", "builder",
                                                        "validator", "completion")], [row["model"] for row in served])
             self.assertEqual({home}, {row["xdg"] for row in served})
             # The hybrid tool AutoCode ran on kept the live tool's Builder retry policy.
