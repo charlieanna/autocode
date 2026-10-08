@@ -29,6 +29,28 @@ class BriefObligationsTests(unittest.TestCase):
         self.root = Path(scratch.name)
         self.record_count = 0
 
+    def test_saved_version_one_keeps_its_inventory_review_and_approval_identity(self):
+        fixture = json.loads((Path(__file__).parent / 'fixtures/brief-manifests-v1.json').read_text())[0]
+        state = self.state(task=fixture['sources'][0]['text'])
+        draft = self.contract_body()
+        manifest = fixture['manifest']
+        proposals = [row['proposal'] for row in manifest['observations']]
+        record = self.reviewer_record(state, {'brief_observations': proposals})
+        review = {'stage': record['stage'], 'events': record['events'],
+                  'events_sha256': brief.util.file_hash(record['events']), 'output': record['output'],
+                  'output_sha256': brief.util.file_hash(record['output']),
+                  'proposals_sha256': brief.acceptance.digest(sorted(proposals, key=lambda row: row['declaration_id']))}
+        draft['brief_acceptance'] = {'manifest': manifest, 'review': review, 'amendments': []}
+        lifecycle.install_draft(state, draft, origin=record['stage'], record=record)
+        token = goals.token(state['goal_contract'])
+        self.assertEqual([['add', 'TEXT'], ['list']], [row['observe_argv'] for row in brief.inventory(state)])
+        brief.validate_body(state, draft, ready=True)
+        self.assertEqual(token, goals.token(state['goal_contract']))
+        # A later independent review still uses that run's pinned compiler.
+        refreshed, _ = self.reviewed(state, draft=draft, proposals=proposals)
+        self.assertEqual(manifest, refreshed['brief_acceptance']['manifest'])
+
+
     def test_full_criterion_claim_selects_whole_product_observations(self):
         state = {'goal_contract': {'body': {'acceptance_criteria': [{'id': 'C1'}, {'id': 'C2'}]}}}
         full = {'criterion_results': [{'id': 'C1', 'status': 'PASS', 'evidence_refs': ['execution:1']},

@@ -45,6 +45,14 @@ class BriefCliTests(unittest.TestCase):
                                    timeout=180, cwd=self.root)
         return run, self.drive(run)
 
+    def test_period_separated_commands_complete_without_a_phantom_add_observation(self):
+        self.assertIn('exits 0. `todo.py list`', self.scenario.brief)
+        run, view = self.start(planning=('--joint-planning', '--no-adaptive-planning'))
+        self.assert_reference(run, view)
+        rows = view['approved_contract']['body']['brief_acceptance']['manifest']['observations']
+        self.assertEqual([['list']], [row['declaration']['observe_argv'] for row in rows])
+
+
     def drive(self, run):
         """Serve this fixture's delegated plan approval through the task-run API."""
         for _ in range(12):
