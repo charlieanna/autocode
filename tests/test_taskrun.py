@@ -403,6 +403,61 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual(("implement", ["greet.py", "test_greet.py", "README.md"]),
                          (first["kind"], first["affected_paths"]))  # the repaired plan names what it writes
 
+    def saved_unassignable_first_task(self, *, activate_later=False, adaptive=True, repaired_planner=False):
+        # Seed a sealed older checkpoint; modifying it here models the pre-#620 draft format.
+        options = FIXTURE_OPTIONS if adaptive else (*FIXTURE_OPTIONS, "--no-adaptive-planning")
+        probe = self.workspace.parent / "launches.jsonl"
+        env = {**self.env, "AUTOCODE_REGISTRY_LAUNCH_PROBE": str(probe)}
+        if repaired_planner:
+            env["LIVE_FIXTURE_FIRST_TASK"] = "implement"
+        provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
+        script = provider.read_text()
+        anchor = '    repairing = bool(data.get("report_repair"))'
+        self.assertIn(anchor, script)
+        provider.write_text(script.replace(anchor, '    with Path(os.environ["AUTOCODE_REGISTRY_LAUNCH_PROBE"]).open("a") as probe:\n        probe.write(stage + "\\n")\n' + anchor, 1))
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=options, env=env, timeout=300)
+        checkpoint = run.run_dir / "state.json"
+        state = util.read(checkpoint)
+        contract = state["goal_contract"]
+        contract["body"]["initial_task"]["affected_paths"] = []
+        contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+        state["planning"]["final_token"] = "r" + str(contract["revision"]) + ":" + contract["hash"]
+        state["displayed_goal"] = state["planning"]["final_token"]
+        if activate_later:
+            state["settings"]["milestone_checkpoints"]["enabled"] = False
+            run = taskrun.TaskRun(self.workspace, run.run_dir, options=options,
+                                  command=(*run.command, "--milestone-checkpoints"), env=env, timeout=300)
+        util.atomic_json(checkpoint, state)
+        before = probe.read_bytes()
+        if activate_later:
+            with self.assertRaises(taskrun.TaskRunError):
+                run.approve_plan(state["planning"]["final_token"])
+            run.command = run.command[:-1]  # activation belongs to that one invocation
+        else:
+            self.assertIn("queued report repair before approval", run.show_goal())
+        self.assertEqual(before, probe.read_bytes(), "Rechecking never launches a provider or approves work")
+        self.assertNotEqual("approve_plan", (run.status().get("needs") or {}).get("kind"))
+        self.assertFalse((self.workspace / "greet.py").exists())
+        repaired = run.advance_until_input()
+        self.assertEqual("approve_plan", repaired["needs"]["kind"], (repaired["status"], repaired["stop_reason"]))
+        self.assertNotEqual(state["planning"]["final_token"], repaired["needs"]["token"])
+        calls = util.read(checkpoint)["planning"]["astra_calls"]
+        self.assertEqual(state["planning"]["astra_calls"] + int(adaptive), calls)
+        accepted = run.approve_plan(repaired["needs"]["token"])
+        self.assertTrue(accepted["approved_contract"]["body"]["initial_task"]["affected_paths"])
+
+    def test_saved_unassignable_first_task_returns_to_repair_before_approval(self):
+        self.saved_unassignable_first_task()
+
+    def test_saved_finalized_first_task_returns_to_its_final_report_repair(self):
+        self.saved_unassignable_first_task(adaptive=False)
+
+    def test_saved_task_from_a_repaired_planner_can_be_repaired_again(self):
+        self.saved_unassignable_first_task(repaired_planner=True)
+
+    def test_checkpoints_enabled_after_drafting_repair_before_approval(self):
+        self.saved_unassignable_first_task(activate_later=True)
+
     def test_a_default_launch_keeps_its_job_in_its_own_task_worktree(self):
         # The CLI without --in-place, as a person launches it: the run works in a task worktree.
         before = self.footprint()

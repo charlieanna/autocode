@@ -581,13 +581,32 @@ def due_checks(state):
     return product_checklist(state["goal_contract"]["body"], rows)
 
 
+def draft_slice(state, body):
+    """Return draft ownership for structural checks, without sealing execution authority."""
+    candidate = view(state).get("candidate")
+    if candidate:
+        proposal = candidate["proposal"]
+        criteria = [row["id"] for row in body.get("acceptance_criteria", [])]
+        rules.validate_proposal(proposal, criteria, initial=True)
+        if rules.plan_identity(proposal) != candidate.get("plan_hash"):
+            raise ValueError("the recorded progressive proposal does not match its plan identity")
+        rules.check_disclosure(body, proposal, criteria, limits=candidate["limits"])
+        return copy.deepcopy(proposal["slices"][0])
+    if enabled(state):
+        return copy.deepcopy(require_active(state)["definition"])
+
+
 def guard_assignment(state, spec, paths):
     """Require narrow ownership inside the independently reviewed slice."""
     if not enabled(state):
         return
     active = require_active(state)
-    definition = active["definition"]
-    milestones = (state.get("goal_contract") or {}).get("body", {}).get("milestones", [])
+    guard_slice_assignment(state["goal_contract"]["body"], spec, paths, active["definition"])
+
+
+def guard_slice_assignment(body, spec, paths, definition):
+    """Check a task against slice ownership; this never grants execution authority."""
+    milestones = body.get("milestones", [])
     if spec.get("milestone_ids"):
         raise ValueError("progressive assignments cannot admit a batch or milestone union")
     if spec.get("slice_id") not in (None, definition["id"]):

@@ -640,6 +640,18 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         runner.write_json(state_path, state)
         print(lifecycle.render(state) + '\nNo provider launched.')
         return 2
+    # Recheck after settings/checkpoint activation and before an old draft can be approved or displayed.
+    # Explicit draft corrections retain their existing ingress instead of being pre-empted by recovery.
+    if not any((args.feedback is not None, args.edit_goal, args.answer, args.delegate, args.delegate_all,
+                args.reject_assumption)):
+        try:
+            from . import autocode_draft_assignment as draft_assignment
+        except ImportError:
+            import autocode_draft_assignment as draft_assignment
+        if draft_assignment.reconcile(runner, state, run_dir, lifecycle.validate_initial_task):
+            print("Saved plan's first task needs correction; queued report repair before approval.")
+            if args.show_goal or args.approve_goal:
+                return 2 if args.approve_goal else 0
     runner.normalize_human_boundary(state, run_dir)
     user_action = any((args.show_goal, args.answer, args.delegate, args.delegate_all, args.reject_assumption,
                        args.approve_goal, args.edit_goal,

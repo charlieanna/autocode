@@ -110,17 +110,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
             raise ValueError(f"initial_task milestone {first['milestone_id']} has unmet prerequisites; "
                              "start with a milestone whose depends_on is []")
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
-        # This is a structural draft probe, not execution admission. The real
-        # assignment below approval authenticates the progressive disclosure.
-        # It carries a copy of the run's settings, so a first task that approval
-        # could not assign (milestone checkpoints) is refused, and repaired, while
-        # the plan is a draft: never shown for approval (#615).
-        probe_body = copy.deepcopy(body)
-        probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
-                                     if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
-        probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"},
-                 "settings": copy.deepcopy(state.get("settings") or {})}
-        assign_task(probe, initial_decision(body), {"revision": "draft"})
+        validate_initial_task(state, body)
     for key, value in body.items():
         if isinstance(value, list) and any(isinstance(x, str) and not x.strip() for x in value):
             raise ValueError(f"{key} contains an empty entry")
@@ -157,6 +147,20 @@ def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
         # A Go test the user asked for is proven only under its own name (#498), whatever a review accepted.
         native_test_names.check(state, body, origin=origin)
     design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
+
+
+def validate_initial_task(state, body):
+    """Preflight the first assignment with draft ownership, without approving or admitting work."""
+    first = body.get("initial_task")
+    if not first or (first["kind"] == "none" and body.get("open_blocking_questions")):
+        return
+    slice_definition = progressive_state.draft_slice(state, body)
+    probe_body = copy.deepcopy(body)
+    probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
+                                  if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
+    probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"},
+             "settings": copy.deepcopy(state.get("settings") or {}), "workspace": state.get("workspace")}
+    assign_task(probe, initial_decision(body), {"revision": "draft"}, draft_slice=slice_definition)
 
 
 def apply_requirements(state, body, *, artifact_sha256, record=None):
@@ -627,7 +631,7 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
                 next_stage=next_stage)
 
 
-def assign_task(state, decision, current):
+def assign_task(state, decision, current, *, draft_slice=None):
     """Persist one bounded handoff tied to the approved brief, not a second brief."""
     spec = decision.get("next_task")
     if spec is None and "milestones" not in state["goal_contract"]["body"]:
@@ -662,10 +666,11 @@ def assign_task(state, decision, current):
     if not task_paths and spec["kind"] == "validate":
         # A validate task writes nothing; it checks what its milestone owns, or in a progressive
         # run what the active slice owns (#615).
-        task_paths = list(progressive_state.require_active(state)["definition"]["paths"]
+        task_paths = list(draft_slice["paths"] if draft_slice is not None else
+                          progressive_state.require_active(state)["definition"]["paths"]
                           if progressive_state.enabled(state) else
                           milestones.get(spec["milestone_id"], {}).get("affected_paths", []))
-    if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
+    if task_paths and milestones and spec["milestone_id"] not in previous_batch and draft_slice is None and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
         # A serial repair of the current milestone may discover another source
         # file needed for its existing criteria. Do not discard the reviewer's
@@ -686,7 +691,10 @@ def assign_task(state, decision, current):
                         or any(spec[key] != previous.get(key) for key in ('requirements', 'validation_plan'))):
                     paths.extend(task_paths)
             task_paths = list(dict.fromkeys(paths))
-    progressive_state.guard_assignment(state, spec, task_paths)
+    if draft_slice is not None:
+        progressive_state.guard_slice_assignment(body, spec, task_paths, draft_slice)
+    else:
+        progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])
     recovery = state.get("recovery_context") or {}
     previous_task = state.get("current_task") or {}
