@@ -20,6 +20,18 @@ INFORM_ADVICE = (
 ABANDON_THEN_RESUME = (
     "Set the uncertain attempt aside with --abandon-stage {attempt}, then autocode resume. "
     "Resuming without setting it aside will hold; do not replay the failed attempt automatically.")
+# A published AutoResolver request a person must answer (a blocker, or exhausted operational
+# recovery) takes this response and refuses --answer, which is for requirements questions. The
+# status view names it as the need's action (#675: a live run's view said `answer`, the CLI said
+# "use --resolver-response", and the person had to read the code to find the form).
+RESPONSE_COMMAND = ("--resolver-request ID --resolver-token TOKEN --resolver-response provide_information "
+                    "--resolver-message TEXT")
+# Information on a blocker is retained, never applied to the contract. A decision that changes the
+# approved contract (a miscounted criterion the Resolver proved contradictory, #675) has its own path,
+# and the hold after the response must name it or a plain resume holds forever without saying why.
+CONTRACT_DECISION_ADVICE = (
+    "A decision that changes the approved contract takes effect through --edit-goal body.json "
+    "(the goal_contract.body shape from state) followed by --approve-goal; information alone changes nothing.")
 BOUND_ADVICE = {
     'PAUSED_TIME_LIMIT': (
         "To acknowledge this active-time pause, use autocode resume --max-seconds N "

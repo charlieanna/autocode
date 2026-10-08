@@ -83,7 +83,11 @@ control; a review the run left behind unevaluated reads `superseded`.
 
 - A `blocker`-scope request (an agent's question or a Resolver diagnosis)
   answered with `provide_information` still holds at the same frontier; only
-  `operational_exhaustion` is re-evaluated.
+  `operational_exhaustion` is re-evaluated. Since #675 the view names the
+  response as the request's `action`, and the hold names `--edit-goal` and
+  `--approve-goal` as the path a contract decision takes (a live run had
+  approved the Resolver's recommended criterion correction and found no way
+  to apply it); the re-evaluation itself is still open.
 - A guard the evaluation does not run itself, such as AutoResolver's own
   per-incident attempt limit or its one diagnosis per task and source (both
   `PAUSED_RESOLVER`), stops an admitted run again before any launch and asks a
