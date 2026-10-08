@@ -7,6 +7,14 @@ const vm = require('./dashboard_vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'dashboard_app.js'), 'utf8');
 const page = fs.readFileSync(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
+const conversationProfile = JSON.parse(require('node:child_process').execFileSync(
+  process.env.AUTOCODE_TEST_PYTHON || 'python3',
+  ['-B', '-c', 'import json; from dashboard.dashboard_setup import conversation_model_fields; print(json.dumps(conversation_model_fields()))'],
+  {cwd: path.resolve(__dirname, '../..'), encoding: 'utf8'}));
+const conversationModels = [...new Set(conversationProfile.conversation_required_roles.map(
+  role => conversationProfile.conversation_routes[role].model))];
+const catalogue = {...conversationProfile, usable: true, models: conversationModels,
+  conversation_readiness: {transport: 'available', version: '1.18.33'}};
 
 const AUTOCODE = '/work/AutoCode';
 const IDLECAMPUS = '/work/IdleCampus';
@@ -104,6 +112,7 @@ const document = {
   documentElement: new Element('html'),
   activeElement: null,
 };
+document.querySelector('#create-conversation-label').nextElementSibling = new Element('small');
 
 // ---- fake dashboard server -------------------------------------------------------
 // Cases install a snapshot in serverState.data; reads serve it, creations and
@@ -116,7 +125,7 @@ let createdCount = 0;
 const fetch = async (url, options = {}) => {
   fetchLog.push({url, options});
   if (url === '/api/runs') return {ok: true, json: async () => serverState.data};
-  if (url === '/api/models') return {ok: true, json: async () => ({usable: true, models: [], loading: false})};
+  if (url === '/api/models') return {ok: true, json: async () => catalogue};
   if (url.startsWith('/api/conversation?')) {
     const id = new URLSearchParams(url.slice('/api/conversation?'.length)).get('id');
     const doc = (serverState.data.conversations || []).find(row => row.id === id);
@@ -183,6 +192,7 @@ const app = vm.runInContext(`(() => {
     setActiveProject: value => { try { activeProject = value; } catch (error) { throw Error('activeProject is not implemented: ' + error.message); } },
     readActiveProject: () => { try { return activeProject; } catch { return undefined; } },
     refresh: () => refresh(),
+    loadModels: () => loadModels(),
     state: () => ({view: currentView, activeConversation, chosen: chosen && {workspace: chosen.workspace, run: chosen.run}}),
   };
 })()`, context);
@@ -236,6 +246,9 @@ function attentionRuns() {
   ];
 }
 async function submitCreation(text) {
+  await app.loadModels();
+  assert.equal(false, document.querySelector('#create-submit').disabled,
+    'the fixture catalogue enables the real admission guard: ' + document.querySelector('#create-model-catalogue-status').textContent);
   document.querySelector('#new-goal').value = text;
   const form = document.querySelector('#create');
   await form.onsubmit({preventDefault() {}});

@@ -523,8 +523,15 @@ class CliTests(BuildAndIntegrateTests):
                                                         local["failed_step"]))
         self.assertIn("does not match expect_json", local["detail"])
         self.assertIn("fake log line from alpha", proc.stderr)
-        self.assertEqual(["down", "-v", "--remove-orphans", "--rmi", "local"],
-                         json.loads(log.read_text().splitlines()[-1])[5:])
+        self.assertTrue(local["torn_down"], local["cleanup_detail"])
+        self.assertIsNone(local["cleanup_detail"])
+        compose = Path(local["compose_file"])
+        self.assertEqual((self.repo / ".autocode-components" / ".local-run" /
+                          local["project"] / "compose.json").resolve(), compose.resolve())
+        # This invocation owns a new project: cleanup must name its endpoint and file.
+        prefix = ["--host", "unix:///var/run/docker.sock", "compose", "-p", local["project"], "-f", str(compose)]
+        self.assertEqual(prefix + ["down", "-v", "--remove-orphans", "--rmi", "local"],
+                         json.loads(log.read_text().splitlines()[-1]))
 
     def test_cli_refuses_a_cycle_before_starting_any_component(self):
         (self.repo / "architecture" / "components.json").write_text(json.dumps(

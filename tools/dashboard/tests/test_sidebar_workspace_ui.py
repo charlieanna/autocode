@@ -8,6 +8,7 @@ the provider-scope boundary runs against ContinuousConversationStore with
 fake providers, matching the style of test_continuous_recovery.py.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -27,7 +28,8 @@ DASHBOARD_CSS = TOOLS / 'dashboard' / 'dashboard.css'
 
 
 def harness_case(name):
-    return subprocess.run(['node', str(HARNESS), name], capture_output=True, text=True, timeout=180)
+    env = {**os.environ, 'AUTOCODE_TEST_PYTHON': sys.executable}
+    return subprocess.run(['node', str(HARNESS), name], capture_output=True, text=True, timeout=180, env=env)
 
 
 def css_variable_values(css, token):
