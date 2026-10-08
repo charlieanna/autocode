@@ -67,9 +67,29 @@ def execute(state, directory, workspace, mode):
             runner.execute_report_repair(state, directory, workspace)
         except runner.ReportRepairQueued:
             continue
+    if (state.get("next_stage") == "investigate_stuck"
+            and (state.get("stuck_investigation") or {}).get("mode") == "builder_failure"):
+        # A no-progress result queued this read-only classification at its durable
+        # acceptance boundary. Use the controller's normal guards, accounting and
+        # report repair; it alone decides whether another Builder is admitted.
+        runner.autopilot.dispatch_unit(runner, state, "investigate_stuck", workspace, directory)
+        while state.get("pending_report_repair"):
+            try:
+                runner.execute_report_repair(state, directory, workspace)
+            except runner.ReportRepairQueued:
+                continue
+        if state.get("status") != "RUNNING" or state.get("next_stage") != "terra":
+            status = state["status"] if state["status"] != "RUNNING" else "PAUSED_ORCHESTRATOR_WORKER"
+            raise runner.support.Paused(status, state.get("stop_reason") or
+                                        "Builder classification did not admit an execution retry")
     if not state.get("implementation"):
         if mode == "recover" or mode == "start" and (state.get("stages") or (directory / "result.json").exists()):
             raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER", "No completed Builder result; explicitly retry this member after inspection")
+        if state.get("next_stage") not in (None, "terra"):
+            raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER",
+                                        "This Builder requires its queued controller stage before another execution")
+        if state.get('_failure_routing_enabled', True):
+            runner.autopilot.builder_failure.dispatch_guard(state, "terra", workspace)
         state.update(status="RUNNING", next_stage="terra")
         prompt, metrics = stage_context.context_packet(state, "terra", directory / "state.json")
         prompt = test_examples.add_to_prompt(prompt, workspace, state.get("current_task"))
@@ -107,9 +127,10 @@ def execute(state, directory, workspace, mode):
                 except runner.ReportRepairQueued:
                     continue
     if not state.get('implementation') and state.get('no_progress_reports'):
-        if state['status'] == 'RUNNING':
+        if state['status'] == 'RUNNING' and state.get('next_stage') in ('terra', 'investigate_stuck'):
             return execute(state, directory, workspace, 'retry')
-        raise runner.support.Paused(state['status'], state.get('stop_reason', 'No implementation progress'))
+        status = state['status'] if state['status'] != 'RUNNING' else 'PAUSED_ORCHESTRATOR_WORKER'
+        raise runner.support.Paused(status, state.get('stop_reason') or 'No implementation progress')
     implementation = state.get("implementation", {})
     runner.goals.execution_guard(state, implementation)
     request = implementation.get("user_request", {})

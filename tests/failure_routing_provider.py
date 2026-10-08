@@ -28,6 +28,9 @@ def main():
     record('call')
     if data['stage'] == 'investigate_stuck_report_repair':
         result = json.loads(Path(data['original']['output']).read_text())
+        if os.environ.get('FAILURE_ROUTING_MALFORMED_DIAGNOSIS'):
+            # Repair report format only, preserving the pinned cause/ID/refs/probe.
+            result['example'] = result['diagnosis']
         print(json.dumps({'type': 'thread.started', 'thread_id': str(uuid.uuid4())}), flush=True)
         Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(result))
         record('preserved_diagnosis_repair', report=result)
@@ -70,7 +73,10 @@ def main():
                 time.sleep(.02)
             if not (log.parent / 'release-investigator').exists():
                 raise SystemExit(8)
-        Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(result))
+        delivered = dict(result)
+        if os.environ.get('FAILURE_ROUTING_MALFORMED_DIAGNOSIS'):
+            delivered.pop('example')
+        Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(delivered))
         print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 10, 'output_tokens': 10}}), flush=True)
         return
     sys.stdin = io.StringIO(prompt)

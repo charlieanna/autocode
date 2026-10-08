@@ -391,7 +391,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
         dispatch.enforce_cross_model_verification(state)
         CLAUDE_PROVIDER.check_models(roles)  # every route is a model the tool serves, spelled as it spells it
         self.assertEqual('pause', policy.failure(state, 'e3', 'f'))
-        self.assertEqual(policy.EXHAUSTED, state['stop_reason'])
+        self.assertEqual('Execution failure: ' + policy.EXHAUSTED, state['stop_reason'])
         state = json.loads(json.dumps(state))
         state['current_task'] = {'id': 'task2', 'milestone_id': 'M2'}
         policy.guard(state)
@@ -445,7 +445,7 @@ class ToolProviderPolicyTests(unittest.TestCase):
         self.assertEqual({**policy.DEFAULTS, 'strong_model': None}, policy.configured(None, older))
         state = self.state(older)
         self.assertEqual(['retry', 'retry', 'pause'], [policy.failure(state, f'e{n}', 'f') for n in (1, 2, 3)])
-        self.assertEqual(policy.NO_STRONG_MODEL, state['stop_reason'])
+        self.assertEqual('Execution failure: ' + policy.NO_STRONG_MODEL, state['stop_reason'])
         # The pause names the fix that works on such a tool: the flag alone would move a checker to GLM.
         self.assertIn('[builder_retry] in the provider config', state['stop_reason'])
         self.assertNotIn('--builder-strong-model', state['stop_reason'])
@@ -585,7 +585,8 @@ class PolicyBlackbox(unittest.TestCase):
         self.review()
         self.build(); self.candidate()
         self.assertEqual(['gpt-6-luna', 'gpt-6-luna', 'gpt-6-sol'], self.models('M1'))
-        self.assertEqual(['retry', 'defer', 'escalate'], [d['action'] for d in self.state()['builder_retry_decisions']])
+        self.assertEqual(['investigate', 'retry', 'investigate', 'defer', 'escalate'],
+                         [d['action'] for d in self.state()['builder_retry_decisions']])
         self.review()
         self.build(); self.candidate()
         self.assertEqual(['gpt-6-luna'], self.models('M3'))
@@ -616,7 +617,8 @@ class PolicyBlackbox(unittest.TestCase):
         worker=next(w for w in self.state()['orchestration_batch']['workers'] if w['milestone_id']=='M1')
         child=json.loads((Path(worker['run_dir'])/'state.json').read_text())
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',child['status'])
-        self.assertEqual(['retry','escalate','pause'],[r['action'] for r in child['builder_retry_decisions']])
+        self.assertEqual(['investigate','retry','investigate','escalate','investigate','pause'],
+                         [r['action'] for r in child['builder_retry_decisions']])
         self.assertNotIn('implementation',child)
         self.build(2,extra=['--resume-paused','--retry-builder','M1'])
         self.assertEqual(before,self.events())
@@ -627,7 +629,12 @@ class PolicyBlackbox(unittest.TestCase):
             {'M1': {'retry.py':'MAX_RETRIES = 5\n'}},
             {'M1':'from retry import MAX_RETRIES; assert MAX_RETRIES == 3'},
             'Preserve exactly three retries')
-        self.seed(spec); self.env['BUILD_AUDIT_FAULT']='validation_fails'
+        # Isolate execution exhaustion from the separately covered three-review replan gate.
+        self.seed(spec, planner_extra=['--max-milestone-stalled-reviews', '0'])
+        status = json.loads(self.invoke('autocode', ['--run-dir', str(self.run), '--status']).stdout)
+        self.assertIsNone(status['milestone_checkpoint']['limits']['stalled_reviews'])
+        self.assertEqual([], self.events(), 'Configuration must not consume a Builder slot')
+        self.env['BUILD_AUDIT_FAULT']='validation_fails'
         for attempt in range(3):
             if attempt == 2:
                 previous = self.events()

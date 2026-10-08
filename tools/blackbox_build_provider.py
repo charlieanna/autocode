@@ -15,6 +15,44 @@ import time
 import uuid
 
 
+def classify_failure(data, mode, spec):
+    """Diagnose only a prescribed failed check in a bounded scripted retry fault."""
+    failure = data['builder_failure']
+    report = Path(failure['record']['output'])
+    events = Path(failure['record']['events'])
+    expected = spec['checks'][data['current_task']['milestone_id']]
+    refs = failure['evidence_refs']
+    value = json.loads(report.read_text())
+    rows = [json.loads(line) for line in events.read_text().splitlines()]
+    checks = [row['item'] for row in rows if row.get('type') == 'item.completed'
+              and row.get('item', {}).get('type') == 'command_execution'
+              and row['item'].get('id') == 'check']
+    execution = (mode in ('retry_success', 'escalate_success', 'retry_exhausted')
+                 and str(report) in refs and str(events) in refs and len(checks) == 1
+                 and checks[0]['command'] == expected and checks[0]['exit_code'] > 0
+                 and value['commands_run'] == [expected]
+                 and value['results'] == [f"check exit={checks[0]['exit_code']}"])
+    diagnosis = ('The prescribed local check failed before the scripted Builder delivered its assigned file.'
+                 if execution else 'No source change alone does not establish an execution defect.')
+    probe = ''
+    if execution:
+        code = ("import json; r=json.load(open(" + repr('run/' + report.name) + ")); "
+                "rows=[json.loads(x) for x in open(" + repr('run/' + events.name) + ")]; "
+                "c=[x['item'] for x in rows if x.get('type')=='item.completed' "
+                "and x.get('item',{}).get('type')=='command_execution' "
+                "and x['item'].get('id')=='check']; "
+                "assert len(c)==1 and c[0]['command']==" + repr(expected) + "; "
+                "assert c[0]['exit_code']>0 and r['commands_run']==[c[0]['command']]; "
+                "assert r['results']==['check exit='+str(c[0]['exit_code'])]")
+        probe = shlex.join([sys.executable, '-c', code])
+    return dict(diagnosis=diagnosis, cause='other', guidance=diagnosis if execution else '',
+        recommendation='retry' if execution else 'pause', user_question='',
+        evidence_refs=[str(report), str(events)] if execution else [str(report)],
+        example=diagnosis, probe=probe,
+        untestable='' if probe else 'The retained report cannot establish which cause produced the empty diff.',
+        failure_class='execution' if execution else 'unknown', failure_id=failure['failure_id'])
+
+
 def main():
     if sys.argv[1:] == ['login', 'status']:
         print('Logged in using ChatGPT (offline black-box fixture)')
@@ -73,6 +111,9 @@ def main():
     elif data['stage'] == 'recognize_workflow':
         result = dict(workflow='build', reason='Handwritten fixture: every request is a build', signals=[],
                       design_document='')
+    elif data['stage'] == 'investigate_stuck' and data.get('builder_failure'):
+        result = classify_failure(data, mode, spec)
+        record('classification', report=result)
     elif data['stage'] == 'investigate_stuck':
         result = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
     elif data['stage'] == 'astra_discovery':

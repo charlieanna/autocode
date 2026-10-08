@@ -14,6 +14,7 @@ test_c* bodies unchanged; the regression proof discovers criterion cases by
 their test_ac<id>_ names.
 """
 import ast
+import copy
 import os
 from pathlib import Path
 import shutil
@@ -136,6 +137,33 @@ class WrapperWiringTests(unittest.TestCase):
         self.assertEqual("runner_default", direct["budget_origins"]["iteration_ceiling"])
         for role, config in direct["roles"].items():
             self.assertEqual("opencode", config["engine"], role)
+
+    def test_fresh_review_limit_matches_resume_without_mutating_inputs_or_other_budgets(self):
+        for requested, expected in ((None, 3), (1, 1), (0, None)):
+            with self.subTest(requested=requested):
+                args = self.configure_args(max_milestone_stalled_reviews=requested)
+                state = {"workspace": "/tmp/fixture", "iteration": 0}
+                original_args, original_state = copy.deepcopy(vars(args)), copy.deepcopy(state)
+                with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
+                     patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+                    fresh = autocode_configure.configure(args, state, planning=planning, milestones=milestones,
+                                                         autopilot=autopilot)
+                    self.assertEqual(expected, fresh['milestone_checkpoints']['stalled_reviews'])
+                    saved = {**state, "settings": copy.deepcopy(fresh)}
+                    saved['settings']['milestone_checkpoints']['stalled_reviews'] = 7
+                    original_saved = copy.deepcopy(saved)
+                    resumed = autocode_configure.configure(args, saved, planning=planning, milestones=milestones,
+                                                           autopilot=autopilot)
+                self.assertEqual(7 if requested is None else expected,
+                                 resumed['milestone_checkpoints']['stalled_reviews'])
+                self.assertEqual(original_saved, saved, 'Configure must return a changed copy of saved settings')
+                self.assertEqual(original_state, state)
+                self.assertEqual(original_args, vars(args))
+                self.assertEqual(fresh['builder_retry'], resumed['builder_retry'])
+                self.assertEqual(fresh['limits'], resumed['limits'])
+                self.assertEqual(milestones.DEFAULTS['max_seconds'], fresh['milestone_checkpoints']['max_seconds'])
+                self.assertEqual(milestones.DEFAULTS['max_replans'], fresh['milestone_checkpoints']['max_replans'])
+        self.assertEqual(3, milestones.DEFAULTS['stalled_reviews'], 'Explicit requests must not mutate defaults')
 
     # The regression-proof gate discovers criterion cases as test_ac<id>_*;
     # the alias runs the contract-named body above, unchanged.

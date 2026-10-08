@@ -155,7 +155,8 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual([("fixture-builder", "terra")] * 2 + [("fixture-validator", "terra")], models("terra"))
         # The Validator's model built the change, so a different model the tool serves checked it.
         self.assertEqual([("fixture-completion", "sol")], models("sol"))
-        self.assertEqual(["retry", "escalate"], [d["action"] for d in state["builder_retry_decisions"]])
+        self.assertEqual(["investigate", "retry", "investigate", "escalate"],
+                         [d["action"] for d in state["builder_retry_decisions"]])
         self.assertEqual({"sol": "fixture-completion"}, state["builder_retry_decisions"][-1]["checker_models"])
 
     def test_report_file_missing_exit_uses_receipt_without_tool_events_or_repair(self):

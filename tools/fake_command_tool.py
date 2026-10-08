@@ -97,6 +97,9 @@ if data.get("report_repair"):
                  "code_refs": ["goal_contract.body"], "alternatives": [], "uncertainties": [],
                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [], "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
                  **({"responses": []} if stage == "glm_revise" else {})})
+    elif stage == "investigate_stuck":
+        # A report-only repair preserves the original diagnosis and its bound ID.
+        deliver(json.loads(Path(original['output']).read_text()))
     elif stage == "astra_challenge":
         deliver({"summary": "Repaired challenge", "obligation_decisions": [], "concerns": []})
     elif stage == "astra_finalize":
@@ -148,6 +151,24 @@ if stage == "recognize_workflow":
     if 'Add "clarity"' in prompt:
         # Vague keeps the Requirements stage, so a default (adaptive) run plans in the same stages as before.
         result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
+elif stage == "investigate_stuck" and data.get('builder_failure'):
+    failure = data['builder_failure']
+    report = Path(failure['record']['output'])
+    original = json.loads(report.read_text())
+    execution = (bool(os.environ.get('AUTOCODE_FIXTURE_IDLE_BUILDER_MODELS'))
+                 and data['current_task']['affected_paths'] == ['greet.py']
+                 and original.get('summary') == 'No change made'
+                 and original.get('results') == ['Nothing written'] and not Path('greet.py').exists())
+    diagnosis = ('The approved greeting CLI is absent after the idle Builder attempt.' if execution else
+                 'The fixture cannot establish the cause of this Builder failure.')
+    code = ("import json; from pathlib import Path; r=json.load(open(" + repr('run/' + report.name) + ")); "
+            "assert r['summary']=='No change made' and r['results']==['Nothing written']; "
+            "assert not Path('greet.py').exists()")
+    result = dict(diagnosis=diagnosis, cause='other', guidance=diagnosis if execution else '',
+        recommendation='retry' if execution else 'pause', user_question='', evidence_refs=[str(report)],
+        example=diagnosis, probe=shlex.join([sys.executable, '-c', code]) if execution else '',
+        untestable='' if execution else 'This is not the configured missing-output fault.',
+        failure_class='execution' if execution else 'unknown', failure_id=failure['failure_id'])
 elif stage == "investigate_stuck":
     result = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
 elif stage == "requirements_gather":
