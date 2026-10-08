@@ -212,7 +212,9 @@ not cite, rejects the report, and the original pause is restored with the reason
 probe's receipt is recorded with the investigation.
 
 Bounds: one investigation per distinct stage and pause, three per run
-(`settings.stuck_investigation.max_calls_per_run`; 0 turns it off). A second failure of the
+(`settings.stuck_investigation.max_calls_per_run`; 0 turns it off). A Builder failure the
+Investigator classifies does not count toward these three: it has its own budget per
+milestone ([Models](models.md#builder-retry-policy)). A second failure of the
 same problem, a `pause` recommendation or a failed investigation restores the original
 pause, with the diagnosis in its reason. It never approves anything, changes requirements or
 criteria, weakens tests, grants permissions or extends budgets beyond that one attempt.

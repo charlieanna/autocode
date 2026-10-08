@@ -24,7 +24,9 @@ attempt or the question only the user can answer. Then:
   is restored exactly, with the diagnosis added to its reason.
 
 Bounds: one investigation per distinct (stage, pause) problem and ``MAX_CALLS`` per run
-(``settings.stuck_investigation.max_calls_per_run``; 0 disables). The Investigator
+(``settings.stuck_investigation.max_calls_per_run``; 0 disables). A Builder failure's
+classification (autocode_builder_failure) is not counted here: it has its own budget per
+milestone (#686). The Investigator
 cannot approve work, change requirements or criteria, weaken tests, grant permissions,
 spend beyond the one attempt, or write anything (it runs read-only). Decisions that belong to the
 user (permissions, scope, goal and criteria changes, spend limits) never come here.
@@ -188,7 +190,8 @@ def intercept(state: dict, status: str, reason: str) -> bool:
         return False
     history = state.get("stuck_investigations") or []
     key = identity(stuck, status)
-    if (any(entry.get("identity") == key for entry in history) or len(history) >= max_calls(state)
+    spent = sum(entry.get("trigger") != "builder_failure" for entry in history)
+    if (any(entry.get("identity") == key for entry in history) or spent >= max_calls(state)
             or operator_retried(state, stuck)):
         return False
     history = state.setdefault("stuck_investigations", [])

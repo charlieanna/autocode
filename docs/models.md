@@ -95,6 +95,14 @@ When the run's provider config lists its models (`models = [...]`) and the stron
 not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
 place, then pauses, and `--builder-strong-model` (or `[builder_retry]`) must name one of the
 listed models.
+A Builder failure whose cause the runner cannot tell from its evidence goes to the
+Investigator to be classified before this policy charges it. A milestone may have as many
+failures classified as this policy takes (its ordinary retries, the stronger attempt or the
+retry in its place, and the failure it pauses on), so classifying never stops a milestone
+before the policy would; the next milestone, or a later turn's new plan, starts its own.
+Classifications do not count toward the run's three stuck-stage investigations
+([Workflow](workflow.md)), and turning those off (`max_calls_per_run = 0`) turns
+classification off too: such a failure pauses as `PAUSED_BUILDER_CLASSIFICATION`.
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses
