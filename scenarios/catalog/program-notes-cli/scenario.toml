@@ -10,9 +10,8 @@ category = "program"
 # publishes version 2, so S (merged) and T and U (waiting for plan approval) lose their
 # approval and are planned, approved and checked again. S's files already conform, so its
 # re-check validates without changes. That validate-only plan is the scripted model's choice
-# (harness/fake_codex.py, milestone_task): a re-check planned as an implementation of a
-# workstream that already conforms stalls the program, since its Builder has nothing to change
-# (docs/bugs/2026-10-06-program-recheck-implement-stall.md).
+# (harness/fake_codex.py, milestone_task). program-adaptive-learning forces an unchanged
+# implement re-check and proves that exact accepted source receives fresh independent review.
 #
 # [program] revise and [[program.change]] name workstreams by the [fake] milestones ids below.
 # A live planner picks its own ids, so the driver maps each to the derived workstream that owns
@@ -26,9 +25,18 @@ category = "program"
 [program]
 max_parallel = 2
 
+[program.revise.workstreams.S]
+journeys = ["capture-and-list"]
+
 # The person's own edits to the derived manifest before they first approve it.
 [program.revise.shared]
 interfaces = [{ id = "store", summary = "notes/store.py: load() returns the notes as {id, text}; add(text) appends one and returns it", paths = ["notes/store.py"], version = 1, producer = "S", consumers = ["T", "U"] }]
+
+[[program.revise.journeys]]
+# The skeleton binds its own named thin flow before either extension exists.
+id = "capture-and-list"
+name = "Capture and list a note"
+steps = ["Add a note with python3 -m notes add TEXT", "List it with python3 -m notes list"]
 
 [[program.revise.journeys]]
 # A planner names its own requirement ids (a live one used J1 and J2), and journey ids must differ from them.

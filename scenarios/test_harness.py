@@ -1150,7 +1150,7 @@ class ProgramCLI:
             return getattr(self, args[1].replace("-", "_"))(args[2:])
         run_dir = args[args.index("--run-dir") + 1]
         if "--status" in args:
-            return json.dumps({"view": self.views[run_dir]}), 0
+            return json.dumps({"view": self.views.get(run_dir, self.view("TASK_COMPLETE", None))}), 0
         if "--approve-goal" in args:
             self.views[run_dir] = self.view("RUNNING", {"kind": "continue"},
                                             approved_contract={"token": args[args.index("--approve-goal") + 1]})
@@ -1214,6 +1214,14 @@ class ProgramDriverTests(unittest.TestCase):
     """The program driver against a stand-in CLI: what it calls, in what order, with which flags."""
     FLAGS = ["--engine", "codex", "--joint-planning"]
     APPROVE = {"kind": "approve_plan", "token": "r2:child"}
+
+    def test_program_evidence_uses_public_views_not_private_child_state(self):
+        with patch("harness.driver.Driver.state", side_effect=AssertionError("private task state read")):
+            status, driver, _ = self.drive([summary("COMPLETE", workstream("S", "MERGED"))])
+        self.assertEqual("COMPLETE", status)
+        self.assertEqual("TASK_COMPLETE", self.record["children"]["S"][0]["status"])
+        self.assertTrue((driver.root / "workstreams/S/01-view.json").is_file())
+        self.assertFalse((driver.root / "workstreams/S/01-state.json").exists())
 
     def drive(self, passes, *changes, cli=ProgramCLI, derived=(), **scenario):
         from harness.program_driver import ProgramDriver
@@ -1569,6 +1577,8 @@ class ProgramChecksTests(unittest.TestCase):
                 row["retired_runs"] = [{"reason": "agreement revision 2 changed ..."}]
         self.assertEqual([], [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
         record["program"]["workstreams"][2]["retired_runs"] = [{"reason": "agreement revision 2 changed ..."}]
+        self.assertEqual([], [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
+        record["program"]["workstreams"].append({**record["program"]["workstreams"][1], "id": "unrelated"})
         self.assertEqual(["change_rechecked_producer_and_consumers[store]"],
                          [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
 
@@ -1605,7 +1615,20 @@ class ProgramChecksTests(unittest.TestCase):
         self.assertEqual(["change_rechecked_producer_and_consumers[store]"], failing(record))
         record = self.changed_record()
         record["program"]["workstreams"][2]["retired_runs"] = [{"at": "2026-10-05T10:01:40", "reason": "unrelated"}]
+        self.assertEqual([], failing(record))  # final checking may retire when any of its interface definitions changes
+        record["program"]["workstreams"].append({**record["program"]["workstreams"][1], "id": "unrelated",
+                                                  "retired_runs": [{"at": "2026-10-05T10:01:40"}]})
         self.assertEqual(["change_rechecked_producer_and_consumers[store]"], failing(record))
+
+    def test_unrelated_later_revision_does_not_undo_an_accepted_interface_recheck(self):
+        record = self.changed_record()
+        record["program"]["change_requests"][0]["accepted_in_revision"] = 2
+        record["program"]["agreement"]["revision"] = 3
+        scenario = program_scenario("/nowhere", {"after": "merged:S", "interface": "store", "by": "S", "decide": "accept"})
+        self.assertEqual([], [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
+        record["program"]["workstreams"][1]["merged_under"] = {"revision": 1}
+        self.assertIn("change_rechecked_producer_and_consumers[store]",
+                      [c.name for c in oracle.program_checks(record, scenario) if not c.ok])
 
     def test_a_change_request_is_found_by_the_workstream_the_scenario_id_stands_for(self):
         reject = {"after": "merged:S", "interface": "store", "by": "T", "decide": "reject", "resolution": "no"}
@@ -2496,9 +2519,9 @@ class FakeRunTests(unittest.TestCase):
         self.assertTrue(Path(result["product"]).is_relative_to(Path(result["evidence"]) / "project" / ".autocode"))
         # Each workstream is an ordinary build run; S's re-check found its files conforming and only validated.
         self.assertEqual({"build"}, {run["workflow"] for runs in program["runs"].values() for run in runs})
-        recheck = json.loads((Path(result["evidence"]) / "workstreams" / "S" / "02-state.json").read_text())
+        recheck = json.loads((Path(result["evidence"]) / "workstreams" / "S" / "02-view.json").read_text())
         self.assertEqual("TASK_COMPLETE", recheck["status"])
-        self.assertNotIn("terra", [stage["stage"] for stage in recheck["stages"]])
+        self.assertNotIn("terra", [stage["stage"] for stage in recheck["usage"]["accounting"]["attempts"]])
 
     def test_a_workstream_that_breaks_the_skeleton_journey_is_undone_by_the_cumulative_checks(self):
         result = self.run_program("broken/search-shadows-list")

@@ -6,8 +6,10 @@ from pathlib import Path
 
 try:
     from . import autocode_assignment as assignment
+    from . import autocode_contract_identity as contracts, autocode_util as util
 except ImportError:
     import autocode_assignment as assignment
+    import autocode_contract_identity as contracts, autocode_util as util
 
 
 def _earlier_assignment(state, record):
@@ -26,7 +28,7 @@ def _earlier_assignment(state, record):
             or record.get("task_id") != task.get("id"):
         return None
     for previous in reversed(state.get("task_archive") or []):
-        if (previous.get("kind") != "implement" or previous.get("contract_hash") != contract
+        if (previous.get("rolled_back") or previous.get("kind") != "implement" or previous.get("contract_hash") != contract
                 or set(previous.get("milestone_ids") or [previous.get("milestone_id")]) != set(members)
                 or {path.rstrip("/") for path in previous.get("affected_paths") or []} != owned):
             continue
@@ -49,7 +51,7 @@ def fresh_candidate(state, record, current_revision):
     """
     task = state.get("current_task") or {}
     owned = task.get("affected_paths") or []
-    if (record.get("changed_files") or task.get("kind") != "implement"
+    if (record.get("changed_files") or record.get("rolled_back") or task.get("kind") != "implement"
             or not owned or not state.get("goal_contract")):
         return None
     stages, workspace = state.get("stages", []), state.get("workspace")
@@ -61,7 +63,7 @@ def fresh_candidate(state, record, current_revision):
     paths = [path for path in assignment.retained_changes(stages, origin) or []
              if not assignment.build_output(workspace, path, stages, origin)]
     if not paths or assignment.outside(owned, stages, origin, workspace=workspace) != []:
-        return None
+        return unchanged_recheck(state, record, current_revision) if not paths else None
     try:
         after = json.loads(Path(record["after_ref"]).read_text())
     except (KeyError, OSError, ValueError):
@@ -76,7 +78,7 @@ def fresh_candidate(state, record, current_revision):
 
 def validated_candidate(state, value, record, workspace, current_revision):
     """Recognize a previously validated retained source for fresh review."""
-    if record.get('changed_files') or not isinstance(value.get('changed_files'), list):
+    if record.get('rolled_back') or record.get('changed_files') or not isinstance(value.get('changed_files'), list):
         return None
     declared = set(value['changed_files'])
     affected = set((state.get('current_task') or {}).get('affected_paths') or [])
@@ -90,6 +92,8 @@ def validated_candidate(state, value, record, workspace, current_revision):
     if not criteria or (state.get('current_task') or {}).get('source_revision') != revision:
         return None
     for archived in reversed(state.get('validation_archive', [])):
+        if archived.get('rolled_back') or archived.get('checked_earlier'):
+            continue
         validation = archived.get('validation') or {}
         results = {row.get('id'): row.get('status') for row in validation.get('criterion_results', [])}
         if (validation.get('verdict') == 'PASS' and validation.get('source_revision') == revision
@@ -105,6 +109,33 @@ def _snapshot(ref):
     except (OSError, TypeError, ValueError):
         return None
     return value if isinstance(value, dict) and isinstance(value.get("files"), dict) else None
+
+
+def unchanged_recheck(state, record, current_revision):
+    """Exact previously accepted source is a candidate for fresh review, never completion credit."""
+    try:
+        if not contracts.approved(state):
+            return None
+        task = state["current_task"]
+        if (task.get("contract_hash") != state["goal_contract"]["hash"] or record.get("task_id") != task["id"]
+                or record.get("changed_files") or task.get("kind") != "implement" or record.get("rolled_back")
+                or task.get("rolled_back")):
+            return None
+        receipt = util.read_object(Path(state["workspace"]) / ".autocode" / "task-workspace.json")["accepted_recheck"]
+        accepted = receipt["snapshot"]
+        approval, verification = receipt["approved_plan"], receipt["verification"]
+        if (not approval.get("token") or not approval.get("run_dir") or verification.get("verdict") != "PASS"
+                or verification.get("head") != accepted["head"] or current_revision != accepted["revision"]
+                or receipt.get("revoked") or verification.get("rolled_back") or verification.get("checked_earlier")):
+            return None
+        before, after = _snapshot(record.get("before_ref")), _snapshot(record.get("after_ref"))
+        if not all(snapshot and all(snapshot.get(key) == accepted.get(key) for key in ("head", "files", "revision"))
+                   for snapshot in (before, after)):
+            return None
+        return {"source_revision": current_revision, "retained_paths": [], "accepted_recheck": True,
+                "prior_approved_plan": approval["token"]}
+    except (KeyError, OSError, TypeError, ValueError, AttributeError, RuntimeError):
+        return None
 
 
 def own_repair_source(stages, packet, bound_revision, current) -> bool:
@@ -129,6 +160,7 @@ def own_repair_source(stages, packet, bound_revision, current) -> bool:
     and counts as that attempt's, as it does for the scope gate.
     """
     attempts = [row for row in stages if packet and (row.get("recovery_novelty") or {}).get("packet") == packet
+                and not row.get('rolled_back')
                 and (row.get("original_stage") or row.get("stage")) == assignment.BUILDER
                 and not row.get("report_only") and not row.get("dry_run")]
     if not attempts:

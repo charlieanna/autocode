@@ -6,6 +6,7 @@ program controller sees them.
 """
 from __future__ import annotations
 
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -118,11 +119,11 @@ class ValidateTest(unittest.TestCase):
             ("blank reason", lambda m: add_workstream(m, {**unrooted, "skeleton_exempt": " "}),
              "skeleton_exempt must give the reason"),
             ("exempt integration", lambda m: ws(m, "integration").update(skeleton_exempt="checks only"),
-             "only a code workstream other than the skeleton may be exempt"),
+              "only a content workstream may be skeleton_exempt"),
             ("exempt skeleton", lambda m: ws(m, "skeleton").update(skeleton_exempt="it is the skeleton"),
-             "only a code workstream other than the skeleton may be exempt"),
+              "only a content workstream may be skeleton_exempt"),
         ])
-        exempt = build(lambda m: add_workstream(m, {**unrooted, "skeleton_exempt": "build tooling only"}))
+        exempt = build(lambda m: add_workstream(m, {**unrooted, "kind": "content", "skeleton_exempt": "lesson text only"}))
         self.assertFalse(agreement.needs_skeleton(exempt, "tools"))
         transitive = build(lambda m: add_workstream(m, {"id": "ui", "depends_on": ["engine"]}))
         self.assertTrue(agreement.needs_skeleton(transitive, "ui"))
@@ -196,6 +197,43 @@ class ValidateTest(unittest.TestCase):
             ("missing id", criterion(lambda rows: rows[0].pop("id")), "need an id and a criterion"),
         ])
 
+    def test_parent_boundaries_are_nonempty_string_lists_before_launch(self):
+        for key in ("constraints", "permission_boundaries", "scope_exclusions"):
+            for invalid in (None, "No network", [{"text": "No network"}], [""], ["  "], [1]):
+                def change(value):
+                    value["contract"] = {"body": {"acceptance_criteria": value.pop("requirements"), key: invalid}}
+                with self.subTest(key=key, invalid=invalid), self.assertRaisesRegex(ValueError, key):
+                    build(change)
+
+    def test_skeleton_binds_only_its_selected_named_journeys(self):
+        value = build(lambda m: (m["journeys"].append({"id": "J2", "name": "Extended", "steps": ["extended flow"]}),
+                                 ws(m, "skeleton").update(journeys=["J1"])))
+        self.assertEqual(["C1", "J1"], agreement.inherited(value, "skeleton"))
+        self.assertEqual(["C1", "C2", "J1", "J2"], agreement.inherited(value, "integration"))
+        new = copy.deepcopy(value)
+        new["journeys"][1]["steps"] = ["changed extension"]
+        self.assertEqual(["integration"], agreement.affected(value, new))
+        for selected in ([], ["unknown"], ["J1", "J1"]):
+            with self.subTest(selected=selected), self.assertRaises(ValueError):
+                build(lambda m: ws(m, "skeleton").update(journeys=selected))
+
+    def test_exempt_content_cannot_consume_a_runtime_interface(self):
+        with self.assertRaisesRegex(ValueError, "cannot produce or consume a runtime interface"):
+            build(lambda m: (ws(m, "web").update(kind="content", skeleton_exempt="Lesson text"),
+                             iface(m, "api").update(consumers=["engine", "web"])))
+
+    def test_inherited_literals_cannot_change_case_punctuation_or_inner_whitespace(self):
+        value = build(lambda m: m["requirements"][1].update(criterion="Use the token 'AbC  .'"))
+        expected = agreement.definitions(value, "engine")["C2"]
+        self.assertEqual([], agreement.dropped(value, "engine", [{**expected, "criterion": "  " + expected["criterion"] + "\n"}]))
+        for text in ("Use the token 'abc  .'", "Use the token 'AbC .'", "Use the token 'AbC  '"):
+            with self.subTest(text=text):
+                self.assertEqual(["C2"], agreement.dropped(value, "engine", [{**expected, "criterion": text}]))
+        value["shared"]["permission_boundaries"] = ["No calls to /PrivateAPI"]
+        self.assertEqual(["permission_boundaries: No calls to /PrivateAPI"],
+                         agreement.lost_boundaries(value, {"constraints": value["shared"]["constraints"],
+                                                          "permission_boundaries": ["No calls to /privateapi"]}))
+
     def test_checks_are_lists_of_commands(self):
         self.rejects([
             ("program checks", lambda m: m.update(checks=["make test", ""]), "checks must be a list"),
@@ -206,7 +244,7 @@ class ValidateTest(unittest.TestCase):
 class InheritanceTest(unittest.TestCase):
     def test_workstreams_inherit_their_requirements_and_integration_inherits_everything(self):
         manifest = build()
-        self.assertEqual(agreement.inherited(manifest, "skeleton"), ["C1"])
+        self.assertEqual(agreement.inherited(manifest, "skeleton"), ["C1", "J1"])
         self.assertEqual(agreement.inherited(manifest, "engine"), ["C2"])
         self.assertEqual(agreement.inherited(manifest, "web"), [])
         self.assertEqual(agreement.inherited(manifest, "integration"), ["C1", "C2", "J1"])
@@ -220,7 +258,7 @@ class InheritanceTest(unittest.TestCase):
         manifest = build(deploy)
         self.assertEqual(agreement.inherited(manifest, "integration"), ["C1", "C2", "J1"])
         self.assertEqual(agreement.inherited(manifest, "deploy"), ["C3"])
-        self.assertEqual(agreement.dropped(manifest, "integration", ["C1", "C2", "J1"]), [])
+        self.assertEqual(agreement.dropped(manifest, "integration", list(agreement.definitions(manifest, "integration").values())), [])
         revised = build(lambda m: deploy(m, "the site is live over HTTPS"))
         self.assertEqual(agreement.affected(manifest, revised), ["deploy"])
         # Assigned to a code workstream as well, the final check keeps it.
@@ -231,14 +269,21 @@ class InheritanceTest(unittest.TestCase):
 
     def test_dropped_reports_missing_inherited_ids_in_order(self):
         manifest = build()
-        self.assertEqual(agreement.dropped(manifest, "integration", [{"id": "C2", "criterion": "kept"}]), ["C1", "J1"])
-        self.assertEqual(agreement.dropped(manifest, "integration", ["J1"]), ["C1", "C2"])
+        definitions = agreement.definitions(manifest, "integration")
+        self.assertEqual(agreement.dropped(manifest, "integration", [definitions["C2"]]), ["C1", "J1"])
+        self.assertEqual(agreement.dropped(manifest, "integration", [definitions["J1"]]), ["C1", "C2"])
         self.assertEqual(agreement.dropped(manifest, "integration", None), ["C1", "C2", "J1"])
-        self.assertEqual(agreement.dropped(manifest, "engine", [{"id": "C2"}, {"id": "EXTRA"}]), [])
+        self.assertEqual(agreement.dropped(manifest, "engine", [definitions["C2"], {"id": "EXTRA"}]), [])
         self.assertEqual(agreement.dropped(manifest, "web", []), [])
 
 
 class ScopeTest(unittest.TestCase):
+    def test_consumer_membership_invalidates_changed_users_not_unchanged_producer(self):
+        old = build()
+        new = build(lambda m: iface(m, "api").update(consumers=["engine", "web"]))
+        self.assertEqual([], agreement.revision_problems(old, new))
+        self.assertEqual(["web", "integration"], agreement.affected(old, new))
+
     def test_a_revision_affects_only_the_workstreams_built_from_what_it_changed(self):
         def api_bump(m):
             iface(m, "api").update(version=2, schema={"next": "string"})
@@ -321,7 +366,7 @@ class RevisionTest(unittest.TestCase):
         cases = [
             ("owns", build(lambda m: ws(m, "engine")["owns"].append("lib")), topology),
             ("depends_on", build(lambda m: ws(m, "web")["depends_on"].append("engine")), topology),
-            ("skeleton_exempt", build(lambda m: ws(m, "web").update(skeleton_exempt="static pages")), topology),
+            ("skeleton_exempt", build(lambda m: ws(m, "web").update(kind="content", skeleton_exempt="static pages")), topology),
             ("name", build(lambda m: m.update(name="Demo 2")), "the program name changed"),
         ]
         # A kind or skeleton change cannot keep a manifest valid; revision_problems compares regardless.
@@ -342,6 +387,7 @@ class RevisionTest(unittest.TestCase):
             add_workstream(m, {"id": "tools", "depends_on": ["skeleton"]})
             ws(m, "tools")["owns"] = ["tools", "scripts"]
             ws(m, "web")["skeleton_exempt"] = "static pages"
+            ws(m, "web")["kind"] = "content"
             ws(m, "web")["depends_on"] = []
             iface(m, "api").update(consumers=["engine", "integration"], paths=["skeleton/api", "skeleton/schema"])
 
@@ -365,10 +411,14 @@ class RevisionTest(unittest.TestCase):
         old = build(lambda m: iface(m, "api").update(version=2))
         quiet = build(lambda m: iface(m, "api").update(version=2, summary="next activity JSON, with hints"))
         self.assertEqual(agreement.revision_problems(old, quiet),
-                         ["interface api changed without a new version; raise a change request and publish it "
-                          "as version 3"])
+                          ["interface api changed without a new version; publish the changed definition as exactly version 3"])
         back = build(lambda m: iface(m, "api").update(version=1))
-        self.assertEqual(agreement.revision_problems(old, back), ["interface api went back from version 2 to 1"])
+        self.assertEqual(agreement.revision_problems(old, back), ["interface api has an invalid version; keep version 2 when its definition is unchanged"])
+
+    def test_versions_never_skip_or_bump_an_unchanged_definition(self):
+        old = build()
+        for fields in ({"version": 3, "behavior": "changed"}, {"version": 2}):
+            self.assertTrue(agreement.revision_problems(old, build(lambda m: iface(m, "api").update(fields))))
 
     def test_a_proper_revision_is_accepted(self):
         old = build()
@@ -459,7 +509,7 @@ class PresentationTest(unittest.TestCase):
         self.assertIn("J2 Checkout: pay", text)
         self.assertIn("simulated; does not prove: a real payment provider", text)
         self.assertIn("- skeleton (walking skeleton, built and verified first) owns skeleton; depends on nothing", text)
-        self.assertIn("inherits: C1\n", text)
+        self.assertIn("inherits: C1, J1, J2\n", text)
         self.assertIn("inherits: C1, C2, J1, J2", text)
         self.assertIn("  engine\n  checks, re-run on the integration branch after every merge:\n  - make engine-test\n",
                       text)
