@@ -2144,6 +2144,24 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                         and (framework.name, framework.python, commands["suite"])
                         == (canonical.name, canonical.python, canonical.suite)):
                     empty_root = test_root
+            if test_root is not None and not (empty_root is not None
+                    and test_roots.first_suite((comparable or {}).get("receipt") or {}, on_candidate)
+                    and schedule.complete_results(on_candidate)):
+                receipt = (comparable or {}).get("receipt") or {}
+                results = receipt.get("results")
+                collector = schedule.collection_kind(commands["suite"])
+                typed = (schedule.complete_results(receipt) and bool((results or {}).get("passed"))
+                         and (not collector or schedule.complete_results(on_candidate)))
+                # A known collector without parsed results is not an untyped
+                # script merely because the supplied Framework mislabels it.
+                untyped = (results is None and not receipt.get("results_expected")
+                           and not collector and receipt.get("exit_code") == 0)
+                baseline_evidence = (comparable is not None and comparable.get("base") == base
+                                     and command_receipt.completed(receipt) and receipt.get("timed_out") is False
+                                     and (typed or untyped))
+                if not baseline_evidence:
+                    unverified.append("The scoped suite has no comparable executed baseline evidence or canonical "
+                                      "first-root authority; preservation of existing behavior is unproven")
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base, allow_absent_go=allow_absent_go,
                          base_definition=base_definition, empty_root=empty_root)
