@@ -26,6 +26,44 @@ CALC_TEST = NODE_TEST + "const {add} = require('../calc.js');\ntest('add', () =>
 FEATURE_TEST = NODE_TEST + "const {mul} = require('../calc.js');\ntest('mul', () => assert.equal(mul(2, 3), 6));\n"
 OTHER_TEST = NODE_TEST + "test('other', () => assert.ok(true));\n"
 NARROWED = "The base suite definition fails against the candidate code"
+# Stand-ins for runners whose configuration selects or rewrites tests (#652 review); each runs node --test.
+PLAYWRIGHT = """#!/usr/bin/env node
+const fs = require('fs'), path = require('path'), {spawnSync} = require('child_process');
+const config = require(path.resolve('playwright.config.js'));
+const ignore = [].concat(config.testIgnore || []).map(p => p.replace('**/', ''));
+const files = fs.readdirSync(config.testDir).filter(n => n.endsWith('.test.js')).filter(n => !ignore.some(i => n.endsWith(i)))
+  .map(n => path.join(config.testDir, n)).sort();
+process.exit(spawnSync(process.execPath, ['--test', ...files], {stdio: 'inherit'}).status);
+"""
+JEST = """#!/usr/bin/env node
+const fs = require('fs'), path = require('path'), {spawnSync} = require('child_process');
+let skip = fs.existsSync('babel.config.js') ? (require(path.resolve('babel.config.js')).skip || []) : [];
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+if (pkg.babel && pkg.babel.skip) skip = skip.concat(pkg.babel.skip);
+const files = fs.readdirSync('test').filter(n => n.endsWith('.test.js')).map(n => 'test/' + n).filter(f => !skip.includes(f)).sort();
+process.exit(spawnSync(process.execPath, ['--test', ...files], {stdio: 'inherit'}).status);
+"""
+# The G5 fake vitest, honouring a positional filter: only test files whose path contains it run.
+FILTERING_VITEST = """#!/usr/bin/env node
+const fs = require('fs'), {spawnSync} = require('child_process');
+const out = (process.argv.find(arg => arg.startsWith('--outputFile=')) || '').slice('--outputFile='.length);
+const filters = process.argv.slice(2).filter(arg => !arg.startsWith('-') && arg !== 'run');
+let failed = false, total = 0;
+const files = fs.readdirSync('test').filter(name => name.endsWith('.test.js')).map(name => 'test/' + name)
+  .filter(file => !filters.length || filters.some(f => file.includes(f))).sort().map(file => {
+    const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', file], {encoding: 'utf8'});
+    const tests = [...run.stdout.matchAll(/^(not )?ok \\d+ - (.+?)( #.*)?$/gm)].map(
+      match => ({name: match[2], state: match[1] ? 'failed' : 'passed', collection_error: false}));
+    failed = failed || tests.some(test => test.state === 'failed');
+    total += tests.length;
+    return {file, collection_error: false, tests};
+  });
+if (out) fs.writeFileSync(out, JSON.stringify({protocol: 'autocode-vitest-tests', version: 1, vitest_version: '4.1.6',
+  complete: true, reason: failed ? 'failed' : 'passed', files, total, unhandled_errors: 0}));
+process.exit(failed ? 1 : 0);
+"""
+BOTH = "module.exports = ['test/calc.test.js', 'test/other.test.js'];\n"
+NARROW = "module.exports = ['test/other.test.js'];\n"
 
 
 def manifest(scripts, **fields):
@@ -66,6 +104,18 @@ class BaseDefinitionProofTests(unittest.TestCase):
             subprocess.run(["git", *args], cwd=project.root, check=True, capture_output=True)
         project.base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project.root, check=True,
                                       capture_output=True, text=True).stdout.strip()
+
+    def install(self, project, name, text):
+        """A runner stand-in in the project's node_modules/.bin (ignored by git, linked into the proof trees)."""
+        project.write({f"node_modules/.bin/{name}": text})
+        os.chmod(project.root / f"node_modules/.bin/{name}", 0o755)
+
+    def link(self, project, links):
+        """Links on the base revision: {path: target}, committed."""
+        for path, target in links.items():
+            (project.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (project.root / path).symlink_to(target)
+        self.commit(project)
 
     def verified(self, project, suite=None, base_patch=None, new_behavior=True, dependencies=None):
         framework = verify.detect_framework(project.root)
@@ -112,8 +162,8 @@ class BaseDefinitionProofTests(unittest.TestCase):
                             for reason in result["unverified"]), result["unverified"])
 
     def test_g1_a_base_without_a_manifest_cannot_pass_a_narrowed_new_suite(self):
-        project = self.project({"calc.js": CALC, "test/calc.test.js": CALC_TEST},
-                               change(**{"package.json": manifest({"test": "node --test test/feature.test.js"})}))
+        project = self.project({"calc.js": CALC, "test/calc.test.js": CALC_TEST, "test/other.test.js": OTHER_TEST},
+                               change(**{"package.json": manifest({"test": "node --test test/other.test.js"})}))
         result = self.verified(project, "npm test --silent")
         self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
         self.assertNotEqual(0, result["checks"][LABEL]["exit_code"], result)
@@ -321,6 +371,194 @@ process.exit(failed ? 1 : 0);
                                 "run-tests.js": optional},
                                change(**{"selection.js": "module.exports = ['test/other.test.js'];\n"}))
         self.assertNarrowed(self.verified(project))
+
+    # --- the #652 review of the port: eighteen reproduced wrong verdicts ---------------------------
+
+    def test_r1_a_narrowed_playwright_configuration_fails(self):
+        project = self.project({**seed({"test": "playwright test"}), "test/other.test.js": OTHER_TEST,
+                                ".gitignore": "node_modules/\n",
+                                "playwright.config.js": "module.exports = {testDir: './test'};\n"},
+                               change(**{"playwright.config.js":
+                                         "module.exports = {testDir: './test', testIgnore: '**/calc.test.js'};\n"}))
+        self.install(project, "playwright", PLAYWRIGHT)
+        self.assertNarrowed(self.verified(project, dependencies=project.root))
+
+    def test_r2_a_selector_the_base_tests_also_import_is_not_the_candidates(self):
+        runner = ('require("child_process").execSync("node --test " + require("./config.js").tests.join(" "), '
+                  '{stdio: "inherit"});\n')
+        test = NODE_TEST + ("const {add} = require('../calc.js');\nconst {precision} = require('../config.js');\n"
+                            "test('add', () => assert.equal(add(2, 3).toFixed(precision), '5.00'));\n")
+        project = self.project({**seed({"test": "node run-tests.js"}), "test/calc.test.js": test,
+                                "test/other.test.js": OTHER_TEST, "run-tests.js": runner,
+                                "config.js": "module.exports = {tests: ['test/calc.test.js', 'test/other.test.js'], precision: 2};\n"},
+                               change(**{"config.js": "module.exports = {tests: ['test/other.test.js'], precision: 2};\n"}))
+        result = self.verified(project)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("config.js, which the base tests also import" in reason for reason in result["unverified"]),
+                        result["unverified"])
+
+    def test_r3_transpiler_configuration_that_skips_a_test_stays_the_bases(self):
+        cases = {"babel.config.js": {"babel.config.js": "module.exports = {skip: ['test/calc.test.js']};\n"},
+                 "package.json babel field": {"package.json": manifest({"test": "jest"},
+                                                                       babel={"skip": ["test/calc.test.js"]})}}
+        for name, files in cases.items():
+            with self.subTest(name):
+                project = self.project({**seed({"test": "jest"}), "test/other.test.js": OTHER_TEST,
+                                        ".gitignore": "node_modules/\n"}, change(**files))
+                self.install(project, "jest", JEST)
+                result = self.verified(project, dependencies=project.root)
+                self.assertNarrowed(result)
+                self.assertTrue(any("the run kept " + next(iter(files)) + " as the base has them" in reason
+                                    for reason in result["failures"]), result["failures"])
+
+    def test_r4_product_code_a_base_test_imports_through_main_is_the_candidates(self):
+        # The runner's computed require leaves the closure unestablished, so a changed file is placed only
+        # when it is product code: lib/calc.js is, through the manifest's main.
+        computed = ("const list = require(process.env.TEST_LIST || './list.js');\n"
+                    "require('child_process').execSync('node --test ' + list.join(' '), {stdio: 'inherit'});\n")
+        project = self.project({"package.json": manifest({"test": "node run-tests.js"}, main="lib/calc.js"),
+                                "run-tests.js": computed, "list.js": "module.exports = ['test/calc.test.js'];\n",
+                                "lib/calc.js": CALC, "test/calc.test.js": CALC_TEST.replace("'../calc.js'", "'..'")},
+                               {"lib/calc.js": FIXED, "test/feature.test.js": FEATURE_TEST.replace("'../calc.js'", "'..'")})
+        self.assertPreserved(self.verified(project))
+
+    def test_r5_a_link_where_the_folder_holding_a_pinned_selector_was_is_refused(self):
+        project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                "run-tests.js": runner("./scripts/select-tests.js", inline=True),
+                                "scripts/select-tests.js": BOTH}, {})
+        project.write(change(**{"selectors/select-tests.js": NARROW}))
+        shutil.rmtree(project.root / "scripts")
+        (project.root / "scripts").symlink_to("selectors")
+        result = self.verified(project)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertTrue(any("put scripts where the folder holding scripts/select-tests.js was" in reason
+                            for reason in result["unverified"]), result["unverified"])
+
+    def test_r6_what_a_linked_test_or_runner_points_at_is_the_base_definition(self):
+        cases = {
+            "a selector that is a link": ({"config/tests.js": BOTH}, {"scripts/select-tests.js": "../config/tests.js"},
+                                          {"config/tests.js": NARROW}),
+            "a literal through a linked folder": ({"tooling/select-tests.js": BOTH}, {"scripts": "tooling"},
+                                                  {"tooling/select-tests.js": NARROW}),
+        }
+        for name, (files, links, narrowed) in cases.items():
+            with self.subTest(name):
+                project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                        "run-tests.js": runner("./scripts/select-tests.js", inline=True), **files}, {})
+                self.link(project, links)
+                project.write(change(**narrowed))
+                self.assertNarrowed(self.verified(project))
+        with self.subTest("a test that is a link"):
+            project = self.project({"package.json": manifest({"test": "node --test"}), "calc.js": CALC,
+                                    "cases/calc.js": CALC_TEST}, {})
+            self.link(project, {"test/calc.test.js": "../cases/calc.js"})
+            project.write(change(**{"cases/calc.js": NODE_TEST + "test('add', () => assert.ok(true));\n"}))
+            self.assertNarrowed(self.verified(project))
+
+    def test_r7_a_runner_resolving_through_imports_or_exports_keeps_the_base_map(self):
+        cases = {
+            "imports": ({"imports": {"#select": "./scripts/select-tests.js"}}, '"#select"',
+                        {"imports": {"#select": "./scripts/narrow.js"}}),
+            "exports self-reference": ({"exports": {".": "./calc.js", "./select": "./scripts/select-tests.js"}}, '"calc/select"',
+                                       {"exports": {".": "./calc.js", "./select": "./scripts/narrow.js"}}),
+        }
+        for name, (fields, specifier, narrowed) in cases.items():
+            with self.subTest(name):
+                runner_text = ('require("child_process").execSync("node --test " + require(%s).join(" "), '
+                               '{stdio: "inherit"});\n' % specifier)
+                project = self.project({**seed({"test": "node run-tests.js"}, **fields), "test/other.test.js": OTHER_TEST,
+                                        "run-tests.js": runner_text, "scripts/select-tests.js": BOTH},
+                                       change(**{"package.json": manifest({"test": "node run-tests.js"}, **narrowed),
+                                                 "scripts/narrow.js": NARROW}))
+                self.assertNarrowed(self.verified(project))
+
+    def test_r8_per_test_results_only_the_candidate_reports_do_not_skip_the_extra_run(self):
+        for name, extra in (("passing base", {}), ("failing base", {"test/red.test.js": NODE_TEST + "test('red', () => assert.equal(1, 2));\n"})):
+            with self.subTest(name):
+                project = self.project({**seed(), ".gitignore": "node_modules/\n", **extra},
+                                       change(**{"package.json": manifest({"test": "vitest run test/feature"})}))
+                self.install(project, "vitest", FILTERING_VITEST)
+                result = self.verified(project, dependencies=project.root)
+                self.assertIn(LABEL, result["checks"], result)
+                self.assertNotEqual(verify.PASS, result["verdict"], result)
+                if not extra:
+                    self.assertNarrowed(result)
+
+    def test_r9_scripts_the_suite_never_runs_do_not_refuse_a_new_module_or_a_doc(self):
+        base = {**seed({"test": "node --test", "start": "node server.js", "deploy": "cd $OUT_DIR && ls"}),
+                "server.js": "const routes = require('./routes.js');\nconsole.log(routes);\n",
+                "routes.js": "module.exports = {home: '/'};\n", "README.md": "# calc\n"}
+        cases = {"a new module": {"mul.js": "exports.mul = (a, b) => a * b;\n",
+                                  "test/mul.test.js": NODE_TEST + "const {mul} = require('../mul.js');\ntest('mul', () => assert.equal(mul(2, 3), 6));\n"},
+                 "a doc": {"README.md": "# calc\n\nMore.\n", **change(FIXED)}}
+        for name, files in cases.items():
+            with self.subTest(name):
+                self.assertPreserved(self.verified(self.project(base, files)))
+
+    def test_r11_a_product_module_added_beside_a_subdirectory_runners_optional_require_enters(self):
+        project = self.project({**seed({"test": "node scripts/run.js"}),
+                                "scripts/run.js": "try { require('./config'); } catch (e) {}\n"
+                                                  "require('child_process').execSync('node --test test/calc.test.js', {stdio: 'inherit'});\n"},
+                               change("const {times} = require('./config.js');\n" + FIXED,
+                                      **{"config.js": "exports.times = 1;\n"}))
+        self.assertPreserved(self.verified(project))
+
+    def test_r12_a_regex_literal_in_a_runner_cannot_hide_its_selector(self):
+        for line in ("const cwd = process.cwd().replace(/\\/*$/, '');\n", "const skip = /can't/;\n",
+                     "const q = String(1).replace(/'/g, \"'\\\\''\");\n"):
+            with self.subTest(line=line):
+                project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                        "run-tests.js": line + runner("./scripts/select-tests.js", inline=True),
+                                        "scripts/select-tests.js": BOTH}, change(**{"scripts/select-tests.js": NARROW}))
+                self.assertNarrowed(self.verified(project))
+
+    def test_r13_a_command_word_is_the_file_node_runs(self):
+        cases = {
+            "without its extension": ({"test": "node scripts/run"},
+                                      {"scripts/run.js": runner("./select-tests.js", inline=True), "scripts/select-tests.js": BOTH},
+                                      {"scripts/select-tests.js": NARROW}),
+            "an option joined with =": ({"test": "node --require=./setup.js --test"}, {"setup.js": "// nothing yet\n"},
+                                        {"setup.js": "process.exit(0);\n"}),
+            "an environment assignment": ({"test": "NODE_OPTIONS='--require ./setup.js' node --test"},
+                                          {"setup.js": "// nothing yet\n"}, {"setup.js": "process.exit(0);\n"}),
+        }
+        for name, (scripts, files, narrowed) in cases.items():
+            with self.subTest(name):
+                project = self.project({**seed(scripts), "test/other.test.js": OTHER_TEST, **files}, change(**narrowed))
+                self.assertNarrowed(self.verified(project))
+
+    def test_r14_inline_javascript_names_the_runner_it_requires(self):
+        runner_text = "require('child_process').execSync('node --test test/calc.test.js test/other.test.js', {stdio: 'inherit'});\n"
+        project = self.project({**seed({"test": "node -e \"require('./scripts/run-tests.js')\""}),
+                                "test/other.test.js": OTHER_TEST, "scripts/run-tests.js": runner_text},
+                               change(**{"scripts/run-tests.js": runner_text.replace("test/calc.test.js ", "")}))
+        self.assertNarrowed(self.verified(project))
+
+    def test_r15_a_subshell_runner_is_pinned(self):
+        runner_text = ("require('child_process').execSync('node --test test/calc.test.js test/other.test.js', "
+                       "{stdio: 'inherit', cwd: '..'});\n")
+        project = self.project({**seed({"test": "(cd lib && node run.js)"}), "test/other.test.js": OTHER_TEST,
+                                "lib/run.js": runner_text},
+                               change(**{"lib/run.js": runner_text.replace("test/calc.test.js ", "")}))
+        self.assertNarrowed(self.verified(project))
+
+    def test_r17_manifest_fields_cannot_redirect_a_runner_past_the_closure(self):
+        optional = ("let list = ['test/calc.test.js', 'test/other.test.js'];\n"
+                    "try { list = require('./selection'); } catch (error) {}\n"
+                    "require('child_process').execSync('node --test ' + list.join(' '), {stdio: 'inherit'});\n")
+        with self.subTest("an added folder package"):
+            project = self.project({**seed({"test": "node run-tests.js"}), "test/other.test.js": OTHER_TEST,
+                                    "run-tests.js": optional},
+                                   change(**{"selection/package.json": '{"main": "narrow.js"}\n', "selection/narrow.js": NARROW}))
+            self.assertNarrowed(self.verified(project))
+        with self.subTest("a changed main"):
+            runner_text = 'require("child_process").execSync("node --test " + require("..").join(" "), {stdio: "inherit"});\n'
+            project = self.project({**seed({"test": "node scripts/run-tests.js"}, main="select-tests.js"),
+                                    "test/other.test.js": OTHER_TEST, "scripts/run-tests.js": runner_text,
+                                    "select-tests.js": BOTH},
+                                   change(**{"package.json": manifest({"test": "node scripts/run-tests.js"}, main="narrow.js"),
+                                             "narrow.js": NARROW}))
+            self.assertNarrowed(self.verified(project))
 
 
 if __name__ == "__main__":

@@ -797,9 +797,11 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual('npm test --silent', result['commands']['suite'], result)
         self.assertEqual(['test/feature.test.js::mul'], result['fail_to_pass'], result)
         self.assertEqual(verify.FAIL, result['verdict'], result)
-        self.assertEqual(['The base suite definition fails against the candidate code: the candidate '
-                          'changed which tests the suite runs, so tests the base ran no longer pass'],
-                         result['failures'], result)
+        self.assertEqual(1, len(result['failures']), result)
+        self.assertTrue(result['failures'][0].startswith(
+            'The base suite definition fails against the candidate code: the candidate '
+            'changed which tests the suite runs, so tests the base ran no longer pass'), result)
+        self.assertIn('(the run kept package.json as the base has them)', result['failures'][0])  # #652
         self.assertEqual(1, result['checks']['suite_base_definition_on_candidate']['exit_code'], result)
 
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')

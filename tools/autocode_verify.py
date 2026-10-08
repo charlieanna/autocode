@@ -1342,10 +1342,17 @@ def _run_suite_base_definition(framework, suite_command, workspace, base, change
     except (OSError, RuntimeError, ValueError) as error:
         return {"run": None, "boundary": f"the effective base could not be read ({error})"}
     plan = suite_definition.plan(workspace, changes, found, is_test=is_test_path)
+    # The changed paths the extra run keeps as the base has them, named when its verdict needs them.
+    held = sorted(path for path in changes if path in found.pinned or suite_definition.is_definition_file(path))
+    if plan["blocked"]:
+        # A file or link where a folder holding a pinned path was cannot be placed without losing that path.
+        return {"run": None, "held": held, "boundary": "the candidate put " + ", ".join(
+            f"{path} where the folder holding {kept} was" for path, kept in plan["blocked"][:3])
+            + ", which the base suite definition keeps"}
     if found.boundary and plan["unclassified"]:
         # Without the runner closure only a change to tests, product code or definition files can
         # be placed; anything else may be a selector the base definition reads (#652).
-        return {"run": None, "boundary": found.boundary + "; the candidate changed "
+        return {"run": None, "held": held, "boundary": found.boundary + "; the candidate changed "
                 + ", ".join(plan["unclassified"][:5]) + ", which is neither a test, product code the base "
                 "tests import nor a suite definition file"}
     try:
@@ -1364,7 +1371,7 @@ def _run_suite_base_definition(framework, suite_command, workspace, base, change
     finally:
         shutil.rmtree(holder, ignore_errors=True)
     checks["suite_base_definition_on_candidate"] = receipt
-    return {"run": receipt, "boundary": ""}
+    return {"run": receipt, "boundary": "", "held": held}
 
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
@@ -1528,8 +1535,10 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             if (comparable is not None and comparable.get("health") in ("passing", "failing", "failing_tests")
                     and not allow_empty_base and not fail
                     and command_receipt.completed(on_candidate) and not on_candidate["timed_out"]
-                    and on_candidate["exit_code"] == 0 and on_candidate.get("results") is None
-                    and not on_candidate.get("results_expected")):
+                    and on_candidate["exit_code"] == 0
+                    and not (on_candidate.get("results_expected") and on_candidate.get("results") is None)
+                    and (on_candidate.get("results") is None
+                         or ((comparable.get("receipt") or {}).get("results") is None))):
                 base_definition = _run_suite_base_definition(
                     framework, commands["suite"], workspace, base, changes, run_dir, checks,
                     timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch,
@@ -1888,7 +1897,8 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             unverified.append("The base suite definition could not be established (" + boundary
                               + "); preservation of existing behavior is unproven")
         elif definition_run is not None:
-            _judge_base_definition(definition_run, base_suite, fail, unverified, notes)
+            _judge_base_definition(definition_run, base_suite, fail, unverified, notes,
+                                   held=(base_definition or {}).get("held") or ())
         return
     if base_suite is None:
         unverified.append("The project suite fails on the candidate and there is no base run to compare with")
@@ -1899,13 +1909,15 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
                           "so new failures cannot be ruled out (narrow it with --test-command)")
 
 
-def _judge_base_definition(run, base_suite, fail, unverified, notes):
+def _judge_base_definition(run, base_suite, fail, unverified, notes, *, held=()):
     """Judge the base suite definition's run over the candidate code (#587, #652).
 
     When it and the base run both name their tests, they are compared as an unchanged suite is:
     nothing that passed on base may fail or go missing. Otherwise its exit code decides, and a
     failure is a narrowed suite only when the base suite passed; when the base suite already
-    failed, a new failure cannot be told from an old one."""
+    failed, a new failure cannot be told from an old one. ``held`` names the changed paths the
+    run kept as the base has them, so a failure says what a legitimate change must split out."""
+    kept = (" (the run kept " + ", ".join(list(held)[:5]) + " as the base has them)") if held else ""
     if run["timed_out"]:
         unverified.append("The base suite definition timed out over the candidate code; "
                           "preservation of existing behavior is unproven")
@@ -1930,11 +1942,11 @@ def _judge_base_definition(run, base_suite, fail, unverified, notes):
         return
     if (base_suite or {}).get("health") == "passing":
         fail.append("The base suite definition fails against the candidate code: the candidate "
-                    "changed which tests the suite runs, so tests the base ran no longer pass")
+                    "changed which tests the suite runs, so tests the base ran no longer pass" + kept)
     else:
         unverified.append("The base suite definition fails against the candidate code and the base suite "
                           "did not pass either, so new failures cannot be ruled out; preservation of "
-                          "existing behavior is unproven")
+                          "existing behavior is unproven" + kept)
 
 
 def feedback(result, *, limit=3000) -> str:

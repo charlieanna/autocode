@@ -54,6 +54,54 @@ the candidate's added tests, which is the only check that an added test does not
 end an in-process runner early with exit 0 or remove the old tests. The control
 case in the test file shows that break.
 
+## Review of the port (#652, second round)
+
+An adversarial review of the port (six finder lenses, a skeptic reproducing each finding
+with real npm, Yarn 1 and pnpm) found eighteen more wrong verdicts, thirteen of them a
+false PASS. Each is a test named `test_r*` in `tests/test_base_definition_proof.py` or a
+unit test in `tests/test_suite_definition.py`, and they fall into seven causes:
+
+- **The scanner had no regex literals, and a quote could span lines.** `/don't/` or
+  `/\/*$/` before a `require` opened a phantom string or comment that swallowed it. It now
+  reads regex literals (a slash after anything but a value starts one), ends a quoted
+  string at its line, and refuses text Node would refuse (an open string, comment, regex or
+  template) as a boundary instead of reading nothing.
+- **Shell words were split by `shlex.split`.** `(cd lib && node run.js)` and
+  `node a.js;node b.js` glued operators to words; `node scripts/run` was pinned as written
+  while Node ran `scripts/run.js`; `--require=./setup.js`, `NODE_OPTIONS='--require ./x'`
+  and `node -e "require('./x')"` were opaque words. Words are now tokenised with their
+  operators and parentheses, a subshell restores its directory, a command word is completed
+  as Node completes it, assignment and option values are read as command lines, inline
+  JavaScript is scanned, and a variable, glob or substitution is a boundary.
+- **Resolution ignored links and manifests.** A test or runner that is a link, a literal
+  through a linked folder, a `#` import, a self-reference and a folder's `main` all resolved
+  past the closure, and an added `<folder>/package.json` could fill an optional require.
+  Paths now resolve through the base's links, and through its `imports`, `exports` and
+  `main`; the manifest fields a pinned file resolves through stay the base's, and a folder's
+  manifest is pinned absent with the folder. A require literal resolves from its file's
+  folder only, so a subdirectory runner's optional require no longer pins the same name at
+  the root.
+- **A folder holding pinned files could be replaced.** A link or file at `scripts/` made
+  the overlay remove the base's `scripts/select-tests.js`. Such a change is now
+  unplaceable: the proof is UNVERIFIED and names the folder.
+- **The definition-file list missed runners and transpilers.** Playwright, Cypress,
+  WebdriverIO, web-test-runner and Jasmine configuration select tests; Babel, TypeScript
+  and SWC configuration rewrite them, and `babel` in package.json was a kept field. All
+  are definition files now, and a failure names the changed files the run kept as the base
+  has them, so a legitimate change that needs new compile settings knows what to split out.
+- **A selector the base tests also import was the candidate's.** Product code is never
+  pinned, so a file both imported by a test and read by the runner for its test list went
+  in as the candidate's. A runner may still load product code in-process (#587 T16); a
+  product file reached inside an exec argument, or at all when an exec argument is
+  computed, is a conflict neither side can place, and the proof is UNVERIFIED.
+- **Every script bound the closure, and the trigger skipped candidate-only results.** A
+  `start` script reaching an untested module refused every change that added a module or
+  touched a README. Only the suite command, the package scripts it runs (with their
+  pre/post hooks and the scripts they chain, in every workspace package) seed the closure;
+  documentation and image files need no closure. A candidate whose own run reported
+  per-test results through a reporter the base never used skipped the extra run; it now
+  runs whenever the base run has none.
+
 **Out of scope (G8):** a selector reached only through a shell script
 (`node --test $(node list.js)`) or a data file a runner reads with `fs`. The
 closure follows import sites only, so narrowing such a selector to an existing

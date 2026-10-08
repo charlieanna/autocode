@@ -490,18 +490,28 @@ own definition, so a passing exit code alone cannot show that the old tests
 still ran. The runner therefore also runs the base revision's suite definition
 over the fix's product code, in a temporary folder outside the checkout. That
 definition is the base's `package.json` scripts and other non-loading fields,
-its package-manager, task-runner and test-runner configuration (`.npmrc`,
-`.yarnrc*`, `.pnpmfile.*`, `bunfig.toml`, `turbo.json`, `jest.config.*`,
-`.mocharc*` and the like, and whatever a link of that name points at), its
-tests, and the runner files its scripts reach. The fix keeps its own product
-code and the `package.json` fields that load it (`type`, `main`, `exports`,
-`imports`, dependencies). That run happens whenever both suites ran to the end
-and nothing has failed yet. If it fails, the proof is FAIL when the base suite
-passed and `UNVERIFIED` when the base suite already failed. When both runs name
-their tests, they are compared test by test. If a runner reaches its selector
-through a variable or a computed path, the proof is `UNVERIFIED` only when the
-fix also changed a file that is neither a test, product code the tests import
-nor a definition file ([#652 note](bugs/2026-10-07-base-definition-gaps.md)).
+its package-manager, task-runner, test-runner and transpiler configuration
+(`.npmrc`, `.yarnrc*`, `.pnpmfile.*`, `bunfig.toml`, `turbo.json`,
+`jest.config.*`, `playwright.config.*`, `.mocharc*`, `babel.config.*`,
+`tsconfig*.json` and the like, and whatever a link of that name points at), its
+tests (and what a linked test points at), and the runner files the suite
+command and the package scripts it runs reach: through shell words, inline
+`node -e` code, `require`/`import` literals, links, and the manifest fields a
+`#` import, a self-reference or a folder resolves through. The fix keeps its
+own product code and the `package.json` fields that load it (`type`, `main`,
+`exports`, `imports`, dependencies), except a field a pinned file resolves
+through. That run happens whenever the base suite ran to the end without
+per-test results, the fix's suite exited 0 and nothing has failed yet. If it
+fails, the proof is FAIL when the base suite passed and `UNVERIFIED` when the
+base suite already failed, and the reason names the changed files the run kept
+as the base has them. When both runs name their tests, they are compared test
+by test. If a runner reaches its selector through a variable, a computed path, a
+shell variable, glob or substitution, or a file the base tests also import, the
+proof is `UNVERIFIED` only when the fix also changed a file that is neither a
+test, product code the tests import, a definition file nor documentation. A
+file or link put where a folder holding part of the definition was is never
+placed: the proof is `UNVERIFIED` and names the folder
+([#652 note](bugs/2026-10-07-base-definition-gaps.md)).
 
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's
