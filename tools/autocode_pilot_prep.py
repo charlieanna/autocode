@@ -44,7 +44,7 @@ except ImportError:  # executed as a script, with tools/ on sys.path
     import autocode_verify as verify
 
 MODEL_FLAGS = ("--astra-model", "--terra-model", "--sol-model", "--completion-model",
-               "--glm-model", "--plan-reviewer-model")
+               "--glm-model", "--plan-reviewer-model", "--single-model")
 
 
 def parse_args(argv):

@@ -34,7 +34,7 @@ def _bare(model):
     return model.split('/', 1)[1] if isinstance(model, str) and model.startswith('openai/') else model
 
 
-def configured(strong_model=None, provider=None):
+def configured(strong_model=None, provider=None, single_model=None):
     """A new run's retry policy. Its checkers move to checker_model, so the strong model cannot be it.
 
     A configured tool may name its own stronger Builder and checker model ([builder_retry] in its
@@ -48,12 +48,18 @@ def configured(strong_model=None, provider=None):
         ('strong_model', 'strong_model'), ('checker_model', 'checker_model'),
         ('strong_reasoning_effort', 'strong_effort')) if name in declared}}
     config['strong_model'] = strong_model or config['strong_model']
+    if single_model:
+        # Single-model mode may escalate reasoning effort, but cannot switch
+        # to another model or checker route.
+        config['strong_model'] = single_model
+        config['checker_model'] = single_model
     offered = getattr(provider, 'LISTED_MODELS', None)
     if route_ladder.unserved(config['strong_model'], offered):
         if strong_model:
             raise ValueError(f'--builder-strong-model {strong_model} is not a {provider.NAME} model: {", ".join(offered)}')
         config['strong_model'] = None
-    if config['strong_model'] and _bare(config['strong_model']) == _bare(config['checker_model']):
+    if (not single_model and config['strong_model']
+            and _bare(config['strong_model']) == _bare(config['checker_model'])):
         raise ValueError(f"--builder-strong-model {config['strong_model']} is the model the checkers move to "
                          "when the Builder escalates, so the escalated work would be checked by its own model; "
                          "choose another model" + (", or another checker_model under [builder_retry] in the "

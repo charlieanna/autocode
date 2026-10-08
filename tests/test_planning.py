@@ -510,6 +510,34 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual('completion', planning.route_for(routed, 'astra_review'))
         self.assertEqual('completion', planning.route_for(routed, 'astra_checkpoint'))
 
+    def test_single_model_mode_routes_every_role_and_keeps_reasoning_overrides(self):
+        state = {"workspace": "/tmp/fixture", "iteration": 0}
+        args = self.configure_args(single_model="openai/gpt-6-sol", reasoning_effort="medium",
+                                   terra_reasoning_effort="low", sol_reasoning_effort="high",
+                                   plan_reviewer_reasoning_effort="xhigh")
+        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
+             patch.object(runner.opencode, "local_settings", return_value={"engine": "opencode"}):
+            settings = autocode_configure.configure(args, state, planning=planning, milestones=milestones,
+                                                    autopilot=autopilot)
+        self.assertTrue(settings["single_model_mode"])
+        self.assertEqual({"openai/gpt-6-sol"}, {route["model"] for route in settings["roles"].values()})
+        self.assertTrue(settings["builder_retry"]["enabled"])
+        self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["strong_model"])
+        self.assertEqual("openai/gpt-6-sol", settings["builder_retry"]["checker_model"])
+        self.assertEqual("low", settings["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("high", settings["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("xhigh", settings["roles"]["plan_reviewer"]["reasoning_effort"])
+
+    def test_single_model_mode_implies_codex_joint_planning(self):
+        state = {"workspace": "/tmp/fixture", "iteration": 0}
+        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT", "model": "local"}):
+            settings = autocode_configure.configure(
+                self.configure_args(engine="codex", single_model="gpt-5.6-sol"), state,
+                planning=planning, milestones=milestones, autopilot=autopilot)
+        self.assertTrue(settings["joint_planning"])
+        self.assertTrue(settings["single_model_mode"])
+        self.assertEqual({"gpt-5.6-sol"}, {route["model"] for route in settings["roles"].values()})
+
     def test_codex_engine_stays_single_cli_and_saved_non_joint_runs_do_not_switch(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
         codex_args = {"astra_model": "gpt-5.6-sol", "terra_model": "gpt-5.6-terra", "sol_model": "gpt-5.6-sol",

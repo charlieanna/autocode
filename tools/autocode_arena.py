@@ -161,7 +161,7 @@ def attempt(args, store: Store):
     options = tuple(args.option)
     # Workspace/run identity and operator actions belong to Arena, not forwarded flags.
     config = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
-    for name in ("engine", "provider", "astra-model", "terra-model", "sol-model", "glm-model",
+    for name in ("engine", "provider", "single-model", "astra-model", "terra-model", "sol-model", "glm-model",
                  "completion-model", "plan-reviewer-model", "test-command", "max-iterations"):
         config.add_argument("--" + name)
     config.add_argument("--joint-planning", action="store_true")

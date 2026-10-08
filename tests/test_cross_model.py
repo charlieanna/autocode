@@ -1,4 +1,4 @@
-"""Cross-model verification must hold before build/validate dispatch."""
+"""Cross-model verification defaults and the explicit single-model exception."""
 from __future__ import annotations
 
 import sys
@@ -112,6 +112,13 @@ class CrossModelTest(unittest.TestCase):
 
     def test_missing_roles_are_skipped(self):
         dispatch.enforce_cross_model_verification({"settings": {"roles": {}}})
+
+    def test_single_model_mode_allows_same_model_with_role_specific_effort(self):
+        state = roles(terra="zai-coding-plan/glm-5.3", sol="zai-coding-plan/glm-5.3",
+                      completion="zai-coding-plan/glm-5.3", glm="zai-coding-plan/glm-5.3",
+                      plan_reviewer="zai-coding-plan/glm-5.3")
+        state["settings"]["single_model_mode"] = True
+        dispatch.enforce_cross_model_verification(state)  # explicit single-subscription opt-in
 
     def test_run_role_is_an_unskippable_chokepoint(self):
         """Even if before_code_stage/dispatch are bypassed, run_role must pause."""
