@@ -838,6 +838,59 @@ class DriverAnswerTests(unittest.TestCase):
             self.assertEqual(self.QUOTA_NEED, self.driver.until_stopped()["needs"])
         self.call.assert_not_called()
 
+    def test_an_unanswered_question_returns_the_public_stop_without_submitting_the_batch(self):
+        for default in (None, "", "   ", "No default; user selection required."):
+            with self.subTest(default=default):
+                stopped = {"done": False, "status": "WAITING_FOR_USER", "needs": {
+                    "kind": "answer", "questions": [
+                        {"id": "Q1", "proposed_default": "Keep current behavior."},
+                        {"id": "Q2", "proposed_default": default,
+                         "options": ["Other", "Specify another result.", "Ask the user."]}]}}
+                with patch.object(self.driver, "view", return_value=stopped):
+                    self.assertIs(stopped, self.driver.until_stopped())
+                self.call.assert_not_called()
+                self.assertEqual([], self.driver.answers)
+
+    def test_an_unanswered_question_is_judged_against_the_expected_ending(self):
+        stopped = {"done": False, "status": "WAITING_FOR_USER", "needs": {
+            "kind": "answer", "questions": [{"id": "Q1", "proposed_default": "No default."}]}}
+        with patch.object(self.driver, "view", return_value=stopped):
+            final = self.driver.until_stopped()
+        accepted = verdict.OracleResult([oracle.Check("unchanged behavior", True)])
+        for expected in ("any", "stop"):
+            with self.subTest(expected=expected):
+                self.assertEqual(verdict.PASS, verdict.judge(final["status"], accepted, expected)[0])
+        self.assertEqual(verdict.HONEST_BLOCKER,
+                         verdict.judge(final["status"], accepted, "complete")[0])
+        rejected = verdict.OracleResult([oracle.Check("required behavior", False)])
+        self.assertEqual(verdict.HONEST_BLOCKER, verdict.judge(final["status"], rejected, "any")[0])
+        self.assertFalse(final["done"])
+        self.call.assert_not_called()
+
+    def test_an_explicit_answer_to_a_no_default_question_still_continues(self):
+        need = {"kind": "answer", "questions": [{"id": "Q1", "proposed_default": "No default."}]}
+        self.driver.explicit_answers = {"Q1": "The failing input is a CSV row containing None."}
+        with patch.object(self.driver, "view", side_effect=self.views(need, None)):
+            self.assertTrue(self.driver.until_stopped()["done"])
+        self.call.assert_called_once_with("answer", "--answer",
+                                          "Q1=The failing input is a CSV row containing None.", action=True)
+        self.assertTrue(self.driver.answers[0]["explicit"])
+
+    def test_genuine_answer_driver_errors_still_propagate(self):
+        stopped = {"done": False, "status": "WAITING_FOR_USER", "needs": {
+            "kind": "answer", "questions": [{"id": "Q1", "proposed_default": "Keep data."}]}}
+        with patch.object(self.driver, "view", return_value=stopped), \
+                patch.object(self.driver, "serve", side_effect=DriveError("answer CLI rejected the gate")), \
+                self.assertRaisesRegex(DriveError, "answer CLI rejected"):
+            self.driver.until_stopped()
+
+    def test_a_malformed_question_is_not_an_unanswered_product_stop(self):
+        stopped = {"done": False, "status": "WAITING_FOR_USER", "needs": {
+            "kind": "answer", "questions": [{"proposed_default": "No default."}]}}
+        with patch.object(self.driver, "view", return_value=stopped), self.assertRaises(KeyError):
+            self.driver.until_stopped()
+        self.call.assert_not_called()
+
     def test_explicit_answer_is_given_then_its_pause_resumed_once(self):
         driver = Driver(Path.cwd(), Path.cwd(), ["--sol-model", "gpt-5.6-sol"], {}, autocode=[], max_steps=5,
                         timeout_seconds=60, explicit_answers=(("route-sol", "gpt-6-luna"),))
