@@ -12,8 +12,8 @@ A name is requested (``requested``) when all of these hold:
 
 - It has the form of a Go test function (Test, then an upper-case letter, digit or underscore). TestMain
   is Go's hook for the test binary and TestXxx is Go's own placeholder; neither is a test to write. A
-  subtest path (TestCacheExpiry/expired) is requested as the user wrote it; declaring it, its test
-  function or another subtest of that function accounts for it (which subtest is not checked).
+  subtest path (TestCacheExpiry/expired) is requested as the user wrote it, a quoted one with its spaces
+  as the underscores Go runs it under ("TestA/empty input" is TestA/empty_input).
 - The user wrote it as a test to add (``named``), in their own words, as for the brief-literal check
   (autocode_requirement_cues.scan_texts): the task, brief feedback and the user's answers, never a
   delegated default or model-written text. It must come right after "test", "tests" or "func" (a
@@ -22,17 +22,22 @@ A name is requested (``requested``) when all of these hold:
   these tests:" then "- TestA: what it checks"). A name-first request such as "Add TestA, a real
   regression ... plus TestB and TestC" also names tests. A supplied func signature must take one
   pointer to T or qualifier.T and return nothing; a callable API such as TestConnection() error
-  names no test. Without a signature, func needs explicit test context ("the test func TestA"; "a func
-  named TestConnection" is production code). In a list each name may carry a description ("TestA
+  names no test. Without a signature, func needs test context: "test" or "tests" in its clause ("the
+  test func TestA"), or, unless a return value or a production file follows the name ("a func named
+  TestConnection that returns an error", "... to product.go"), "test", "tests", "regression" or a
+  *_test.go file in its sentence, or a lead-in naming tests above its list item. "A func named
+  TestConnection" alone is production code. In a list each name may carry a description ("TestA
   (empty input), TestB (one item)", or "TestA checks X, TestB checks Y; TestC ..."); the list ends at
   the sentence's end, at a description's first comma or semicolon that no name follows ("the test
   TestA, which must not break TestB"), and at a name inside a description ("TestA for the parser and
-  make sure TestServer, TestClient still pass"). A name further from the word, such as "the tests pass
+  make sure TestServer, TestClient still pass"; a file path such as TestData/golden.json is not a name
+  there). A name further from the word, such as "the tests pass
   on TestNet" or "a test for TestHelper misuse", asks for nothing. So does one in a clause that negates
   or gives an example ("do not name the test TestFixed", "like the test TestReadAll"), or one offered
   with an alternative ("a test TestA or similar"). A later message of the user's that says "instead of",
-  "rather than" or "not" right before a name withdraws it: a test function with its subtest paths, a
-  subtest path alone (so "TestA/empty and TestA/one, but not TestA/two" keeps the first two).
+  "rather than" or "not" right before a name withdraws it: a subtest path alone (so "TestA/empty and
+  TestA/one, but not TestA/two" keeps the first two), a test function with the paths of it that earlier
+  messages asked for ("Add the Go test TestA/empty instead of TestA" asks for TestA/empty).
 - The runner's regression proof will run Go tests: an explicit ``go test`` regression command, else the
   framework autocode_verify detects in the workspace, chosen as autocode_regression.prove chooses it.
   Elsewhere TestParser is a Python or Java class, not a test the proof reports.
@@ -49,12 +54,17 @@ Nothing is requested in a design-only job, or when a reproduced bug's diagnosis 
 cases are named after their own ids, autocode_test_cases.diagnosis_cases).
 
 The check (``problems``): each requested name is accounted for, either declared exactly, in the user's
-spelling, right after the test: or guard: mark of one criterion (a subtest, TestA/case, counts), or
-named by an ordinary criterion whose verification_method names that test and no other, for the Validator
-to check (a test the runner cannot run to a pass, such as one that skips without a database). A marked
+spelling, right after the test: or guard: mark of one criterion, or named by an ordinary criterion whose
+verification_method names that test and no other, for the Validator to check (a test the runner cannot
+run to a pass, such as one that skips without a database). A requested test function is accounted for by
+itself or any of its subtests (TestA/case); a requested subtest path by itself, a path under it or its
+whole test function, which runs every subtest it has, never by a sibling path, which the runner binds
+to that sibling's outcome only. A marked
 criterion that mentions, in its verification_method or its own text, a requested name no marked
 criterion declares, while declaring another identifier (or none the runner reads), is the prose alias of
-#498 (also when an ordinary criterion leaves that name to the Validator), and one that declares a
+#498 (also when an ordinary criterion leaves that name to the Validator; a criterion naming a subtest
+path is told that path, one naming only its function the first requested path under it), and one that
+declares a
 respelling (test_fixed_returns_two, which the Go matcher would bind to Test_fixed_returns_two) does not
 keep the requested name. Two criteria never declare the same requested test. Criteria without a
 requested name keep the default test_<criterion id>_... convention. The goal lifecycle calls ``check``
@@ -87,10 +97,15 @@ USER_EDIT = "user_cli_edit"
 
 # The words a requested name follows, and the words that may come between them ("test function TestA").
 CUES = frozenset({"test", "tests", "func"})
-# "func" names a test only with a test's signature or beside "test" (_func_test_request), so it does not let
-# "named"/"called" introduce one: "a func named TestConnection" is production code.
+# "func" names a test only with a test's signature or test context (_func_test_request), so when it is the
+# nearest cue it does not let "named"/"called" introduce one: "a func named TestConnection" is production code.
 FUNC = "func"
 NAMING = frozenset({"named", "called"})
+# Test context in the sentence of a "func TestA" without a signature, besides a *_test.go file.
+TEST_CONTEXT = frozenset({"test", "tests", "regression"})
+# Right after such a name (after "that" or "which"), these make it a production function.
+RETURNS = frozenset({"return", "returns", "returning"})
+TARGETS = frozenset({"in", "to", "into"})
 BETWEEN = frozenset({"function", "functions", "case", "cases"}) | NAMING
 # A clause with one of these before the cue negates the request or gives an example. "Don't forget" and
 # "not only" still ask; "I'd like" and "we would like" want.
@@ -108,7 +123,12 @@ BULLET = re.compile(r"\s*(?:[-*•+]|\d+[.)])\s+")
 _TOKEN = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_./-]*[A-Za-z0-9_])?|[^\sA-Za-z0-9_]")
 _CONTRACTION = re.compile(r"n['’]t\b", re.I)
 _ABBREVIATION = re.compile(r"\b([ei])\.([ge])\.", re.I)
-_TEST_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])(?:Test[A-Z0-9_][A-Za-z0-9_]*|test_[A-Za-z0-9_]+)")
+_TEST_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])(?:Test[A-Z0-9_][A-Za-z0-9_]*(?:/[A-Za-z0-9_.-]*[A-Za-z0-9_])*"
+                              r"|test_[A-Za-z0-9_]+)")
+# Go runs a subtest under its name with each space made an underscore: "TestA/empty input" is TestA/empty_input.
+_QUOTED_PATH = re.compile(r"([\"`“])(Test[A-Z0-9_][A-Za-z0-9_]*/[^\"`”\n]*)([\"`”])")
+# A path ending in a file extension (TestData/golden.json) names a file, not a subtest, inside a description.
+_FILE = re.compile(r"/[^/]*\.[A-Za-z]+$")
 _SKIPPED_DIRECTORIES = frozenset({"node_modules"})
 
 
@@ -179,7 +199,7 @@ def _past_description(tokens, k) -> int | None:
     semicolon that another name does not follow ("TestA, which must not break TestB"), and at a name inside
     the description ("TestA for the parser and make sure TestServer, TestClient still pass")."""
     while k < len(tokens) and tokens[k] not in SENTENCE_END - {":", ";"}:
-        if _test_name(tokens[k]):
+        if _test_name(tokens[k]) and not _FILE.search(tokens[k]):
             return None
         after = _separator(tokens, k)
         if after is not None:
@@ -251,7 +271,10 @@ def _cue(tokens, i) -> bool:
         k = _skip(tokens, i + 1, QUOTES)
         return (k < len(tokens) and bool(_test_name(tokens[k]))
                 and _apposition(tokens, _skip(tokens, k + 1, QUOTES)))
-    return word in CUES or (word in NAMING and any(w in CUES - {FUNC} for w in _clause(tokens, i, SENTENCE_END)))
+    if word in NAMING:
+        cues = [w for w in _clause(tokens, i, SENTENCE_END) if w in CUES]
+        return bool(cues) and cues[-1] != FUNC  # "a test for Fixed named TestA"; "a func named TestA" is func's
+    return word in CUES
 
 
 def _after_cue(tokens, i) -> int:
@@ -307,9 +330,38 @@ def _signature_end(tokens, k) -> int | None:
     return end + 1 if _test_parameter(tokens[k + 2:end]) else None
 
 
-def _func_test_request(tokens, k) -> bool:
+def _production(tokens, k) -> bool:
+    """Whether the words right after the func name at ``k`` make it a production function: a return value
+    ("TestConnection that returns an error") or a production file ("TestConnection to product.go")."""
+    j = _skip(tokens, k + 1, QUOTES | {"that", "which"})
+    word = _word(tokens[j]) if j < len(tokens) else ""
+    if word in RETURNS:
+        return True
+    j = _skip(tokens, j + 1, QUOTES)
+    target = _word(tokens[j]) if word in TARGETS and j < len(tokens) else ""
+    return target.endswith(".go") and not target.endswith("_test.go")
+
+
+def _func_test_context(tokens, k, listed) -> bool:
+    """Whether "func TestA" without a signature names a test: "test" or "tests" in its clause ("the test func
+    TestA"), or, unless the words after it make it production code, "test", "tests", "regression" or a
+    *_test.go file in its sentence ("Add a func named TestA in a_test.go"), or a lead-in naming tests above
+    its list item (``listed``)."""
+    if any(word in {"test", "tests"} for word in _clause(tokens, k, CLAUSE_END)):
+        return True
+    if _production(tokens, k):
+        return False
+    stops = SENTENCE_END - {":"}
+    end = k
+    while end < len(tokens) and tokens[end] not in stops:
+        end += 1
+    words = [_word(token) for token in tokens[_start(tokens, k, stops):end]]
+    return listed or any(word in TEST_CONTEXT or word.endswith("_test.go") for word in words)
+
+
+def _func_test_request(tokens, k, listed=False) -> bool:
     if tokens[k + 1:k + 2] != ["("]:
-        return any(word in {"test", "tests"} for word in _clause(tokens, k, CLAUSE_END))
+        return _func_test_context(tokens, k, listed)
     try:
         end = tokens.index(")", k + 2)
     except ValueError:
@@ -324,13 +376,14 @@ def _func_test_request(tokens, k) -> bool:
             _word(tokens[after]) in {"and", "but", "then", "for", "to", "that", "which", "as", "in", "with"})
 
 
-def _line_events(tokens) -> list[tuple[int, str, bool]]:
-    """(position, name, requested) for each name the line asks for or withdraws."""
+def _line_events(tokens, listed=False) -> list[tuple[int, str, bool]]:
+    """(position, name, requested) for each name the line asks for or withdraws; ``listed`` when the line is an
+    item under a lead-in that names tests."""
     events = [(k, token, False) for k, token in enumerate(tokens) if _test_name(token) and _withdrawn(tokens, k)]
     for i in range(len(tokens)):
         if _cue(tokens, i) and not _qualified(tokens, i):
             events += [(k, name, True) for k, name in _names(tokens, _after_cue(tokens, i))
-                       if _word(tokens[i]) != FUNC or _func_test_request(tokens, k)]
+                       if _word(tokens[i]) != FUNC or _func_test_request(tokens, k, listed)]
     return sorted(set(events))
 
 
@@ -366,6 +419,7 @@ def _lines(text: str) -> list[tuple[bool, str]]:
 def _events(text: str) -> list[tuple[str, bool]]:
     """(name, requested) in the order ``text`` asks for or withdraws each name."""
     text = _ABBREVIATION.sub(lambda match: match[1] + match[2], _CONTRACTION.sub(" not", text or ""))
+    text = _QUOTED_PATH.sub(lambda match: match[1] + re.sub(r"\s", "_", match[2]) + match[3], text)
     events, listing, listed = [], False, False
     for item, line in _lines(text):
         if not line:
@@ -378,7 +432,7 @@ def _events(text: str) -> list[tuple[str, bool]]:
             listed = listed or bool(names)
         elif not item:
             listing = listed = False
-        events += [(name, wanted) for _, name, wanted in _line_events(tokens)]
+        events += [(name, wanted) for _, name, wanted in _line_events(tokens, item and listing)]
         if not item and tokens[-1:] == [":"] and _leads_in(tokens):
             listing, listed = True, False
     return events
@@ -386,17 +440,20 @@ def _events(text: str) -> list[tuple[str, bool]]:
 
 def named(texts) -> list[str]:
     """Go test names ``texts`` ask for as tests (a subtest path as written), in order, without repeats. A later
-    withdrawal removes one: a test function's withdrawal removes its subtest paths too, and a subtest path's
-    withdrawal removes that path only ("not TestA/two" leaves TestA/empty)."""
+    withdrawal removes one: a subtest path's withdrawal that path only ("not TestA/two" leaves TestA/empty), a
+    test function's the function and the paths of it that earlier texts asked for ("Add the Go test TestA/empty
+    instead of TestA" narrows the request to TestA/empty)."""
     order, wanted = [], {}
     for text in texts:
+        earlier = set(order)
         for name, request in _events(text):
             if request:
                 if name not in order:
                     order.append(name)
                 wanted[name] = True
             else:
-                wanted.update((listed, False) for listed in order if name in (listed, _function(listed)))
+                wanted.update((listed, False) for listed in order
+                              if listed == name or (listed in earlier and _function(listed) == name))
     return [name for name in order if wanted[name]]
 
 
@@ -480,8 +537,14 @@ def _criteria(body):
 
 
 def _declares(declared: str | None, name: str) -> bool:
-    """Whether a criterion declaring ``declared`` is proven by the test function of ``name`` (or a subtest)."""
-    return bool(declared) and _function(declared) == _function(name)
+    """Whether a criterion declaring ``declared`` proves the requested ``name``: a test function by itself or
+    any of its subtests; a subtest path by itself, a path under it, or its whole test function, which runs
+    every subtest it has. A sibling path does not: the runner binds it to that sibling's outcome only."""
+    if not declared:
+        return False
+    if "/" not in name:
+        return _function(declared) == name
+    return declared in (name, _function(name)) or declared.startswith(name + "/")
 
 
 def _respells(declared: str | None, name: str) -> bool:
@@ -491,9 +554,21 @@ def _respells(declared: str | None, name: str) -> bool:
         test_cases.match_cases([{"id": "case", "test_name": function}], [name], framework="go")["case"])
 
 
-def _mentions(text: str, name: str) -> bool:
-    """Whether ``text`` mentions the test function of ``name`` (alone or in a subtest path)."""
-    return bool(re.search(rf"(?<![A-Za-z0-9_]){re.escape(_function(name))}(?![A-Za-z0-9_])", text))
+def _mentions(text: str, name: str, *, exact=False) -> bool:
+    """Whether ``text`` mentions ``name``: a test function alone or in any of its subtest paths; a subtest path
+    itself or a path under it, or (unless ``exact``) its test function alone ("resolves to TestA"), never a
+    sibling path."""
+    pattern = re.escape(name) + "(?![A-Za-z0-9_])"
+    if "/" in name and not exact:
+        pattern = f"(?:{pattern}|{re.escape(_function(name))}(?![A-Za-z0-9_/]))"
+    return bool(re.search("(?<![A-Za-z0-9_])" + pattern, text))
+
+
+def _left_to_validator(method: str, name: str) -> bool:
+    """Whether an ordinary criterion's verification_method names the requested test (as ``_declares`` reads
+    a declaration) and no other test function."""
+    tests = _TEST_IDENTIFIER.findall(method)
+    return {_function(test) for test in tests} == {_function(name)} and any(_declares(test, name) for test in tests)
 
 
 def _accounted(body, names: list[str]) -> list[str]:
@@ -502,8 +577,7 @@ def _accounted(body, names: list[str]) -> list[str]:
     rows = list(_criteria(body))
     return [name for name in names
             if any(found and _declares(declared, name) for _, found, _, declared, _ in rows)
-            or any(not found and set(_TEST_IDENTIFIER.findall(rest)) == {_function(name)}
-                   for _, found, rest, _, _ in rows)]
+            or any(not found and _left_to_validator(rest, name) for _, found, rest, _, _ in rows)]
 
 
 def problems(body, names: list[str]) -> list[str]:
@@ -530,16 +604,18 @@ def problems(body, names: list[str]) -> list[str]:
         declares = declared or ("no test name the runner reads (a name stands alone after the mark, or is followed "
                                 "by \" — \" or a parenthesis)")
         told = set()  # one requested path per test function on a criterion, which can declare only one
-        for name in names:
+        both = rest + "\n" + text
+        # A path the criterion names itself comes before one it reaches only through the function's name.
+        for name in sorted(names, key=lambda name: not _mentions(both, name, exact=True)):
             if name in declared_names or name in reported or _function(name) in told:
                 continue
             if _respells(declared, name):
                 errors.append(f"{criterion} declares {declared}, a respelling of {name}; keep the requested "
                               f"spelling (write \"{found} {name}\")")
-            elif _mentions(rest + "\n" + text, name) and name in accounted:
+            elif _mentions(both, name) and name in accounted:
                 errors.append(f"{criterion} declares {declares} but refers to {name}, which only an ordinary "
                               f"criterion leaves to the Validator (write \"{found} {name}\", or drop the reference)")
-            elif _mentions(rest + "\n" + text, name):
+            elif _mentions(both, name):
                 errors.append(f"{criterion} declares {declares} but refers to {name} (write \"{found} {name}\")")
             else:
                 continue

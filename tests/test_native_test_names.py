@@ -168,13 +168,31 @@ class NamedTests(unittest.TestCase):
                 self.assertEqual([], native.named([text]))
 
     def test_a_func_named_or_called_like_a_test_is_production_code(self):
-        # #651 B: "func" lets "named" or "called" introduce a test only beside "test"; a production function
-        # whose name starts with Test is not a test to write.
+        # #651 B: "a func named TestConnection" is a test to write only with test context in its sentence; a
+        # production function whose name starts with Test is not.
         for text in ["Add a func named TestConnection that returns an error.",
-                     "Add a func called TestConnection to product.go."]:
+                     "Add a func called TestConnection to product.go.",
+                     "Add a func named TestConnection.",
+                     # Review of #651: test context elsewhere in the sentence does not outweigh a return value.
+                     "To test retries, add a func named TestConnection that returns an error.",
+                     "For the tests, add a func called TestServer that returns a fake server.",
+                     "For the integration tests, add a func called TestConnection in product.go."]:
             with self.subTest(text=text):
                 self.assertEqual([], native.named([text]))
-        self.assertEqual(["TestA"], native.named(["Add the test func named TestA."]))
+        self.assertEqual(["TestConnectionFails"],
+                         native.named(["Add a func named TestConnection; add the test TestConnectionFails."]))
+        # Review of #651: the fix for B dropped these, which name a test by its file, a later "test" or a lead-in.
+        for text, names in [("Add the test func named TestA.", ["TestA"]),
+                            ("Add a func named TestParse in parser_test.go.", ["TestParse"]),
+                            ("In parser_test.go, add a func named TestParseEmpty.", ["TestParseEmpty"]),
+                            ("Add a func called TestRetry, a regression test for the retry bug.", ["TestRetry"]),
+                            ("Write a func called TestParseEmpty for the test suite.", ["TestParseEmpty"]),
+                            ("Write a func named TestA that tests the parser.", ["TestA"]),
+                            ("Add a Go test: a func named TestA.", ["TestA"]),
+                            ("Add these Go tests:\n- a func named TestA that checks X\n- a func named TestB that checks Y",
+                             ["TestA", "TestB"])]:
+            with self.subTest(text=text):
+                self.assertEqual(names, native.named([text]))
 
     def test_a_subtest_path_is_requested_as_the_user_wrote_it(self):
         # #651 A: a subtest path asked for nothing and ended its list, so the names after it were lost too.
@@ -185,6 +203,13 @@ class NamedTests(unittest.TestCase):
         # Leaving out one subtest withdraws neither its function nor the other subtests.
         self.assertEqual(["TestA/empty", "TestA/one"],
                          native.named(["Add the tests TestA/empty and TestA/one, but not TestA/two."]))
+        # Go runs a quoted subtest name's spaces as underscores; TestMain is never a test, nor its paths.
+        self.assertEqual(["TestCacheExpiry/expired_value"],
+                         native.named(['Add the Go test "TestCacheExpiry/expired value".']))
+        self.assertEqual([], native.named(["Add tests TestMain/x."]))
+        # Review of #651: a file path in a test's description is not a name, so it does not end the list.
+        self.assertEqual(["TestA", "TestB"],
+                         native.named(["Add the Go tests TestA checks parsing of TestData/golden.json, TestB checks Y."]))
 
     def test_a_later_user_message_can_withdraw_a_name(self):
         retract = "Changed my mind: use the default test_<id> naming instead of TestFixedReturnsTwo."
@@ -201,6 +226,10 @@ class NamedTests(unittest.TestCase):
                          native.named([ask, "Use the default test_<id> naming rather than TestCacheExpiry."]))
         self.assertEqual(["TestCacheExpiry/expired", "TestCacheExpiry/fresh", "TestCacheRetainsFresh"],
                          native.named([ask, path, "Please keep the test TestCacheExpiry/expired after all."]))
+        # Review of #651: narrowing a request to one subtest withdraws the function, not the path asked for.
+        narrowed = "Add the Go test TestCacheExpiry/expired instead of TestCacheExpiry."
+        self.assertEqual(["TestCacheExpiry/expired"], native.named([narrowed]))
+        self.assertEqual(["TestCacheExpiry/expired"], native.named(["Add the Go test TestCacheExpiry.", narrowed]))
 
 
 class ExistingGoTests(unittest.TestCase):
@@ -314,6 +343,61 @@ class ProblemsTests(unittest.TestCase):
         twice = plan(["test: TestCacheExpiry", "test: TestCacheExpiry", CONVENTION[2]])
         self.assertEqual(["AC1 and AC2 both declare TestCacheExpiry; each criterion needs its own test"],
                          native.problems(twice, paths))
+
+    def test_a_sibling_subtest_path_does_not_account_for_a_requested_one(self):
+        # Review of #651: declaring one subtest of a function accounted for every requested path of it, so the
+        # #498 prose alias passed for the second path and the runner bound that criterion to nothing.
+        names = ["TestCacheExpiry/expired", "TestCacheExpiry/fresh", "TestCacheRetainsFresh"]
+        sibling = plan(["test: TestCacheExpiry/expired", "test: test_ac2_cache_fresh — resolves to TestCacheExpiry/fresh",
+                        "test: TestCacheRetainsFresh"])
+        self.assertEqual(['AC2 declares test_ac2_cache_fresh but refers to TestCacheExpiry/fresh '
+                          '(write "test: TestCacheExpiry/fresh")'], native.problems(sibling, names))
+        ran = ["product::TestCacheExpiry/expired", "product::TestCacheExpiry/fresh", "product::TestCacheRetainsFresh"]
+        self.assertEqual([], test_cases.match_cases(test_cases.plan_cases(sibling), ran, framework="go")["AC2"])
+        # A withdrawn path, or any other sibling, accounts for nothing and is no respelling of the requested one.
+        self.assertEqual(["no criterion declares TestA/empty, TestA/one"],
+                         native.problems(plan(["test: TestA/two"] + CONVENTION[1:]), ["TestA/empty", "TestA/one"]))
+        self.assertEqual(["no criterion declares TestCacheExpiry/expired"],
+                         native.problems(plan(["test: TestCacheExpiry/other"] + CONVENTION[1:]), names[:1]))
+        # The path itself, a path under it, or its whole test function accounts for it.
+        for declared in ("TestCacheExpiry/expired", "TestCacheExpiry/expired/nil", "TestCacheExpiry"):
+            with self.subTest(declared=declared):
+                self.assertEqual([], native.problems(plan([f"test: {declared}"] + CONVENTION[1:]), names[:1]))
+        self.assertEqual([], native.problems(plan(["test: TestCacheExpiry/expired_value"] + CONVENTION[1:]),
+                                             native.named(['Add the Go test "TestCacheExpiry/expired value".'])))
+
+    def test_a_refusal_names_the_subtest_path_the_criterion_refers_to(self):
+        # Review of #651: a criterion was matched by the test function alone, so it was told another path.
+        names = ["TestFixed/empty", "TestFixed/one"]
+        swapped = plan(["test: test_ac1_x — resolves to TestFixed/one", "test: test_ac2_y — resolves to TestFixed/empty",
+                        CONVENTION[2]])
+        self.assertEqual(['AC1 declares test_ac1_x but refers to TestFixed/one (write "test: TestFixed/one")',
+                          'AC2 declares test_ac2_y but refers to TestFixed/empty (write "test: TestFixed/empty")'],
+                         native.problems(swapped, names))
+        other = plan(["test: test_ac1_x", "guard: TestCacheRetainsFresh — unlike the existing TestCacheExpiry/fresh case",
+                      CONVENTION[2]])
+        self.assertEqual(["no criterion declares TestCacheExpiry/expired"],
+                         native.problems(other, ["TestCacheExpiry/expired", "TestCacheRetainsFresh"]))
+        # A path the criterion names comes first, though it also names the function.
+        both = plan(["test: test_ac1_x — resolves to TestFixed/one in the TestFixed table"] + CONVENTION[1:])
+        self.assertEqual(['AC1 declares test_ac1_x but refers to TestFixed/one (write "test: TestFixed/one")',
+                          "no criterion declares TestFixed/empty"], native.problems(both, names))
+        # Prose naming the whole function still refers to a path requested under it, one per criterion.
+        function = plan(["test: test_ac1_x — resolves to TestCacheExpiry"] + CONVENTION[1:])
+        self.assertEqual(['AC1 declares test_ac1_x but refers to TestCacheExpiry/expired '
+                          '(write "test: TestCacheExpiry/expired")'], native.problems(function, ["TestCacheExpiry/expired"]))
+        self.assertEqual(['AC1 declares test_ac1_x but refers to TestCacheExpiry/expired '
+                          '(write "test: TestCacheExpiry/expired")', "no criterion declares TestCacheExpiry/fresh"],
+                         native.problems(function, ["TestCacheExpiry/expired", "TestCacheExpiry/fresh"]))
+
+    def test_the_validator_route_for_a_subtest_path_names_it_or_its_function(self):
+        names = ["TestPostgres/round_trip"]
+        for method in ("The Validator checks that TestPostgres skips without a database",
+                       "The Validator checks that TestPostgres/round_trip skips without a database"):
+            with self.subTest(method=method):
+                self.assertEqual([], native.problems(plan([method] + CONVENTION[1:]), names))
+        sibling = plan(["The Validator checks that TestPostgres/delete skips without a database"] + CONVENTION[1:])
+        self.assertEqual(["no criterion declares TestPostgres/round_trip"], native.problems(sibling, names))
 
     def test_criteria_without_a_requested_name_keep_the_default_convention(self):
         body = plan(CORRECTED)
@@ -484,6 +568,22 @@ class DraftValidationTests(unittest.TestCase):
                                 ready=True)
         # Subtest names live in strings: one under a test the project already declares asks for nothing.
         self.assertEqual([], native.requested(self.state(task="Add the Go test TestExistingIsSeven/after_fix.")))
+        # Review of #651: another subtest of the function does not license the alias for a requested path.
+        task = "Add the Go tests TestCacheExpiry/expired, TestCacheExpiry/fresh and TestCacheRetainsFresh."
+        with self.assertRaisesRegex(ValueError, r'AC2 declares test_ac2_cache_fresh but refers to TestCacheExpiry/fresh'):
+            lifecycle.validate_body(self.state(task=task), plan(
+                ["test: TestCacheExpiry/expired", "test: test_ac2_cache_fresh — resolves to TestCacheExpiry/fresh",
+                 "test: TestCacheRetainsFresh"]), ready=True)
+        lifecycle.validate_body(self.state(task=task), plan(
+            ["test: TestCacheExpiry/expired", "test: TestCacheExpiry/fresh", "test: TestCacheRetainsFresh"]), ready=True)
+
+    def test_a_func_named_in_a_test_file_cannot_be_aliased(self):
+        # Review of #651: "a func named TestParse in parser_test.go" requested nothing, so the alias passed again.
+        task = "Add a func named TestParseEmpty in product_test.go."
+        self.assertEqual(["TestParseEmpty"], native.requested(self.state(task=task)))
+        with self.assertRaisesRegex(ValueError, r"AC1 declares test_ac1_parse_empty but refers to TestParseEmpty"):
+            lifecycle.validate_body(self.state(task=task), plan(
+                ["test: test_ac1_parse_empty — resolves to TestParseEmpty"] + CONVENTION[1:]), ready=True)
 
     def test_a_described_list_cannot_alias_its_later_names(self):
         task = ("Fix Fixed in product.go to return 2 instead of 0.\n\nAdd these native Go tests in product_test.go:\n"
