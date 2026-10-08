@@ -16,7 +16,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human
+from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human, CODEX_DEFAULT_MODELS
+from dashboard_setup import conversation_model_fields
 from dashboard_work_summary import project as work_summary, progress_from_status
 import autocode_verification_view as verification_view
 
@@ -412,11 +413,19 @@ def main():
             'description': 'Fixture-only matrix coverage; it is not task completion.',
             'groups_pointer': '/groups', 'completed_field': 'done', 'total_field': 'total'}]}), encoding='utf8')
         catalogue = root / 'fixture_models.py'
-        catalogue.write_text("print('openai/gpt-6-astra')\nprint('openai/gpt-5.6-terra')\nprint('openai/gpt-5.6-sol')\n", encoding='utf8')
+        routes = conversation_model_fields()['conversation_routes']
+        models = sorted({route['model'] for route in routes.values()} |
+                        {'openai/' + model for model in CODEX_DEFAULT_MODELS.values()})
+        catalogue.write_text('print(' + repr('\n'.join(models)) + ')\n', encoding='utf8')
 
         class FixtureConsole(Console):
             _model_action_count = 0
             _lifecycle_action_count = 0
+
+            def _probe_conversation_transport(self, executable):
+                # Supply only the external version-command evidence. Production
+                # transport classification and required-route admission still run.
+                return {'status': 'ok', 'data': {'version': '1.18.33'}}
 
             def _json_command(self, *args, **kwargs):
                 command = args[0]

@@ -24,6 +24,7 @@ let session = 'dashboard-m3-lifecycles-' + process.pid;
 let server;
 let scenarioReload = 0;
 let sessionHasPage = false;
+let creationCatalogueProfile;
 const browserSessionAudits = [];
 
 function browser(...args) {
@@ -77,6 +78,9 @@ function sourceSnapshot() {
     'tools/dashboard/dashboard.html',
     'tools/dashboard/dashboard.css',
     'tools/dashboard/dashboard_app.js',
+    'tools/dashboard/agent_console.py',
+    'tools/dashboard/dashboard_setup.py',
+    'tools/autocode_planner_routes.py',
     'tools/dashboard/tests/browser_readiness.js',
     'tools/dashboard/tests/test_browser_readiness.js',
     'tools/dashboard/tests/test_m3_lifecycle_browser_ui.js',
@@ -215,8 +219,13 @@ function creationCatalogueSnapshot() {
   '}');
 }
 
+function creationCataloguePayload(payload) {
+  return {...creationCatalogueProfile, models: [], usable: false, error: null, loading: false,
+    ...payload, conversation_catalogue: payload};
+}
+
 function setCreationCatalogue(payload) {
-  data('()=>{syncModelOptions(' + JSON.stringify(payload) + ');document.querySelector("#create-submit-area").scrollIntoView({block:"center"});return true;}');
+  data('()=>{syncModelOptions(' + JSON.stringify(creationCataloguePayload(payload)) + ');document.querySelector("#create-submit-area").scrollIntoView({block:"center"});return true;}');
   browser('wait', '80');
   return creationCatalogueSnapshot();
 }
@@ -262,6 +271,17 @@ function creationCatalogueEvidence(snapshot) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const info = await fixtureInfo();
+    const catalogueResponse = await fetch(new URL('/api/models', info.base_url));
+    assert.equal(catalogueResponse.status, 200);
+    creationCatalogueProfile = await catalogueResponse.json();
+    assert.equal(creationCatalogueProfile.conversation_readiness.transport, 'available');
+    assert.equal(creationCatalogueProfile.conversation_readiness.version, '1.18.33');
+    assert.equal(creationCatalogueProfile.conversation_readiness.authentication, 'unknown');
+    assert.equal(creationCatalogueProfile.conversation_readiness.usable, true);
+    const creationModels = creationCatalogueProfile.conversation_catalogue.models;
+    for (const role of creationCatalogueProfile.conversation_required_roles) {
+      assert.ok(creationModels.includes(creationCatalogueProfile.conversation_routes[role].model), role + ' has a listed canonical default');
+    }
 
     // Supported replacement: the local state deliberately marks one saved
     // model unavailable without changing the fixture's persisted saved record.
@@ -423,7 +443,7 @@ function creationCatalogueEvidence(snapshot) {
     // controls remain closed here, so hidden DOM text cannot satisfy this test.
     for(const viewport of [{name:'desktop',width:1440,height:1024},{name:'tablet',width:1024,height:768},{name:'mobile',width:390,height:844}]){
       browser('set', 'viewport', String(viewport.width), String(viewport.height));browser('wait', '150');
-      data('()=>{showNewTask();syncModelOptions({usable:true,models:["openai/gpt-5.6-terra"],reasoning_levels:{terra:["medium","high"]}});const select=document.querySelector("#terra-model");select.value="openai/gpt-5.6-terra";document.querySelector(".models-disclosure").open=false;return select.value;}');
+      data('()=>{showNewTask();syncModelOptions(' + JSON.stringify(creationCataloguePayload({usable:true,models:creationModels,reasoning_levels:{terra:['medium','high']}})) + ');const select=document.querySelector("#terra-model");select.value="openai/gpt-5.6-terra";select.dispatchEvent(new Event("change",{bubbles:true}));document.querySelector(".models-disclosure").open=false;return select.value;}');
       let catalogue = setCreationCatalogue({loading:true});
       const loading=creationCatalogueEvidence(catalogue);
       assertBlockedCreationCatalogue(catalogue, viewport.name+' loading', /Loading compatible models/, false);
@@ -437,13 +457,30 @@ function creationCatalogueEvidence(snapshot) {
       assert.equal(catalogue.retry.text.trim(), 'Retry catalogue');
       capture(captures, 'model-catalogue-empty-'+viewport.name, viewport);
 
-      catalogue = setCreationCatalogue({error:'Fixture catalogue request failed.'});
+      catalogue = setCreationCatalogue({error:'Fixture catalogue request failed. https://user:SECRET_M3_FIXTURE_TOKEN@example.invalid/model'});
       const failed=creationCatalogueEvidence(catalogue);
-      assertBlockedCreationCatalogue(catalogue, viewport.name+' failed', /Fixture catalogue request failed/, true);
+      assertBlockedCreationCatalogue(catalogue, viewport.name+' failed', /^Model catalogue unavailable\. Check OpenCode in your terminal and retry\.$/, true);
+      assert.equal(data('()=>document.documentElement.outerHTML.includes("SECRET_M3_FIXTURE_TOKEN")'), false, viewport.name+' failure never echoes credential diagnostics into the DOM');
+      assert.doesNotMatch(catalogue.status.text, /Fixture catalogue request failed|https:\/\/user:/);
       assert.equal(data('()=>document.querySelector("#terra-model").value'), 'openai/gpt-5.6-terra', viewport.name+' failure preserves the saved selection');
       capture(captures, 'model-catalogue-failed-'+viewport.name, viewport);
 
-      catalogue = setCreationCatalogue({usable:true,models:['openai/gpt-5.6-terra'],reasoning_levels:{terra:['medium','high']}});
+      const rejected = [];
+      for (const [name, payload, pattern] of [
+        ['malformed', {usable:true,models:'not-an-array'}, /No compatible models are currently available/],
+        ['unusable', {usable:false,models:creationModels}, /No compatible models are currently available/],
+        ['incomplete', {usable:true,models:['openai/gpt-5.6-terra']}, /Required conversation routes are unavailable/],
+        ['missing-default', {usable:true,models:creationModels.filter(model=>model!==creationCatalogueProfile.conversation_routes.planner.model)}, /Required conversation routes are unavailable/],
+        ['missing-selection', {usable:true,models:creationModels.filter(model=>model!=='openai/gpt-5.6-terra')}, /Required conversation routes are unavailable/],
+        ['unsupported-transport', {usable:true,models:creationModels,conversation_readiness:{transport:'unsupported',version:'2.0.20',authentication:'unknown'}}, /OpenCode 1\.x.*transport is unsupported/],
+      ]) {
+        catalogue = setCreationCatalogue(payload);
+        assertBlockedCreationCatalogue(catalogue, viewport.name+' '+name, pattern, true);
+        assert.equal(data('()=>document.querySelector("#terra-model").value'), 'openai/gpt-5.6-terra', viewport.name+' '+name+' preserves the explicit selection');
+        rejected.push({name, ...creationCatalogueEvidence(catalogue)});
+      }
+
+      catalogue = setCreationCatalogue({usable:true,models:creationModels,reasoning_levels:{terra:['medium','high']}});
       const recovered = data('()=>({selector:document.querySelector("#terra-model").disabled,start:document.querySelector("#create-submit").disabled,description:document.querySelector("#create-submit").getAttribute("aria-describedby"),gateVisible:!document.querySelector("#create-model-catalogue-gate").hidden,value:document.querySelector("#terra-model").value,levels:[...document.querySelector("#terra-reasoning-effort").options].map(o=>o.value)})');
       assert.equal(recovered.selector, false, viewport.name+' recovery re-enables the model selector');
       assert.equal(recovered.start, false, viewport.name+' recovery re-enables Start conversation');
@@ -454,7 +491,7 @@ function creationCatalogueEvidence(snapshot) {
       assert.equal(catalogue.horizontalOverflow, false, viewport.name+' recovery does not create page-level horizontal overflow');
       if(viewport.name==='mobile')assert.equal(catalogue.submit.box.width, catalogue.area.width, 'mobile Start conversation is full width');
       capture(captures, 'model-catalogue-recovered-'+viewport.name, viewport);
-      observations.push({name: 'catalogue '+viewport.name, loading, empty, failed, recovered});
+      observations.push({name: 'catalogue '+viewport.name, loading, empty, failed, rejected, recovered});
     }
 
     // Dialogs use the safe Cancel focus, trap Tab focus, dismiss through Escape
@@ -598,7 +635,7 @@ function creationCatalogueEvidence(snapshot) {
       coverage: [
         'supported model replacement before-selection, selected-unconfirmed, confirming, real failed action, real unconfirmed action, status reconciliation, and confirmed receipt',
         'unsupported replacement disabled selector and adjacent accessible reason',
-        'catalogue loading, empty, failed, and recovered states at desktop, tablet, and mobile with rendered visible status, accessible association, adjacent retry availability, preserved selections, and supported reasoning levels',
+        'catalogue loading, empty, safely redacted failure, malformed/unusable/incomplete/default-missing/selection-missing/unsupported-transport rejection, and fully eligible recovery at desktop, tablet, and mobile with rendered visible status, accessible association, adjacent retry availability, preserved selections, and supported reasoning levels',
         'archive/remove dialogs: safe focus, focus trap, Escape, scrim, focus return, real confirmation, Undo, and durable Restore at desktop, tablet, and mobile',
         'stale mutation restrictions, safe retry/navigation/copy, mobile target size, and overflow',
       ],

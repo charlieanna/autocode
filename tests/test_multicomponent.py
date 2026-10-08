@@ -675,8 +675,9 @@ class CliTests(BuildAndIntegrateTests):
                                                         local["failed_step"]))
         self.assertIn("does not match expect_json", local["detail"])
         self.assertIn("fake log line from alpha", proc.stderr)
-        self.assertEqual(["down", "-v", "--remove-orphans", "--rmi", "local"],
-                         json.loads(log.read_text().splitlines()[-1])[5:])
+        self.assertEqual(["--host", "unix:///var/run/docker.sock", "compose", "-p", local["project"],
+                          "-f", local["compose_file"], "down", "-v", "--remove-orphans", "--rmi", "local"],
+                         json.loads(log.read_text().splitlines()[-1]))
 
     def test_cli_refuses_a_cycle_before_starting_any_component(self):
         (self.repo / "architecture" / "components.json").write_text(json.dumps(
