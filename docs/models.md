@@ -22,13 +22,22 @@ Model overrides use the role names: `--requirements-model`, `--glm-model`,
 `--completion-model`, and the matching `--<role>-reasoning-effort` flags.
 See [CLI](cli.md).
 
+Accounts that expose only one usable model can start a run with
+`--single-model MODEL`. This assigns that model to every role, including the
+Planner, Builder, Tester and review roles, while shared or role-specific
+reasoning flags still apply. It explicitly relaxes cross-model verification;
+the review stages remain separate sessions and gates, but they are not
+independent model-family checks. `--single-model` implies joint planning and
+cannot be combined with per-role model flags.
+
 ## Default models
 
 New OpenCode runs (the default engine) use these routes through the configured
 provider connections. The cheaper model
 does the volume and the more expensive one judges it: GLM plans and builds, GPT-6 Sol
 reviews the plan and checks the build. A verifier never shares its producer's model
-family. GPT-6 Astra is the Resolver's default; explicit choices may use it in other roles.
+family by default. GPT-6 Astra is the Resolver's default; explicit choices may
+use it in other roles. The `--single-model` exception is described above.
 
 | Role | Default model | Reasoning | Escalation ladder |
 | --- | --- | --- | --- |
@@ -87,6 +96,8 @@ New standard-workflow runs use a persisted Builder retry policy per approved mil
 the configured Builder gets one ordinary retry, then one stronger attempt
 (default `openai/gpt-6-sol` at `xhigh` reasoning, not Astra), then a safety pause. Set
 `--builder-strong-model MODEL` when creating a run to select a different model.
+A `--single-model` run keeps the stronger attempt and its checkers on the selected
+model, changing reasoning effort rather than changing the model.
 A tool registered with a TOML file can name its own stronger model, and the model its
 checkers move to, in a `[builder_retry]` table
 ([Providers](providers.md#builder-retry-on-a-tool)); `--builder-strong-model` still wins.

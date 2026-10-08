@@ -192,6 +192,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--joint-planning` | Add joint Requirements / Plan Reviewer work. |
 | `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
 | `--builder-strong-model MODEL` | New run: the model for the Builder's stronger attempt after its ordinary retry (default `openai/gpt-6-sol`, or `strong_model` under `[builder_retry]` in the provider config; see [Models](models.md#builder-retry-policy)). Refused when it is the checker model. |
+| `--single-model MODEL` | New run: use one model for every role, including reviewers; explicitly relaxes cross-model verification for single-subscription accounts and implies joint planning. |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |
 | `--astra-model`, `--terra-model`, `--sol-model`, `--completion-model` | Execution-role model overrides (`provider/model` IDs). |
 | `--<role>-provider` | Per-role Codex provider override (Responses API). |

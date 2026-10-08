@@ -20,6 +20,10 @@ Override execution roles with `--astra-model`, `--terra-model`,
 `--sol-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
 `openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
+If an account offers only one model, `--single-model MODEL` assigns it to all
+roles and permits same-model verification. The roles still run in separate
+sessions and all normal evidence, approval and completion gates remain active,
+but model-family independence is intentionally unavailable in this mode.
 OpenCode reasoning variants can be selected in the browser or with the existing
 role-specific reasoning-effort flags. New joint runs start with separate GLM requirements
 and planner sessions, GPT-6 Sol High for the Plan Reviewer, GLM Medium for the Builder, GPT-6

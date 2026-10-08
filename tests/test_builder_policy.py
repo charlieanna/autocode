@@ -243,6 +243,11 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'checked by its own model'):
             policy.configured(policy.DEFAULTS['checker_model'])
 
+    def test_single_model_mode_keeps_builder_retry_on_the_same_model(self):
+        configured = policy.configured(single_model='openai/gpt-6-sol')
+        self.assertEqual('openai/gpt-6-sol', configured['strong_model'])
+        self.assertEqual('openai/gpt-6-sol', configured['checker_model'])
+
     def test_a_climbed_checker_moves_to_a_glm_effort(self):
         state = self.default_routes()
         state['settings']['roles']['sol']['reasoning_effort'] = 'max'

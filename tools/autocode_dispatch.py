@@ -69,8 +69,11 @@ def _model_family(model):
 
 
 def enforce_cross_model_verification(state):
-    """Pause before build/validate dispatch when verifier model == producer model."""
-    roles = (state.get("settings") or {}).get("roles") or {}
+    """Pause before dispatch unless the run explicitly uses single-model mode."""
+    settings = state.get("settings") or {}
+    if settings.get("single_model_mode"):
+        return
+    roles = settings.get("roles") or {}
     problems = []
 
     def check(producer, verifier, label):

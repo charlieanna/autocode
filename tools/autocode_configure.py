@@ -78,6 +78,17 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     if opencode is None:
         opencode = autocode_opencode
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    single_model = getattr(args, "single_model", None)
+    if started and single_model:
+        raise ValueError("--single-model is only available when starting a new run")
+    if single_model and any(getattr(args, f"{role}_model", None)
+                            for role in ("requirements", "glm", "plan_reviewer", "astra", "terra", "sol", "completion")):
+        raise ValueError("--single-model cannot be combined with per-role model flags")
+    if single_model and any(getattr(args, f"{role}_provider", None)
+                            for role in ("astra", "terra", "sol", "completion")):
+        raise ValueError("--single-model cannot be combined with per-role provider flags")
+    if single_model and getattr(args, "builder_strong_model", None):
+        raise ValueError("--single-model cannot be combined with --builder-strong-model")
     if started and getattr(args, 'builder_strong_model', None):
         raise ValueError('--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route')
     if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', None)):
@@ -133,7 +144,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     if started and figma_file and figma_file != saved_figma:
         raise ValueError("Start a new run to change its Figma reference")
     saved_joint = bool(state.get("settings", {}).get("joint_planning"))
-    requested_joint = getattr(args, "joint_planning", False)
+    requested_joint = getattr(args, "joint_planning", False) or bool(single_model)
     enable_saved_joint = started and requested_joint and not saved_joint
     if started:
         if enable_saved_joint:
@@ -292,15 +303,18 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     defaults = DEFAULT_ROLE_MODELS.copy()
     if engine == "opencode":
         defaults.update(provider_mod.DEFAULT_MODELS)
-    roles = {r: {"model": getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
+    roles = {r: {"model": single_model or getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
                  "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort") or opencode.DEFAULT_REASONING_EFFORTS[r],
                  "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider")}
             for r in DEFAULT_ROLE_MODELS}
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
+    builder_retry = autopilot.builder_policy.configured(
+        getattr(args, 'builder_strong_model', None), provider_mod, single_model=single_model)
     settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
+            "single_model_mode": bool(single_model),
             'budget_origins': budget_origins(args),
-            "builder_retry": autopilot.builder_policy.configured(getattr(args, 'builder_strong_model', None), provider_mod),
+            "builder_retry": builder_retry,
             # The effort rungs each role may climb, serveability-filtered for a
             # provider that publishes its models (autocode_route_ladder).
             "route_ladders": route_ladder.configure_ladders(getattr(provider_mod, 'LISTED_MODELS', None)),
@@ -380,9 +394,10 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         return
     mod = autocode_providers.resolve(settings.get("provider") or "opencode")
     if fresh:
+        single_model = getattr(args, "single_model", None)
         settings["joint_planning"] = True
         settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
-            "model": getattr(args, "requirements_model", None) or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
+            "model": single_model or getattr(args, "requirements_model", None) or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
             "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
@@ -392,17 +407,17 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             }
         for role in ("astra", "sol", "completion"):
             settings["roles"][role].update(engine="opencode", provider=None,
-                model=_provider_model(role, getattr(args, f"{role}_model", None), mod))
-        terra_model = getattr(args, "terra_model", None) or mod.DEFAULT_MODELS["terra"]
+                model=single_model or _provider_model(role, getattr(args, f"{role}_model", None), mod))
+        terra_model = single_model or getattr(args, "terra_model", None) or mod.DEFAULT_MODELS["terra"]
         settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
         for role, effort in mod.DEFAULT_REASONING_EFFORTS.items():
             if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
                 settings["roles"][role]["reasoning_effort"] = effort
-        glm_model = getattr(args, "glm_model", None) or mod.DEFAULT_MODELS["glm"]
+        glm_model = single_model or getattr(args, "glm_model", None) or mod.DEFAULT_MODELS["glm"]
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
             "model": glm_model, "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS.get("glm")}
         settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": (getattr(args, "plan_reviewer_model", None)
+            "model": (single_model or getattr(args, "plan_reviewer_model", None)
                       or mod.DEFAULT_MODELS.get("plan_reviewer")
                       or planning.PINNED_REVIEWER_MODEL),
             "reasoning_effort": (getattr(args, "plan_reviewer_reasoning_effort", None)
@@ -443,6 +458,7 @@ def configure_codex_joint(settings, args, *, planning):
     """Independent planning sessions through the existing native Codex login."""
     check_subscription(settings["transport_identity"])
     roles = settings["roles"]
+    single_model = getattr(args, "single_model", None)
     for role in ("requirements", "glm", "plan_reviewer"):
         roles.setdefault(role, copy.deepcopy(roles["astra"]))
         if planning.engine_for(settings, role) != "codex":
@@ -451,7 +467,9 @@ def configure_codex_joint(settings, args, *, planning):
         route["engine"] = "codex"
         model = getattr(args, f"{role}_model", None)
         effort = getattr(args, f"{role}_reasoning_effort", None)
-        if model:
+        if single_model:
+            route["model"] = single_model
+        elif model:
             route["model"] = model
         if effort:
             route["reasoning_effort"] = effort
