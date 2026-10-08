@@ -990,14 +990,25 @@ def remove_tree(repo, destination):
 
 # --- the base suite definition (#587) ----------------------------------------
 
-DEFINITION_FILE_BASENAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json",
-                                       "yarn.lock", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc"})
+_MANIFEST_BASENAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json",
+                                 "yarn.lock", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc"})
+# Runner configs the tool reads from the working directory without the suite command naming
+# them. A candidate can otherwise narrow a spec list here and the definition run never sees it (#662).
+_RUNNER_CONFIG_BASENAMES = frozenset({
+    ".mocharc", ".mocharc.js", ".mocharc.cjs", ".mocharc.mjs", ".mocharc.json", ".mocharc.jsonc",
+    ".mocharc.yml", ".mocharc.yaml", "mocha.opts",
+    "jest.config.js", "jest.config.cjs", "jest.config.mjs", "jest.config.json", "jest.config.ts",
+    "vitest.config.js", "vitest.config.cjs", "vitest.config.mjs", "vitest.config.ts", "vitest.config.mts",
+})
+DEFINITION_FILE_BASENAMES = _MANIFEST_BASENAMES | _RUNNER_CONFIG_BASENAMES
 _JS_MODULE_CALL = re.compile(r"\b(?:require|import)\s*\(")
 _JS_EXEC_CALL = re.compile(r"\b(?:exec(?:Sync|File(?:Sync)?)?|spawn(?:Sync)?|fork)\s*\(")
+_JS_READ_CALL = re.compile(r"\b(?:readFileSync|readFile|createReadStream)\s*\(")
+_SHELL_INTERPRETERS = frozenset({"sh", "bash", "dash", "zsh"})
 
 
 def _definition_file(path: str) -> bool:
-    """A suite-definition filename wherever it appears: manifests, lockfiles, .npmrc."""
+    """A suite-definition filename wherever it appears: manifests, lockfiles, .npmrc, runner config."""
     return PurePosixPath(path).name in DEFINITION_FILE_BASENAMES
 
 
@@ -1078,6 +1089,95 @@ def _import_sites(text):
     return sites
 
 
+def _shell_script(path, text):
+    """True when ``path`` is a shell script the suite closure should read as a command line.
+
+    A ``.sh`` / ``.bash`` file, or a shebang for sh, bash, dash or zsh. ``#!/usr/bin/env node``
+    is not a shell script.
+    """
+    if PurePosixPath(path).suffix.lower() in {".sh", ".bash"}:
+        return True
+    line = text.lstrip("\ufeff").splitlines()[:1]
+    if not line or not line[0].startswith("#!"):
+        return False
+    tokens = line[0][2:].split()
+    interpreter = PurePosixPath(tokens[-1]).name if tokens else ""
+    if interpreter in _SHELL_INTERPRETERS:
+        return True
+    return interpreter == "env" and any(token in _SHELL_INTERPRETERS for token in tokens)
+
+
+def _first_argument_end(mask, open_paren, close):
+    """Index of the first-argument comma at parenthesis depth 1, else ``close``."""
+    depth = 0
+    for index in range(open_paren, close + 1):
+        if mask[index] == "(":
+            depth += 1
+        elif mask[index] == ")":
+            depth -= 1
+        elif mask[index] == "," and depth == 1:
+            return index
+    return close
+
+
+def _static_path(literals, residue):
+    """``("cwd"|"file", path)`` when the argument is a static path, else None.
+
+    A quoted literal (or ``+`` fold of literals) is relative to the process cwd, which is how
+    ``fs.readFileSync`` resolves it. ``path.join(__dirname, ...)`` of literals is relative to
+    the file. A computed path (``path.join(__dirname, name)``, a variable) is None.
+    """
+    compact = "".join(char for char in residue if not char.isspace())
+    if not compact.strip("+"):
+        folded = "".join(literals)
+        return ("cwd", folded) if folded else None
+    if literals and re.fullmatch(r"(?:path\.)?join\(__dirname(?:,)+\)", compact):
+        return ("file", posixpath.join(*literals))
+    return None
+
+
+def _specifier_between(text, mask, strings, start, end):
+    inner = [literal for literal in strings if start < literal[0] < end]
+    covered = {index for literal in inner for index in range(literal[0], literal[1])}
+    residue = "".join(text[index] for index in range(start + 1, end)
+                      if index not in covered and not text[index].isspace() and mask[index] == text[index])
+    return _static_path([literal[2] for literal in inner], residue)
+
+
+def _read_paths(text):
+    """Literal paths a JS file passes to ``readFile``, ``readFileSync`` or ``createReadStream``.
+
+    Computed arguments are omitted. Pinning the files that are named is what stops a candidate
+    from narrowing a suite through a data file (#662); a path the scan cannot see stays unnamed.
+    """
+    mask, strings = _js_scan(text)
+    paths = []
+    for match in _JS_READ_CALL.finditer(mask):
+        open_paren = match.end() - 1
+        _start, close = _argument_span(mask, open_paren)
+        end = _first_argument_end(mask, open_paren, close)
+        specifier = _specifier_between(text, mask, strings, open_paren, end)
+        if specifier:
+            paths.append(specifier)
+    return paths
+
+
+def _exec_command_literals(text):
+    """Quoted literals inside ``exec`` / ``spawn`` / ``fork`` argument lists.
+
+    Each literal is something the runner may execute (``sh test/run.sh``, ``node list.js``) or an
+    option word (``inherit``). The caller keeps the ones that name tracked files. A computed
+    argument contributes only the literals it still contains, so a command built by concatenation
+    does not by itself make the boundary unestablished.
+    """
+    mask, strings = _js_scan(text)
+    literals = []
+    for match in _JS_EXEC_CALL.finditer(mask):
+        start, end = _argument_span(mask, match.end() - 1)
+        literals.extend(literal[2] for literal in strings if start < literal[0] < end)
+    return literals
+
+
 @contextlib.contextmanager
 def _effective_base(workspace, base, patch=None):
     """(blobs, read) for the tracked files of ``base`` with ``patch`` applied.
@@ -1119,15 +1219,17 @@ def _effective_base(workspace, base, patch=None):
 
 
 def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
-    """(pinned paths, unestablished reason) for the base suite definition (#587).
+    """(pinned paths, unestablished reason) for the base suite definition (#587, #662).
 
-    Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml and .npmrc basenames at
-    any depth; every path is_test_path classifies as a test; and the transitive closure
-    of path literals reachable from the manifests' script tokens and from suite-command
-    tokens that name base tracked files. Files base tests import through literals are
-    product code and never pinned, so the candidate's version enters the definition
-    tree; a non-test reach is pinned only when its literals flow into the executed test
-    command; any other reach, or a computed path, leaves the boundary unestablished.
+    Pinned by rule: manifests, lockfiles, pnpm-workspace.yaml, .npmrc and runner-config
+    basenames (mocha, jest, vitest) at any depth; every path is_test_path classifies as a
+    test; and the transitive closure of path literals reachable from the manifests' script
+    tokens, from suite-command tokens, from shell scripts those commands run, from literal
+    commands passed to exec/spawn/fork, and from literal fs reads (a quoted path or
+    ``path.join(__dirname, ...)``). Files base tests import through literals are product
+    code and never pinned, so the candidate's version enters the definition tree; a
+    non-test reach is pinned only when its literals flow into the executed test command;
+    any other import, or a computed import path, leaves the boundary unestablished.
     """
     with _effective_base(workspace, base, base_patch) as (blobs, read):
         tracked = set(blobs)
@@ -1164,7 +1266,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
             # moves that directory for what follows: `sh -c 'cd lib && node
             # run-tests.js'` must pin lib/run-tests.js, not a root file of the
             # same name. A computed cd target cannot establish the boundary.
-            parsed = shlex.split(command)
+            try:
+                parsed = shlex.split(command)
+            except ValueError:
+                return [], "a shell command could not be parsed, so the suite definition boundary is unestablished"
             bindings, segment, current = [], [], directory
 
             def finish(keep_directory):
@@ -1228,9 +1333,10 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
                 candidate = posixpath.normpath(posixpath.join(effective, word))
                 if not candidate.startswith("../") and candidate in tracked and candidate not in product:
                     seeds.add(candidate)
+                    cwd_of.setdefault(candidate, effective)
             return ""
 
-        seeds, boundary_reason = set(), ""
+        seeds, cwd_of, boundary_reason = set(), {}, ""
         for path in sorted(tracked):
             if PurePosixPath(path).name != "package.json":
                 continue
@@ -1241,29 +1347,76 @@ def _base_suite_definition(workspace, base, suite_command, *, base_patch=None):
         boundary_reason = seed_command(suite_command or "", ".")
         if boundary_reason:
             return set(), boundary_reason
-        pinned, queue, unestablished = set(seeds), sorted(seeds), ""
+        pinned, queue, queued = set(), [], set()
+
+        def consider(candidate, directory):
+            """Queue a tracked file the suite command reaches. Tests are scanned only when they
+            are shell scripts; product code and manifests are never queued from here."""
+            if (not candidate or candidate.startswith("../") or candidate not in tracked
+                    or candidate in product or _definition_file(candidate) or candidate in queued):
+                return
+            cwd_of.setdefault(candidate, directory)
+            queued.add(candidate)
+            if not is_test_path(candidate):
+                pinned.add(candidate)
+            queue.append(candidate)
+
+        for path in sorted(seeds):
+            consider(path, cwd_of.get(path, "."))
+
+        def follow_shell(command, directory):
+            bindings, reason = shell_bindings(command, directory)
+            if reason:
+                return reason
+            for word, effective in bindings:
+                consider(posixpath.normpath(posixpath.join(effective, word)), effective)
+            return ""
+
+        unestablished = ""
+        scanned = set()
         while queue and not unestablished:
             path = queue.pop()
-            if is_test_path(path) or _definition_file(path):
-                continue  # tests are pinned wholesale, never scanned; manifests were seed sources
-            for specifier, inside_exec in _import_sites(read(path)):
+            if path in scanned:
+                continue
+            scanned.add(path)
+            text = read(path)
+            file_dir = posixpath.dirname(path) or "."
+            cwd = cwd_of.get(path, ".")
+            if _shell_script(path, text):
+                # A test-directory script is pinned wholesale and would otherwise not be read,
+                # which hides `sh test/run.sh` → `node list.js` (#662).
+                unestablished = follow_shell(text, cwd)
+                continue
+            if is_test_path(path):
+                continue  # JS tests are pinned wholesale, never scanned
+            for specifier, inside_exec in _import_sites(text):
                 if specifier is None:
                     unestablished = f"{path} selects its suite inputs through a computed path"
                     break
                 if not specifier.startswith(("./", "../")):
                     continue  # a package or core module, resolved by the runtime
-                target = resolve(specifier, posixpath.dirname(path) or ".")
+                target = resolve(specifier, file_dir)
                 if not target or target in product:
                     continue
                 if is_test_path(target) or _definition_file(target):
                     continue
                 if inside_exec:
-                    if target not in pinned:
-                        pinned.add(target)
-                        queue.append(target)
+                    consider(target, file_dir)
                 else:
                     unestablished = (f"{path} reaches {target}, which is neither a test, a manifest "
                                      "nor an input of the executed test command")
+                    break
+            if unestablished:
+                break
+            for kind, specifier in _read_paths(text):
+                # ``fs`` paths are cwd-relative; ``path.join(__dirname, ...)`` is file-relative.
+                directory = cwd if kind == "cwd" else file_dir
+                target = resolve(specifier, directory)
+                if target and target not in product:
+                    consider(target, directory)
+            for command in _exec_command_literals(text):
+                unestablished = follow_shell(command, cwd)
+                if unestablished:
                     break
         if unestablished:
             return set(), unestablished
