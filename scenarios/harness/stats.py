@@ -19,7 +19,7 @@ from pathlib import Path
 
 from . import attempts
 from .verdict import (CORRECT, INCORRECT, INTERRUPTED_UNGRADED, NOT_EXERCISED, PASS,
-                      PENDING_UNGRADED, UNSCORED)
+                      PENDING_UNGRADED, UNSCORED, STOP_CLASSES, stop_class)
 
 
 def load_results(root: Path) -> list[dict]:
@@ -56,6 +56,10 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
             streak += 1
         measured = [result for result in runs if result.get("verdict") not in ("SKIPPED", PENDING_UNGRADED)]
         diagnoses = [result["diagnosis"].get("verdict") for result in measured if isinstance(result.get("diagnosis"), dict)]
+        classes = [result.get("stop_class")
+                   or stop_class(result.get("verdict", ""), result.get("status") or result.get("runner_status") or "",
+                                 result.get("summary") or "")
+                   for result in runs]
         rows.append({
             "scenario": scenario, "mode": run_mode, "runs": len(measured),
             "attempts": len(runs),
@@ -67,6 +71,8 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
             # Runs that never reached the stage the scenario exists to test (issue #59).
             "not_exercised": sum(result["verdict"] == NOT_EXERCISED for result in measured),
             "last": runs[-1]["verdict"],
+            # Why each attempt is not a pass (issue #455), beside the verdict.
+            "stop_classes": {name: classes.count(name) for name in STOP_CLASSES if classes.count(name)},
             # Diagnosis verdicts, never mixed into the run verdicts above; None when no run was scored for one.
             "diagnosed": _count(diagnoses, CORRECT, INCORRECT, UNSCORED), "correct": _count(diagnoses, CORRECT),
             "incorrect": _count(diagnoses, INCORRECT), "unscored": _count(diagnoses, UNSCORED),
