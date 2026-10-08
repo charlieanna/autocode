@@ -97,6 +97,374 @@ class Project(unittest.TestCase):
         self.assertIn(name, " ".join(proof["unverified"]))
 
 
+class WorkspaceAnchorTests(Project):
+    """System spelling must not widen source, storage or copy authority (#658)."""
+
+    def clone(self, name):
+        root = self.destination(name) / "project"
+        shutil.copytree(self.root, root)
+        return root
+
+    def assert_capture_refused(self, root, run_dir):
+        state = json.loads(json.dumps(self.state))
+        try:
+            launch_inputs.record(state, root, run_dir)
+        except (OSError, ValueError):
+            return
+        supplied = launch_inputs.supply(state, root, run_dir)
+        self.assertTrue(supplied.unverified, "A rejected anchor cannot admit a complete launch inventory")
+        with self.assertRaises(ValueError):
+            supplied.copy_into(Path(tempfile.mkdtemp(prefix="refused-copy-", dir=self.temporary)))
+
+    def system_aliases(self):
+        if sys.platform != "darwin":
+            self.skipTest("The native macOS /var and /tmp aliases are required")
+        for alias in (Path("/var"), Path("/tmp")):
+            if not alias.is_symlink():
+                self.skipTest(f"The native system alias {alias} is absent")
+            self.assertEqual(0, alias.lstat().st_uid)
+            self.assertEqual(Path("/private") / alias.name, alias.resolve())
+        canonical_temp = Path(tempfile.gettempdir()).resolve()
+        try:
+            var_temp = Path("/var") / canonical_temp.relative_to("/private/var")
+        except ValueError:
+            self.skipTest("The actual user temporary parent is not underneath the native /var alias")
+        return (var_temp, Path("/tmp"))
+
+    def test_native_system_alias_capture_supply_and_copy_matches_canonical(self):
+        self.hide({"vendor/marker.py": "VALUE = 1\n"})
+        (self.root / "_version.py").chmod(0o751)
+        (self.root / "vendor/marker.py").chmod(0o640)
+        for alias in self.system_aliases():
+            with self.subTest(alias=str(alias)), tempfile.TemporaryDirectory(
+                    prefix="launch-alias-native-", dir=str(alias)) as temporary:
+                lexical = Path(temporary) / "project"
+                canonical = lexical.resolve()
+                self.assertNotEqual(lexical, canonical, "Preserve the actual lexical system alias")
+                shutil.copytree(self.root, canonical)
+                canonical_run = canonical / ".autocode/runs/canonical"
+                lexical_run = lexical / ".autocode/runs/lexical"
+                canonical_run.mkdir(); lexical_run.mkdir()
+                canonical_state = json.loads(json.dumps(self.state))
+                lexical_state = json.loads(json.dumps(self.state))
+                launch_inputs.record(canonical_state, canonical, canonical_run)
+                launch_inputs.record(lexical_state, lexical, lexical_run)
+                canonical_supply = launch_inputs.supply(canonical_state, canonical, canonical_run)
+                lexical_supply = launch_inputs.supply(lexical_state, lexical, lexical_run)
+                self.assertEqual([], canonical_supply.unverified)
+                self.assertEqual([], lexical_supply.unverified)
+                self.assertTrue(canonical_supply.recorded and lexical_supply.recorded)
+                self.assertEqual(canonical_supply.generated, lexical_supply.generated)
+                self.assertEqual(canonical_supply.vendored, lexical_supply.vendored)
+                self.assertEqual(canonical_supply.identity, lexical_supply.identity)
+                self.assertEqual(canonical_state["launch_sources"], lexical_state["launch_sources"])
+                self.assertEqual((canonical_run / "launch-sources/manifest.json").read_bytes(),
+                                 (lexical_run / "launch-sources/manifest.json").read_bytes())
+                copies = Path(temporary) / "copies"
+                copies.mkdir()
+                canonical_copy = copies.resolve() / "canonical"
+                lexical_copy = copies / "lexical"
+                canonical_copy.mkdir(); lexical_copy.mkdir()
+                canonical_supply.copy_into(canonical_copy)
+                lexical_supply.copy_into(lexical_copy)
+                for name, data, mode in (("_version.py", VERSION.encode(), 0o751),
+                                         ("vendor/marker.py", b"VALUE = 1\n", 0o640)):
+                    for tree in (canonical_copy, lexical_copy):
+                        self.assertEqual(data, (tree / name).read_bytes())
+                        self.assertEqual(mode, (tree / name).stat().st_mode & 0o777)
+
+    def test_arbitrary_workspace_run_and_store_symlinks_are_refused(self):
+        for role in ("workspace-leaf", "workspace-ancestor", "autocode", "run-parent", "run-leaf", "store-leaf"):
+            with self.subTest(role=role):
+                root = self.clone("anchor-" + role)
+                outside = self.clone("outside-" + role)
+                sentinel = outside / "sentinel"
+                sentinel.write_text("external authority")
+                external_run = outside / ".autocode/runs/policy"
+                run_dir = root / ".autocode/runs/policy"
+                if role == "workspace-leaf":
+                    link = root.parent / "workspace-link"
+                    link.symlink_to(outside, target_is_directory=True)
+                    root = link
+                    run_dir = root / ".autocode/runs/policy"
+                elif role == "workspace-ancestor":
+                    link = root.parent / "parent-link"
+                    link.symlink_to(outside.parent, target_is_directory=True)
+                    root = link / "project"
+                    run_dir = root / ".autocode/runs/policy"
+                elif role in ("autocode", "run-parent", "run-leaf"):
+                    relative = {"autocode": ".autocode", "run-parent": ".autocode/runs",
+                                "run-leaf": ".autocode/runs/policy"}[role]
+                    shutil.rmtree(root / relative)
+                    (root / relative).symlink_to(outside / relative, target_is_directory=True)
+                else:
+                    external_store = external_run / "launch-sources"
+                    external_store.mkdir()
+                    (run_dir / "launch-sources").symlink_to(external_store, target_is_directory=True)
+                self.assert_capture_refused(root, run_dir)
+                self.assertEqual("external authority", sentinel.read_text())
+                self.assertFalse((external_run / "launch-sources/manifest.json").exists())
+                self.assertFalse((external_run / "launch-sources" /
+                                  hashlib.sha256(VERSION.encode()).hexdigest()).exists())
+
+    def test_system_alias_does_not_trust_nested_source_or_destination_links(self):
+        self.hide({"vendor/pkg/marker.py": "VALUE = 1\n"})
+        for alias in self.system_aliases():
+            for role in ("source-leaf", "source-parent", "destination-leaf", "destination-parent"):
+                with self.subTest(alias=str(alias), role=role), tempfile.TemporaryDirectory(
+                        prefix="launch-alias-links-", dir=str(alias)) as temporary:
+                    root = Path(temporary) / "project"
+                    shutil.copytree(self.root, root)
+                    run_dir = root / ".autocode/runs/policy"
+                    state = json.loads(json.dumps(self.state))
+                    launch_inputs.record(state, root, run_dir)
+                    supplied = launch_inputs.supply(state, root, run_dir)
+                    self.assertEqual([], supplied.unverified)
+                    outside = Path(temporary).resolve() / "outside"
+                    outside.mkdir()
+                    (outside / "_version.py").write_text(VERSION)
+                    (outside / "marker.py").write_text("VALUE = 1\n")
+                    (outside / "sentinel").write_text("external matching bytes")
+                    tree = Path(temporary) / "copy"
+                    tree.mkdir()
+                    if role == "source-leaf":
+                        (root / "_version.py").unlink()
+                        (root / "_version.py").symlink_to(outside / "_version.py")
+                    elif role == "source-parent":
+                        shutil.rmtree(root / "vendor/pkg")
+                        (root / "vendor/pkg").symlink_to(outside, target_is_directory=True)
+                    elif role == "destination-leaf":
+                        (tree / "_version.py").symlink_to(outside / "_version.py")
+                    else:
+                        (tree / "vendor").mkdir()
+                        (tree / "vendor/pkg").symlink_to(outside, target_is_directory=True)
+                    if role.startswith("source"):
+                        supplied = launch_inputs.supply(state, root, run_dir)
+                        self.assertTrue(supplied.unverified)
+                    with self.assertRaises((OSError, ValueError)):
+                        supplied.copy_into(tree)
+                    self.assertEqual("external matching bytes", (outside / "sentinel").read_text())
+                    self.assertEqual(VERSION, (outside / "_version.py").read_text())
+                    self.assertEqual("VALUE = 1\n", (outside / "marker.py").read_text())
+                    self.assertEqual({"_version.py", "marker.py", "sentinel"},
+                                     {path.name for path in outside.iterdir()})
+
+    def test_destination_root_replaced_after_validation_cannot_receive_captured_bytes(self):
+        self.capture()
+        supplied = self.supply()
+        self.assertEqual([], supplied.unverified)
+        for replacement in ("directory", "symlink"):
+            with self.subTest(replacement=replacement):
+                tree = self.destination("destination-race-" + replacement)
+                saved = tree.with_name(tree.name + "-original")
+                outside = self.destination("destination-external-" + replacement)
+                sentinel = outside / "sentinel"
+                sentinel.write_text("external destination")
+                external_files = {str(path.relative_to(outside)) for path in outside.rglob("*") if path.is_file()}
+                original_path = launch_inputs._path
+                swapped = False
+
+                def validate_then_replace(root, name):
+                    nonlocal swapped
+                    result = original_path(root, name)
+                    if Path(root) == tree and name == "_version.py" and not swapped:
+                        tree.rename(saved)
+                        if replacement == "directory":
+                            outside.rename(tree)
+                        else:
+                            tree.symlink_to(outside, target_is_directory=True)
+                        swapped = True
+                    return result
+
+                with mock.patch.object(launch_inputs, "_path", side_effect=validate_then_replace):
+                    with self.assertRaises((OSError, ValueError)):
+                        supplied.copy_into(tree)
+                self.assertTrue(swapped, "Inject replacement after successful path validation")
+                destination = tree if replacement == "directory" else outside
+                self.assertEqual("external destination", (destination / "sentinel").read_text())
+                self.assertFalse((destination / "_version.py").exists())
+                self.assertEqual(external_files,
+                                 {str(path.relative_to(destination)) for path in destination.rglob("*") if path.is_file()})
+
+    def test_capture_root_replacement_cannot_admit_matching_external_source(self):
+        for replacement in ("directory", "symlink"):
+            with self.subTest(replacement=replacement):
+                root = self.clone("capture-race-" + replacement)
+                external = self.clone("capture-external-" + replacement)
+                (external / "sentinel").write_text("external source")
+                external_files = {str(path.relative_to(external)) for path in external.rglob("*") if path.is_file()}
+                original = root.with_name("original-project")
+                run_dir = root / ".autocode/runs/policy"
+                original_path = launch_inputs._path
+                swapped = False
+
+                def validate_then_replace(anchor, name):
+                    nonlocal swapped
+                    result = original_path(anchor, name)
+                    if Path(anchor) == root and name == "_version.py" and not swapped:
+                        root.rename(original)
+                        if replacement == "directory":
+                            external.rename(root)
+                        else:
+                            root.symlink_to(external, target_is_directory=True)
+                        swapped = True
+                    return result
+
+                with mock.patch.object(launch_inputs, "_path", side_effect=validate_then_replace):
+                    self.assert_capture_refused(root, run_dir)
+                self.assertTrue(swapped, "Matching bytes must not conceal a different root identity")
+                target = root if replacement == "directory" else external
+                self.assertEqual("external source", (target / "sentinel").read_text())
+                self.assertEqual(VERSION, (target / "_version.py").read_text())
+                self.assertFalse((target / ".autocode/runs/policy/launch-sources/manifest.json").exists())
+                self.assertEqual(external_files,
+                                 {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()})
+
+    def test_run_root_replaced_after_validation_cannot_capture_into_external_storage(self):
+        for replacement in ("directory", "symlink"):
+            with self.subTest(replacement=replacement):
+                root = self.clone("run-race-" + replacement)
+                run_dir = root / ".autocode/runs/policy"
+                original = run_dir.with_name("original-policy")
+                external = self.destination("run-external-" + replacement)
+                (external / "sentinel").write_text("external storage")
+                external_files = {str(path.relative_to(external)) for path in external.rglob("*") if path.is_file()}
+                digest = hashlib.sha256(VERSION.encode()).hexdigest()
+                original_path = launch_inputs._path
+                swapped = False
+
+                def validate_then_replace(anchor, name):
+                    nonlocal swapped
+                    result = original_path(anchor, name)
+                    if Path(anchor) == run_dir and name == "launch-sources/" + digest and not swapped:
+                        run_dir.rename(original)
+                        if replacement == "directory":
+                            external.rename(run_dir)
+                        else:
+                            run_dir.symlink_to(external, target_is_directory=True)
+                        swapped = True
+                    return result
+
+                with mock.patch.object(launch_inputs, "_path", side_effect=validate_then_replace):
+                    self.assert_capture_refused(root, run_dir)
+                self.assertTrue(swapped, "Inject storage replacement after successful path validation")
+                target = run_dir if replacement == "directory" else external
+                self.assertEqual("external storage", (target / "sentinel").read_text())
+                self.assertFalse((target / "launch-sources" / digest).exists())
+                self.assertFalse((target / "launch-sources/manifest.json").exists())
+                self.assertEqual(external_files,
+                                 {str(path.relative_to(target)) for path in target.rglob("*") if path.is_file()})
+
+    def test_copy_keeps_original_checkout_store_and_destination_across_files(self):
+        self.hide({"_build.py": "BUILD = 1\n"})
+        for role in ("checkout", "store", "destination"):
+            with self.subTest(role=role):
+                root = self.clone("multi-copy-" + role)
+                run_dir = root / ".autocode/runs/policy"
+                state = json.loads(json.dumps(self.state))
+                launch_inputs.record(state, root, run_dir)
+                supplied = launch_inputs.supply(state, root, run_dir)
+                self.assertEqual([], supplied.unverified)
+                generated = list(supplied.generated)
+                self.assertEqual(2, len(generated), "Exercise two actual generated file admissions")
+                first, second = generated
+                tree = self.destination("multi-destination-" + role)
+                store = run_dir / "launch-sources"
+                replace = {"checkout": root, "store": store, "destination": tree}[role]
+                external = self.temporary / ("multi-external-" + role)
+                shutil.copytree(replace, external)
+                (external / "sentinel").write_text("external multi-file authority")
+                if role == "destination":
+                    shutil.copy2(root / first, external / first)
+                external_files = {str(path.relative_to(external)) for path in external.rglob("*") if path.is_file()}
+                saved = replace.with_name(replace.name + "-original")
+                original_read = launch_inputs._read
+                swapped = False
+
+                def read_then_replace(anchor, name, *args, **kwargs):
+                    nonlocal swapped
+                    result = original_read(anchor, name, *args, **kwargs)
+                    trigger = ((role == "checkout" and Path(anchor) == root and name == first)
+                               or (role == "store" and Path(anchor) == store
+                                   and name == supplied.generated[first][0])
+                               or (role == "destination" and Path(anchor) == root and name == second))
+                    if trigger and not swapped:
+                        replace.rename(saved)
+                        external.rename(replace)
+                        swapped = True
+                    return result
+
+                with mock.patch.object(launch_inputs, "_read", side_effect=read_then_replace):
+                    with self.assertRaises((OSError, ValueError)):
+                        supplied.copy_into(tree)
+                self.assertTrue(swapped, "Replace between actual file admissions, not during initial root pinning")
+                self.assertEqual("external multi-file authority", (replace / "sentinel").read_text())
+                self.assertEqual(external_files,
+                                 {str(path.relative_to(replace)) for path in replace.rglob("*") if path.is_file()})
+                if role == "destination":
+                    self.assertFalse((replace / second).exists())
+
+    def test_cleanup_close_failure_preserves_primary_root_refusal_and_closes_fds(self):
+        self.capture()
+        supplied = self.supply()
+        self.assertEqual([], supplied.unverified)
+        tree = self.destination("cleanup-race-copy")
+        saved = tree.with_name(tree.name + "-original")
+        outside = self.destination("cleanup-external")
+        (outside / "sentinel").write_text("external cleanup authority")
+        original_path = launch_inputs._path
+        original_os = launch_inputs.os
+        swapped = False
+
+        class LocalOS:
+            def __init__(self):
+                self.opened = []
+                self.injected = False
+
+            def __getattr__(self, name):
+                return getattr(original_os, name)
+
+            def open(self, *args, **kwargs):
+                fd = original_os.open(*args, **kwargs)
+                self.opened.append(fd)
+                return fd
+
+            def dup(self, fd):
+                duplicated = original_os.dup(fd)
+                self.opened.append(duplicated)
+                return duplicated
+
+            def close(self, fd):
+                original_os.close(fd)
+                if sys.exc_info()[0] is ValueError and not self.injected:
+                    self.injected = True
+                    raise OSError("controlled failure after actual close")
+
+        def validate_then_replace(root, name):
+            nonlocal swapped
+            result = original_path(root, name)
+            if Path(root) == tree and name == "_version.py" and not swapped:
+                tree.rename(saved)
+                outside.rename(tree)
+                swapped = True
+            return result
+
+        local_os = LocalOS()
+        # Replace only this module's facade, not the global OS used by threads/subprocesses.
+        with mock.patch.object(launch_inputs, "os", local_os), \
+                mock.patch.object(launch_inputs, "_path", side_effect=validate_then_replace):
+            with self.assertRaisesRegex(ValueError, "root changed during admission"):
+                supplied.copy_into(tree)
+        self.assertTrue(swapped)
+        self.assertTrue(local_os.injected, "The real close must occur before its controlled failure")
+        self.assertTrue(local_os.opened)
+        for fd in set(local_os.opened):
+            with self.assertRaises(OSError):
+                original_os.fstat(fd)
+        self.assertEqual({"sentinel"}, {path.name for path in tree.iterdir()})
+        self.assertEqual("external cleanup authority", (tree / "sentinel").read_text())
+
+
 class NativeProofTests(Project):
     def test_ignored_baseline_poison_cannot_hide_a_regression(self):
         self.capture()
