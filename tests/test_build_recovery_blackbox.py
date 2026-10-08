@@ -10,6 +10,7 @@ import time
 import unittest
 
 from . import test_build_blackbox as bb
+from . import build_timeout_fault_fixture as timeout_fault
 import autocode_builder_policy as builder_policy
 
 
@@ -58,50 +59,80 @@ class RecoveryBlackbox(unittest.TestCase):
                        {'M1': {'output.txt': 'done'}},
                        {'M1': "from pathlib import Path; assert Path('output.txt').read_text()=='done'"},
                        'Verify timeout is not proof of termination')
-        self.seed(spec); self.env['BUILD_AUDIT_FAULT'] = 'hold_timeout'
-        controller = subprocess.Popen(self.command('autocode_build', ['--run-dir',str(self.run),
-            '--no-chat','--max-stage-seconds','1']), cwd=self.root, env=self.env,
+        self.seed(spec)
+        # Reach the Builder through the public checkpoint before applying its one-second limit.
+        self.build(2, extra=['--pause-after-stage'])
+        self.assertEqual([], self.events())
+        hooks = timeout_fault.prepare(self.root, self.source)
+        env = dict(self.env, PYTHONPATH=str(hooks), BUILD_AUDIT_FAULT='hold_timeout',
+                   BUILD_AUDIT_TIMEOUT_ROOT=str(self.root))
+        controller = subprocess.Popen(self.command('autocode_build', ['--run-dir', str(self.run),
+            '--no-chat', '--resume-paused', '--max-stage-seconds', '1']), cwd=self.root, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        provider_pid = None
+        owned = []
         try:
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                saved = self.state()
-                active = saved.get('active_stage') or {}
-                if active.get('activity', {}).get('timeout_kind') == 'stage':
-                    provider_pid = active['pid']
-                    break
-                time.sleep(.005)
-            self.assertIsNotNone(provider_pid, 'Real watchdog did not publish timeout')
-            controller.kill()  # Simulate controller crash during timeout cleanup, not provider death.
+            deadline = time.monotonic() + 35
+            ready = [self.root / name for name in ('provider-ready', 'controller-deadline-ready')]
+            while not all(path.exists() for path in ready) and time.monotonic() < deadline:
+                self.assertIsNone(controller.poll(), 'Controller exited before the Builder timeout barrier')
+                time.sleep(.01)
+            self.assertTrue(all(path.exists() for path in ready), 'Held Builder and actual watchdog did not start')
+            starts = self.events()
+            self.assertEqual(1, len(starts))
+            self.assertEqual('M1', starts[0]['milestone'])
+            self.assertEqual(starts[0]['pid'], int(ready[0].read_text()))
+            self.assertEqual(controller.pid, int(ready[1].read_text()))
+            # Advance the real deadline callbacks only after the correct provider is held.
+            timeout_fault.advance(self.root, 2)
+            publications = [self.root / name for name in ('controller-timeout.json', 'keeper-timeout.json')]
+            while not all(path.exists() for path in publications) and time.monotonic() < deadline:
+                time.sleep(.01)
+            self.assertTrue(all(path.exists() for path in publications), 'Actual timeout was not durably published')
+            timeout, receipt = [json.loads(path.read_text()) for path in publications]
+            self.assertEqual(('terra', 'stage'), (timeout['stage'], timeout['activity']['timeout_kind']))
+            self.assertEqual(('stopping', 'stage_deadline'), (receipt['phase'], receipt['cause']))
+            metadata = timeout['supervision']
+            self.assertEqual(metadata, {key: receipt[key] for key in metadata})
+            self.assertEqual(controller.pid, metadata['owner']['pid'])
+            self.assertEqual(starts[0]['pid'], metadata['provider']['pid'])
+            owned = [metadata['keeper'], metadata['provider']]
+            self.assertTrue(all(bb._alive(row) for row in owned))
+            # A stopped keeper explicitly models unavailable cleanup; normal keepers kill timed-out writers.
+            os.kill(owned[0]['pid'], signal.SIGSTOP)
+            controller.kill()
             stdout, stderr = controller.communicate(timeout=5)
-            (self.root/'timeout-controller.log').write_text(stdout+stderr)
-            os.kill(provider_pid, signal.SIGCONT)
-            os.kill(provider_pid, 0)
-            self.assertEqual(1,len(self.events()))
-            self.build(2,extra=['--resume-paused'])
-            os.kill(provider_pid, 0)
-            self.assertEqual(1,len(self.events()), 'A second writer started while timed-out provider remained alive')
-            self.assertNotIn('autocode',self.state().get('unit_handoffs',{}))
+            (self.root / 'timeout-controller.log').write_text(stdout + stderr)
+            self.assertEqual(-signal.SIGKILL, controller.returncode)
+            self.assertTrue(bb._alive(owned[1]))
+            os.kill(owned[1]['pid'], signal.SIGCONT)
+            self.build(2, extra=['--resume-paused'])
+            self.assertTrue(bb._alive(owned[1]), 'The held writer disappeared before exclusivity was checked')
+            self.assertEqual(starts, self.events(), 'A second writer started while the timed-out provider remained alive')
+            status = self.invoke('autocode', ['--run-dir', str(self.run), '--status'])
+            public = json.loads(status.stdout)
+            view = public['view']
+            # The live attempt stays RUNNING; liveness identifies its interrupted controller.
+            self.assertEqual('RUNNING', view['status'])
+            self.assertEqual({'checked': True, 'alive': False}, view['liveness']['owner'])
+            self.assertEqual({'checked': True, 'alive': True}, view['liveness']['keeper'])
+            self.assertEqual(('interrupted', 'stage_deadline'), (view['liveness']['kind'], view['liveness']['reason']))
+            self.assertFalse(view['done'])
+            self.assertTrue(view['liveness']['provider']['alive'])
+            self.assertNotIn('autocode', public['unit_handoffs'])
         finally:
+            # Release the provider and both cleanup threads, including failures before marker collection.
+            (self.root / 'release').touch()
+            (self.root / 'cleanup-release').touch()
+            for row in bb.supervised_processes(self.root):
+                if bb._alive(row):
+                    try:
+                        os.kill(row['pid'], signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass  # cleanup only; disappearance never satisfies a test assertion
             if controller.poll() is None:
-                controller.kill(); controller.communicate(timeout=5)
-            if provider_pid:
-                try: os.kill(provider_pid,signal.SIGCONT)
-                except ProcessLookupError: pass
-            (self.root/'release').touch()
-            # The stage's keeper also outlives the killed controller and writes its final receipt
-            # after the provider exits; the fixture's cleanup (bb.await_supervised_exit) waits for it.
-            deadline=time.monotonic()+10
-            while provider_pid and time.monotonic()<deadline:
-                try: os.kill(provider_pid,0)
-                except ProcessLookupError: break
-                time.sleep(.05)
-            else:
-                if provider_pid:
-                    try: os.kill(provider_pid,signal.SIGKILL)
-                    except ProcessLookupError: pass
-
+                controller.kill()
+                controller.communicate(timeout=5)
+            bb.await_supervised_exit(self.root)
     def test_10_crash_before_spawn_recovery_launches_once(self):
         self.seed(); self.fault('before_worker')
         self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)

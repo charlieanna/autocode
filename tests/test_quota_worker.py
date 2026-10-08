@@ -1,11 +1,14 @@
 """Parallel quota and content-filter routing through the real CLI and offline concurrent Builders."""
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from . import test_subprocess
@@ -14,6 +17,9 @@ import autocode_dispatch as dispatch
 import autocode_run_view as run_view
 import autocode_stuck_job as stuck
 import autocode_support as support
+import autocode_util as util
+from autocode_role_schema import role_schema
+import fake_parallel_builder as offline_builder
 from goal_fixtures import assert_operational_wait
 
 QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
@@ -21,6 +27,93 @@ QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached
 REFUSAL = {"type": "error", "error": {"name": "ContentFilterError", "data": {
     "message": "The response was blocked by the provider's content filter"}}}
 GLM, MIMO = "zai-coding-plan/glm-5.3", "xiaomi-token-plan-sgp/mimo-v2"
+
+
+class ParallelFixtureReportRepairTests(unittest.TestCase):
+    """Exercise the real offline repair entry point without replaying any work."""
+
+    def common(self):
+        return {"contract_revision": 1, "contract_hash": "a" * 64, "task_id": "T1",
+                "deferred_backlog": [], "user_request": {
+                    "kind": "none", "discovered": "", "impact": "", "decision_needed": "",
+                    "options": [], "proposed_delta": ""}}
+
+    def schema(self, filename, role):
+        path = Path(__file__).resolve().parents[1] / "tools/autocode-schemas/v2" / filename
+        return role_schema(json.loads(path.read_text()), role)
+
+    def repaired(self, stage, report, root_stage=None):
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "original.json"
+            output = Path(directory) / "repaired.json"
+            original.write_text(json.dumps(report))
+            original_bytes = original.read_bytes()
+            data = {"report_repair": True, "original": {"stage": stage, "output": str(original)}}
+            if root_stage is not None:
+                data["stage"] = root_stage
+            events = io.StringIO()
+            with patch.object(sys, "argv", ["codex", "exec", "-o", str(output)]), \
+                    patch.object(sys, "stdin", io.StringIO("CURRENT HANDOFF DATA\n" + json.dumps(data))), \
+                    redirect_stdout(events), \
+                    patch.object(offline_builder, "report", side_effect=AssertionError("Report repair replayed a stage")), \
+                    patch.object(offline_builder.subprocess, "run", side_effect=AssertionError("Report repair executed a command")):
+                offline_builder.main()
+            self.assertEqual(original_bytes, original.read_bytes())
+            self.assertEqual(["thread.started", "turn.completed"],
+                             [json.loads(line)["type"] for line in events.getvalue().splitlines()])
+            return json.loads(output.read_text())
+
+    def test_tester_repair_preserves_the_original_report_and_schema(self):
+        report = {**self.common(), "verdict": "BLOCKED", "checks_run": [], "findings": [],
+                  "unverified_criteria": ["C1"], "checks": [],
+                  "criterion_results": [{"id": "C1", "status": "NOT_VERIFIED", "evidence_refs": []}],
+                  "end_to_end_result": {"status": "NOT_VERIFIED", "summary": "Evidence is missing",
+                                        "evidence_refs": [], "technical_result": None,
+                                        "pending_human_criteria": []}, "finding_dispositions": []}
+        schema = self.schema("sol-report.schema.json", "sol")
+        util.validate_schema(report, schema)
+        # The old producer's Builder-only field is invalid on this valid Tester report.
+        with self.assertRaisesRegex(ValueError, r"unexpected fields: summary"):
+            util.validate_schema({**report, "summary": "Repaired report without replaying implementation"}, schema)
+        for root_stage in (None, "sol_report_repair", "terra_report_repair"):
+            with self.subTest(root_stage=root_stage):
+                result = self.repaired("sol", report, root_stage)
+                self.assertEqual(report, result)
+                util.validate_schema(result, schema)
+
+    def test_completion_repair_preserves_blocked_and_unverified_results(self):
+        report = {**self.common(), "status": "BLOCKED",
+                  "acceptance_criteria": [{"id": "C1", "criterion": "Output works",
+                                           "status": "unverified", "evidence": ""}],
+                  "evidence": [], "next_objective": "Collect missing evidence",
+                  "blocker": "Checks are not verified", "plan": ["Run protected checks"],
+                  "affected_paths": [], "next_task": {"kind": "none", "milestone_id": "",
+                      "requirements": [], "acceptance_criteria": [], "validation_plan": [], "findings": []},
+                  "findings": [], "agreed_limitations": [], "finding_dispositions": []}
+        schema = self.schema("astra-decision.schema.json", "astra")
+        util.validate_schema(report, schema)
+        result = self.repaired("astra_review", report)
+        self.assertEqual(report, result)
+        util.validate_schema(result, schema)
+
+    def test_builder_repair_restores_only_the_missing_required_summary(self):
+        report = {**self.common(), "changed_files": ["a.txt"], "commands_run": ["python -m unittest"],
+                  "results": ["A check failed"], "remaining_risks": ["Validation is incomplete"],
+                  "evidence_refs": ["event:check"], "addressed_requirements": ["Produce output"],
+                  "untested_behavior": ["Integration"], "recommended_checks": ["Run integration"]}
+        schema = self.schema("terra-report.schema.json", "terra")
+        with self.assertRaisesRegex(ValueError, r"missing summary"):
+            util.validate_schema(report, schema)
+        result = self.repaired("terra", report, "sol_report_repair")
+        self.assertEqual({**report, "summary": "Repaired report without replaying implementation"}, result)
+        util.validate_schema(result, schema)
+
+    def test_existing_builder_summary_and_other_stage_fields_are_unchanged(self):
+        for stage in ("terra", "astra_checkpoint", "requirements_gather", "investigate_stuck"):
+            report = {"summary": "Original uncertainty", "status": "BLOCKED",
+                      "evidence": ["event:failed-check"], "details": {"exit_code": 1, "verified": False}}
+            with self.subTest(stage=stage):
+                self.assertEqual(report, self.repaired(stage, report))
 
 
 class ParallelQuotaTests(unittest.TestCase):

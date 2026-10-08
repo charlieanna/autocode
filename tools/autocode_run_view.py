@@ -55,7 +55,7 @@ QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
 def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False, liveness=None,
-         runner_check_liveness=None) -> dict:
+         runner_check_liveness=None, verification_obligation=None) -> dict:
     """Caller supplies fresh completion, evidence, repair and supervision inspections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
@@ -69,6 +69,7 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
                          "liveness": liveness_policy.classify(check_supervision, runner_check_liveness)}
                         if check else None,
         "dependency": state.get("dependency_wait"),
+        "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
         "status": status,
         "liveness": liveness_policy.classify(supervision, liveness),
