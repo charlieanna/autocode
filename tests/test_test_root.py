@@ -16,6 +16,7 @@ import autocode_regression as regression
 import autocode_test_root as test_root
 import autocode_util as util
 import autocode_verify as verify
+import autocode_multicomponent as components
 from tests.test_verify import Project, git, isolated_python
 
 ARCHITECTURE = {"README.md": "Two components.\n", "architecture/components.json": '[{"id":"gateway"},{"id":"store"}]\n'}
@@ -145,19 +146,31 @@ class StoreTests(unittest.TestCase):
                             "components/store/tests/test_store.py": test})
         criterion = {"id": "C1", "criterion": "Real local HTTP health, POST, GET flow",
                      "verification_method": "test: test_c1_real_http_flow"}
-        run = state(self.project, root="components/store", criterion=criterion, python=isolated_python(self))
-        proof = regression.prove(run, self.project.root, self.run_dir)
-        self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
-        self.assertEqual({"C1": ["components.store.tests.test_store.StoreTests.test_c1_real_http_flow"]}, proof["case_tests"])
-        handoff = regression.handoff(run)
-        self.assertEqual(proof["case_tests"], handoff["case_tests"])
-        self.assertEqual(proof["source_revision"], handoff["source_revision"])
-        self.assertTrue(handoff["checks"])
-        revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
-        self.assertTrue(regression.complete(run, revision))
-        self.project.write({"components/store/server.py": server.replace('self.reply(201, note)', 'self.reply(500, note)')})
-        revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
-        self.assertFalse(regression.complete(run, revision))
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                self.project.write({"components/store/server.py": server})
+                run = state(self.project, root=None if legacy else "components/store",
+                            criterion=criterion, python=isolated_python(self))
+                if legacy:
+                    run["task"] = components.component_brief(
+                        components.Component("store", "HTTP service", ("R1",), (), (), ()), components.Architecture())
+                before = deepcopy(run)
+                regression.settings(run)
+                self.assertEqual(before, run)
+                proof = regression.prove(run, self.project.root, self.run_dir)
+                self.assertEqual(before["settings"], run["settings"])
+                self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
+                self.assertTrue(proof["commands"]["suite"].endswith("discover -v -s components/store"), proof)
+                self.assertEqual({"C1": ["components.store.tests.test_store.StoreTests.test_c1_real_http_flow"]}, proof["case_tests"])
+                handoff = regression.handoff(run)
+                self.assertEqual(proof["case_tests"], handoff["case_tests"])
+                self.assertEqual(proof["source_revision"], handoff["source_revision"])
+                self.assertTrue(handoff["checks"])
+                revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
+                self.assertTrue(regression.complete(run, revision))
+                self.project.write({"components/store/server.py": server.replace('self.reply(201, note)', 'self.reply(500, note)')})
+                revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
+                self.assertFalse(regression.complete(run, revision))
 
     def test_unmarked_test_directory_and_empty_collection(self):
         for directory, verdict in (("tests", verify.PASS), ("checks", verify.UNVERIFIED)):

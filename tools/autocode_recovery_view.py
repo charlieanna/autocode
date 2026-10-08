@@ -228,6 +228,11 @@ def project(state, need=None):
         actions.append(_action('new_conversation', 'Start a new conversation', 'Keep this stopped conversation and start separate work in the same project.'))
         return result
     if status == 'PAUSED_COMPONENT_PLAN':
+        if need.get('new_run_required'):
+            result['title'] = 'Caller binding needs a fresh run'
+            result['what_happened'] = 'The saved component caller binding is invalid and immutable in this run.'
+            actions.append(_action('new_run', 'Start a fresh component run', need['recovery_hint']))
+            return result
         actions.append(_action('feedback', 'Correct the component plan',
             'Use --edit-goal FILE or --feedback TEXT to request a corrected draft. It needs fresh approval; '
             'this action neither edits nor approves the saved contract.'))

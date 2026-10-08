@@ -29,6 +29,7 @@ try:
     from . import autocode_containment_policy as containment_policy
     from . import autocode_route_ladder as route_ladder
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_component_plan as component_plan
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -44,6 +45,7 @@ except ImportError:
     import autocode_containment_policy as containment_policy
     import autocode_route_ladder as route_ladder
     import autocode_accepted_source as accepted_source
+    import autocode_component_plan as component_plan
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -360,6 +362,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      after AutoResolver held corrective information,
                                                      `action` is the control it requires
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
+                                                     `new_run_required` instead preserves this run
+                                                     and requires a fresh run with valid caller inputs;
+                                                     `edit_required` instead prescribes --edit-goal FILE
+                                                     or `feedback_action`, then fresh plan approval;
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
                                                      `action`, when set, is the one command that
@@ -385,10 +391,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     if status in COMPLETE:
         return None
     if status == 'PAUSED_COMPONENT_PLAN':
-        return {'kind': 'resume', 'reason': state.get('stop_reason'), 'edit_required': True,
-                'action': '--edit-goal FILE', 'feedback_action': '--feedback TEXT',
-                'recovery_hint': 'Correct the component plan or request a new draft with planning feedback. '
-                                 'A corrected draft needs fresh approval; unchanged resume cannot repair this contract.'}
+        return {'kind': 'resume', 'reason': state.get('stop_reason'),
+                **component_plan.recovery(state.get('task', ''),
+                    (state.get('settings') or {}).get('regression', {}).get('test_root'))}
     failure = state.get('job_failure') or {}
     if quota_route.job_pause_current(state) and failure:
         known_source = bool(failure.get('source_identity'))

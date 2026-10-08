@@ -246,6 +246,16 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 f"  Or allow more:   autocode --planning-review-call-limit N {where}",
                 f"  Then:            autocode-issue continue {ref}"]
     if kind == "resume":
+        if need.get("new_run_required"):
+            return [f"The saved component caller binding cannot be repaired: {need.get('reason')}",
+                    f"  Inspect the retained run: autocode --status {where}",
+                    "  " + need['recovery_hint']]
+        if need.get("edit_required"):
+            return [f"The component plan needs correction: {need.get('reason')}",
+                    f"  Inspect:  autocode --status {where}",
+                    f"  Correct:  autocode {need['action']} {where}",
+                    f"  Or:       autocode {need['feedback_action']} {where}",
+                    "  Then inspect the corrected draft and approve its new token; unchanged resume cannot repair it."]
         # A design conflict waits for an edit: only --resume-paused continues it (autocode_run_finder).
         word = "resume" if run_finder.resume_acknowledges(view.get("status")) else "--resume-paused"
         return [f"The run paused: {need.get('reason')}",

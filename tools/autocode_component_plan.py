@@ -1,6 +1,6 @@
 """Pure admission for the supported generated component brief, not generic test roots.
 
-The original task and caller-saved root bind ownership. Model constraints and
+The original task and any caller-saved root bind ownership. Model constraints and
 workspace names confer no authority. Flow checks cover explicit Docker/container,
 Compose/smoke and gateway-proxy contradictions, not arbitrary natural language.
 """
@@ -95,17 +95,15 @@ def _literal(clause):
     return None
 
 
-def validate(task: str, test_root, body: dict) -> None:
-    """Raise ValueError without mutation for an inadmissible generated component plan.
+def effective_root(task: str, test_root):
+    """Read caller ownership without rewriting saved settings or approval bindings.
 
-    Only the generated header activates policy. Its single exact ownership sentence
-    must match the component id and caller root. Paths are literal, never selectors.
-    Deliverables classify only confident filesystem outputs, not abstract labels.
-    Flow checks cover explicit supported CLI/imperative contradictions and typed
-    operation-wide permission bans. They do not infer arbitrary prose intent.
+    Shipped component TaskRuns saved the generated task but no test_root. Only its
+    exact, single ownership declaration supplies that missing root. An explicit
+    saved root must still agree; generic tasks gain no inferred scope.
     """
     if not re.match(r"\AImplement the .*? component of a larger system\b", task, re.S):
-        return
+        return test_root
     header = _HEADER.match(task)
     owned = _OWNERSHIP.findall(task)
     if (not header or ".." in header[1] or len(owned) != 1
@@ -114,12 +112,45 @@ def validate(task: str, test_root, body: dict) -> None:
             or owned[0] != f"components/{header[1]}/"):
         raise ValueError("Component plan: malformed or ambiguous generated ownership declaration")
     prefix = owned[0][:-1]
+    if test_root is None:
+        return prefix
     try:
         root = normalize(test_root) if isinstance(test_root, str) else None
     except ValueError:
         root = None
     if root != prefix:
         raise ValueError("Component plan: generated component ownership disagrees with caller test_root")
+    return root
+
+
+def recovery(task: str, test_root) -> dict:
+    """Classify repair from immutable caller inputs, never model text or stop reasons."""
+    try:
+        effective_root(task, test_root)
+    except ValueError:
+        return {'new_run_required': True, 'edit_required': False, 'action': 'fresh_run', 'feedback_action': None,
+                'recovery_hint': 'Preserve this stopped run and start a fresh component run with a valid original caller '
+                                 'ownership declaration and matching caller test root, using TaskRun.start. '
+                                 'The saved caller binding is immutable; editing the plan or requesting a new draft '
+                                 'cannot repair it. The fresh plan still needs approval.'}
+    return {'edit_required': True, 'action': '--edit-goal FILE', 'feedback_action': '--feedback TEXT',
+            'recovery_hint': 'Correct the component plan or request a new draft with planning feedback. '
+                             'A corrected draft needs fresh approval; unchanged resume cannot repair this contract.'}
+
+
+def validate(task: str, test_root, body: dict) -> None:
+    """Raise ValueError without mutation for an inadmissible generated component plan.
+
+    Only the generated header activates policy. Its single exact ownership sentence
+    must match the component id and any saved caller root. Paths are literal, never
+    selectors. Deliverables classify confident filesystem outputs, not abstract
+    labels. Flow checks cover supported CLI/imperative contradictions and typed
+    operation-wide permission bans, not arbitrary prose intent.
+    """
+    root = effective_root(task, test_root)
+    if not re.match(r"\AImplement the .*? component of a larger system\b", task, re.S):
+        return
+    prefix = root
     paths = [(f"milestone {row.get('id')}", path)
              for row in body.get("milestones", []) for path in row.get("affected_paths", [])]
     paths += [("initial_task", path) for path in body.get("initial_task", {}).get("affected_paths", [])]

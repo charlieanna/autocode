@@ -70,9 +70,19 @@ class ComponentPlanTests(unittest.TestCase):
         lifecycle.validate_body({"task": "Build a greeting CLI", "settings": {
             "regression": {"test_root": self.root}}}, generic)
 
-    def test_generated_binding_mismatch_missing_and_ambiguous_fail_closed(self):
+    def test_legacy_missing_root_uses_original_caller_ownership_without_mutation(self):
+        state = {"task": self.task, "settings": {"regression": {}}, "user_events": []}
+        before = copy.deepcopy(state)
+        policy.validate(self.task, None, self.body)
+        lifecycle.validate_body(state, self.body)
+        self.assertEqual(self.root, policy.effective_root(self.task, None))
+        self.assertEqual(before, state)
+        self.assertIsNone(policy.effective_root("Build a greeting CLI", None))
+
+    def test_generated_binding_mismatch_and_ambiguous_fail_closed(self):
         ownership = "Own only the directory components/store/; do not create or edit any file outside it."
-        for task, root in [(self.task, "components/gateway"), (self.task, None),
+        for task, root in [(self.task, "components/gateway"), (self.task, ""),
+                           (self.task, False), (self.task, 1), (self.task, []),
                            (self.task, "components/store/../store"),
                            (self.task.replace("components/store/;", "components/gateway/;"), self.root),
                            (self.task.replace(ownership, ""), self.root), (self.task + " " + ownership, self.root),
@@ -81,6 +91,11 @@ class ComponentPlanTests(unittest.TestCase):
                            (self.task.replace("larger system:", "larger system;"), self.root)]:
             with self.subTest(task=task, root=root), self.assertRaisesRegex(ValueError, "Component plan"):
                 policy.validate(task, root, self.body)
+        for task in (self.task.replace(ownership, ""), self.task + " " + ownership,
+                     self.task.replace("components/store/;", "components/gateway/;"),
+                     self.task.replace("components/store/;", "components/store//;")):
+            with self.subTest(legacy_task=task), self.assertRaisesRegex(ValueError, "Component plan"):
+                policy.validate(task, None, self.body)
 
     def test_observed_and_quoted_direct_child_deferrals_are_rejected(self):
         steps = ["`docker build -f components/store/Dockerfile components/store/` builds the store image "
