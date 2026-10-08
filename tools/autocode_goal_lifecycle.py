@@ -8,9 +8,9 @@ from here, so a module that only reads a contract does not pull that machinery i
 from __future__ import annotations
 
 try:
-    from . import autocode_source_scope as source_scope
+    from . import autocode_source_scope as source_scope, autocode_component_plan as component_plan
 except ImportError:
-    import autocode_source_scope as source_scope
+    import autocode_source_scope as source_scope, autocode_component_plan as component_plan
 
 
 import copy
@@ -63,6 +63,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):
     legacy = allow_legacy and not any(key in body for key in BRIEF_FIELDS)
     schema = PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA
     s.validate_schema(body, design_plan.body_schema(schema, (state.get("settings") or {}).get("design_manifest")))
+    component_plan.validate(state.get("task", ""), (state.get("settings") or {}).get("regression", {}).get("test_root"), body)
     brief_obligations.validate_body(state, body, ready=ready)
     risk_obligations.validate_body(state, body, ready=ready)
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):

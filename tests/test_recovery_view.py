@@ -6,9 +6,24 @@ import unittest
 
 import autocode_recovery_view as recovery
 import autocode_run_view as run_view
+import autocode_run_finder as finder
+import autocode_recovery_novelty as novelty
 
 
 class RecoveryViewTests(unittest.TestCase):
+    def test_component_plan_stop_requires_edit_and_fresh_approval(self):
+        state = self.state('PAUSED_COMPONENT_PLAN', stop_reason='Component plan: outside ownership')
+        before = copy.deepcopy(state)
+        view = run_view.view(state)
+        self.assertTrue(view['needs'].get('edit_required'))
+        self.assertEqual('--edit-goal FILE', view['needs']['action'])
+        self.assertEqual('--feedback TEXT', view['needs']['feedback_action'])
+        self.assertFalse(finder.resume_acknowledges(state['status']))
+        self.assertEqual('product', novelty.classify(status=state['status']))
+        self.assertEqual(['inspect', 'feedback'], [row['kind'] for row in view['recovery']['actions']])
+        self.assertIn('fresh approval', view['recovery']['actions'][-1]['effect'])
+        self.assertEqual(before, state)
+
     def state(self, status='PAUSED_REQUESTED', **fields):
         return {'status': status, 'iteration': 4, 'next_stage': 'terra',
                 'current_task': {'id': 't', 'milestone_id': 'M1', 'kind': 'implement'},

@@ -75,6 +75,8 @@ def _explanation(status, role):
         'PAUSED_PROVIDER_UNCERTAIN': 'The provider ended without a confirmed result. Its partial work needs inspection.',
         'PAUSED_UNCERTAIN_STAGE': 'The step ended without a confirmed result. Its partial work needs inspection.',
         'PAUSED_PLANNING_BUDGET': 'Planning used its configured review allowance.',
+        'PAUSED_COMPONENT_PLAN': 'The saved component plan conflicts with its caller-owned scope or executable child flow. '
+                                 'An unchanged resume cannot repair the contract.',
         'PAUSED_RATE_LIMIT': 'The provider temporarily refused more requests.',
         'PAUSED_PROVIDER_CAPACITY': 'The provider could not accept the request with its current capacity.',
         'PAUSED_CONTENT_FILTER': "The provider's content filter refused the response. The same model is likely to refuse it again; another model is needed.",
@@ -224,6 +226,11 @@ def project(state, need=None):
     actions.append(_action('inspect', 'Inspect saved work', 'Read the saved plan, changes, checks and attempt history. This does not run a step.'))
     if terminal:
         actions.append(_action('new_conversation', 'Start a new conversation', 'Keep this stopped conversation and start separate work in the same project.'))
+        return result
+    if status == 'PAUSED_COMPONENT_PLAN':
+        actions.append(_action('feedback', 'Correct the component plan',
+            'Use --edit-goal FILE or --feedback TEXT to request a corrected draft. It needs fresh approval; '
+            'this action neither edits nor approves the saved contract.'))
         return result
     if need.get('kind') == 'recover_source':
         result['title'] = 'Original source needs inspection'

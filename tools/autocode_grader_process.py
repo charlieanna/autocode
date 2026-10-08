@@ -90,7 +90,6 @@ def wait(child, timeout):
     must not concurrently poll/wait/reap it. Inspection does not reap the root.
     """
     tree = processes.ProcessTree(child.pid, lambda rows: None)
-    deadline = time.monotonic() + timeout
     expired = False
     root = None
     try:
@@ -99,6 +98,9 @@ def wait(child, timeout):
         if root.get('group') != child.pid:
             raise processes.ProcessError('Independent grader has no verified private process group')
         tree.known[child.pid] = root
+        # Record detached descendants before the first interruptible clock read.
+        tree.sample()
+        deadline = time.monotonic() + timeout
         while True:
             tree.sample()
             current = _leader(child)

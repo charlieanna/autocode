@@ -34,12 +34,15 @@ import http.client
 import json
 import os
 import re
+import shlex
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 try:
@@ -80,6 +83,10 @@ class DockerUnavailable(RuntimeError):
     """docker, Compose v2 or the Docker daemon cannot be used."""
 
 
+class DockerCleanupUnavailable(DockerUnavailable):
+    """An owned CLI helper could not be proven stopped."""
+
+
 @dataclass(frozen=True)
 class CommandResult:
     returncode: int
@@ -94,7 +101,11 @@ def subprocess_runner(argv: list, timeout: float) -> CommandResult:
     """Run ``argv`` and capture its output. A missing executable raises DockerUnavailable;
     a command that runs past ``timeout`` is a failure with exit status 124."""
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout)
+        from . import autocode_captured_process as captured
+    except ImportError:
+        import autocode_captured_process as captured
+    try:
+        proc = captured.run(argv, timeout=timeout)
     except FileNotFoundError:
         raise DockerUnavailable(f"{argv[0]} is not installed or not on PATH; --run-local needs Docker with "
                                 f"Compose v2 (docker compose)") from None
@@ -102,6 +113,8 @@ def subprocess_runner(argv: list, timeout: float) -> CommandResult:
         out = expired.stdout.decode(errors="replace") if isinstance(expired.stdout, bytes) else expired.stdout or ""
         err = expired.stderr.decode(errors="replace") if isinstance(expired.stderr, bytes) else expired.stderr or ""
         return CommandResult(124, out, err + f"\n{' '.join(argv[:3])} ... did not finish within {timeout:g} s")
+    except captured.ProcessError as error:
+        raise DockerCleanupUnavailable(f"cannot verify owned local CLI helper cleanup: {error}") from error
     return CommandResult(proc.returncode, proc.stdout, proc.stderr)
 
 
@@ -140,6 +153,7 @@ class LocalRunPlan:
     runtimes: dict
     layers: list
     smoke: SmokeCheck
+    endpoint: str | None = None
 
 
 def prepare(architecture_dir, runtimes: Mapping[str, ComponentRuntime | None]) -> LocalRunPlan:
@@ -154,35 +168,70 @@ def prepare(architecture_dir, runtimes: Mapping[str, ComponentRuntime | None]) -
     return LocalRunPlan(runtimes=runtimes, layers=layers, smoke=smoke)
 
 
-def check_docker(runner: Runner = subprocess_runner, env: Mapping[str, str] | None = None) -> None:
-    """Raise DockerUnavailable unless docker, Compose 2.17 or newer and a daemon on this
-    machine all answer. ``env`` is the environment docker runs in (os.environ by default)."""
+def docker_checks(runner: Runner = subprocess_runner, env: Mapping[str, str] | None = None) -> list[dict]:
+    """Read-only readiness checks; reject remote endpoints before daemon contact."""
     env = os.environ if env is None else env
-    compose = runner(["docker", "compose", "version", "--short"], COMMAND_TIMEOUT)
+    checks = []
+
+    def probe(name, argv):
+        try:
+            return runner(argv, COMMAND_TIMEOUT)
+        except (OSError, DockerUnavailable) as error:
+            checks.append({"name": name, "ok": False, "detail": str(error)})
+            return None
+
+    compose = probe("docker:compose", ["docker", "compose", "version", "--short"])
+    if compose is None:
+        return checks
+    detail = ""
     if compose.returncode != 0:
-        raise DockerUnavailable(f"`docker compose version` failed; --run-local needs Compose v2 (the docker "
-                                f"compose plugin): {_tail(compose.stderr or compose.stdout)}")
+        detail = (f"`docker compose version` failed; --run-local needs Compose v2 (the docker "
+                  f"compose plugin): {_tail(compose.stderr or compose.stdout)}")
     found = re.match(r"v?(\d+)\.(\d+)", compose.stdout.strip())
-    if not found or (int(found.group(1)), int(found.group(2))) < MIN_COMPOSE:
-        raise DockerUnavailable(f"--run-local needs Docker Compose {'.'.join(map(str, MIN_COMPOSE))} or newer "
-                                f"(found {_tail(compose.stdout, 80) or 'no version'}); update Docker Compose")
-    server = runner(["docker", "version", "--format", "{{.Server.Version}}"], COMMAND_TIMEOUT)
-    if server.returncode != 0:
-        raise DockerUnavailable(f"the Docker daemon is not reachable (`docker version` failed); start Docker and "
-                                f"try again: {_tail(server.stderr or server.stdout)}")
-    endpoint = env.get("DOCKER_HOST", "")
+    if not detail and (not found or (int(found.group(1)), int(found.group(2))) < MIN_COMPOSE):
+        detail = (f"--run-local needs Docker Compose {'.'.join(map(str, MIN_COMPOSE))} or newer "
+                  f"(found {_tail(compose.stdout, 80) or 'no version'}); update Docker Compose")
+    checks.append({"name": "docker:compose", "ok": not detail,
+                   "detail": detail or f"Docker Compose {_tail(compose.stdout, 80)}"})
+    # The Docker CLI gives DOCKER_CONTEXT precedence over DOCKER_HOST.
+    endpoint = "" if env.get("DOCKER_CONTEXT") else env.get("DOCKER_HOST", "")
     if not endpoint:
-        context = runner(["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
-                         COMMAND_TIMEOUT)
-        if context.returncode != 0:
-            raise DockerUnavailable(f"cannot tell where the Docker daemon runs (`docker context inspect` failed): "
-                                    f"{_tail(context.stderr or context.stdout)}")
-        endpoint = context.stdout.strip()
-    if not endpoint.startswith(LOCAL_ENDPOINTS):
-        raise DockerUnavailable(f"--run-local needs a Docker daemon on this machine, reached through a local "
-                                f"unix:// or npipe:// socket, because it checks the published ports on 127.0.0.1; "
-                                f"the daemon is at {_tail(endpoint, 200)!r} (DOCKER_HOST or the current docker "
-                                f"context)")
+        context = probe("docker:context", ["docker", "context", "inspect", *([env["DOCKER_CONTEXT"]]
+                         if env.get("DOCKER_CONTEXT") else []), "--format", "{{.Endpoints.docker.Host}}"])
+        if context is not None:
+            if context.returncode != 0:
+                checks.append({"name": "docker:context", "ok": False,
+                               "detail": "cannot tell where the Docker daemon runs (`docker context inspect` failed): "
+                                         + _tail(context.stderr or context.stdout)})
+            else:
+                endpoint = context.stdout.strip()
+    if endpoint:
+        local = endpoint.startswith(LOCAL_ENDPOINTS)
+        checks.append({"name": "docker:context", "ok": local, "endpoint": endpoint,
+                       "detail": f"local Docker endpoint {_tail(endpoint, 200)}" if local else
+                       "--run-local needs a Docker daemon on this machine, reached through a local "
+                       "unix:// or npipe:// socket, because it checks the published ports on 127.0.0.1; "
+                       f"the daemon is at {_tail(endpoint, 200)!r} (DOCKER_HOST or the current docker context)"})
+    elif not any(check["name"] == "docker:context" for check in checks):
+        checks.append({"name": "docker:context", "ok": False, "detail": "Docker context has no daemon endpoint"})
+    if not any(check["name"] == "docker:context" and not check["ok"] for check in checks):
+        server = probe("docker:daemon", ["docker", "--host", endpoint, "version", "--format", "{{.Server.Version}}"])
+        if server is not None:
+            ok = server.returncode == 0 and bool(server.stdout.strip())
+            checks.append({"name": "docker:daemon", "ok": ok,
+                           "detail": f"Docker daemon {_tail(server.stdout, 80)}" if ok else
+                           "the Docker daemon is not reachable (`docker version` failed); start Docker and "
+                           f"try again: {_tail(server.stderr or server.stdout)}"})
+    return checks
+
+
+def check_docker(runner: Runner = subprocess_runner, env: Mapping[str, str] | None = None) -> str:
+    """Validate readiness and return the local endpoint to pin subsequent commands."""
+    checks = docker_checks(runner, env)
+    for check in checks:
+        if not check["ok"]:
+            raise DockerUnavailable(check["detail"])
+    return next(check["endpoint"] for check in checks if check["name"] == "docker:context")
 
 
 def check_tree(plan: LocalRunPlan, tree: Path) -> None:
@@ -231,7 +280,8 @@ class LocalRun:
     DOWN = ("down", "-v", "--remove-orphans", "--rmi", "local")
 
     def compose(self, *args: str) -> list:
-        return ["docker", "compose", "-p", self.project, "-f", str(self.compose_file), *args]
+        return ["docker", *(["--host", self.plan.endpoint] if self.plan.endpoint else []),
+                "compose", "-p", self.project, "-f", str(self.compose_file), *args]
 
     def run(self) -> dict:
         """Start, check and tear down. Returns the summary's local_run entry; its status
@@ -239,10 +289,22 @@ class LocalRun:
         summary = {"status": "failed", "project": self.project, "compose_file": str(self.compose_file),
                    "layers": self.plan.layers, "ready": [], "ports": self.ports, "steps": [],
                    "failed_component": None, "failed_step": None, "detail": None, "logs": None,
-                   "torn_down": False, "stop_command": None}
+                   "torn_down": False, "stop_command": None, "cleanup_detail": None, "kept_running": False}
         started = False
+        self._helper_cleanup_failure = None
+        handlers = {}
+        if threading.current_thread() is threading.main_thread():
+            def interrupted(signum, frame):
+                raise SystemExit(128 + signum)
+            for signum in (signal.SIGTERM, signal.SIGHUP):
+                handlers[signum] = signal.signal(signum, interrupted)
         try:
             check_tree(self.plan, self.tree)
+            if self.plan.endpoint is None and self.runner is subprocess_runner:
+                self.plan = replace(self.plan, endpoint=check_docker(self.runner))
+            if self.plan.endpoint is not None and not self.plan.endpoint.startswith(LOCAL_ENDPOINTS):
+                raise DockerUnavailable("local run endpoint must be a local unix:// or npipe:// socket")
+            summary["docker_endpoint"] = self.plan.endpoint
             self._write_compose_file()
             for number, layer in enumerate(self.plan.layers, 1):
                 self._say(f"starting layer {number} of {len(self.plan.layers)}: {', '.join(layer)}")
@@ -258,21 +320,41 @@ class LocalRun:
                     raise _Failure(step.service, f"smoke step {index} ({step.name}) failed: {result['detail']}",
                                    step=step.name)
             summary["status"] = "passed"
-        except (_Failure, ValueError, DockerUnavailable) as failure:
+        except BaseException as failure:
+            summary["status"] = "failed"
             component, involved = getattr(failure, "component", None), getattr(failure, "involved", [])
             summary.update(failed_component=component, failed_step=getattr(failure, "step", None),
-                           detail=getattr(failure, "detail", str(failure)))
+                           detail=getattr(failure, "detail", str(failure) or type(failure).__name__))
             self._say(f"--run-local failed: {summary['detail']}")
             if involved and started:
                 summary["logs"] = self._logs(involved)
                 self._say(f"last {self.log_lines} log lines of {', '.join(involved)}:\n{summary['logs']}")
+            elif started:
+                summary["logs"] = self._logs([cid for layer in self.plan.layers for cid in layer])
+            if not isinstance(failure, Exception):
+                raise
         finally:
-            if started:
-                if self.keep_running:
-                    summary["stop_command"] = " ".join(self.compose(*self.DOWN))
-                    self._say(f"left running; stop it with: {summary['stop_command']}")
-                else:
-                    summary["torn_down"] = self._down()
+            try:
+                if started:
+                    if self.keep_running:
+                        summary["kept_running"] = True
+                        summary["stop_command"] = shlex.join(self.compose(*self.DOWN))
+                        self._say(f"left running; stop it with: {summary['stop_command']}")
+                    else:
+                        down_detail = self._down()
+                        summary["cleanup_detail"] = "; ".join(filter(None, [self._helper_cleanup_failure, down_detail])) or None
+                        summary["torn_down"] = summary["cleanup_detail"] is None
+                        if not summary["torn_down"]:
+                            summary["status"] = "failed"
+                            summary["detail"] = "; ".join(filter(None, [summary["detail"], summary["cleanup_detail"]]))
+                            summary["stop_command"] = shlex.join(self.compose(*self.DOWN))
+                            if summary["logs"] is None:
+                                summary["logs"] = self._logs([cid for layer in self.plan.layers for cid in layer])
+                            self._say(f"--run-local failed: {summary['detail']}\n"
+                                      f"cleanup incomplete; recover with: {summary['stop_command']}")
+            finally:
+                for signum, handler in handlers.items():
+                    signal.signal(signum, handler)
         return summary
 
     def _write_compose_file(self) -> None:
@@ -280,27 +362,33 @@ class LocalRun:
         self.compose_file.write_text(render(compose_document(self.plan.runtimes, self.tree)), encoding="utf-8")
 
     def _up(self, layer: list) -> None:
-        result = self.runner(self.compose("up", "-d", "--build", "--no-deps", *layer), UP_TIMEOUT)
+        result = self._run_command(self.compose("up", "-d", "--build", "--no-deps", *layer), UP_TIMEOUT)
         if result.returncode != 0:
             raise _Failure(layer[0] if len(layer) == 1 else None,
                            f"docker compose up failed for {', '.join(layer)}: {_tail(result.stderr or result.stdout)}",
                            involved=layer)
 
-    def _down(self) -> bool:
+    def _run_command(self, argv, timeout):
         try:
-            result = self.runner(self.compose(*self.DOWN), COMMAND_TIMEOUT)
-        except DockerUnavailable as error:
-            self._say(f"could not tear down {self.project}: {error}")
-            return False
+            return self.runner(argv, timeout)
+        except DockerCleanupUnavailable as error:
+            self._helper_cleanup_failure = str(error)
+            raise
+
+    def _down(self) -> str | None:
+        try:
+            result = self._run_command(self.compose(*self.DOWN), COMMAND_TIMEOUT)
+        except Exception as error:
+            return f"could not tear down {self.project}: {_tail(str(error)) or type(error).__name__}"
         if result.returncode != 0:
-            self._say(f"could not tear down {self.project}: {_tail(result.stderr or result.stdout)}")
-        return result.returncode == 0
+            return f"could not tear down {self.project} (exit {result.returncode}): {_tail(result.stderr or result.stdout)}"
+        return None
 
     def _logs(self, components: list) -> str:
         try:
-            result = self.runner(self.compose("logs", "--no-color", "--tail", str(self.log_lines), *components),
+            result = self._run_command(self.compose("logs", "--no-color", "--tail", str(self.log_lines), *components),
                                  COMMAND_TIMEOUT)
-        except DockerUnavailable as error:
+        except Exception as error:
             return str(error)
         return (result.stdout + result.stderr).rstrip("\n")
 
@@ -308,7 +396,7 @@ class LocalRun:
         """Each container's (State, Health) by service, from `ps --all --format json`, which
         prints one JSON array (older Compose v2) or one object per line (newer). A failure
         names ``involved``, the components being waited on, for their logs."""
-        result = self.runner(self.compose("ps", "--all", "--format", "json"), COMMAND_TIMEOUT)
+        result = self._run_command(self.compose("ps", "--all", "--format", "json"), COMMAND_TIMEOUT)
         if result.returncode != 0:
             raise _Failure(None, f"docker compose ps failed: {_tail(result.stderr or result.stdout)}",
                            involved=involved)
@@ -325,7 +413,7 @@ class LocalRun:
     def _port(self, cid: str) -> int:
         if cid not in self.ports:
             runtime = self.plan.runtimes[cid]
-            result = self.runner(self.compose("port", cid, str(runtime.port)), COMMAND_TIMEOUT)
+            result = self._run_command(self.compose("port", cid, str(runtime.port)), COMMAND_TIMEOUT)
             address = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
             host, _, port = address.rpartition(":")
             if result.returncode != 0 or not port.isdigit():

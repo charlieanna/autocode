@@ -216,6 +216,11 @@ def settings(state):
     return state.get("settings", {}).get("regression") or {}
 
 
+def rooted(options):
+    """Leave unscoped runs' detection and verification calls unchanged."""
+    return {"test_root": options["test_root"]} if options.get("test_root") else {}
+
+
 def suite_timeout(state):
     """Seconds the runner lets one suite run take, or None for no limit.
 
@@ -309,8 +314,11 @@ def prove(state, workspace, run_dir):
     framework = verify.command_framework(command) if command else None
     python = ((framework.python if framework and framework.name in ("pytest", "unittest") else None)
               or options.get("python") or verify.python_for(state.get("project_workspace") or workspace))
-    framework = framework or verify.detect_framework(workspace, python=python)
     base = base_commit(state, workspace)
+    detection = rooted(options)
+    if detection:
+        detection["base"] = base
+    framework = framework or verify.detect_framework(workspace, python=python, **detection)
     operator = operator_patch.pinned(state)
     # The ignored files an in-place run's scratch trees receive: those it started with (#529).
     inputs = launch_inputs.supply(state, workspace, run_dir) if base else None
@@ -411,7 +419,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
                                preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
-                               source_paths=source_scope.paths(state), ignored_inputs=inputs, guards=guards)
+                               source_paths=source_scope.paths(state), ignored_inputs=inputs, guards=guards,
+                               **rooted(options))
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if inputs:

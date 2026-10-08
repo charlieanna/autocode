@@ -1181,6 +1181,13 @@ def context(state, stage, state_path):
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])
+    try:
+        from ..autocode_component_runtime import architecture_contract
+    except ImportError:
+        from autocode_component_runtime import architecture_contract
+    runtime_contract = architecture_contract(state['task'])
+    if runtime_contract:
+        packet['architecture_runtime_contract'] = runtime_contract
     if state.get('design_constraint'):
         packet['approved_design'] = state['design_constraint']
     diagnosis = bug_job.large_correction(state)

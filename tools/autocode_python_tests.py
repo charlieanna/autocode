@@ -3,6 +3,28 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import shlex
+import ast
+
+TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
+
+
+def unittest_package(source: str) -> bool:
+    """A package marker alone is not a suite; only declared tests/hooks select Python."""
+    try:
+        nodes = ast.parse(source).body
+    except (SyntaxError, ValueError):
+        return False
+    for node in nodes:
+        if isinstance(node, ast.FunctionDef) and node.name == "load_tests":
+            return True
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+                (alias.asname or alias.name) == "load_tests" for alias in node.names):
+            return True
+        if isinstance(node, ast.ClassDef) and any(
+                (isinstance(base, ast.Attribute) and base.attr == "TestCase")
+                or (isinstance(base, ast.Name) and base.id == "TestCase") for base in node.bases):
+            return True
+    return False
 
 
 @dataclass(frozen=True)

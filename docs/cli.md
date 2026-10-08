@@ -65,7 +65,7 @@ runs, a bare `autocode` names the latest one instead of relaunching it. Inside a
 directory whose `state.json` is missing or cannot be used, or one `autocode clean-worktrees`
 archived, it refuses rather than pick another run.
 A task, or a new-run option (`--in-place`, `--figma-file`, `--figma-manifest`,
-`--figma-review`, `--ui-run`, `--builder-strong-model`, `--conversation-handoff`), starts
+`--figma-review`, `--ui-run`, `--builder-strong-model`, `--conversation-handoff`, `--test-root`), starts
 a new run instead; `autocode resume` never does.
 
 ### Conversation and approval
@@ -179,6 +179,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--no-progress-limit N` | Unchanged-batch limit (new-run default `3`; `0` disables the cap, never the 3-recovery ceiling). With `--resume-paused`, an N above the retained count, or `0`, acknowledges a `PAUSED_NO_PROGRESS` request, also when N is already saved; it never acknowledges another cause's pause. When the limit caused the pause, its advice names this flag and the retained count, not `--resolver-response`: information alone never acknowledges it. |
 | `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
 | `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
+| `--test-root components/api/` | New runs only: save a plain workspace-relative directory for automatic Python suite detection (pytest or unittest). Fixed at launch, not changeable on resume. Changes outside it remain `UNVERIFIED`, including with an explicit test command. This selects proof tests, not a general write boundary; identified generated component tasks also bind their declared plan ownership to this caller root. See [Scoped Python proof](workflow.md#scoped-python-proof). |
 | `--base-patch PATH` | Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and its edits must occur at the corresponding original source locations in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with `--resume-paused` at a stop before the Tester or a completion check. |
 | `--regression-command CMD` | A command that runs only the fix's new or changed tests (default: derived). Saved corrections require the same pre-validation `--resume-paused` boundary as `--test-command`. |
 

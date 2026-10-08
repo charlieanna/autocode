@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-UNITTEST_FAILURE = re.compile(r"^(?:FAIL|ERROR): (\S+) \(([\w.]+)\).*$", re.M)
+UNITTEST_FAILURE = re.compile(r"^(?:FAIL|ERROR): (\S+) \(([\w.-]+)\).*$", re.M)
 PYTHON_FRAME = re.compile(r'^\s*File "([^"\n]+)", line \d+, in ([^\n]+)$', re.M)
 PYTEST_FRAME = re.compile(r"^([^\n]+\.py):\d+:(?: in ([^\n]+))?[^\n]*$", re.M)
 MISSING_MOCK = re.compile(r"^(?:E\s+)?AttributeError: .* does not have the attribute ('[^'\n]+')\s*$", re.M)

@@ -256,13 +256,16 @@ elif '--run-dir' not in args:
 """)
             options = ("--engine", "codex")
             run = taskrun.TaskRun.start(root, "Implement alpha", options=options,
-                start_options=("--ui-run", "accepted-alpha"), command=(sys.executable, str(command)))
+                start_options=("--test-root", "components/alpha/", "--ui-run", "accepted-alpha"),
+                command=(sys.executable, str(command)))
             self.assertEqual(options, run.options)
             self.assertTrue(run.advance()["done"])
             calls = [json.loads(line) for line in log.read_text().splitlines()]
             self.assertIn("--ui-run", calls[0])
             self.assertEqual("accepted-alpha", calls[0][calls[0].index("--ui-run") + 1])
             self.assertFalse(any("--ui-run" in args for args in calls[1:]))
+            self.assertEqual("components/alpha/", calls[0][calls[0].index("--test-root") + 1])
+            self.assertFalse(any("--test-root" in args for args in calls[1:]))
 
 
 if __name__ == "__main__":

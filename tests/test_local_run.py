@@ -10,11 +10,15 @@ import contextlib
 import io
 import json
 import os
+import shlex
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+import psutil
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -200,6 +204,16 @@ class PrepareTests(unittest.TestCase):
 
 
 class DockerCheckTests(unittest.TestCase):
+    def test_selected_remote_context_is_refused_before_daemon_contact(self):
+        calls = []
+        def runner(argv, timeout):
+            calls.append(argv)
+            return lr.CommandResult(0, "2.29.0" if argv[1] == "compose" else "ssh://remote")
+        with self.assertRaises(lr.DockerUnavailable):
+            lr.check_docker(runner, env={"DOCKER_HOST": "unix:///ignored", "DOCKER_CONTEXT": "remote"})
+        self.assertIn(["docker", "context", "inspect", "remote", "--format", "{{.Endpoints.docker.Host}}"], calls)
+        self.assertFalse(any(argv[1] == "version" for argv in calls))
+
     def test_a_missing_docker_executable_is_a_clear_error(self):
         with self.assertRaisesRegex(lr.DockerUnavailable, "not installed or not on PATH.*Compose v2"):
             lr.subprocess_runner(["autocode-no-such-docker-here", "compose", "version"], 5)
@@ -207,6 +221,8 @@ class DockerCheckTests(unittest.TestCase):
     @staticmethod
     def runner(fail=None, compose="2.29.0", endpoint="unix:///var/run/docker.sock"):
         def run(argv, timeout):
+            if argv[1:2] == ["--host"]:
+                argv = [argv[0], *argv[3:]]
             if argv[1] == "compose":
                 return lr.CommandResult(1, "", "nope") if fail == "compose" else lr.CommandResult(0, compose + "\n")
             if argv[1] == "version":
@@ -260,6 +276,152 @@ class DockerCheckTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
+    def test_preflight_endpoint_is_pinned_across_context_changes_and_recovery(self):
+        socket = "unix:///validated local.sock"
+        preflight_calls = []
+        def preflight(argv, timeout):
+            preflight_calls.append(argv)
+            if argv[1] == "compose":
+                return lr.CommandResult(0, "2.29.0")
+            if argv[1] == "context":
+                return lr.CommandResult(0, socket)
+            return lr.CommandResult(0, "27.0.0")
+        endpoint = lr.check_docker(preflight, env={"DOCKER_CONTEXT": "local"})
+        self.assertEqual(socket, endpoint)
+        self.assertEqual(["docker", "--host", socket, "version", "--format", "{{.Server.Version}}"], preflight_calls[-1])
+        server = start_server(self)
+        ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
+        docker = FakeDocker({"api": server.server_port})
+        calls = []
+        def runner(argv, timeout):
+            calls.append(argv)
+            self.assertEqual(["docker", "--host", socket], argv[:3])
+            if "down" in argv:
+                return lr.CommandResult(1, "", "cleanup failed")
+            return docker([argv[0], *argv[3:]], timeout)
+        plan = replace(lr.prepare(ws.architecture, ws.runtimes), endpoint=endpoint)
+        with mock.patch.dict(os.environ, {"DOCKER_CONTEXT": "remote", "DOCKER_HOST": "ssh://remote"}):
+            summary = lr.LocalRun(plan, ws.tree, ws.workdir, runner=runner, clock=FakeClock(), out=io.StringIO()).run()
+        self.assertEqual("failed", summary["status"])
+        self.assertTrue(all(step["ok"] for step in summary["steps"]))
+        self.assertEqual(socket, summary["docker_endpoint"])
+        self.assertEqual(["docker", "--host", socket], shlex.split(summary["stop_command"])[:3])
+        self.assertTrue(any("up" in call for call in calls))
+        self.assertTrue(any("down" in call for call in calls))
+
+    def test_cleanup_failure_cannot_pass_and_recovery_preserves_quoted_paths(self):
+        server = start_server(self)
+        for failure in (lr.CommandResult(1, "", "network busy"), lr.CommandResult(124, "", "timeout"),
+                        lr.DockerUnavailable("docker lost"), OSError("transport lost")):
+            with self.subTest(failure=failure):
+                ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
+                ws.workdir /= "path with spaces"
+                docker = FakeDocker({"api": server.server_port})
+                def runner(argv, timeout):
+                    if argv[6:7] == ["down"]:
+                        docker.calls.append(argv)
+                        if isinstance(failure, Exception):
+                            raise failure
+                        return failure
+                    return docker(argv, timeout)
+                summary, said = ws.run(runner)
+                self.assertEqual("failed", summary["status"])
+                self.assertFalse(summary["torn_down"])
+                self.assertFalse(summary["kept_running"])
+                self.assertTrue(all(step["ok"] for step in summary["steps"]))
+                self.assertIn("could not tear down", summary["cleanup_detail"])
+                self.assertEqual(["docker", "compose", "-p", summary["project"], "-f", summary["compose_file"],
+                                  *lr.LocalRun.DOWN], shlex.split(summary["stop_command"]))
+                self.assertIn(summary["stop_command"], said)
+
+    def test_helper_cleanup_uncertainty_survives_successful_down(self):
+        ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
+        docker = FakeDocker({})
+        def runner(argv, timeout):
+            if argv[6:7] == ["up"]:
+                raise lr.DockerCleanupUnavailable("owned helper cleanup unknown")
+            return docker(argv, timeout)
+        summary, _ = ws.run(runner)
+        self.assertEqual("failed", summary["status"])
+        self.assertFalse(summary["torn_down"])
+        self.assertIn("owned helper", summary["cleanup_detail"])
+        self.assertEqual("down", docker.commands()[-1])
+
+    def test_unexpected_errors_and_signals_cleanup_and_restore_handlers(self):
+        ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
+        for failure in (RuntimeError("unexpected"), KeyboardInterrupt(), SystemExit(143)):
+            with self.subTest(failure=type(failure).__name__):
+                docker = FakeDocker({})
+                def runner(argv, timeout):
+                    if argv[6:7] == ["ps"]:
+                        raise failure
+                    return docker(argv, timeout)
+                before = signal.getsignal(signal.SIGTERM)
+                if isinstance(failure, Exception):
+                    summary, _ = ws.run(runner)
+                    self.assertEqual("failed", summary["status"])
+                else:
+                    with self.assertRaises(type(failure)):
+                        ws.run(runner)
+                self.assertEqual("down", docker.commands()[-1])
+                self.assertEqual(before, signal.getsignal(signal.SIGTERM))
+
+    def test_timeout_and_sigterm_stop_detached_helpers_before_down_and_preserve_sentinel(self):
+        import autocode_grader_process as supervisor
+        for interrupted in (False, True):
+            with self.subTest(interrupted=interrupted):
+                ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
+                pidfile = ws.workdir / "helper.pid"
+                pidfile.parent.mkdir(parents=True, exist_ok=True)
+                script = ("import subprocess,sys,time; from pathlib import Path; "
+                          "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
+                          f"Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(60)")
+                sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+                docker, stopped_at_down = FakeDocker({}), []
+                sent = False
+                real_clock = supervisor.time
+                def alive():
+                    try:
+                        process = psutil.Process(int(pidfile.read_text()))
+                        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+                    except (FileNotFoundError, psutil.NoSuchProcess):
+                        return False
+                def clock_tick():
+                    nonlocal sent
+                    if interrupted and pidfile.exists() and not sent:
+                        sent = True
+                        signal.raise_signal(signal.SIGTERM)
+                    return real_clock.monotonic()
+                def runner(argv, timeout):
+                    if argv[6:7] == ["up"]:
+                        return lr.subprocess_runner([sys.executable, "-c", script], 2)
+                    if argv[6:7] == ["down"]:
+                        stopped_at_down.append(not alive())
+                    return docker(argv, timeout)
+                clock = mock.Mock(wraps=real_clock)
+                clock.monotonic.side_effect = clock_tick
+                before = signal.getsignal(signal.SIGTERM)
+                try:
+                    with mock.patch.object(supervisor, "time", clock):
+                        if interrupted:
+                            with self.assertRaises(KeyboardInterrupt):
+                                ws.run(runner)
+                        else:
+                            summary, _ = ws.run(runner)
+                            self.assertEqual("failed", summary["status"])
+                    self.assertTrue(pidfile.is_file())
+                    self.assertEqual([True], stopped_at_down)
+                    self.assertFalse(alive())
+                    self.assertIsNone(sentinel.poll())
+                    self.assertEqual(before, signal.getsignal(signal.SIGTERM))
+                finally:
+                    sentinel.kill()
+                    sentinel.wait(timeout=5)
+                    if alive():
+                        process = psutil.Process(int(pidfile.read_text()))
+                        process.kill()
+                        process.wait(timeout=5)
+
     def test_layers_start_in_order_each_after_the_previous_is_ready_and_the_smoke_check_passes(self):
         server = start_server(self)
         ws = Workspace(self, {"api": service(depends=["db"]), "db": database(), "jobs": worker(depends=["api"])},
@@ -538,8 +700,8 @@ class CliRefusalTests(unittest.TestCase):
 
     def test_an_unreachable_daemon_is_refused(self):
         fake = self.bindir / "docker"
-        fake.write_text("#!/bin/sh\nif [ \"$1\" = version ]; then echo 'Cannot connect to the Docker daemon' >&2; "
-                        "exit 1; fi\necho 2.29.0\n")
+        fake.write_text("#!/bin/sh\nif [ \"$1\" = --host ]; then shift 2; fi\nif [ \"$1\" = version ]; then echo 'Cannot connect to the Docker daemon' >&2; "
+                        "exit 1; fi\nif [ \"$1\" = context ]; then echo unix:///var/run/docker.sock; exit 0; fi\necho 2.29.0\n")
         fake.chmod(0o755)
         said = self.cli("--integrate", "out", "--run-local")
         self.assertIn("daemon is not reachable", said)

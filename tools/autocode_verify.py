@@ -52,7 +52,7 @@ try:
     from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
-    from . import autocode_first_suite as first_suite
+    from . import autocode_first_suite as first_suite, autocode_test_root as test_roots
     from . import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
@@ -65,7 +65,7 @@ except ImportError:
     import autocode_scratch_overlay as scratch_overlay
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
-    import autocode_first_suite as first_suite
+    import autocode_first_suite as first_suite, autocode_test_root as test_roots
     import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
@@ -77,13 +77,13 @@ TEST_NAME = re.compile(  # case-sensitive: Latest.java and Contest.kt are produc
     r"^(test_.*\.py|.*_tests?\.py|conftest\.py|.*\.(test|spec)\.[cm]?[jt]sx?|.*\.snap|.*_test\.go"
     r"|.*_(spec|test)\.rb|.*Tests?\.(java|kt|cs|swift|scala)|Test[A-Z_]\w*\.(java|kt|cs|swift|scala)"
     r"|test_.*\.(rb|sh))$")
-PYTHON_TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
+PYTHON_TEST_MODULE = python_tests.TEST_MODULE
 CODE_SUFFIXES = frozenset({".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".go", ".rs", ".rb", ".java",
                            ".kt", ".kts", ".scala", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".cs", ".php",
                            ".m", ".mm", ".ex", ".exs", ".erl", ".hs", ".ml", ".lua", ".pl", ".sh", ".dart", ".zig"})
 DEPENDENCY_DIRS = ("node_modules", ".venv", "venv")
 COLLECTION_ERROR = re.compile(r"unittest\.loader\.(_FailedTest|ModuleImportFailure)|^::")
-UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.]+)\)")
+UNITTEST_HEADER = re.compile(r"^(\w+) \(([\w.-]+)\)")
 UNITTEST_STATUS = re.compile(r"\.\.\. (ok|FAIL|ERROR|skipped|expected failure|unexpected success)\b")
 UNITTEST_BARE_STATUS = re.compile(r"(ok|FAIL|ERROR|expected failure|unexpected success)|skipped( .*)?")
 UNITTEST_FIXTURES = frozenset({"setUpClass", "tearDownClass", "setUpModule", "tearDownModule"})
@@ -398,10 +398,12 @@ def _python_can_import(python, module):
 class Framework:
     """How to run the whole suite and a targeted subset for one project."""
 
-    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None):
+    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=(), invocation=None, test_root=None):
         self.name, self.suite, self.python, self.runner, self.note = name, suite, python, runner, note
         self.node_files = frozenset(node_files)
         self.invocation = invocation
+        # A scope descriptor, not authority for the first-root exception in verify().
+        self.test_root = test_root
 
     @property
     def per_test(self):
@@ -409,6 +411,9 @@ class Framework:
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
+        if self.name == "unittest" and "autocode_component_tests.py" in self.suite:
+            # Targeting files directly would bypass package load_tests hooks.
+            return self.suite if any(PYTHON_TEST_MODULE.match(PurePosixPath(p).name) for p in files) else None
         if self.name == "node":
             if self.invocation:
                 scripts = [p for p in files if PurePosixPath(p).suffix in
@@ -446,14 +451,16 @@ class Framework:
         return {"name": self.name, "suite": self.suite, "python": self.python, "note": self.note}
 
 
-def detect_framework(root, *, python=None) -> Framework | None:
-    """Best-effort detection from the project's own configuration files."""
+def detect_framework(root, *, python=None, test_root=None, base=None) -> Framework | None:
+    """Detect the project suite, or a caller-scoped Python suite with pinned base policy."""
     root = Path(root)
     # Untracked files count: AutoCode never commits, so in a new project every file the Builder wrote,
     # tests included, is untracked (a live greenfield run found no test command and could not prove its
     # tests, 2026-09-29). Ignored files, such as .autocode/, do not.
     files = [p for p in _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
                              check=False).split("\0") if p]
+    if test_root is not None:
+        return _rooted_python(root, test_roots.normalize(test_root), files, python, base=base)
     names = {PurePosixPath(p).name for p in files}
     has_python = any(p.endswith(".py") for p in files)
     if has_python:
@@ -466,7 +473,9 @@ def detect_framework(root, *, python=None) -> Framework | None:
             return Framework("pytest", f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider "
                              "--continue-on-collection-errors", python=python)
         tests = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
-        if tests:
+        component_packages = [p for p in files if p.startswith("components/") and p.endswith("/__init__.py")
+                              and python_tests.unittest_package(_read(root / p))]
+        if tests or component_packages:
             note = f"pytest is configured but {python} cannot import it; using unittest" if configured else ""
             if any("/" not in p for p in tests) or (root / "tests" / "__init__.py").is_file() \
                     or (root / "test" / "__init__.py").is_file():
@@ -477,6 +486,12 @@ def detect_framework(root, *, python=None) -> Framework | None:
                 start = " -s test"
             else:
                 start = ""
+            components = sorted({PurePosixPath(p).parts[1] for p in [*tests, *component_packages]
+                                 if len(PurePosixPath(p).parts) > 2 and PurePosixPath(p).parts[0] == "components"})
+            if components or component_packages:
+                command = shlex.join([python, str(Path(__file__).with_name("autocode_component_tests.py")), "-v",
+                                      "--root", start.removeprefix(" -s ") or ".", "--components", *components])
+                return Framework("unittest", command, python=python, note=note)
             return Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v{start}", python=python, note=note)
     if "go.mod" in files:
         return Framework("go", "go test ./...")
@@ -506,6 +521,115 @@ def detect_framework(root, *, python=None) -> Framework | None:
     if "Makefile" in files and re.search(r"^test\s*:", _read(root / "Makefile"), re.M):
         return Framework("make", "make test")
     return None
+
+
+# Native pytest policy names are configurations even when empty. Other project
+# configuration files require pytest sections or dependency declarations.
+_PYTEST_NATIVE_CONFIGS = frozenset(("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml"))
+
+
+def _pytest_configured(directory, files, *, read=None) -> bool:
+    read = read or _read
+    names = {PurePosixPath(p).name for p in files}
+    pyproject, setup_cfg, tox = (read(directory / "pyproject.toml"), read(directory / "setup.cfg"),
+                               read(directory / "tox.ini"))
+    requirements = " ".join(read(directory / p) for p in files if re.match(r"(.*/)?requirements.*\.(txt|in)$", p))
+    return bool(names.intersection(_PYTEST_NATIVE_CONFIGS) or "conftest.py" in names or "[tool.pytest" in pyproject
+                or "[tool:pytest]" in setup_cfg or "[pytest]" in tox
+                or re.search(r"\bpytest\b", requirements + pyproject))
+
+
+def _pinned_policy(workspace, path, entries):
+    """Read one Git tree's policy with bounded relative pinned symlink resolution.
+
+    An absent policy is empty; an unsafe or unresolved existing link is not.
+    Directory links resolve too, without consulting the mutable checkout or host.
+    """
+    pending, resolved, links = list(path.parts), [], 0
+    seen = set()
+    while pending:
+        part = pending.pop(0)
+        if part == ".":
+            continue
+        if part == "..":
+            if not resolved:
+                raise ValueError("Pinned policy escapes the repository")
+            resolved.pop()
+            continue
+        name = "/".join([*resolved, part])
+        entry = entries.get(name)
+        if entry is None:
+            if links:
+                raise ValueError("Pinned policy link target is absent from the base")
+            return ""
+        mode, kind, object_id = entry
+        if mode == "120000" and kind == "blob":
+            step = (name, tuple(pending))
+            if step in seen:
+                raise ValueError("Pinned policy link contains a loop")
+            seen.add(step)
+            links += 1
+            target = _git(workspace, "cat-file", "blob", object_id)
+            if links > 32 or not target or target.startswith("/") or "\0" in target:
+                raise ValueError("Pinned policy link is external or exceeds the resolution limit")
+            pending = [part for part in target.split("/") if part] + (["."] if target.endswith("/") else []) + pending
+        elif mode == "040000" and kind == "tree":
+            resolved.append(part)
+        elif mode in ("100644", "100755") and kind == "blob" and not pending:
+            return _git(workspace, "cat-file", "blob", object_id)
+        else:
+            raise ValueError("Pinned policy is not a regular file")
+    raise ValueError("Pinned policy resolves to a directory")
+
+
+def _rooted_python(workspace, test_root, files, python, *, base=None) -> Framework | None:
+    """Honor current/ancestor and pinned pytest policy without narrowing collection.
+
+    Removing a policy or its dependency must never replace pytest with unittest.
+    """
+    directory = workspace / test_root
+    entries = {}
+    if base:
+        for record in _git(workspace, "ls-tree", "-r", "-t", "-z", base).split("\0"):
+            if record:
+                metadata, path = record.split("\t", 1)
+                entries[path] = metadata.split()
+    base_files = [path for path, entry in entries.items() if entry[1] != "tree"]
+    configured = False
+    policies = [(files, lambda path: test_roots.read_policy(workspace, path))]
+    if base:
+        policies.append((base_files, lambda path: _pinned_policy(workspace, path.relative_to(workspace), entries)))
+    relative_root = PurePosixPath(test_root)
+    for relative_dir in (relative_root, *relative_root.parents):
+        policy_dir, prefix = workspace / relative_dir, relative_dir.as_posix()
+        for inventory, read in policies:
+            relative = inventory if prefix == "." else test_roots.inside(prefix, inventory)
+            if policy_dir != directory:
+                relative = [path for path in relative if "/" not in path]
+            try:
+                for path in relative:
+                    if PurePosixPath(path).name in _PYTEST_NATIVE_CONFIGS or PurePosixPath(path).name == "conftest.py":
+                        read(policy_dir / path)
+                configured |= _pytest_configured(policy_dir, relative, read=read)
+            except (OSError, ValueError, RuntimeError):
+                return None  # Unknown policy cannot authorize a smaller or first suite.
+    files = test_roots.inside(test_root, files)
+    if not any(p.endswith(".py") for p in files):
+        return None
+    python = python or python_for(workspace)
+    if configured:
+        return Framework("pytest", f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider "
+                         f"--continue-on-collection-errors {shlex.quote(test_root)}", python=python, test_root=test_root)
+    tests = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
+    if not tests:
+        return None
+    package = ((directory / "__init__.py").is_file() or f"{test_root}/__init__.py" in base_files)
+    # Explicit top level visits the start package's load_tests and preserves relative
+    # imports even when components/ is a namespace rather than a regular package.
+    start = test_root if package else test_roots.unittest_start(test_root, directory, tests)
+    top = " -t ." if package else ""
+    return Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v -s {shlex.quote(start)}{top}",
+                     python=python, test_root=test_root)
 
 
 # --- execution --------------------------------------------------------------
@@ -595,7 +719,8 @@ def expects_results(framework, command, tree=None):
         return False
     if framework.name == "go":
         return _go_test(command)
-    return (" -m pytest" in command) if framework.name == "pytest" else (" -m unittest" in command and " -v" in command)
+    return (" -m pytest" in command) if framework.name == "pytest" else (
+        (" -m unittest" in command or "autocode_component_tests.py" in command) and " -v" in command)
 
 
 def _go_results(text):
@@ -694,7 +819,7 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
         if not ran:
             return None
-        total = int(ran[-1])
+        total = sum(map(int, ran)) if "autocode_component_tests.py" in framework.suite else int(ran[-1])
         current = None
         for line in text.splitlines():
             if line.startswith(("=====", "-----")):
@@ -1822,7 +1947,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
            independent_dependencies=None, allow_no_test=False, new_behavior=False, preserve_only=False,
            base_patch=None, source_paths=(), test_only_allowed=False, generated_record=None,
-           generated_unrecorded=False, ignored_inputs=None, guards=()) -> dict:
+           generated_unrecorded=False, ignored_inputs=None, guards=(), test_root=None) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1860,8 +1985,12 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
     ``ignored_inputs`` is make_tree's, for every scratch tree; its launch record also tells
     _document_only_base what ignored code an in-place checkout held at launch.
+
+    ``test_root`` is caller-selected at launch. Changes outside it remain unverified.
+    Only its independently canonical detected suite may establish a first suite.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
+    test_root = test_roots.normalize(test_root) if test_root is not None else None
     run_dir.mkdir(parents=True, exist_ok=True)
     configured = node_tests.parse(suite_command)
     if configured:
@@ -1898,6 +2027,10 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     if not runnable_tests and not existing_guards:
         (unverified if allow_no_test else fail).append(
             "No regression test was added or changed, so the bug is not shown to be reproduced")
+    stray = test_roots.outside(test_root, changes) if test_root is not None else []
+    if stray:
+        unverified.append(f"Files outside the test root {test_root}/ changed, and no test there covers them: "
+                          + ", ".join(stray[:10]))
     for kind in ("regression", "suite"):
         if commands[f"{kind}_source"] == "builder":
             unverified.append(f"The {kind} command came from the Builder's own report; pass "
@@ -1918,7 +2051,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
         # A base with no Go project cannot run `go test` (no module, or no packages).
         # The same fact lets the suite comparison and, when the base run reports nothing,
         # the regression comparison treat that as absence rather than a broken suite (#685).
-        no_go_project = bool(new_behavior and not preserve and not base_patch
+        no_go_project = bool(test_root is None and new_behavior and not preserve and not base_patch
                              and framework is not None and framework.name == "go"
                              and _no_go_project(workspace, base, _copied_generated(
                                  dependencies_from, generated_record, generated_unrecorded,
@@ -1972,7 +2105,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             # rule out old behavior: empty collection can hide a filtered
             # existing program, so any other base file or copied ignored code
             # still counts.
-            allow_empty_base = bool(new_behavior and not preserve and not base_patch
+            allow_empty_base = bool(test_root is None and new_behavior and not preserve and not base_patch
                                     and comparable and comparable.get("base") == base
                                     and _document_only_base(workspace, base,
                                                             dependencies_from=dependencies_from,
@@ -2000,9 +2133,20 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                     timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch,
                     generated_record=generated_record, generated_unrecorded=generated_unrecorded,
                     ignored_inputs=ignored_inputs)
+            empty_root = None
+            if (test_root is not None and new_behavior and not preserve and not base_patch
+                    and suite_command is None and regression_command is None and framework is not None
+                    and comparable and comparable.get("base") == base
+                    and test_roots.empty_on_base(workspace, base, test_root)):
+                # Public Framework fields and detected:* labels are not provenance.
+                canonical = detect_framework(workspace, python=framework.python, test_root=test_root, base=base)
+                if (canonical is not None and canonical.test_root == test_root
+                        and (framework.name, framework.python, commands["suite"])
+                        == (canonical.name, canonical.python, canonical.suite)):
+                    empty_root = test_root
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base, allow_absent_go=allow_absent_go,
-                         base_definition=base_definition)
+                         base_definition=base_definition, empty_root=empty_root)
             # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
             hidden = [path for path in _copied_generated(dependencies_from, generated_record, generated_unrecorded,
                                                          ignored_inputs) if is_test_path(path)]
@@ -2253,7 +2397,7 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
 
 
 def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False,
-                 allow_absent_go=False, base_definition=None):
+                 allow_absent_go=False, base_definition=None, empty_root=None):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -2293,6 +2437,11 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
     if candidate is not None and not candidate.get("total"):
         unverified.append("The project suite reported zero tests or incomplete per-test results")
+        return
+    if (empty_root is not None and test_roots.first_suite(base_receipt, on_candidate)
+            and schedule.complete_results(on_candidate)):
+        notes.append(f"The base holds nothing under {empty_root}/, so the suite rooted there has no existing "
+                     "behavior to preserve; it ran and passed completely on the candidate")
         return
     if candidate is not None and not candidate.get("complete"):
         unverified.append("The project suite's per-test results were incomplete; "

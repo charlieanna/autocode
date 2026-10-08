@@ -34,6 +34,7 @@ import math
 import shlex
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 try:
@@ -68,7 +69,7 @@ def _local_run_plan(parser, args, architecture):
     try:
         plan = local_run.prepare(architecture.directory,
                                  {cid: component.runtime for cid, component in architecture.components.items()})
-        local_run.check_docker()
+        plan = replace(plan, endpoint=local_run.check_docker())
     except (ValueError, local_run.DockerUnavailable) as error:
         parser.error(f"--run-local: {error}")
     return plan

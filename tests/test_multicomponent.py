@@ -3,6 +3,7 @@ build+integrate through the real CLI with a scripted, per-component fake model."
 import json
 import os
 import runpy
+import shlex
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_multicomponent as mc
+from autocode_taskrun import TaskRun, TaskRunError
+from .test_verify import isolated_python_env
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
@@ -271,11 +274,13 @@ class BuildAndIntegrateTests(unittest.TestCase):
         self.assertFalse((self.repo / "components").exists())
 
     def test_a_component_that_writes_outside_its_own_directory_is_refused_at_integration(self):
-        self.write_manifest(beta={"description": "the beta component", "file": "shared/leak.txt",
-                                  "content": "leaked\n", "check": "test -f shared/leak.txt"})
+        self.write_manifest()
         results = self.build()
         self.assertTrue(results["alpha"].ready_to_integrate, results["alpha"].error)
-        self.assertTrue(results["beta"].ready_to_integrate, results["beta"].error)  # the run itself succeeds; only integration refuses it
+        self.assertTrue(results["beta"].ready_to_integrate, results["beta"].error)
+        # A post-build external edit cannot bypass integration's ownership guard.
+        (results["beta"].workspace / "shared").mkdir()
+        (results["beta"].workspace / "shared/leak.txt").write_text("leaked\n")
 
         build = mc.MultiComponentBuild(self.repo, self.arch, options=FIXTURE_OPTIONS, env=self.env)
         build.results = results
@@ -288,6 +293,74 @@ class BuildAndIntegrateTests(unittest.TestCase):
         self.assertEqual(["alpha"], outcome["integrated"])
         self.assertTrue((target / "components" / "alpha" / "message.txt").is_file())
         self.assertFalse((target / "shared").exists())
+
+
+    def test_wrong_root_plan_is_refused_before_builder_despite_enthusiastic_reviewer(self):
+        observations = self.root / "observations"
+        self.write_manifest(beta={"description": "the beta component", "file": "shared/leak.txt",
+            "content": "leaked\n", "check": "test -f shared/leak.txt", "observations": str(observations)})
+        results = self.build()
+        self.assertTrue(results["alpha"].ready_to_integrate, results["alpha"].error)
+        self.assertFalse(results["beta"].ready_to_integrate)
+        self.assertIn("Component plan", results["beta"].view["stop_reason"])
+        stages = {json.loads(path.read_text())["stage"] for path in observations.glob("*.json")}
+        self.assertIn("astra_discovery", stages)
+        self.assertNotIn("terra", stages)
+        self.assertFalse((results["beta"].workspace / "shared/leak.txt").exists())
+
+    def test_component_proves_its_own_tests_with_isolated_stdlib_runtime(self):
+        self.env = isolated_python_env(self, self.env, directory=self.root)
+        test_python = str(Path(self.env["PATH"].split(os.pathsep)[0]) / "python3")
+        test = ("import os\nimport sys\nimport unittest\n"
+                "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+                "import message\nclass MessageTests(unittest.TestCase):\n"
+                "    def test_c1_message_is_hello(self):\n        self.assertEqual('hello', message.TEXT)\n")
+        self.write_manifest(alpha={"description": "the alpha component", "test": "test_c1_message_is_hello",
+            "plan_paths": ["components/alpha/"], "files": {"components/alpha/message.py": "TEXT = 'hello'\n",
+                "components/alpha/tests/__init__.py": "", "components/alpha/tests/test_message.py": test},
+            "check": "python3 -m unittest discover -v -s components/alpha"})
+        results = self.build()
+        proof = (results["alpha"].view or {}).get("evidence", {}).get("regression_proof")
+        self.assertTrue(results["alpha"].ready_to_integrate, (results["alpha"].error, proof))
+        self.assertEqual("PASS", proof["verdict"], proof)
+        self.assertEqual(test_python, shlex.split(proof["commands"]["suite"])[0], proof)
+        self.assertTrue(proof["commands"]["suite"].endswith(" -m unittest discover -v -s components/alpha"), proof)
+        self.assertEqual({"C1": ["components.alpha.tests.test_message.MessageTests.test_c1_message_is_hello"]}, proof["case_tests"])
+        self.assertEqual((sys.executable, str(HERE / "autocode.py")), results["alpha"].run.command)
+
+    def test_taskrun_bad_component_approvals_leave_events_and_checkpoint_unchanged(self):
+        observations = self.root / "observations"
+        outside = self.root / "outside-marker"
+        for index, flow in enumerate((None, "Run the container and build the Docker image.",
+                "docker build components/alpha/, deferred to separate integration.",
+                "`docker build components/alpha/` at integration time.")):
+            with self.subTest(flow=flow):
+                path = str(outside) if flow is None else "components/alpha/server.py"
+                spec = {"description": "the alpha component", "file": path, "content": "fixture\n",
+                    "check": "test -f " + path, "plan_paths": ["components/alpha/"], "observations": str(observations)}
+                if flow:
+                    spec.update(end_to_end_flow=[flow], permission_boundaries=["No docker build."]
+                        if index == 1 else ["Local Docker allowed."])
+                self.write_manifest(alpha=spec)
+                task = mc.component_brief(self.arch.components["alpha"], self.arch) + f" Admission case {index}."
+                run = TaskRun.start(self.repo, task, command=(sys.executable, str(HERE / "autocode.py")),
+                    options=FIXTURE_OPTIONS, start_options=("--test-root", "components/alpha"), env=self.env, timeout=120)
+                view = run.advance_until_input()
+                token = view["needs"].get("token", "r1:" + "0" * 64)
+                if view["needs"]["kind"] == "approve_plan":
+                    run.show_goal()
+                checkpoint = run.run_dir / "state.json"
+                before = checkpoint.read_bytes()
+                with self.assertRaises(TaskRunError):
+                    run.approve_plan(token)
+                self.assertEqual(before, checkpoint.read_bytes())
+                self.assertIsNone(run.status().get("approved_contract"))
+                self.assertIn("Component plan", view.get("stop_reason", ""))
+                self.assertFalse(any(event.get("kind") == "goal_approval"
+                    for event in json.loads(checkpoint.read_text()).get("user_events", [])))
+        self.assertFalse(outside.exists())
+        stages = {json.loads(path.read_text())["stage"] for path in observations.glob("*.json")}
+        self.assertNotIn("terra", stages)
 
 
 class CliTests(BuildAndIntegrateTests):
@@ -388,7 +461,7 @@ class CliTests(BuildAndIntegrateTests):
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", "runtime blocks and smoke check")
         self.write_manifest()
-        shutil.copy2(FAKE_DOCKER, self.root / "bin" / "docker")
+        (self.root / "bin" / "docker").write_text(f"#!{sys.executable}\n" + FAKE_DOCKER.read_text())
         (self.root / "bin" / "docker").chmod(0o755)
 
         class Alpha(BaseHTTPRequestHandler):
@@ -410,7 +483,7 @@ class CliTests(BuildAndIntegrateTests):
         log = self.root / "docker.jsonl"
         # DOCKER_HOST empty: the fake's current context, a local socket, decides where the daemon is.
         self.env.update(FAKE_DOCKER_LOG=str(log), FAKE_DOCKER_PORTS=json.dumps({"alpha": server.server_port}),
-                        DOCKER_HOST="")
+                        DOCKER_HOST="", DOCKER_CONTEXT="")
         args = ("architecture", "--workspace", str(self.repo), "--auto-approve", "--integrate", "integration",
                 "--run-local", "--options", " ".join(FIXTURE_OPTIONS))
 
@@ -428,14 +501,15 @@ class CliTests(BuildAndIntegrateTests):
         self.assertEqual((self.repo / ".autocode-components" / ".local-run" / local["project"]).resolve(),
                          compose.parent.resolve())
         self.assertIn(str((self.repo / "integration" / "components" / "alpha").resolve()), compose.read_text())
-        prefix = ["compose", "-p", local["project"], "-f", str(compose)]
+        prefix = ["--host", "unix:///var/run/docker.sock", "compose", "-p", local["project"], "-f", str(compose)]
         calls = [json.loads(line) for line in log.read_text().splitlines()]
-        self.assertEqual([["compose", "version", "--short"], ["version", "--format", "{{.Server.Version}}"],
-                          ["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]], calls[:3])
+        self.assertEqual([["compose", "version", "--short"],
+                          ["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+                          ["--host", "unix:///var/run/docker.sock", "version", "--format", "{{.Server.Version}}"]], calls[:3])
         self.assertEqual([prefix + ["up", "-d", "--build", "--no-deps", "alpha"],
                           prefix + ["up", "-d", "--build", "--no-deps", "beta"],
                           prefix + ["down", "-v", "--remove-orphans", "--rmi", "local"]],
-                         [call for call in calls if call[5:6] in (["up"], ["down"])])
+                          [call for call in calls if call[7:8] in (["up"], ["down"])])
         status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=self.repo / "integration",
                                 capture_output=True, text=True, check=True).stdout
         self.assertEqual(["components/"], sorted({line[3:].split("/")[0] + "/" for line in status.splitlines()}))

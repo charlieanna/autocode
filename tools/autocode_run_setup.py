@@ -21,7 +21,7 @@ from pathlib import Path
 try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
     from . import autocode_containment_policy as containment_policy
-    from . import autocode_task_preflight as task_preflight
+    from . import autocode_task_preflight as task_preflight, autocode_test_root as test_roots
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_goal_lifecycle as lifecycle
@@ -44,7 +44,7 @@ try:
 except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
     import autocode_containment_policy as containment_policy
-    import autocode_task_preflight as task_preflight
+    import autocode_task_preflight as task_preflight, autocode_test_root as test_roots
     import autocode_checkout_lock as checkout_lock
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_goal_lifecycle as lifecycle
@@ -99,6 +99,13 @@ def resolve(runner, args, parser):
         parser.error("Native references are fixed for a saved run")
     for reference in args.figma_additional_file:
         figma.design_url(reference)
+    if getattr(args, "test_root", None) is not None:
+        if args.run_dir:
+            parser.error("--test-root is fixed when a run starts")
+        try:
+            args.test_root = test_roots.normalize(args.test_root)
+        except ValueError as error:
+            parser.error(str(error))
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):

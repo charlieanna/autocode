@@ -1,6 +1,6 @@
 """tools/autocode_component_runtime.py: a component's runtime block is validated
 strictly, ordered, and turned into Builder brief sentences; records without one
-keep exactly their old brief and saved-build identity. Pure: no docker, no model."""
+keep their original brief prefix and saved-build identity. Pure: no docker, no model."""
 import contextlib
 import hashlib
 import io
@@ -33,6 +33,15 @@ LEGACY_GATEWAY_BRIEF = (
     "separately. Assume only this JSON Schema about it, nothing about its implementation: "
     '{"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}} Do not implement or stub '
     "another component's directory; integration happens separately.")
+CHILD_FLOW_BOUNDARY = (
+    "The child's mandatory end_to_end_flow must be executable and verified in this component run: "
+    "start this component locally, exercise its public interface, and check its result. "
+    "Keep a service's real subprocess health and request/response flow local to this component. "
+    "The integration owner separately builds containers, runs Compose and checks cross-service smoke; "
+    "do not put those deferred integration operations in the child's mandatory flow. "
+    "Deliver the component's Dockerfile when requested, without requiring an image build in a child "
+    "whose permissions prohibit it. Read-only design and interface inputs outside the owned directory "
+    "remain inputs, not deliverable or affected paths.")
 # Architecture.fingerprint() of notes_rows() written by write_architecture, before runtime blocks existed.
 LEGACY_FINGERPRINT = "cca821a57f9c67a24501f12aa2f76e6cfed2e4bcb565cd7a41525ae39e1b70eb"
 
@@ -68,6 +77,14 @@ def runtimes(**blocks):
 
 
 class RuntimeBlockTests(unittest.TestCase):
+    def test_architecture_prompt_uses_the_validated_runtime_and_smoke_grammar(self):
+        contract = runtime.architecture_contract('Design architecture/components.json with runtime blocks and smoke.json')
+        self.assertEqual(runtime.START_IMAGE, contract['start_image'])
+        self.assertEqual({kind: sorted({'kind', *keys}) for kind, keys in runtime.KIND_KEYS.items()}, contract['runtime_kinds'])
+        self.assertEqual(list(runtime.STEP_KEYS), contract['smoke_step_keys'])
+        self.assertIn('cross-component write/read', contract['instruction'])
+        self.assertEqual({}, runtime.architecture_contract('Design architecture/components.json only'))
+
     def test_accepted_blocks(self):
         self.assertIsNone(ComponentRuntime.load({"id": "store"}, "store"))
         started = load(GATEWAY, "gateway")
@@ -273,8 +290,10 @@ class ArchitectureTests(unittest.TestCase):
     def test_a_record_without_runtime_blocks_keeps_its_brief_and_identity(self):
         directory = write_architecture(self.root / "notes", notes_rows())
         arch = mc.Architecture.load(directory)
-        self.assertEqual(LEGACY_STORE_BRIEF, mc.component_brief(arch.components["store"], arch))
-        self.assertEqual(LEGACY_GATEWAY_BRIEF, mc.component_brief(arch.components["gateway"], arch))
+        self.assertEqual(LEGACY_STORE_BRIEF + " " + CHILD_FLOW_BOUNDARY,
+                         mc.component_brief(arch.components["store"], arch))
+        self.assertEqual(LEGACY_GATEWAY_BRIEF + " " + CHILD_FLOW_BOUNDARY,
+                         mc.component_brief(arch.components["gateway"], arch))
         self.assertEqual(LEGACY_FINGERPRINT, arch.fingerprint())
         self.assertEqual({}, arch.runtimes)
         self.assertIsNone(arch.components["store"].runtime)
@@ -335,8 +354,7 @@ class BriefTests(unittest.TestCase):
             arch = self.architecture(tmp)
             brief = mc.component_brief(arch.components["gateway"], arch)
         self.assertTrue(brief.startswith("Implement the gateway component"))
-        self.assertTrue(brief.endswith(" Do not implement or stub another component's directory; integration happens "
-                                       "separately."))
+        self.assertTrue(brief.endswith(" " + CHILD_FLOW_BOUNDARY))
         for text in ("listen on 0.0.0.0", "PORT environment variable (which will be 8002)", "answer GET /health",
                      "STORE_URL", "http://store:8001", 'the shell command "python3 server.py" in /app',
                      "python:3.12-slim", "GREETING=hello"):
@@ -346,7 +364,7 @@ class BriefTests(unittest.TestCase):
         added = " ".join(runtime.brief_lines("gateway", arch.runtimes))
         self.assertTrue(brief.split(" When the combined system runs", 1)[0].endswith(
             "Own only the directory components/gateway/; do not create or edit any file outside it."))
-        self.assertEqual(LEGACY_GATEWAY_BRIEF, brief.replace(" " + added, "", 1))
+        self.assertEqual(LEGACY_GATEWAY_BRIEF + " " + CHILD_FLOW_BOUNDARY, brief.replace(" " + added, "", 1))
 
     def test_each_kind_is_described_accurately(self):
         blocks = self.blocks()

@@ -227,7 +227,22 @@ def all_checks(workspace: Path, engine: str | None = None, which=shutil.which, r
     verdict = (engine_verdict(checks, engine) if engine == "codex"
                else opencode_checks(checks, workspace, engine, resolve))
     return [python_check(), psutil_check(), git_check(which, runner), *checks, verdict,
-            *workspace_check(workspace, runner)]
+            *workspace_check(workspace, runner), *local_compose_checks(which, runner)]
+
+
+def local_compose_checks(which=shutil.which, runner=run) -> list[Check]:
+    """Docker is optional: missing or unsupported local setup only warns."""
+    try:
+        from . import autocode_local_run as local_run
+    except ImportError:
+        import autocode_local_run as local_run
+    fix = "only for components --run-local: install/start Docker with a supported Compose plugin and a local context"
+    if not which("docker"):
+        return [Check("docker", WARN, "Docker is not on PATH; optional for local component smoke checks", fix)]
+    checks = [Check("docker", OK, "Docker found on PATH (optional)")]
+    for row in local_run.docker_checks(lambda argv, timeout: runner(argv)):
+        checks.append(Check(row["name"], OK if row["ok"] else WARN, row["detail"], "" if row["ok"] else fix))
+    return checks
 
 
 def passed(checks: list[Check]) -> bool:

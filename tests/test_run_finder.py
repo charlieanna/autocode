@@ -587,10 +587,20 @@ class CommandLine(Fixture):
                               "--resolver-token", "T"]):
                     self.assertFalse(self.parse(*argv, "--run-dir", str(other))[0].resume_paused,
                                      "never with a user action or a resolver response")
-        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT", "BLOCKED", "WAITING_FOR_DEPENDENCY"):
+        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT", "PAUSED_COMPONENT_PLAN", "BLOCKED", "WAITING_FOR_DEPENDENCY"):
             with self.subTest(status=status):
                 other = self.run_in(tree, status=status)
                 self.assertFalse(self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge")
+
+    def test_component_pause_hint_names_edit_and_fresh_approval(self):
+        run = self.worktree_run(status="PAUSED_COMPONENT_PLAN")[1]
+        before = (run / "state.json").read_bytes()
+        hint = finder.continue_hint(run, json.loads(before))
+        self.assertIn("--edit-goal FILE", hint)
+        self.assertIn("--feedback TEXT", hint)
+        self.assertIn("fresh approval", hint)
+        self.assertNotIn("--resume-paused", hint)
+        self.assertEqual(before, (run / "state.json").read_bytes())
 
     def test_the_hint_after_a_user_action_at_a_pause_is_a_command_that_acknowledges_it(self):
         run = self.worktree_run(status="PAUSED_PLANNING_BUDGET")[1]
