@@ -236,6 +236,25 @@ class BuilderFailureClassificationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'containment is unavailable'):
                 builder_failure.readonly_probe('true')
 
+    def test_probe_becomes_untestable_when_containment_is_unavailable(self):
+        # Fail closed without rejecting the classification: an Investigator may
+        # still state an untestable advisory cause (see readonly_probe). CI on
+        # Linux has no sandbox-exec; a live model that supplies probe there must
+        # not park every builder-failure classification in report repair.
+        with tempfile.TemporaryDirectory() as root:
+            state, evidence = self.fixture(root)
+            builder_failure.queue(state, evidence, 'Empty diff', enabled=True, max_calls=3)
+            value = report(failure_class='execution', failure_id=evidence['failure_id'],
+                           evidence_refs=evidence['evidence_refs'],
+                           probe="python -c 'raise SystemExit(0)'", untestable='')
+            with patch.object(builder_failure.sys, 'platform', 'unsupported'):
+                stuck.apply(state, value, {'output': str(Path(root) / 'diagnosis.json')}, state['workspace'])
+            entry = state['stuck_investigations'][-1]
+            self.assertEqual('', entry['probe'])
+            self.assertIn('containment is unavailable', entry['untestable'])
+            self.assertIsNone(entry['probe_result'])
+            self.assertEqual('classified', entry['outcome'])
+
     def test_unchanged_held_binding_refuses_writer_and_diagnostician_without_renewing_authority(self):
         with tempfile.TemporaryDirectory() as root:
             state, evidence = self.fixture(root)
