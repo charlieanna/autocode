@@ -1388,10 +1388,16 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                     unbound_editables.append(str(metadata))
                     continue
                 if target != workspace.resolve():
+                    # The install exposes only the package directory (pyproject maps autocode_cli to tools/). The
+                    # rest of the checkout (tests, docs, run output) is not importable through it, and binding it
+                    # let a file another process wrote there change the identity mid-proof (#665).
+                    package = Path(__file__).resolve().parent.relative_to(target).as_posix()
                     if (target / ".git").exists():
-                        editable_sources[str(target)] = util.snapshot(target)["revision"]
+                        editable_sources[str(target)] = util.digest(
+                            {name: value for name, value in util.snapshot(target)["files"].items()
+                             if name.startswith(package + "/")})
                     else:
-                        editable_sources[str(target)] = schedule.tree_identity(target, excluded={
+                        editable_sources[str(target)] = schedule.tree_identity(target / package, excluded={
                             ".git", ".autocode", ".autocode-ui", ".scenario-runs", ".venv", "venv",
                             "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"})
             except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError):

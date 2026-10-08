@@ -442,8 +442,11 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                        ignored_inputs=launch_inputs.supply(state, workspace, run_dir) if inputs
                                        else None) if path else execution_context["identity"]
     if after != execution_context["identity"]:
+        before = execution_context["identity"]
+        changed = sorted(key for key in before.keys() | after.keys() if before.get(key) != after.get(key))
         proof["verdict"] = verify.UNVERIFIED
-        proof.setdefault("unverified", []).append("Execution context changed while proving the candidate")
+        proof.setdefault("unverified", []).append(
+            "Execution context changed while proving the candidate: " + ", ".join(changed))
     proof.update(case_scope=scope, path=str(path) if path else None, proved_at=util.now(),
                  duration_seconds=round(time.monotonic() - started, 1))
     if path:
