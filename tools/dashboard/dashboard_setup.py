@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
+import time
 
 try:
     from .dashboard_projects import ProjectStore
@@ -14,8 +16,36 @@ except ImportError:
     from dashboard_project_controls import conversation_workspace
 try:
     from ..autocode_util import atomic_json
+    from .. import autocode_doctor as doctor, autocode_planner_routes as planner_routes
 except ImportError:
     from autocode_util import atomic_json
+    import autocode_doctor as doctor, autocode_planner_routes as planner_routes
+
+MODEL_ID = re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$', re.I)
+BARE_OPENAI_ALIASES = {'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra'}
+OPENAI_ALIAS_ROLES = ('astra', 'sol', 'completion')
+
+
+def conversation_model_fields():
+    controls = {**planner_routes.RUNNER_POLICY_ROLES, 'glm': 'requirements_gatherer'}
+    return {'conversation_defaults': {role: planner_routes.MANDATED_ROUTES[name]['model'] for role, name in controls.items()},
+            'conversation_efforts': {role: planner_routes.MANDATED_ROUTES[name]['reasoning_effort'] for role, name in controls.items()},
+            'conversation_routes': planner_routes.MANDATED_ROUTES,
+            'conversation_controls': controls,
+            'conversation_required_roles': list(planner_routes.NONVISUAL_ROLES),
+            'conversation_model_pattern': MODEL_ID.pattern,
+            'conversation_aliases': {role: sorted(BARE_OPENAI_ALIASES) for role in OPENAI_ALIAS_ROLES}}
+
+
+def conversation_transport_signal(row):
+    data = row.get('data')
+    raw = data.get('version') if isinstance(data, dict) else None
+    match = doctor.opencode_provider._VERSION_TEXT.fullmatch(raw.strip()) if isinstance(raw, str) else None
+    version = '.'.join(str(int(match.group(i))) for i in (1, 2, 3)) if match else None
+    transport = ('unsupported' if match and int(match.group(1)) != 1 else
+                 'missing' if row.get('status') == 'missing' else
+                 'available' if version and row.get('status') == 'ok' else 'unknown')
+    return {'transport': transport, 'version': version}
 
 _GUIDANCE = {
     'python': ('Python 3.11 or newer', 'Install Python 3.11+ and reinstall AutoCode with that interpreter.'),
@@ -86,6 +116,106 @@ class SetupStore(ProjectStore):
 
 
 class SetupMixin:
+    def _probe_conversation_transport(self, executable):
+        output = ''
+        def run_version(command):
+            nonlocal output
+            capture = type(self.catalogue)((executable, '--version'), timeout=3, output_limit=4096)
+            try:
+                code, output, _ = capture._read_command()
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+                return subprocess.CompletedProcess(command, -1, '', '')
+            if code:
+                output = ''
+            return subprocess.CompletedProcess(command, code, output, '')
+        check = doctor.engine_checks(which=lambda name: executable if name == 'opencode' else None,
+                                     runner=run_version)[0]
+        row = {'status': check.status, 'data': getattr(check, 'data', None)}
+        if doctor.opencode_provider._VERSION_TEXT.fullmatch(output.strip()):
+            row['data'] = {'version': output}
+        if executable and not doctor.opencode_provider._VERSION_TEXT.fullmatch(output.strip()):
+            row['status'] = 'warn'
+        return row
+
+    def conversation_transport_readiness(self, row=None, *, refresh=False):
+        executable = doctor.shutil.which('opencode')
+        try:
+            stat = os.stat(executable) if executable else None
+            identity = (executable, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) if stat else (None,)
+        except OSError:
+            identity = (executable, None)
+        with self.chat_lock:
+            cached = getattr(self, '_conversation_transport_cache', None)
+            if row is None and not refresh and cached and cached[0] == identity and time.monotonic() < cached[1]:
+                return dict(cached[2])
+            signal = conversation_transport_signal(row if row is not None else self._probe_conversation_transport(executable))
+            if signal['transport'] == 'unknown' and cached and cached[0] == identity:
+                if time.monotonic() < cached[1] or cached[2]['transport'] in ('missing', 'unsupported'):
+                    signal = dict(cached[2])
+            self._conversation_transport_cache = (identity, time.monotonic() + 300, signal)
+            return dict(signal)
+
+    @property
+    def conversation_catalogue(self):
+        if self.run_provider == 'opencode':
+            return self.catalogue
+        with self.chat_lock:
+            if not hasattr(self, '_conversation_catalogue'):
+                self._conversation_catalogue = type(self.catalogue)()
+            return self._conversation_catalogue
+
+    def conversation_routes(self, data):
+        chosen = self.joint_models(data, catalogue=self.conversation_catalogue, check_catalogue=False)
+        efforts = self.joint_efforts(data)
+        fields = conversation_model_fields()
+        routes = {name: dict(route) for name, route in fields['conversation_routes'].items()}
+        for role, name in fields['conversation_controls'].items():
+            if role in chosen:
+                value = chosen[role]
+                routes[name]['model'] = value if '/' in value else 'openai/' + value
+            if role in efforts:
+                routes[name]['reasoning_effort'] = efforts[role]
+        return chosen, routes
+
+    def conversation_model_readiness(self, data, *, catalogue=None, visual=False, refresh_transport=False):
+        _, routes = self.conversation_routes(data)
+        listing = catalogue if catalogue is not None else self.conversation_catalogue.fetch()
+        available = set(listing.get('models', [])) if listing.get('usable') else None
+        required = planner_routes.NONVISUAL_ROLES + (('visual_review',) if visual else ())
+        missing = [role for role in required if available is not None and routes[role]['model'] not in available]
+        signal = self.conversation_transport_readiness(refresh=refresh_transport)
+        blocked = signal['transport'] in ('missing', 'unsupported')
+        return {**signal, 'usable': not blocked and available is not None and not missing,
+                'status': 'missing' if blocked or missing else 'unknown', 'missing': missing,
+                'authentication': 'unknown'}
+
+    def conversation_models(self, data, *, require_available=True, visual=False):
+        chosen, _ = self.conversation_routes(data)
+        if require_available:
+            readiness = self.conversation_model_readiness(data, visual=visual)
+            if readiness['transport'] in ('missing', 'unsupported'):
+                raise ValueError('Dashboard conversations require available built-in OpenCode 1.x. Recheck workspace setup before sending.')
+            if not readiness['usable']:
+                raise ValueError('Required conversation models are unavailable or unverified in the OpenCode catalogue. Recheck models before sending.')
+        return chosen
+
+    def _setup_doctor(self, workspace, engine):
+        capture = type(self.catalogue)((sys.executable, self.runner, 'doctor', '--workspace', str(workspace),
+                                        '--engine', engine, '--json'), timeout=90, output_limit=262144)
+        try:
+            code, output, _ = capture._read_command()
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
+            return {'checks': []}
+        if code not in (0, 1):
+            return {'checks': []}
+        try:
+            report = json.loads(output)
+        except ValueError:
+            report = None
+        if not isinstance(report, dict) or not isinstance(report.get('checks'), list):
+            raise ValueError('This runner does not provide supported setup checks.')
+        return report
+
     def _setup_scope_problem(self, ident):
         store = SetupStore(root=self._project_store_root)
         with store._guard():
@@ -108,7 +238,7 @@ class SetupMixin:
             return 'The saved project folder is missing or was replaced. Restore the original folder before continuing this conversation. All saved work is preserved.'
         return None
 
-    def require_unarchived_conversation(self, ident):
+    def require_unarchived_conversation(self, ident, *, model_work=False):
         doc = self.conversations.get(ident)
         self._require_visible_project(conversation_workspace(doc))
         self._require_visible_project((doc.get('attachment') or {}).get('workspace'))
@@ -117,6 +247,8 @@ class SetupMixin:
         problem = self._setup_scope_problem(ident)
         if problem:
             raise ValueError(problem)
+        if model_work:
+            self.conversation_models(doc.get('models', {}), visual=doc.get('visual') is True)
         return super().require_unarchived_conversation(ident)
 
     def conversation_get(self, ident):
@@ -158,27 +290,31 @@ class SetupMixin:
 
     def conversation_attach(self, data):
         self._require_visible_project(data.get('project') or data.get('workspace'))
-        self.require_unarchived_conversation(data.get('id'))
+        doc = self.conversations.get(data.get('id'))
+        self.require_unarchived_conversation(data.get('id'), model_work=not (data.get('empty') is True and not doc.get('messages')))
         return super().conversation_attach(data)
 
     def setup_check(self, data):
-        if set(data) - {'workspace', 'engine'}:
-            raise ValueError('Setup checks accept only a project path and model tool.')
+        if set(data) - {'workspace', 'engine', 'models'}:
+            raise ValueError('Setup checks accept only a project path, model tool and per-role settings.')
         engine = data.get('engine', 'opencode')
         if engine not in ('opencode', 'codex'):
             raise ValueError('Choose OpenCode or Codex for the setup check.')
+        models = data.get('models', {})
+        fields = conversation_model_fields()
+        allowed = {role + '_model' for role in fields['conversation_controls']}
+        allowed |= {role + '_reasoning_effort' for role in fields['conversation_controls'] if role != 'glm'}
+        if not isinstance(models, dict) or set(models) - allowed:
+            raise ValueError('Choose models using the existing per-role settings.')
+        self.conversation_routes(models)
         raw = data.get('workspace')
         project = canonical_project(raw) if raw else None
         # No-project checks use the application source directory only as the
         # doctor's read-only cwd; the UI explicitly reports no selected project.
         workspace = project or Path(self.runner).resolve().parent
-        report, error = self._json_command(['doctor', '--workspace', str(workspace), '--engine', engine, '--json'], timeout=120)
-        if error and (error.get('uncertain') or error.get('exit_code') != 1):
-            raise ValueError('Setup checks could not complete. Recheck when the runner is available.')
-        if not isinstance(report, dict) or not isinstance(report.get('checks'), list):
-            raise ValueError('This runner does not provide supported setup checks.')
+        report = self._setup_doctor(workspace, engine)
         checks = []
-        found = {row.get('name'): row for row in report['checks'] if isinstance(row, dict)}
+        found = {row['name']: row for row in report['checks'] if isinstance(row, dict) and isinstance(row.get('name'), str)}
         for name, (label, fix) in _GUIDANCE.items():
             if name.startswith('engine:') and name != 'engine:' + engine:
                 continue
@@ -196,9 +332,16 @@ class SetupMixin:
                            'guidance': '' if status == 'ok' else fix})
         if engine == 'opencode':
             checks.append({'id': 'opencode-accounts', 'label': 'OpenCode accounts',
-                       'status': 'unverified', 'guidance': 'OpenCode accounts are managed by OpenCode. Use opencode auth list to inspect connected providers and opencode auth login to connect one. No credential is requested or saved here.'})
+                        'status': 'unverified', 'guidance': 'OpenCode accounts are managed by OpenCode. Use opencode auth list to inspect connected providers and opencode auth login to connect one. No credential is requested or saved here.'})
+        opencode = found.get('engine:opencode', {})
+        signal = self.conversation_transport_readiness(opencode if isinstance(opencode.get('data'), dict) else None,
+                                                       refresh=True)
+        checks.append({'id': 'conversation-transport', 'label': 'Built-in conversation transport',
+                       'status': {'available': 'ok', 'missing': 'missing', 'unsupported': 'missing'}.get(signal['transport'], 'unknown'),
+                       'guidance': 'Dashboard conversations need built-in OpenCode 1.x, independently of terminal engines/providers. Model listing does not verify authentication.'})
         return {'checked_at': datetime.now(timezone.utc).isoformat(), 'engine': engine,
                 'workspace': str(project) if project else None, 'checks': checks,
+                'conversation_readiness': {**signal, 'authentication': 'unknown'},
                 'scope': 'Local dependencies and project only; no model request was sent.'}
 
     def setup_project(self, data):
@@ -212,7 +355,7 @@ class SetupMixin:
         allowed |= {role + '_reasoning_effort' for role in ('plan_reviewer', 'astra', 'terra', 'sol', 'completion')}
         if not isinstance(models, dict) or set(models) - allowed:
             raise ValueError('Choose models using the existing per-role settings. Credentials are not accepted.')
-        chosen, efforts = self.joint_models(models), self.joint_efforts(models)
+        chosen, efforts = self.conversation_models(models, require_available=False), self.joint_efforts(models)
         settings = {role + '_model': value for role, value in chosen.items()}
         settings.update({role + '_reasoning_effort': value for role, value in efforts.items()})
         project = canonical_project(data.get('path'), new=mode == 'new')

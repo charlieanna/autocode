@@ -319,6 +319,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             "headroom": {"enabled": args.headroom == "on", "verified": False},
             "regression": {key: value for key, value in (("test_command", getattr(args, "test_command", None)),
                            ("regression_command", getattr(args, "regression_command", None)),
+                           # Launch-fixed proof root; component admission corroborates the original task.
+                           ("test_root", getattr(args, "test_root", None)),
                            ("base_patch", getattr(args, "base_patch", None) and operator_patch.pin(
                                args.base_patch, state["workspace"], state.get("base_commit")))) if value},
             "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,

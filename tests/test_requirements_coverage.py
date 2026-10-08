@@ -74,6 +74,70 @@ class CoverageTests(unittest.TestCase):
         self.assertIsNone(packet['goal_contract'])
 
 
+    def follow_up(self, workflow='design'):
+        earlier = 'Write only `docs/decisions/cache.json`; do not write code.'
+        old = {'kind': 'brief_feedback', 'id': 'old', 'actor': 'user_cli',
+               'text': 'The decision note must keep its comparison.'}
+        event = {'kind': 'brief_feedback', 'id': 'new', 'actor': 'user_cli',
+                 'text': 'Shared it is; design it.'}
+        answer = {'kind': 'answer', 'question_id': 'Q1', 'actor': 'user_cli',
+                  'text': 'The discussion must list both alternatives.'}
+        return {'task': event['text'] + '\n\nThis follows up an earlier request (discuss): ' + earlier,
+                'workflow': {'kind': workflow}, 'workspace': '/fixture',
+                'settings': {'engine': 'codex', 'joint_planning': True, 'roles': {'requirements': {}}},
+                'turns': [{'say': event['text'], 'event_id': event['id'],
+                           'previous': {'workflow': 'discuss', 'task': earlier, 'wrote': ['docs/decisions/cache.json']}}],
+                'brief_feedback': [old, event], 'answers': {'Q1': answer}, 'user_events': [old, answer, event]}
+
+    def test_prior_job_requirements_remain_quotable_but_do_not_reopen_its_outputs(self):
+        state = self.follow_up()
+        before = copy.deepcopy(state)
+        goals.check_requirement_handoff(state, self.report('Shared it is; design it.'))
+        self.assertIn('The decision note must keep its comparison.', goals.source_texts(state))
+        goals.check_requirement_handoff(state, self.report('The discussion must list both alternatives.'))
+        self.assertEqual(before, state)
+
+    def test_current_literals_and_answers_remain_required(self):
+        state = self.follow_up()
+        event = {'kind': 'answer', 'question_id': 'Q2', 'actor': 'user_cli',
+                 'text': 'The design must use `docs/design/cache.md`.'}
+        state['answers']['Q2'] = event
+        state['user_events'].append(event)
+        with self.assertRaisesRegex(ValueError, 'The design must use'):
+            goals.check_requirement_handoff(state, self.report('Shared it is; design it.'))
+        goals.check_requirement_handoff(state, self.report(event['text']))
+        with self.assertRaisesRegex(ValueError, 'docs/design/cache.md'):
+            goals.check_requirement_trace(state, {}, {})
+        goals.check_requirement_trace(state, {}, {'deliverables': ['docs/design/cache.md']})
+
+    def test_same_kind_and_unreceipted_turns_keep_coverage_guards(self):
+        for state in (self.follow_up('discuss'), self.follow_up()):
+            if state['workflow']['kind'] == 'design':
+                state['user_events'].pop()
+            with self.assertRaisesRegex(ValueError, 'cache.json'):
+                goals.check_requirement_handoff(state, self.report('Shared it is; design it.'))
+
+    def test_planner_packet_keeps_binding_design_and_contract(self):
+        state = self.follow_up('build')
+        state['turns'][-1]['previous']['workflow'] = 'design'
+        state['turns'][-1]['previous']['wrote'] = ['docs/design/cache.md']
+        state['design_constraint'] = {'design_document': 'docs/design/cache.md', 'summary': 'Shared cache',
+                                      'constraints': ['Never return stale data.']}
+        state['goal_contract'] = {'revision': 4, 'hash': 'binding',
+                                  'body': {'required_behaviors': ['Retain the shared cache decision.']}}
+        prompt, _ = autoplanner.context(state, 'requirements_gather', Path('/fixture/state.json'))
+        packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(state['turns'][-1]['say'], packet['task'])
+        self.assertEqual(['docs/design/cache.md'], packet['previous_turn']['wrote'])
+        self.assertEqual([], packet['requirement_coverage_checklist'])
+        planned, _ = autoplanner.context(state, 'astra_discovery', Path('/fixture/state.json'))
+        planning_packet = json.loads(planned.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(state['goal_contract'], planning_packet['goal_contract'])
+        self.assertIn('Never return stale data.', prompt)
+        self.assertIn('current contract and approved_design, when present, remain binding', prompt)
+        self.assertIn('Do not redesign it', prompt)
+
+
 class HeadingCueTests(unittest.TestCase):
     """A Markdown heading label is formatting, not a user requirement (#216)."""
 

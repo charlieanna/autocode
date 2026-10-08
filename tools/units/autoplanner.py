@@ -16,6 +16,7 @@ try:
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
     from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     from .. import autocode_native_test_names as native_test_names
+    from .. import autocode_requirement_cues as requirement_cues
     from .. import autocode_verification_plan as verification_plan
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_design_plan as design_plan
     import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
     import autocode_native_test_names as native_test_names
+    import autocode_requirement_cues as requirement_cues
     import autocode_verification_plan as verification_plan
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
@@ -1141,6 +1143,10 @@ def context(state, stage, state_path):
                          "only an explicit operator action can extend the allowance; "
                          "separate one-use AutoResolver operational recovery grants do not reset this allowance",
                 "recovery_context": state.get('recovery_context')}
+    turn = requirement_cues.new_workflow_turn(state)
+    if turn:
+        packet["task"] = turn["say"]
+        packet["previous_turn"] = {key: turn["previous"].get(key) for key in ("task", "workflow", "wrote")}
     if stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         packet["brief_declaration_inventory"] = brief_obligations.inventory(state)
         packet["risk_declaration_inventory"] = risk_obligations.inventory(state)
@@ -1175,6 +1181,13 @@ def context(state, stage, state_path):
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])
+    try:
+        from ..autocode_component_runtime import architecture_contract
+    except ImportError:
+        from autocode_component_runtime import architecture_contract
+    runtime_contract = architecture_contract(state['task'])
+    if runtime_contract:
+        packet['architecture_runtime_contract'] = runtime_contract
     if state.get('design_constraint'):
         packet['approved_design'] = state['design_constraint']
     diagnosis = bug_job.large_correction(state)
@@ -1217,6 +1230,11 @@ def context(state, stage, state_path):
         clarification_policy += INVESTIGATION_POLICY
     design_rule = (APPROVED_DESIGN_RULE if state.get('design_constraint') else "") + (BUG_DIAGNOSIS_RULE if diagnosis else "")
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
+    if turn:
+        design_rule += ("\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
+                        "Use its decisions and reports as context; do not reopen its output paths or no-code conditions as new requirements. "
+                        "Produce what this request asks for, following the repository's artifact conventions. "
+                        "The current contract and approved_design, when present, remain binding.\n")
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.

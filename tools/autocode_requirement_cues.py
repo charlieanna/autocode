@@ -85,10 +85,35 @@ def source_texts(state):
     return [text for text in texts if text]
 
 
+def new_workflow_turn(state):
+    """A receipted follow-up changing jobs; same-kind revisions retain their obligations."""
+    turns = state.get("turns") or []
+    turn = turns[-1] if turns else {}
+    previous = (turn.get("previous") or {}).get("workflow")
+    current = (state.get("workflow") or {}).get("kind")
+    if not previous or not current or current == previous:
+        return None
+    event = next((row for row in state.get("brief_feedback") or []
+                  if row.get("id") == turn.get("event_id") and row.get("text") == turn.get("say")
+                  and row.get("kind") == "brief_feedback" and row.get("actor") == "user_cli"), None)
+    return turn if event and event in (state.get("user_events") or []) else None
+
+
 def scan_texts(state):
     """source_texts minus delegated answers: a model default is quotable, never owed."""
+    turn = new_workflow_turn(state)
+    feedback = state.get("brief_feedback") or []
+    answers = list((state.get("answers") or {}).values())
     texts = _task_sources(state)
-    texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
-    texts += [event.get("text", "") for event in state.get("answers", {}).values()
+    if turn:
+        # Completed-job outputs stay quotable context, not fresh literal obligations.
+        texts = [turn["say"]]
+        start = next(i for i, event in enumerate(feedback) if event.get("id") == turn["event_id"])
+        feedback = feedback[start:]
+        events = state.get("user_events") or []
+        start = next(i for i, event in enumerate(events) if event == feedback[0])
+        answers = [event for event in answers if event in events[start:]]
+    texts += [event.get("text", "") for event in feedback]
+    texts += [event.get("text", "") for event in answers
               if isinstance(event, dict) and event.get("kind") != "delegated"]
     return [text for text in texts if text]

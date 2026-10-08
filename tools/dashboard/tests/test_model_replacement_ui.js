@@ -30,10 +30,10 @@ const context=vm.createContext({
   document:{},
 });
 vm.runInContext(source.slice(source.indexOf('function roleDisplayName('),source.indexOf('function planReady(')),context);
-vm.runInContext("let taskReadError='',modelCatalogue={models:['openai/new-model'],usable:true,loading:false,error:null},chosen={run:'/workspace/run'},latestRun=null,currentTab='now';const modelReplacementState=new Map(),taskChatPending=new Set(),sendingRequests=new Set();",context);
+vm.runInContext("let taskReadError='',modelCatalogue={models:['openai/new-model'],usable:true,loading:false,error:null},conversationCatalogue={models:[],usable:false},conversationProfile=null,conversationTransport={transport:'unknown',version:null},chosen={run:'/workspace/run'},latestRun=null,currentTab='now';const modelReplacementState=new Map(),taskChatPending=new Set(),sendingRequests=new Set();",context);
 vm.runInContext(source.slice(source.indexOf('function modelCatalogueSnapshot()'),source.indexOf('function renderTaskReasoning(')),context);
 vm.runInContext(source.slice(source.indexOf('function renderPrimaryAction('),source.indexOf('async function submitTaskAction(')),context);
-vm.runInContext(source.slice(source.indexOf('function syncModelOptions('),source.indexOf('async function loadModels(')),context);
+vm.runInContext(source.slice(source.indexOf('function syncConversationTransport('),source.indexOf('async function loadModels(')),context);
 
 const run={workspace:'/workspace',run:'/workspace/run',status:'PAUSED',active_stage:{},interventions:{mode:'legacy'},actions:[],model_settings:{engine:'opencode',roles:{astra:'openai/retired-model'},role_engines:{astra:'opencode'},role_efforts:{astra:'high'}}};
 context.renderTaskModelSettings(run);

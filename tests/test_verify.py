@@ -42,15 +42,21 @@ def project_file(project, path):
     return (project.root / path).read_text()
 
 
-def isolated_python(test_case):
+def isolated_python(test_case, *, directory=None):
     """A real no-pip stdlib runtime without the mutable controller editable install."""
     import venv
 
-    temporary = tempfile.TemporaryDirectory(prefix="verification-command-runtime-")
+    temporary = tempfile.TemporaryDirectory(prefix="verification-command-runtime-", dir=directory)
     test_case.addCleanup(temporary.cleanup)
     root = Path(temporary.name)
     venv.EnvBuilder(with_pip=False).create(root)
     return str(root / "bin" / "python")
+
+
+def isolated_python_env(test_case, env, *, directory):
+    """Select the stdlib test runtime on PATH, not the absolute controller command."""
+    python = isolated_python(test_case, directory=directory)
+    return {**env, "PATH": f"{Path(python).parent}{os.pathsep}{env['PATH']}"}
 
 
 class Project:
@@ -100,6 +106,78 @@ class ProjectFixtureTests(unittest.TestCase):
         children = [event["argv"] for event in map(json.loads, trace.read_text().splitlines())
                     if event.get("event") == "child_start"]
         self.assertEqual([], [argv for argv in children if {"maintenance", "gc"} & set(argv)], children)
+
+
+class ComponentCollectionTests(unittest.TestCase):
+    def test_package_markers_and_comment_mentions_do_not_hide_go_or_node_suites(self):
+        for marker in ("", "# load_tests and unittest.TestCase are not declarations\n", "VALUE = 'load_tests'\n"):
+            for files, expected in (({"go.mod": "module sample\ngo 1.22\n", "lib_test.go": "package sample\n"}, "go"),
+                                    ({"package.json": json.dumps({"scripts": {"test": "node --test"}}),
+                                      "app.test.js": ""}, "node")):
+                with self.subTest(marker=marker, framework=expected):
+                    project = Project({"components/lib/__init__.py": marker, **files})
+                    self.addCleanup(project.close)
+                    framework = verify.detect_framework(project.root, python=sys.executable)
+                    self.assertEqual(expected, framework.name)
+                    self.assertNotIn("autocode_component_tests.py", framework.suite)
+
+    def collect(self, files):
+        project = Project(files)
+        self.addCleanup(project.close)
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertIsNotNone(framework)
+        receipt = verify.run_suite(framework, framework.suite, project.root, project.evidence, "components", timeout=30)
+        return framework, receipt, Path(receipt["output"]).read_text()
+
+    def test_root_namespace_relative_import_hyphen_and_owner_hook_are_all_collected(self):
+        framework, receipt, text = self.collect({
+            "test_root.py": "import unittest\nclass Root(unittest.TestCase):\n def test_root(self): pass\n",
+            "components/api/value.py": "VALUE = 17\n",
+            "components/api/tests/test_value.py": "import unittest\nfrom ..value import VALUE\n"
+            "class Value(unittest.TestCase):\n def test_relative(self): self.assertEqual(17, VALUE)\n",
+            "components/store/__init__.py": "import unittest\nclass Hook(unittest.TestCase):\n"
+            " def test_hook(self): self.fail('package hook reached')\n"
+            "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(Hook)\n",
+            "components/store/tests/test_skipped.py": "raise AssertionError('hook must own collection')\n",
+            "components/link-service/tests/value_test.py": "import unittest\nclass Hyphen(unittest.TestCase):\n"
+            " def test_hyphen(self): self.fail('named failure')\n"})
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertIn("test_relative", text)
+        self.assertIn("test_root", text)
+        self.assertIn("package hook reached", text)
+        self.assertNotIn("hook must own collection", text)
+        self.assertEqual(4, receipt["results"]["total"])
+        self.assertTrue(receipt["results"]["complete"])
+        self.assertTrue(any("components.link-service" in name for name in receipt["results"]["failed"]))
+        self.assertEqual(framework.suite, framework.targeted(["components/store/tests/test_skipped.py"]))
+        self.assertIsNone(framework.targeted([]))
+
+    def test_hook_only_repository_and_root_delegation_cannot_be_silently_skipped(self):
+        hook = ("import unittest\nclass Hook(unittest.TestCase):\n def test_hook(self): self.fail('hook reached')\n"
+                "def load_tests(loader, tests, pattern): return loader.loadTestsFromTestCase(Hook)\n")
+        for owner in ("components", "components/store"):
+            with self.subTest(owner=owner):
+                _, receipt, text = self.collect({"components/__init__.py": "", owner + "/__init__.py": hook})
+                self.assertEqual(1, receipt["exit_code"], text)
+                self.assertIn("hook reached", text)
+                self.assertTrue(receipt["results"]["failed"])
+        _, receipt, text = self.collect({"components/__init__.py":
+            "from pathlib import Path\ndef load_tests(loader, tests, pattern):\n"
+            " return loader.discover(str(Path(__file__).parent), pattern=pattern, top_level_dir=str(Path.cwd()))\n",
+            "components/api/test_ok.py": "import unittest\nclass Fine(unittest.TestCase):\n def test_ok(self): pass\n",
+            "components/store/__init__.py": hook})
+        self.assertEqual(1, receipt["exit_code"], text)
+        self.assertEqual(2, receipt["results"]["total"])
+        self.assertEqual(1, text.count("test_ok ("))
+
+    def test_components_preserve_configured_pytest(self):
+        project = Project({"pytest.ini": "[pytest]\naddopts = --strict-markers\n",
+                           "components/api/tests/test_value.py": "def test_value(): assert True\n"})
+        self.addCleanup(project.close)
+        with mock.patch.object(verify, "_python_can_import", return_value=True):
+            framework = verify.detect_framework(project.root, python=sys.executable)
+        self.assertEqual("pytest", framework.name)
+        self.assertNotIn(" -c ", framework.suite)
 
 
 class PreservationEvidenceCase(unittest.TestCase):

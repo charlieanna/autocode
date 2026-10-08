@@ -75,8 +75,8 @@ function renderSetupChecks(){
 }
 async function checkWorkspaceSetup(){
   if(setupCheckBusy)return;setupCheckAttempted=true;setupCheckBusy=true;setupError='';renderSetupChecks();
-  const engine=setupEngine,workspace=setupProjectMode==='existing'?setupProjectPath.trim():'';
-  try{const report=await api('/api/setup/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({engine,...(workspace?{workspace}:{})})});if(engine===setupEngine)setupReport=report;}
+  const engine=setupEngine,workspace=setupProjectMode==='existing'?setupProjectPath.trim():'',models=setupModels();
+  try{const report=await api('/api/setup/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({engine,models,...(workspace?{workspace}:{})})});syncConversationTransport(report.conversation_readiness);if(engine===setupEngine&&workspace===(setupProjectMode==='existing'?setupProjectPath.trim():'')&&JSON.stringify(models)===JSON.stringify(setupModels()))setupReport=report;}
   catch(error){setupError=error.message;}finally{setupCheckBusy=false;renderSetupChecks();}
 }
 async function submitSetupProject(){

@@ -384,6 +384,11 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     status = state.get("status", "")
     if status in COMPLETE:
         return None
+    if status == 'PAUSED_COMPONENT_PLAN':
+        return {'kind': 'resume', 'reason': state.get('stop_reason'), 'edit_required': True,
+                'action': '--edit-goal FILE', 'feedback_action': '--feedback TEXT',
+                'recovery_hint': 'Correct the component plan or request a new draft with planning feedback. '
+                                 'A corrected draft needs fresh approval; unchanged resume cannot repair this contract.'}
     failure = state.get('job_failure') or {}
     if quota_route.job_pause_current(state) and failure:
         known_source = bool(failure.get('source_identity'))

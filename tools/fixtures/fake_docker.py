@@ -21,6 +21,11 @@ import sys
 def main(argv):
     with open(os.environ["FAKE_DOCKER_LOG"], "a", encoding="utf-8") as log:
         log.write(json.dumps(argv) + "\n")
+    if argv[:1] == ["--host"]:
+        if not argv[1].startswith(("unix://", "npipe://")):
+            print("fake docker: nonlocal pinned endpoint", file=sys.stderr)
+            return 2
+        argv = argv[2:]
     fail = os.environ.get("FAKE_DOCKER_FAIL", "")
     if argv[:2] == ["compose", "version"]:
         if fail == "compose":

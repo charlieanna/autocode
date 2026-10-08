@@ -879,9 +879,22 @@ class JointFlow(unittest.TestCase):
         # PAUSED_PLANNING_BUDGET stop (explicit caps stay protected; see
         # test_failed_extended_review_...). Stop at the pre-final checkpoint with
         # an explicit pause request to inspect the same boundary as before.
-        self.launch([*args, "--pause-after-stage"], 2)
-        while self.saved()[1]["next_stage"] != "astra_finalize":
-            self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
+        result = self.launch([*args, "--pause-after-stage"], 2)
+        for expected_stage in ("astra_challenge", "glm_revise", "astra_finalize"):
+            checkpoint = self.saved()[1]
+            # Reconcile the one deliberately timed-out challenge if its keeper
+            # required a cleanup checkpoint. Other blocked outcomes must fail.
+            if (expected_stage == "glm_revise"
+                    and checkpoint["status"] == "PAUSED_PROCESS_CLEANUP"
+                    and checkpoint["next_stage"] == "astra_challenge"):
+                result = self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
+                checkpoint = self.saved()[1]
+            self.assertEqual(("PAUSED_REQUESTED", expected_stage),
+                             (checkpoint["status"], checkpoint["next_stage"]),
+                             f"Planning checkpoint blocked: {checkpoint.get('stop_reason')}\n"
+                             + result.stdout + result.stderr)
+            if expected_stage != "astra_finalize":
+                result = self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         paused = self.saved()[1]
         self.assertEqual("PAUSED_REQUESTED", paused["status"])
         # Only the challenge that returned a report counts: the timed-out attempt was given back.

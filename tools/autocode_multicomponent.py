@@ -242,6 +242,14 @@ def component_brief(component: Component, architecture: Architecture) -> str:
                      f"separately. Assume only this JSON Schema about it, nothing about its implementation: "
                      f"{json.dumps(schema)}")
     lines.append("Do not implement or stub another component's directory; integration happens separately.")
+    lines.append("The child's mandatory end_to_end_flow must be executable and verified in this component run: "
+                 "start this component locally, exercise its public interface, and check its result. "
+                 "Keep a service's real subprocess health and request/response flow local to this component. "
+                 "The integration owner separately builds containers, runs Compose and checks cross-service smoke; "
+                 "do not put those deferred integration operations in the child's mandatory flow. "
+                 "Deliver the component's Dockerfile when requested, without requiring an image build in a child "
+                 "whose permissions prohibit it. Read-only design and interface inputs outside the owned directory "
+                 "remain inputs, not deliverable or affected paths.")
     return " ".join(lines)
 
 
@@ -354,7 +362,8 @@ class MultiComponentBuild:
             if result.run is None:
                 result.run = TaskRun.start(result.workspace, component_brief(component, self.architecture),
                                            options=self.options,
-                                           start_options=component.design.start_options() if component.design else (),
+                                           start_options=("--test-root", component.owned_prefix,
+                                                          *(component.design.start_options() if component.design else ())),
                                            env=self.env, timeout=self.timeout)
                 self._record(result)
             result.view = self._drive(result.run, auto_approve)

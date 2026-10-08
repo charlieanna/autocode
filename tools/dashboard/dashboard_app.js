@@ -23,6 +23,8 @@ let conversationArchiveReview=null,conversationArchiveNotice=null;
 const conversationArchivePending=new Set();
 let modelRequest = 0;
 let modelCatalogue={models:[],usable:false,loading:true,error:null};
+let conversationCatalogue={models:[],usable:false,loading:true,error:null},conversationProfile=null;
+let conversationTransport={transport:'unknown',version:null};
 const modelReplacementState=new Map(),archiveUncertain=new Map(),projectUncertain=new Map();
 const draftKey = (id, run = chosen?.run || '') => run + '\0' + id;
 const basename = path => String(path || '').split('/').filter(Boolean).pop() || 'Unavailable project';
@@ -1132,11 +1134,39 @@ function supportedReasoningLevels(data,role,model){
   const levels=Array.isArray(candidate)?candidate.filter(value=>['low','medium','high','xhigh','max'].includes(value)):['low','medium','high','xhigh','max'];
   return levels.length?levels:['medium'];
 }
-function syncReasoningSelector(id,levels){
+function syncReasoningSelector(id,levels,defaultEffort){
   const select=$(id);if(!select)return;
-  const previous=select.value;select.replaceChildren();
+  if(defaultEffort)select.dataset.defaultEffort=defaultEffort;
+  const previous=select.dataset.userSelected==='true'?select.value:select.dataset.defaultEffort||select.value;select.replaceChildren();
   for(const level of levels)select.append(Object.assign(n('option',level==='max'?'Maximum':human(level)),{value:level}));
   select.value=levels.includes(previous)?previous:levels[0];
+}
+function syncConversationTransport(signal){
+  if(!signal||!['available','missing','unsupported','unknown'].includes(signal.transport))return;
+  conversationTransport={transport:signal.transport,version:signal.version||null};
+  syncConversationReadiness();
+}
+function conversationModelReadiness(){
+  const catalogue=conversationCatalogue,profile=conversationProfile,signal=conversationTransport,blocked=['missing','unsupported'].includes(signal.transport);
+  if(!profile?.routes||!profile?.controls||!profile?.pattern||!Array.isArray(profile.required))return {...signal,usable:false,missing:[],status:blocked?'missing':'unknown',authentication:'unknown'};
+  const pattern=new RegExp(profile.pattern,'i'),available=new Set(catalogue.usable&&!catalogue.error&&!catalogue.loading?catalogue.models:[]),routes=Object.fromEntries(Object.entries(profile.routes).map(([role,route])=>[role,{...route}]));
+  for(const [control,role] of Object.entries(profile.controls)){
+    const select=$('#'+control+'-model'),effort=$('#'+control+'-reasoning-effort');
+    if(select?.dataset.userSelected==='true'&&select.value){const value=select.value;routes[role].model=profile.aliases?.[control]?.includes(value)?'openai/'+value:value;}
+    if(effort?.dataset.userSelected==='true')routes[role].reasoning_effort=effort.value;
+  }
+  const required=profile.visual?[...profile.required,'visual_review']:profile.required;
+  const missing=required.filter(role=>!routes[role]||!pattern.test(routes[role].model)||!available.has(routes[role].model));
+  return {...signal,usable:!blocked&&catalogue.usable===true&&!catalogue.error&&!catalogue.loading&&missing.length===0,missing,routes,status:blocked||missing.length?'missing':'unknown',authentication:'unknown'};
+}
+function syncConversationReadiness(){
+  const catalogue=conversationCatalogue,readiness=conversationModelReadiness(),gate=$('#create-model-catalogue-gate'),status=$('#create-model-catalogue-status'),retry=$('#retry-models'),submit=$('#create-submit');
+  const message=readiness.transport==='unsupported'?'Dashboard conversations require built-in OpenCode 1.x. This transport is unsupported; recheck workspace setup.':readiness.transport==='missing'?'Built-in OpenCode is unavailable for dashboard conversations. Install OpenCode 1.x and recheck workspace setup.':catalogue.error?'Model catalogue unavailable. Check OpenCode in your terminal and retry.':catalogue.loading?'Loading compatible models. Start conversation is unavailable until the catalogue responds.':!catalogue.models?.length?'No compatible models are currently available. Start conversation is unavailable.':readiness.missing.length?'Required conversation routes are unavailable. Choose listed models or retry the catalogue.':'The conversation profile is not verified. Retry the catalogue.';
+  if(gate){gate.hidden=readiness.usable;gate.classList?.toggle('error',!!catalogue.error);}
+  if(status)status.textContent=readiness.usable?'':message;
+  if(retry){retry.hidden=readiness.usable||!!catalogue.loading;retry.disabled=retry.hidden;}
+  if(submit){submit.disabled=!readiness.usable||(typeof creatingConversation!=='undefined'&&creatingConversation);if(readiness.usable)submit.removeAttribute?.('aria-describedby');else submit.setAttribute?.('aria-describedby','create-model-catalogue-status');}
+  return readiness;
 }
 function syncModelOptions(data={}) {
   const catalogue=data.usable&&Array.isArray(data.models)?data.models.filter(value=>typeof value==='string'):[];
@@ -1144,40 +1174,39 @@ function syncModelOptions(data={}) {
   // not a usable selection state. Preserve saved selections visibly, but do
   // not allow a new task to start until a compatible route is available.
   const usable=data.usable===true&&catalogue.length>0;
-  modelCatalogue={models:catalogue,usable,lastUsableModels:usable?catalogue:modelCatalogue.lastUsableModels,loading:data.loading===true,error:typeof data.error==='string'?data.error:null,reasoning_levels:data.reasoning_levels||data.reasoningLevels||{}};
-  const configured=typeof data.provider==='string'&&data.provider!=='opencode';
-  const defaults=data.conversation_defaults|| (configured?Object.fromEntries(['glm','plan_reviewer','astra','terra','sol','completion'].map(role=>[role,data.provider+' config'])):{glm:'GLM-5.3 · OpenCode',plan_reviewer:'MiMo 2.6 Pro · high',astra:'GPT-5.6 Sol · high',terra:'GPT-5.6 Terra · medium',sol:'GPT-5.6 Sol · high',completion:'GPT-5.6 Sol · medium'});
+  modelCatalogue={models:catalogue,usable,lastUsableModels:usable?catalogue:modelCatalogue.lastUsableModels,loading:data.loading===true,error:data.error?'Model catalogue unavailable. Check the provider in your terminal.':null,reasoning_levels:data.reasoning_levels||data.reasoningLevels||{}};
+  if(data.conversation_routes)conversationProfile={routes:data.conversation_routes,controls:data.conversation_controls,required:data.conversation_required_roles,pattern:data.conversation_model_pattern,aliases:data.conversation_aliases,visual:data.conversation_visual===true};
+  if(data.conversation_readiness)syncConversationTransport(data.conversation_readiness);
+  const conversationData=data.conversation_catalogue||data,conversationModels=conversationData.usable&&Array.isArray(conversationData.models)?conversationData.models.filter(value=>typeof value==='string'&&(!conversationProfile?.pattern||new RegExp(conversationProfile.pattern,'i').test(value))):[],conversationUsable=conversationData.usable===true&&conversationModels.length>0;
+  conversationCatalogue={models:conversationModels,usable:conversationUsable,error:!!conversationData.error,loading:conversationData.loading===true};
+  const defaults=data.conversation_defaults||{};
   for (const role of ['glm','plan_reviewer','astra','terra','sol','completion']) {
     const select = $('#'+role+'-model');if(!select)continue;
-    const previous = data.conversation_defaults&&select.dataset.userSelected!=='true'?'':select.value,values=catalogue;
-    select.replaceChildren(Object.assign(n('option','Default · '+defaults[role]),{value:''}));
+    if(defaults[role])select.dataset.defaultModel=defaults[role];
+    const defaultModel=select.dataset.defaultModel||'Conversation default (not verified)';
+    let previous = data.conversation_defaults&&select.dataset.userSelected!=='true'?'':select.value;
+    if(conversationProfile?.pattern&&select._savedModel!==undefined){previous=select._savedModel;delete select._savedModel;}
+    const values=conversationModels;
+    select.replaceChildren(Object.assign(n('option','Default · '+defaultModel),{value:''}));
     const groups=new Map();
     for (const value of values) {
       const provider=value.split('/')[0];
       if(!groups.has(provider)){
-        const label=provider==='openai'?'OpenAI · ChatGPT OAuth':provider==='zai-coding-plan'?'Z.ai Coding Plan':provider;
+        const label=provider==='openai'?'OpenAI':provider==='zai-coding-plan'?'Z.ai Coding Plan':provider;
         const group=Object.assign(n('optgroup'),{label});groups.set(provider,group);select.append(group);
       }
       groups.get(provider).append(Object.assign(n('option',value),{value}));
     }
-    if (previous && !values.includes(previous)) select.append(Object.assign(n('option','Unavailable selection: '+previous),{value:previous}));
-    select.value=previous;select.disabled=!usable;
-    if(role!=='glm'&&typeof syncReasoningSelector==='function'&&typeof supportedReasoningLevels==='function')syncReasoningSelector('#'+role+'-reasoning-effort',supportedReasoningLevels(data,role,previous||defaults[role]));
+    const valid=!previous||conversationProfile?.aliases?.[role]?.includes(previous)||(conversationProfile?.pattern&&new RegExp(conversationProfile.pattern,'i').test(previous)),selection=valid?previous:'invalid';
+    if(previous&&!values.includes(previous))select.append(Object.assign(n('option',valid?'Unavailable selection: '+previous:'Invalid model selection'),{value:selection}));
+    select.value=selection;select.disabled=!conversationUsable;
+    if(role!=='glm'&&typeof syncReasoningSelector==='function'&&typeof supportedReasoningLevels==='function')syncReasoningSelector('#'+role+'-reasoning-effort',supportedReasoningLevels(conversationData,role,previous||defaultModel),data.conversation_efforts?.[role]);
   }
   if(data.conversation_routes){const summary=Object.entries(data.conversation_routes).map(([role,route])=>human(role)+': '+route.model+(route.reasoning_effort?' '+route.reasoning_effort:'')).join(' · ');$('.models-disclosure summary span').textContent='Continuous planning profile';$('#create-conversation-label').textContent='Requirements and plan review stay in this conversation.';$('#create-conversation-label').nextElementSibling.textContent=summary;}
-  const tool=typeof data.provider==='string'&&data.provider!=='opencode'?data.provider:'OpenCode';
-  const billing=tool==='OpenCode'?' OpenAI choices require ChatGPT OAuth, not API-key billing.':' '+tool+' uses its own login and billing.';
   const detailStatus=$('#model-catalogue-status');
-  const gate=$('#create-model-catalogue-gate'),gateStatus=$('#create-model-catalogue-status'),retry=$('#retry-models');
-  const availability=data.error?'failed':data.loading?'loading':usable?'ready':'empty';
-  const detail=(data.error?data.error+' Existing selections remain visible. Retry the catalogue before choosing another provider/model.':data.loading?'Loading compatible models. Selectors are disabled until the catalogue responds.':usable?catalogue.length+' compatible provider/model routes are available.':'No compatible models are currently available. Existing selections remain visible; retry the catalogue before starting with an explicit model.')+' Names identify workflow roles, not fixed models. Explicit selections run through '+tool+'; Default keeps the labeled route.'+billing+' Existing runs keep their saved models.';
-  const gateMessage=availability==='ready'?'':data.error?data.error+' Start conversation is unavailable. Existing selections remain visible. Retry the catalogue to try again.':data.loading?'Loading compatible models. Start conversation is unavailable until the catalogue responds.':'No compatible models are currently available. Start conversation is unavailable. Existing selections remain visible. Retry the catalogue to try again.';
-  if(detailStatus){detailStatus.textContent=detail;detailStatus.className='field-note'+(data.error?' error':'');}
-  if(gate){gate.hidden=availability==='ready';gate.classList?.toggle('error',availability==='failed');}
-  if(gateStatus)gateStatus.textContent=gateMessage;
-  if(retry){retry.hidden=availability==='ready'||availability==='loading';retry.disabled=availability==='ready'||availability==='loading';}
-  const submit=$('#create-submit');
-  if(submit){submit.disabled=!usable;if(usable)submit.removeAttribute?.('aria-describedby');else submit.setAttribute?.('aria-describedby','create-model-catalogue-status');}
+  const detail=(conversationData.error?'Model catalogue unavailable. Check OpenCode in your terminal and retry.':conversationData.loading?'Loading compatible models.':conversationUsable?conversationModels.length+' provider/model identifiers are listed.':'No compatible models are currently available.')+' Conversations use built-in OpenCode, not the terminal provider profile. Model listing does not verify authentication or billing. Existing runs keep their saved models.';
+  if(detailStatus){detailStatus.textContent=detail;detailStatus.className='field-note'+(conversationData.error?' error':'');}
+  syncConversationReadiness();
   if(typeof latestRun!=='undefined'&&latestRun){
     if(typeof renderTaskModelSettings==='function')renderTaskModelSettings(latestRun);
     if(typeof renderPrimaryAction==='function')renderPrimaryAction(latestRun);
@@ -1404,6 +1433,7 @@ async function rootAction(action,path) {try{await api('/api/watch-roots',{method
 $('#watch-root').onsubmit=event=>{event.preventDefault();rootAction('add',event.target.elements.path.value);};
 $('#create').onsubmit=async event=>{
   event.preventDefault();if(creatingConversation)return;
+  if(!syncConversationReadiness().usable)return;
   const text=$('#new-goal').value.trim(),error=$('#create-error');if(!text)return;
   const models={};
   for(const role of ['glm','plan_reviewer','astra','terra','sol','completion'])if($('#'+role+'-model').dataset.userSelected==='true'&&$('#'+role+'-model').value)models[role+'_model']=$('#'+role+'-model').value;
@@ -1415,12 +1445,12 @@ $('#create').onsubmit=async event=>{
     const doc=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(conversationPayload(text,models,conversationRequest.id,newTaskProject))});
     if($('#new-goal').value.trim()===text){$('#new-goal').value='';persist('new-idea','');}conversationRequest=null;persist('create-request','');newTaskProject='';openConversation(doc);
   } catch(problem) {error.textContent=problem.message;error.hidden=false;}
-  finally {creatingConversation=false;$('#create-submit').disabled=!modelCatalogue.usable;$('#create-submit').textContent='Start conversation ↗';}
+  finally {creatingConversation=false;syncConversationReadiness();$('#create-submit').textContent='Start conversation ↗';}
 };
 $('#new-goal').value=stored('new-idea');
 $('#new-goal').oninput=event=>persist('new-idea',event.target.value);
-for(const role of ['glm','plan_reviewer','astra','terra','sol','completion']){const select=$('#'+role+'-model'),value=stored('model:'+role);if(value&&!Array.from(select.options).some(option=>option.value===value))select.append(Object.assign(n('option',value),{value}));select.value=value;select.onchange=()=>{select.dataset.userSelected='true';persist('model:'+role,select.value);};}
-for(const role of ['plan_reviewer','astra','terra','sol','completion']){const select=$('#'+role+'-reasoning-effort'),value=stored('reasoning:'+role);if(value&&Array.from(select.options).some(option=>option.value===value))select.value=value;select.onchange=()=>{select.dataset.userSelected='true';persist('reasoning:'+role,select.value);};}
+for(const role of ['glm','plan_reviewer','astra','terra','sol','completion']){const select=$('#'+role+'-model'),value=stored('model:'+role);if(value){select._savedModel=value;select.dataset.userSelected='true';}select.onchange=()=>{select.dataset.userSelected='true';persist('model:'+role,select.value);syncConversationReadiness();};}
+for(const role of ['plan_reviewer','astra','terra','sol','completion']){const select=$('#'+role+'-reasoning-effort'),value=stored('reasoning:'+role);if(value&&Array.from(select.options).some(option=>option.value===value)){select.value=value;select.dataset.userSelected='true';}select.onchange=()=>{select.dataset.userSelected='true';persist('reasoning:'+role,select.value);syncConversationReadiness();};}
 
 function openConversation(doc) {
   $('#archive-conversation').disabled=true;$('#conversation-archived-banner').hidden=true;

@@ -52,6 +52,17 @@ def check(project, scenario):
                         f"expected {sorted(expected_edges)}, got {sorted(edges)}"))
 
     checks.append(Check("dependency_graph_has_no_cycle", not has_cycle(edges), str(edges)))
+    runtimes = {cid: c.get("runtime") for cid, c in by_id.items()}
+    checks.append(Check("every_component_has_runtime", all(isinstance(row, dict) for row in runtimes.values())))
+    checks.append(Check("local_service_runtime_wiring", set(runtimes) == {"link-service", "analytics-service"}
+                        and all(row and row.get("kind") == "service" and row.get("start") == "python3 server.py"
+                                and row.get("health") == "/health" for row in runtimes.values())
+                        and runtimes.get("analytics-service", {}).get("runtime_depends_on") == ["link-service"]))
+    smoke, error = load(project / "architecture" / "smoke.json")
+    steps = smoke.get("steps", []) if isinstance(smoke, dict) else []
+    checks.append(Check("cross_service_smoke", isinstance(smoke, dict) and smoke.get("version") == 1
+                        and any(s.get("expect_status") == 302 for s in steps)
+                        and {s.get("service") for s in steps} == {"link-service", "analytics-service"}, error or ""))
 
     contracts_dir = project / "architecture" / "contracts"
     for name in sorted(published):

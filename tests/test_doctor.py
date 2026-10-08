@@ -194,6 +194,26 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(doctor.passed(checks))
 
 
+class LocalComposeTests(unittest.TestCase):
+    def test_missing_docker_and_failed_readiness_are_optional_warnings(self):
+        checks = doctor.local_compose_checks(on_path(), fake_runner({}))
+        self.assertEqual([("docker", doctor.WARN)], [(c.name, c.status) for c in checks])
+        self.assertTrue(doctor.passed(checks))
+        outputs = {("docker", "compose", "version", "--short"): (0, "2.29.1"),
+                   ("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"): (0, "unix:///tmp/docker.sock"),
+                   ("docker", "--host", "unix:///tmp/docker.sock", "version", "--format", "{{.Server.Version}}"): (0, "27.0.0")}
+        with patch.dict(os.environ, {"DOCKER_HOST": "", "DOCKER_CONTEXT": ""}):
+            checks = doctor.local_compose_checks(on_path("docker"), fake_runner(outputs))
+            self.assertTrue(all(c.status == doctor.OK for c in checks))
+            for command, replacement, name in (
+                    (("docker", "compose", "version", "--short"), (0, "2.16.9"), "docker:compose"),
+                    (("docker", "--host", "unix:///tmp/docker.sock", "version", "--format", "{{.Server.Version}}"), (1, "stopped"), "docker:daemon"),
+                    (("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"), (0, "ssh://other"), "docker:context")):
+                checks = doctor.local_compose_checks(on_path("docker"), fake_runner(outputs | {command: replacement}))
+                self.assertEqual(doctor.WARN, next(c.status for c in checks if c.name == name))
+                self.assertTrue(doctor.passed(checks))
+
+
 class CliTests(unittest.TestCase):
     def autocode(self, *args, cwd=REPO_ROOT, env=None):
         return subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "autocode.py"), *args], cwd=cwd,

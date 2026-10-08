@@ -33,6 +33,13 @@ class SupervisionError(processes.ProcessError):
     pass
 
 
+class VerifiedStop(SupervisionError):
+    """The provider stopped abnormally, but its keeper verified complete cleanup."""
+    def __init__(self, cause):
+        super().__init__(f"Provider supervision interrupted: {cause}")
+        self.cause = cause
+
+
 def receipt(metadata):
     """Read a bounded receipt bound to one launch; missing/invalid is unknown."""
     try:
@@ -221,6 +228,8 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         if errors or keeper.returncode != 0 or final is None or final.get('phase') != 'stopped' or final.get('cleanup_error'):
             raise SupervisionError('; '.join(errors) or 'Keeper cleanup receipt is incomplete')
         if final.get('cause') not in ('provider_stopped', 'controller_finished'):
+            if final.get('cause') in ('stage_deadline', 'owner_lost', 'lifeline_failure', 'invalid_owner_message'):
+                raise VerifiedStop(final['cause'])
             raise SupervisionError(f"Provider supervision interrupted: {final.get('cause')}")
     finally:
         # Closing the only writer is authoritative owner loss. The bootstrap

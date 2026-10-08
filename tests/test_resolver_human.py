@@ -1,11 +1,14 @@
 """Request-only authority is distinct from permission to execute or approve."""
 import copy
+import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import autocode_resolver_human as human, autocode_support as support
+import autocode_resolver_runtime as runtime
 
 
 class ResolverHumanTests(unittest.TestCase):
@@ -252,3 +255,93 @@ class ResolverHumanTests(unittest.TestCase):
         self.assertEqual(before, self.state)
         self.state['intake_input_hash'] = 'different-user-input'
         self.assertIsNone(human.current(self.state))
+
+
+class WithdrawnOperationalRequestTests(unittest.TestCase):
+    def sealed_entry(self, cause, *, issued_at, status='superseded', worker=None):
+        origin = {'stage': 'orchestrator', 'pause_status': 'PAUSED_BUDGET'}
+        if worker is not None:
+            origin['quota_worker'] = copy.deepcopy(worker)
+        proposal = {'version': human.VERSION, 'scope': 'operational_exhaustion', 'origin': origin,
+                    'request': {'kind': 'blocker', 'discovered': cause,
+                                'decision_needed': 'Answer --answer route-terra=MODEL'},
+                    'questions': [], 'evidence': {}, 'status': 'WAITING_FOR_USER',
+                    'phase': 'PAUSED_OR_BLOCKED', 'next_stage': 'orchestrator',
+                    'previous_status': 'PAUSED_BUDGET'}
+        identity = {'version': human.VERSION, 'issuer': 'resolver', 'binding': {'task_id': 'fixture'},
+                    'proposal': proposal, 'action': 'escalate', 'reason': 'The model needs a human choice'}
+        key = support.digest(identity)
+        return key, {'identity': identity, 'receipt_hash': key, 'status': status, 'issued_at': issued_at}
+
+    def test_latest_authentic_withdrawn_request_is_selected_by_issuance_time(self):
+        first = self.sealed_entry('Earlier member stop', issued_at='2026-10-07T10:00:00Z')
+        last = self.sealed_entry('Latest member stop', issued_at='2026-10-07T10:00:01Z')
+        state = {'resolver': {'human_escalations': dict((last, first))}}
+        self.assertEqual(last[1]['identity']['proposal'], human.withdrawn(state))
+
+    def test_republished_identity_uses_its_latest_withdrawal_instead_of_first_issuance(self):
+        # Publishing an old identity again keeps its first issued_at. Its new withdrawal
+        # still belongs to the current pause, after the other request has been superseded.
+        recycled = self.sealed_entry('Republished member stop', issued_at='2026-10-07T10:00:00Z')
+        other = self.sealed_entry('Other settings member stop', issued_at='2026-10-07T10:00:01Z')
+        recycled[1]['superseded_at'] = '2026-10-07T10:00:03Z'
+        other[1]['superseded_at'] = '2026-10-07T10:00:02Z'
+        state = {'resolver': {'human_escalations': dict((other, recycled))}}
+        before = copy.deepcopy(state)
+        self.assertEqual(recycled[1]['identity']['proposal'], human.withdrawn(state))
+        self.assertEqual(before, state)
+
+    def test_consuming_a_republished_identity_prevents_revival_of_a_more_recently_issued_one(self):
+        consumed = self.sealed_entry('Answered republished member stop',
+                                     issued_at='2026-10-07T10:00:00Z', status='consumed')
+        withdrawn = self.sealed_entry('Other settings member stop', issued_at='2026-10-07T10:00:01Z')
+        consumed[1]['response'] = {'actor': 'user_cli', 'action': 'leave_paused',
+                                   'at': '2026-10-07T10:00:03Z'}
+        withdrawn[1]['superseded_at'] = '2026-10-07T10:00:02Z'
+        state = {'resolver': {'human_escalations': dict((withdrawn, consumed))}}
+        before = copy.deepcopy(state)
+        self.assertIsNone(human.withdrawn(state))
+        self.assertEqual(before, state)
+
+    def test_changed_identity_cannot_restore_a_withdrawn_request(self):
+        key, entry = self.sealed_entry('Member quota stop', issued_at='2026-10-07T10:00:00Z')
+        entry['identity']['proposal']['request']['discovered'] = 'Changed after sealing'
+        self.assertIsNone(human.withdrawn({'resolver': {'human_escalations': {key: entry}}}))
+        _, entry = self.sealed_entry('Member quota stop', issued_at='2026-10-07T10:00:00Z')
+        entry['identity']['issuer'] = 'builder'
+        key = support.digest(entry['identity'])
+        entry['receipt_hash'] = key
+        self.assertIsNone(human.withdrawn({'resolver': {'human_escalations': {key: entry}}}))
+
+    def test_a_newer_consumed_request_does_not_revive_an_older_withdrawal(self):
+        withdrawn = self.sealed_entry('Earlier member stop', issued_at='2026-10-07T10:00:00Z')
+        consumed = self.sealed_entry('Answered member stop', issued_at='2026-10-07T10:00:01Z',
+                                     status='consumed')
+        self.assertIsNone(human.withdrawn({'resolver': {'human_escalations': dict((consumed, withdrawn))}}))
+
+    def test_same_pause_status_with_a_new_cause_does_not_restore_the_old_member_question(self):
+        original = 'Builder M1 stopped on quota'
+        for cause, expected_questions in ((original, ['route-terra']),
+                                          (original + '. Answer --answer route-terra=MODEL', ['route-terra']),
+                                          ('A different provider exhausted its quota', [])):
+            with self.subTest(cause=cause), tempfile.TemporaryDirectory() as directory:
+                run = Path(directory)
+                worker_run = run / 'worker'
+                worker_run.mkdir()
+                worker = {'role': 'terra', 'milestone_id': 'M1', 'run_dir': str(worker_run),
+                          'workspace': str(run / 'worker-workspace'), 'pause_status': 'PAUSED_BUDGET',
+                          'model': 'fixture/first', 'events': str(worker_run / 'builder.jsonl'),
+                          'attempt_id': '001/builder-01'}
+                (worker_run / 'result.json').write_text(json.dumps({
+                    'status': 'PAUSED_BUDGET', 'quota_worker': worker}))
+                entry = self.sealed_entry(original, issued_at='2026-10-07T10:00:00Z', worker=worker)
+                state = {'task_id': 'fixture', 'task': 'Build two outputs', 'status': 'PAUSED_BUDGET',
+                         'iteration': 1, 'next_stage': 'orchestrator',
+                         'settings': {'engine': 'opencode', 'roles': {'terra': {'model': 'fixture/first'}}},
+                         'orchestration_batch': {'status': 'BUILDING', 'workers': [
+                             {'milestone_id': 'M1', 'run_dir': worker['run_dir'],
+                              'workspace': worker['workspace'], 'status': 'PAUSED_BUDGET'}]},
+                         'resolver': {'human_escalations': dict((entry,))}}
+                self.assertTrue(runtime.record_operational_exhaustion(
+                    SimpleNamespace(), state, run, support.Paused('PAUSED_BUDGET', cause)))
+                self.assertEqual(expected_questions, [q['id'] for q in human.internal_questions(state)])

@@ -15,6 +15,7 @@ class SetupTests(unittest.TestCase):
   names=['python','psutil','git','engine:opencode','engine:codex','engine','workspace']
   self.report.write_text(json.dumps({'ok':False,'checks':[{'name':x,'status':'missing','detail':'SECRET_fixture_token','fix':'SECRET_fixture_token'} for x in names]}))
   self.console=Console([],self.runner,lambda:False,conversation_root=self.root/'dashboard/conversations',project_store_root=self.root/'dashboard')
+  self.console._probe_conversation_transport=lambda *_: next((row for row in json.loads(self.report.read_text()).get('checks',[]) if row.get('name')=='engine:opencode'),{'status':'warn'})
   self.addCleanup(self.console.pool.shutdown,wait=True);self.addCleanup(self.console.conversations.close,wait=True)
   self.server=LoopbackHTTPServer(('127.0.0.1',0),Handler);self.server.console=self.console;self.server.hosts={'127.0.0.1:'+str(self.server.server_port)}
   threading.Thread(target=self.server.serve_forever,kwargs={'poll_interval':.01},daemon=True).start();self.addCleanup(self.server.server_close);self.addCleanup(self.server.shutdown)
@@ -32,6 +33,58 @@ class SetupTests(unittest.TestCase):
   self.assertTrue(all(row['status']=='missing' for row in data['checks'] if row['id']!='opencode-accounts'))
   self.assertNotIn('SECRET_fixture_token',json.dumps(data));self.assertIsNone(data['workspace'])
   self.assertFalse((self.root/'dashboard/project-setup-requests.json').exists())
+ def test_credential_urls_refuse_before_doctor_catalogue_or_model_work(self):
+  value='https://user:SECRET_fixture_token@example.invalid/model'
+  with patch.object(self.console,'_setup_doctor',side_effect=AssertionError('No doctor')),patch.object(self.console.conversation_catalogue,'fetch',side_effect=AssertionError('No catalogue')),patch.object(self.console.conversations.new,'provider',side_effect=AssertionError('No model')):
+   for role in ('glm','plan_reviewer','astra','terra','sol','completion'):
+    code,data=self.post('check',{'models':{role+'_model':value}})
+    self.assertEqual(400,code,data);self.assertNotIn('SECRET_fixture_token',json.dumps(data))
+
+ def test_transport_major_cache_refusal_recheck_and_cheap_empty_project(self):
+  from autocode_planner_routes import MANDATED_ROUTES
+  full=sorted({route['model'] for route in MANDATED_ROUTES.values()})
+  with patch.object(self.console.conversation_catalogue,'fetch',return_value={'usable':True,'models':full}):
+   for version in ('2.0.20','3.0.0+SECRET-fixture-token'):
+    self.console.conversation_transport_readiness({'status':'ok','data':{'version':version}})
+    ready=self.console.model_catalogue()['conversation_readiness']
+    self.assertFalse(ready['usable']);self.assertEqual('unsupported',ready['transport']);self.assertNotIn('SECRET-fixture-token',json.dumps(ready));self.assertEqual(version.split('+')[0],ready['version'])
+    with self.assertRaisesRegex(ValueError,'OpenCode 1.x'):self.console.conversation_models({})
+   self.assertEqual('unsupported',self.console.conversation_transport_readiness({'status':'warn'})['transport'])
+   self.console.conversation_transport_readiness({'status':'ok','data':{'version':'1.18.33'}})
+   self.assertTrue(self.console.conversation_model_readiness({})['usable'])
+  with patch.object(self.console.conversation_catalogue,'fetch',side_effect=AssertionError('No catalogue')),patch.object(self.console,'_probe_conversation_transport',side_effect=AssertionError('No probe')):
+   self.assertEqual([],self.console.conversation_create({'empty':True,'request_id':'cheap-empty'})['messages'])
+   code,data=self.post('project',self.request());self.assertEqual(202,code,data)
+  with patch.object(self.console,'enqueue',return_value={'command':[]}) as enqueue:
+   self.console.create({'project':data['project'],'goal':'ordinary CLI task'})
+   enqueue.assert_called_once()
+
+ def test_transport_probe_and_doctor_capture_are_bounded_and_safe(self):
+  from agent_console import ModelCatalogue
+  from dashboard_setup import SetupMixin
+  captures=[]
+  def fail(capture):
+   captures.append((capture.command,capture.timeout,capture.output_limit));raise subprocess.TimeoutExpired(capture.command,capture.timeout,output='SECRET_fixture_token')
+  with patch.object(ModelCatalogue,'_read_command',fail):
+   row=SetupMixin._probe_conversation_transport(self.console,'/fixture/opencode')
+   self.assertEqual('unknown',__import__('dashboard_setup').conversation_transport_signal(row)['transport'])
+   self.assertNotIn('SECRET_fixture_token',json.dumps(row))
+   self.assertEqual({'checks':[]},self.console._setup_doctor(self.root,'opencode'))
+  self.assertEqual((3,4096),captures[0][1:]);self.assertEqual((90,262144),captures[1][1:])
+
+ def test_transport_cache_uses_executable_identity_and_expires(self):
+  executable=self.root/'fake-opencode';executable.write_text('first version')
+  clock=[100.0]
+  with patch('dashboard_setup.doctor.shutil.which',return_value=str(executable)),patch('dashboard_setup.time.monotonic',side_effect=lambda:clock[0]),patch.object(self.console,'_probe_conversation_transport',side_effect=[{'status':'ok','data':{'version':'2.0.20'}},{'status':'warn'},{'status':'ok','data':{'version':'1.18.33'}},{'status':'missing'}]) as probe:
+   self.assertEqual('unsupported',self.console.conversation_transport_readiness()['transport'])
+   self.assertEqual('unsupported',self.console.conversation_transport_readiness({'status':'warn'})['transport'])
+   self.assertEqual('unsupported',self.console.conversation_transport_readiness()['transport']);self.assertEqual(1,probe.call_count)
+   clock[0]+=301
+   self.assertEqual('unsupported',self.console.conversation_transport_readiness()['transport']);self.assertEqual(2,probe.call_count)
+   replacement=self.root/'replacement';replacement.write_text('different executable');replacement.replace(executable)
+   self.assertEqual('available',self.console.conversation_transport_readiness()['transport']);self.assertEqual(3,probe.call_count)
+   clock[0]+=301
+   self.assertEqual('missing',self.console.conversation_transport_readiness()['transport']);self.assertEqual(4,probe.call_count)
  def test_open_code_accounts_never_falsely_report_connected(self):
   self.report.write_text(json.dumps({'ok':True,'checks':[{'name':'engine:opencode','status':'ok'}]}))
   code,data=self.post('check',{});self.assertEqual(202,code)

@@ -1,9 +1,9 @@
 {
   "type": "object",
   "properties": {
-    "short_code": {"type": "string"},
-    "destination_url": {"type": "string"},
-    "resolved_at": {"type": "string", "format": "date-time"}
+    "code": {"type": "string"},
+    "destination": {"type": "string"},
+    "timestamp": {"type": "string", "format": "date-time"}
   },
-  "required": ["short_code", "destination_url", "resolved_at"]
+  "required": ["code", "destination", "timestamp"]
 }

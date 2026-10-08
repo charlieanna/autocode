@@ -109,6 +109,10 @@ class CliTests(unittest.TestCase):
                 self.assertNotEqual(route["phases"][0]["session"], route["phases"][1]["session"])
                 self.assertEqual(route["phases"][1]["session"], route["phases"][2]["session"])
                 self.assertTrue(all(p["usage"]["output_tokens"] == 30 for p in route["phases"]))
+                for phase in route["phases"]:
+                    prompt = (Path(phase["artifacts"]) / "prompt.txt").read_text()
+                    self.assertIn("Execute each listed command exactly once as a separate shell call", prompt)
+                    self.assertNotIn("capture_command", prompt)
 
     def test_cli_preserves_parse_and_process_failures(self):
         # The larger fault matrix is available through --fake-fault. Keep the

@@ -37,6 +37,7 @@ from harness import (attempts, baseline, build_compare, catalog, compare, hybrid
 from harness.driver import (REPO, DriveError, Driver, InterruptedDrive, TurnNotReached, default_autocode, fake_setup,  # noqa: E402
                             live_setup, metrics, changed_between, split_by_turn, workspace_files)
 from harness.program_driver import ProgramDriver  # noqa: E402
+from harness import components_driver  # noqa: E402
 from harness.project import materialize  # noqa: E402
 
 
@@ -49,8 +50,12 @@ def self_test(scenario) -> list[tuple[str, bool, str]]:
             variants.append(("reference", scenario.reference, True))
         variants += [(f"broken/{path.name}", path, False) for path in scenario.broken]
         for name, overlay, should_pass in variants:
+            base = ([catalog.load(scenario.components_architecture).reference]
+                    if scenario.category == "components" else [])
+            if scenario.category == "components" and name.startswith("broken/"):
+                base.append(scenario.reference)
             project = materialize(scenario.seed, Path(tmp) / name.replace("/", "-"),
-                                  *([overlay] if overlay else []))
+                                  *base, *([overlay] if overlay else []))
             result = verdict.evaluate(scenario, project)
             ok = not result.error and result.passed == should_pass
             rows.append((name, ok, result.summary))
@@ -152,6 +157,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     mode = (("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}") if args.fake
             else f"{args.profile}-via-{provider}" if provider else args.profile)
     mode = hybrid.mode(mode) if split else mode  # never counted with natural runs (harness/hybrid.py)
+    if scenario.category == "components" and getattr(args, "local_docker", False):
+        mode += "-local-docker"
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {"scenario": scenario.id, "title": scenario.title, "category": scenario.category, "mode": mode,
               "autocode": autocode_revision(), "started_at": stamp, "evidence": str(out)}
@@ -161,6 +168,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     if not args.fake:
         result["profile"] = profiles.with_provider(profiles.resolve(args.profile), provider)
     skip = [f"requires {tool}" for tool in scenario.missing_tools()]
+    if scenario.category == "components" and not args.fake and not getattr(args, "local_docker", False):
+        skip.append("a live components scenario requires explicit --local-docker")
     solution = scenario.dir / args.fake_solution
     if (args.fake or split) and not scenario.fake_check:
         skip.append("no [fake] check in scenario.toml")
@@ -174,6 +183,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
     if split and scenario.category == "program":
         skip.append("a program runs every workstream through `autocode program`; it has no hybrid route")
+    if split and scenario.category == "components":
+        skip.append("a components scenario has separate architecture and component runs; no hybrid route")
     if split and not skip:
         live_flags = None if args.fake else live_setup(args.profile, provider)[0]
         try:
@@ -194,6 +205,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
+    if scenario.category == "components":
+        return run_components(scenario, args, out, result, project, flags, env)
     if scenario.category == "program":
         return run_program(scenario, args, out, result, project, flags, env)
     driver = Driver(project, out, flags, env, autocode=args.autocode or default_autocode(),
@@ -253,6 +266,32 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         result.update(usage_snapshot=usage,
                       usage_status="recorded" if (usage.get("cost_usd") or {}).get("complete") else "unknown")
     return finish(out, result, outcome, summary)
+
+
+def run_components(scenario, args, out, result, project, flags, env):
+    """Judge the integrated product, never a model's PASS or an interrupted invocation."""
+    started = time.monotonic()
+    try:
+        driver, target, summary, steps = components_driver.drive(scenario, args, out, project, flags, env)
+    except InterruptedDrive as error:
+        result.update(oracle_passed=None, usage_status="unknown", wall_seconds=round(time.monotonic() - started, 1))
+        return finish(out, result, verdict.INTERRUPTED_UNGRADED, str(error))
+    except (DriveError, OSError, ValueError, RuntimeError) as error:
+        return finish(out, result, verdict.ERROR, f"components harness stopped: {error}")
+    architecture_metrics = components_driver.component_metrics({"components": {"architecture": {"view": driver.view()}}})
+    stage_metrics = components_driver.component_metrics(summary)
+    record = {"components": summary, "model_stages": [*architecture_metrics["model_stage_names"],
+                                                       *stage_metrics["model_stage_names"]],
+              "local_docker": getattr(args, "local_docker", False)}
+    oracle = verdict.evaluate(scenario, target, record)
+    status = "TASK_COMPLETE" if summary.get("exit_code") == 0 else "PAUSED_LOCAL_SMOKE"
+    outcome, text = verdict.judge(status, oracle, scenario.expected)
+    result.update(runner_status=status, product=str(target), run_dir=str(driver.run_dir),
+                  components=summary, local_docker=record["local_docker"], oracle_passed=oracle.passed,
+                  wall_seconds=round(time.monotonic() - started, 1), cli_calls=len(driver.steps) + len(steps),
+                  metrics={**stage_metrics, "architecture": architecture_metrics},
+                  checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error)
+    return finish(out, result, outcome, text)
 
 
 def run_program(scenario, args, out: Path, result: dict, project: Path, flags: list[str], env: dict) -> dict:
@@ -449,9 +488,9 @@ def cmd_build_compare(args) -> int:
         _, out = evidence_directory(args.out, f"build-compare-{'fake' if args.fake else args.profile}")
         scenarios = []
         for scenario in selected(args.ids):
-            if scenario.category == "program":
+            if scenario.category in ("program", "components"):
                 # Fixed and adaptive planning compare one run's plan; a program plans once and runs many.
-                print(f"{scenario.id}: skipped (a program scenario; build-compare compares single runs)")
+                print(f"{scenario.id}: skipped (a {scenario.category} scenario; build-compare compares single runs)")
             else:
                 scenarios.append(scenario)
         if args.prepare:
@@ -477,8 +516,8 @@ def cmd_compare(args) -> int:
     rows = []
     for scenario in selected(args.ids):
         solution = scenario.dir / args.fake_baseline_solution
-        if scenario.category == "program":
-            rows.append({"scenario": scenario.id, "skipped": "a program delivers on its integration branch through "
+        if scenario.category in ("program", "components"):
+            rows.append({"scenario": scenario.id, "skipped": "a multi-run scenario delivers its integrated product through "
                          "several runs; a plain agent has no equivalent"})
             print(f"{scenario.id}: skipped ({rows[-1]['skipped']})")
             continue
@@ -591,6 +630,8 @@ def main(argv=None) -> int:
                           "on --profile (a tool registered with a TOML file), or on a scripted stand-in with --fake; "
                           "mode NAME-hybrid")
     run.add_argument("--i-authorize-live-model-spend", action="store_true")
+    run.add_argument("--local-docker", action="store_true",
+                     help="explicit opt-in to build/run/tear down real local Docker containers for components")
     run.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     run.add_argument("--autocode", nargs="+", help="AutoCode command to test (default: this checkout)")
     run.add_argument("--max-steps", type=int, help="override the scenario's CLI call budget")

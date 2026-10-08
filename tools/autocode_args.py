@@ -33,7 +33,7 @@ except ImportError:
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
 NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manifest", "figma_review", "in_place",
-                  "builder_strong_model", "conversation_handoff")
+                  "builder_strong_model", "conversation_handoff", "test_root")
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
 # migrates and saves the run. --follow-up has its own rule (autocode_run_finder).
@@ -129,6 +129,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         "stop before the Validator")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
+    parser.add_argument("--test-root", help="New runs: caller-selected workspace directory whose Python suite the "
+                        "regression proof detects and runs; changes outside it remain unverified")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
     parser.add_argument('--unlimited-iterations',action='store_true',help='Remove only the iteration ceiling; other safety and usage limits remain')
     for role, model in DEFAULT_ROLE_MODELS.items():

@@ -1,18 +1,21 @@
 [
   {
     "id": "link-service",
-    "description": "Owns short-code to destination-URL lookup and redirects. Publishes a click event whenever it resolves a code.",
+    "description": "Owns POST /links with {code,destination} returning 201; GET /r/<code> returns 302 with Location=destination (404 for unknown), recording a timestamped click without contacting analytics; GET /events returns {events:[{code,destination,timestamp}]}. Publishes click_event.",
     "requirements": ["R1", "R4"],
     "depends_on": [],
     "publishes_contracts": ["click_event"],
-    "consumes_contracts": []
+    "consumes_contracts": [],
+    "runtime": {"kind": "service", "port": 8000, "start": "python3 server.py", "health": "/health"}
   },
   {
     "id": "analytics-service",
-    "description": "Owns click storage and analytics queries, isolated so analytics load never affects redirect latency.",
+    "description": "Owns click storage and analytics queries independently. POST /collect with {} fetches GET /events using LINK_SERVICE_URL, deduplicates events and returns 200; GET /stats?code=<code> returns {code,clicks}. Never import link-service internals.",
     "requirements": ["R2", "R3", "R4"],
     "depends_on": ["link-service"],
     "publishes_contracts": [],
-    "consumes_contracts": ["click_event"]
+    "consumes_contracts": ["click_event"],
+    "runtime": {"kind": "service", "port": 8001, "start": "python3 server.py", "health": "/health",
+                "runtime_depends_on": ["link-service"]}
   }
 ]

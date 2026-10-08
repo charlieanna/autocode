@@ -489,6 +489,44 @@ import on base is not a reproduction. Without per-test results exit codes decide
 When nothing can be proven (for example no test command is found), the proof is
 `UNVERIFIED` and the bug fix cannot complete until a command is supplied.
 
+### Scoped Python proof
+
+Start a new run with `--test-root components/api/` to detect and run the Python
+suite inside that workspace-relative directory. The caller chooses a literal
+directory, not an absolute path, parent path or glob. The root is saved at launch
+and cannot be changed on resume. Through `TaskRun`, pass it in `start_options`,
+not the options repeated on every advance ([Task-run interface](task-run.md)).
+Omitting it keeps ordinary whole-project detection unchanged.
+
+Scoped detection honors current and pinned-base pytest policy within the root
+and its ancestors, including `pytest.ini`, `.pytest.ini`, `pytest.toml`,
+`.pytest.toml`, `conftest.py` and conditional configuration in `pyproject.toml`,
+`setup.cfg` and `tox.ini`. It never substitutes unittest because configured
+pytest is unavailable. Pinned policy links are resolved from Git blobs; current
+policy reads use non-following directory descriptors. Both use bounded,
+repository-local link resolution. Current policies over one MiB are unknown;
+unknown, unreadable, special-file or unsafe policy leaves
+scoped detection unavailable. Unittest package hooks and relative imports remain
+part of collection.
+
+A first feature can prove its tests when the pinned base holds nothing under
+the root and the independently detected complete rooted suite passes. This is
+evidence for a first suite, not a claim that a baseline passed. Explicit suite or
+regression commands and arbitrary filtered caller-supplied frameworks get no such
+exemption. Existing passing tests still cannot fail, be skipped or disappear;
+source identity, command ownership and completion checks are unchanged.
+
+Changes outside the selected root remain `UNVERIFIED`, even with explicit test
+commands. For an ordinary task this is test selection, not permission to write
+only that directory or a filesystem sandbox. An identified generated component
+brief also binds its declared affected paths and file deliverables to the
+caller's owned root. Its mandatory flow must be executable locally by that
+child; deferred container builds, Compose and cross-service checks belong to
+the separate integration owner, not the child's mandatory flow. A retained
+conflicting plan stops at `PAUSED_COMPONENT_PLAN`: use `--edit-goal FILE` or
+`--feedback TEXT` and freshly approve the corrected draft. An unchanged resume
+cannot repair it or invent missing caller scope for a legacy run.
+
 The scratch worktrees use the project's own environment: its `.venv`, `venv` or
 `node_modules` is linked in, and the Python tests run with the project's
 virtualenv interpreter even though the task worktree has none. Build-generated

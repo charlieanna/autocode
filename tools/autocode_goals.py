@@ -15,7 +15,7 @@ try:
                                             revision_guard, saved_user_basis as _saved_user_basis)
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors
-    from . import autocode_brief_literals as brief_literals
+    from . import autocode_brief_literals as brief_literals, autocode_component_plan as component_plan
     from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
     from . import autocode_finding_cause as finding_cause, autocode_bug_questions as bug_questions
 except ImportError:
@@ -23,7 +23,7 @@ except ImportError:
                                            revision_guard, saved_user_basis as _saved_user_basis)
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors
-    import autocode_brief_literals as brief_literals
+    import autocode_brief_literals as brief_literals, autocode_component_plan as component_plan
     import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
     import autocode_finding_cause as finding_cause, autocode_bug_questions as bug_questions
 
@@ -566,7 +566,7 @@ def initial_decision(body):
 def feedback(state, text):
     """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
     no_contract_v2 = not state.get("goal_contract") and state.get("settings", {}).get("planning_flow") == "v2"
-    if (state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET")
+    if (state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN")
             and not no_contract_v2) or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if state.get("user_request", {}).get("kind") == "human_review":
@@ -814,6 +814,10 @@ def execution_guard(state, value=None):
     if not approved(state):
         raise s.Paused("PAUSED_GOAL_UNAPPROVED", "Current goal revision has no valid explicit approval")
     contract = state["goal_contract"]
+    try:
+        component_plan.validate(state.get("task", ""), (state.get("settings") or {}).get("regression", {}).get("test_root"), contract["body"])
+    except ValueError as error:
+        raise s.Paused("PAUSED_COMPONENT_PLAN", str(error)) from error
     if value is not None and (value.get("contract_revision") != contract["revision"]
                               or value.get("contract_hash") != contract["hash"]):
         raise s.Paused("PAUSED_STALE_GOAL", "Role result belongs to another goal revision")

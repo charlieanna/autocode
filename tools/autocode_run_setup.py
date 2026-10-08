@@ -21,7 +21,7 @@ from pathlib import Path
 try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
     from . import autocode_containment_policy as containment_policy
-    from . import autocode_task_preflight as task_preflight
+    from . import autocode_task_preflight as task_preflight, autocode_test_root as test_roots
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_goal_lifecycle as lifecycle
@@ -34,6 +34,7 @@ try:
     from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    from . import autocode_worker_quota as worker_quota
     from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
@@ -44,7 +45,7 @@ try:
 except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
     import autocode_containment_policy as containment_policy
-    import autocode_task_preflight as task_preflight
+    import autocode_task_preflight as task_preflight, autocode_test_root as test_roots
     import autocode_checkout_lock as checkout_lock
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_goal_lifecycle as lifecycle
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_regression as regression, autocode_verify as verify
     import autocode_launch_inputs as launch_inputs
     import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
     import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
@@ -99,6 +101,13 @@ def resolve(runner, args, parser):
         parser.error("Native references are fixed for a saved run")
     for reference in args.figma_additional_file:
         figma.design_url(reference)
+    if getattr(args, "test_root", None) is not None:
+        if args.run_dir:
+            parser.error("--test-root is fixed when a run starts")
+        try:
+            args.test_root = test_roots.normalize(args.test_root)
+        except ValueError as error:
+            parser.error(str(error))
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):
@@ -306,6 +315,23 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                                              questions=published.get('questions') if entry.get('status') == 'pending' else None)
         # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
         refusal = refusal or job_route.settings_refusal(args, state, settings)
+        # Check a parallel retry before saving the settings beside it. The actual retry repeats
+        # these checks. A collected refusal (Paused, #541) still asks its question there; only a
+        # stop carrying its member payload proceeds there. Other stops reject before settings
+        # are saved. A parent-only Builder route change cannot reach its child.
+        if not refusal and args.retry_builder and state.get('next_stage') != 'terra':
+            try:
+                member = runner.dispatch.member_retry_refusal(state, args.retry_builder)
+            except support.Paused as error:
+                member = error
+            rejected = isinstance(member, ValueError) or (
+                isinstance(member, support.Paused) and not getattr(member, 'quota_worker', None))
+            reason = (str(member) if rejected else worker_quota.retry_route_refusal(
+                state, args.retry_builder, state["settings"], settings,
+                asked=worker_quota.asked_member(state, resolver_human.current(state))))
+            if reason:
+                refusal = (reason.rstrip('.') + ". Nothing was saved, including this invocation's "
+                           "settings; they are saved by the same command without --retry-builder.")
         if refusal:
             parser.error(refusal)
         paused_for = origin.get('pause_status')
