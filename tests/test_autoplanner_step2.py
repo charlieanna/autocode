@@ -393,3 +393,15 @@ class NewBehaviorCriterionRuleTests(EpisodeCase):
         self.assertIn(rule, prompt)
         self.assertIn("A test: criterion cannot be proven by a test-only diff.", prompt)
         self.assertIn("imports without __init__.py", prompt)
+
+
+class CriterionSelfCheckRuleTests(EpisodeCase):
+    """A live build-turn plan stated a cache entry exactly at its TTL both ways in one criterion (AC2). The Plan
+    Reviewer caught it, but rewording a criterion needs the user even in a draft, so the build asked (#732)."""
+
+    def test_the_planner_checks_each_criterion_against_itself_before_review(self):
+        for stage in ("astra_discovery", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = planner.context(self.state, stage, Path("/tmp/state.json"))
+                self.assertIn("check each criterion against itself: its examples must agree with each other", prompt)
+                self.assertIn("never state the boundary both ways", prompt)
