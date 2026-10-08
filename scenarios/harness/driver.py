@@ -84,9 +84,8 @@ def _question_answer(question: dict) -> str:
     no_default = re.compile(r"^\s*no\s+(?:proposed\s+|recommended\s+)?default"
                             r"(?:\s*[.;:!?—–-]|\s*$|\s+(?:is\s+)?"
                             r"(?:available|provided|specified|selected|offered)\b)", re.I)
-    if not (isinstance(default, str) and no_default.match(default)):
-        options = question.get("options") or []
-        return default or (options[0] if options else "yes")
+    if isinstance(default, str) and default.strip() and not no_default.match(default):
+        return default
 
     for option in question.get("options") or []:
         if not isinstance(option, str) or not option.strip() or no_default.match(option):
@@ -96,7 +95,7 @@ def _question_answer(question: dict) -> str:
                     option, re.I):
             continue
         return option
-    raise DriveError(f"question {question['id']} explicitly has no default and no concrete option; "
+    raise DriveError(f"question {question['id']} has no usable default and no concrete option; "
                      "a user answer is required")
 
 
