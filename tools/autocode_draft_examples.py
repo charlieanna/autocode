@@ -22,7 +22,8 @@ criterion ID and quote both complete old and corrected stdout literals. Use the 
 form 'writes exactly `<stdout>` to stdout'. In contract_changes declare item=<criterion ID>,
 change=reworded, basis=agent_proposed, answer_id='', replacement=<complete new criterion>,
 and example_correction={concern_id, before:<old stdout>, after:<corrected stdout>}.
-Only JSON integer values or tab-separated word/count integers may differ; retain keys,
+Only JSON integer values, tab-separated word/count integers, or the spaces between the tokens
+of a table row that holds a number (padding that aligns a column) may differ; retain keys,
 strings, array lengths and every other part of the example. Do not fabricate a concern
 or change a literal supplied by the user, saved feedback or an approved revision.
 The final Plan Reviewer must independently recompute the result from the unchanged
@@ -104,6 +105,19 @@ def numeric_stdout(before, after):
     return isinstance(old, (dict, list)) and old != new and integers_only(old, new)
 
 
+def layout_padding(before, after):
+    """Only the spaces between the tokens of a table row differ, on rows that carry a number (#676).
+
+    A planned table pads a label to the longest label; a miscounted padding is the same row with a
+    different run of spaces. Words and numbers stay as written, so this cannot change a value.
+    """
+    old, new = spelling(before).splitlines(), spelling(after).splitlines()
+    if old == new or len(old) != len(new):
+        return False
+    return all(a.split() == b.split() for a, b in zip(old, new)) and all(
+        any(ch.isdigit() for ch in a) for a, b in zip(old, new) if a != b)
+
+
 def user_protected(state, row, user_basis):
     approvals = {e.get("token") for e in state.get("user_events", []) if e.get("kind") == "goal_approval"}
     for revision in [*(state.get("contract_history") or []), state.get("goal_contract") or {}]:
@@ -144,7 +158,8 @@ def corrections(state, before, after, changes, user_basis):
                 or any(old[cid].get(k) != new[cid].get(k) for k in ("verification_method", "human_review"))):
             continue
         previous, replacement = receipt.get("before"), receipt.get("after")
-        if not isinstance(previous, str) or not isinstance(replacement, str) or not numeric_stdout(previous, replacement):
+        if (not isinstance(previous, str) or not isinstance(replacement, str)
+                or not (numeric_stdout(previous, replacement) or layout_padding(previous, replacement))):
             continue
         literal = "`" + previous + "`"
         text = old[cid]["criterion"]
