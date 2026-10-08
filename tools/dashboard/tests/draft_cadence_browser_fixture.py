@@ -12,6 +12,7 @@ TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / 'dashboard'), str(TOOLS)]
 from agent_console import Console, Handler, LoopbackHTTPServer
 from conversation_transport import ConversationProviderError
+from dashboard_setup import conversation_model_fields
 
 
 def main():
@@ -68,6 +69,11 @@ def main():
         planner.autocode_dispatch_aware = True
 
         class OfflineConsole(Console):
+            def _probe_conversation_transport(self, executable):
+                # Supply only the external version probe; real route and transport
+                # admission still run without a host tool or a provider request.
+                return {'status': 'ok', 'data': {'version': '1.18.33'}}
+
             def _json_command(self, command, **kwargs):
                 if command[0] != 'registry':
                     raise AssertionError('This fixture must not invoke a task runner')
@@ -78,7 +84,8 @@ def main():
                 raise ValueError('No implementation or task control is allowed in this fixture')
 
         catalogue = root / 'models.py'
-        catalogue.write_text("print('openai/gpt-6-sol')\n")
+        models = sorted({route['model'] for route in conversation_model_fields()['conversation_routes'].values()})
+        catalogue.write_text('print(' + repr('\n'.join(models)) + ')\n', encoding='utf8')
         console = OfflineConsole([project], root/'no-runner', lambda: False,
             conversation_root=root/'conversations', project_store_root=root/'dashboard',
             catalogue_command=(sys.executable, str(catalogue)),

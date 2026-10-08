@@ -2824,9 +2824,15 @@ function renderRecoveryCard(host,run,recovery){
 }
 
 function renderTaskAttention(run){
-  const host=$('#task-attention');host.replaceChildren();
+  const host=$('#task-attention'),recovery=run.interventions?.recovery;
+  // A native toggle can precede its queued event. Keep the connected disclosure's
+  // current value before replacing it, only for this exact run and saved pause.
+  if(recovery?.version===1&&recovery.status===run.status&&typeof run.run==='string'&&run.run&&typeof recovery.token==='string'&&recovery.token){
+    const key=run.run+'\0recovery-card:'+recovery.token,inspection=host.querySelector('details[data-recovery-inspection]');
+    if(inspection?.isConnected&&inspection.querySelector('summary')?.dataset.focusKey==='details:'+key)detailsState.set(key,inspection.open);
+  }
+  host.replaceChildren();
   const next=statusInfo(run);
-  const recovery=run.interventions?.recovery;
   if(recovery?.version===1&&recovery.status===run.status&&!taskActionBusy(run)){renderRecoveryCard(host,run,recovery);return;}
   if(['running','complete','attention'].includes(next.group)||taskActionBusy(run)){host.hidden=true;return;}
   host.append(n('h3',next.label),n('p',next.reason));
