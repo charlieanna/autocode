@@ -706,6 +706,8 @@ class RecoveryPacketTests(unittest.TestCase):
         state["settings"]["roles"]["terra"].update(model="pinned-builder")
         state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 0, "strong_model": "strong",
                                                "strong_reasoning_effort": "high"}
+        state["milestone_progress"] = {"M1": {"contract_hash": "h", "milestone_ids": ["M1"],
+                                               "needs_replan": True}}
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
         state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output),
                                        "evidence_hashes": {str(self.output): util.file_hash(self.output)}}
@@ -747,17 +749,21 @@ class RecoveryPacketTests(unittest.TestCase):
         state["settings"]["roles"]["terra"].update(model="builder", model_pinned=False)
         state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 1, "strong_model": "strong",
                                                "strong_reasoning_effort": "high"}
+        state["milestone_progress"] = {"M1": {"contract_hash": "h", "milestone_ids": ["M1"],
+                                               "needs_replan": True}}
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
         state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output),
                                        "evidence_hashes": {str(self.output): util.file_hash(self.output)}}
         recovery.prepare_resolution(state, {"summary": "Actual failed candidate"}, record)
         settings = copy.deepcopy(state["settings"])
+        progress = copy.deepcopy(state["milestone_progress"])
         attempt = {"stage": "astra_resolve", "output": str(self.run / "first-diagnosis.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run)
         self.assertEqual("first_incident", attempt["recovery_novelty"]["reason"])
         self.assertNotIn("builder_retry_decisions", state)
         self.assertNotIn("builder_retries", state)
         self.assertEqual(settings, state["settings"])
+        self.assertEqual(progress, state["milestone_progress"])
 
     def test_claimed_builder_grant_without_matching_operator_receipt_cannot_dispatch(self):
         packet = self.packet()

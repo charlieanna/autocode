@@ -169,6 +169,27 @@ class ControllerFindingsTests(unittest.TestCase):
         self.assertEqual(approved, self.state["acceptance_criteria"])
         self.assertEqual(approved, self.state["last_decision"]["report"]["acceptance_criteria"])
 
+    def test_invalid_resolver_task_is_rejected_before_failure_investigation(self):
+        diagnosis, record = self.resolver_fixture()
+        for field, invalid in (("acceptance_criteria", ["C999"]), ("requirements", [""])):
+            value = copy.deepcopy(diagnosis)
+            value["next_task"][field] = invalid
+            before = copy.deepcopy(self.state)
+            with self.subTest(field=field), self.assertRaises((ValueError, support.Paused)):
+                runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+            self.assertEqual(before, self.state)
+
+    def test_invalid_findings_are_not_concealed_by_a_milestone_gate(self):
+        diagnosis, record = self.resolver_fixture()
+        diagnosis['next_task']['findings'] = ['missing-finding']
+        before = copy.deepcopy(self.state)
+        gate_error = support.Paused('PAUSED_MILESTONE_REPLAN_REQUIRED', 'Changed approach required')
+        with patch.object(runner.lifecycle.checkpoints, 'before_assignment', side_effect=gate_error) as gate:
+            with self.assertRaises((ValueError, support.Paused)):
+                runner.apply_result(self.state, 'astra_resolve', diagnosis, record, self.root, self.run)
+        gate.assert_not_called()
+        self.assertEqual(before, self.state)
+
     def test_blocked_user_request_records_the_finding_before_pausing(self):
         decision = self.astra_decision("BLOCKED", "Missing authorization check", output="blocked.json")
         decision["user_request"] = {"kind": "permission", "discovered": "No test credentials",

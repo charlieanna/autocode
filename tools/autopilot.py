@@ -162,8 +162,7 @@ def admit_validation(runtime, state, stage, workspace, run_dir):
 def dispatch_unit(runtime, state, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
     progressive_state.guard_dispatch(state, stage)
-    if state.get('_failure_routing_enabled', True):
-        builder_failure.dispatch_guard(state, stage, workspace)
+    builder_failure.dispatch_guard(state, stage, workspace)
     if stage == 'terra':
         builder_policy.guard(state)
     runtime.milestones.dispatch_guard(state, stage)
@@ -482,8 +481,6 @@ def recover_retained_candidate(state, workspace):
 
 def route_builder_failure(state, evidence, reason, *, completed_record=None):
     """Interpret non-execution actions before any assignment or strong-model mutation."""
-    if not state.get('_failure_routing_enabled', True):
-        return builder_policy.failure(state, evidence['record'].get('output'), reason)
     row = milestones.progress(state)
     if row and row.get('needs_replan') and state.get('workspace'):
         current = source_scope.snapshot(Path(state['workspace']), state, base_snapshot=support.snapshot)
@@ -931,6 +928,19 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                     goals.record_decision(state, value)
                     save_record(state, record)
                     return
+            if modern and stage == 'astra_resolve':
+                # Reject invalid proposals before charging for failure diagnosis.
+                # Milestone progress gates retain their exhaustion ordering.
+                proposed = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+                candidate = copy.deepcopy(state)
+                spec = value.get('next_task')
+                if isinstance(spec, dict):
+                    findings_ledger.assign(candidate, {'id': 'proposal-preflight'}, spec, value)
+                try:
+                    lifecycle.assign_task(candidate, value, proposed)
+                except support.Paused as error:
+                    if not error.status.startswith('PAUSED_MILESTONE_'):
+                        raise
             if stage in ("astra_review", "astra_resolve") and not continuation:
                 state["iteration"] += 1
             if (stage == 'astra_resolve' and builder_policy.enabled(state)

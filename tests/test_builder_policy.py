@@ -664,7 +664,12 @@ class PolicyBlackbox(unittest.TestCase):
         self.seed(bb.plan([([], 'Version prints 1', ['version.py'])],
             {'M1':{'version.py':'print(1)\n'}}, {'M1':'import version'}, 'Print version'))
         self.env['BUILD_AUDIT_FAULT']='retry_exhausted'
-        self.build(2)
+        for attempt in range(3):
+            self.build()
+            self.assertEqual('investigate_stuck', self.state()['next_stage'])
+            self.assertNotIn('implementation', self.state())
+            self.invoke('autoresolver', ['--run-dir', str(self.run), '--no-chat'],
+                        2 if attempt == 2 else 0)
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',self.state()['status'])
         self.assertEqual(['gpt-6-luna','gpt-6-luna','gpt-6-sol'],[r['model'] for r in self.events()])
         self.assertNotIn('implementation',self.state())
