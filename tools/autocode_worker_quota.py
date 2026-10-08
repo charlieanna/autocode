@@ -77,6 +77,62 @@ def question(state, attempt, *, family=None, **options):
 current = member_stop.current  # The stopped member a request's origin names, for the answer path.
 
 
+def at_checkpoint(state):
+    """Whether the parent is at the parallel batch's build checkpoint.
+
+    Its last stage records there are copied member attempts, never legacy parent decisions.
+    """
+    batch = state.get("orchestration_batch") or {}
+    return batch.get("status") == "BUILDING" and state.get("next_stage") == "orchestrator"
+
+
+def asked_again(state, error, origin):
+    """Restore a withdrawn request's member payload only while that exact member stop is current."""
+    worker = (origin or {}).get("quota_worker")
+    if (not worker or getattr(error, "quota_worker", None)
+            or error.status != origin.get("pause_status") or current(state, origin) is None):
+        return error
+    try:
+        result = util.read(Path(worker["run_dir"]) / "result.json")
+        saved = result.get("quota_worker") or {}
+        # A later attempt can stop with the same status at the same location. Its result must
+        # still identify this attempt, rather than reviving the previous member's route advice.
+        if (not worker.get("attempt_id") or result.get("status") != error.status
+                or any(saved.get(key) != worker.get(key) for key in
+                       ("role", "milestone_id", "run_dir", "workspace", "model", "events", "attempt_id"))):
+            return error
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return error
+    error.quota_worker = worker
+    return error
+
+
+ROUTE = ("engine", "model", "provider", "reasoning_effort")
+
+
+def retry_route_refusal(state, selected, before, after, *, asked=None):
+    """Why a member retry cannot use a Builder route changed only in its parent's settings.
+
+    The child's saved route is changed by assign_child when its route-terra question is answered.
+    A settings flag on the parent alone would otherwise silently rerun the child's previous route.
+    """
+    old, new = (((settings.get("roles") or {}).get("terra") or {}) for settings in (before, after))
+    if all(old.get(key) == new.get(key) for key in ROUTE):
+        return None
+    rows = {row["milestone_id"]: row for row in (state.get("orchestration_batch") or {}).get("workers", [])}
+    for mid in (mid for mid in selected if mid in rows):
+        try:
+            model = util.read(Path(rows[mid]["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            model = None
+        return (f"Builder {mid}'s retry runs on the Builder route its batch started it with"
+                + (f" ({model})" if model else "")
+                + ", so a Builder model, provider or reasoning effort given with --retry-builder would not reach it"
+                + ("; it continues on another model named in answer to its route-terra question "
+                   "(--answer route-terra=MODEL)" if asked == mid and rows[mid].get("status") in quota_route.STATUSES else ""))
+    return None
+
+
 def asked_member(state, public):
     """What the open request asks about: a member's milestone ID, "" for another request, None for none."""
     if not public and not state.get("pending_questions"):

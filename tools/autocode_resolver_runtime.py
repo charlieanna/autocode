@@ -388,6 +388,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     pending = state.get('user_request') or (state.get('agent_request') or {}).get('request')
     if pending and pending.get('kind') != 'none':
         return False
+    if request is None:
+        error = _asked_again(state, error)
     kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling', 'PAUSED_TIME_LIMIT': 'max_seconds',
             'PAUSED_PLANNING_BUDGET': 'planning_review_call_limit',
             'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
@@ -468,11 +470,39 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                 evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
     # Keep the printed stop reason on the same contract as the published request, after the cause it
     # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
-    cause = str(error).strip()
-    advice = request.get('decision_needed') or decision
-    state['stop_reason'] = advice if not cause or cause in advice else (
-        cause + ('' if cause.endswith('.') else '.') + ' ' + advice)
+    state['stop_reason'] = _stop_reason(error, request.get('decision_needed') or decision)
     return True
+
+
+def _stop_reason(cause, advice):
+    """The stop's cause followed by its current request's advice."""
+    cause = str(cause).strip()
+    return advice if not cause or cause in advice else cause + ('' if cause.endswith('.') else '.') + ' ' + advice
+
+
+def _asked_again(state, error):
+    """Rebuild a withdrawn request's same stop from its cause, without copying its old advice.
+
+    A parallel member also keeps its payload while it is still the batch's current stop, so
+    the new request asks the model question that its route advice names.
+    """
+    withdrawn = human.withdrawn(state)
+    if not withdrawn or (withdrawn.get('origin') or {}).get('pause_status') != error.status:
+        return error
+    asked = withdrawn.get('request') or {}
+    cause = str(asked.get('discovered') or '').strip()
+    incoming = str(error).strip()
+    composed = _stop_reason(cause, asked.get('decision_needed') or '')
+    # The same pause status alone cannot identify its cause: an unrelated new quota stop must
+    # not acquire the withdrawn member's model question. Only that saved cause is being asked again.
+    if not cause or incoming not in (cause, composed):
+        return error
+    if incoming != cause:
+        payload = getattr(error, 'quota_worker', None)
+        error = support.Paused(error.status, cause)
+        if payload:
+            error.quota_worker = payload
+    return worker_quota.asked_again(state, error, withdrawn['origin'])
 
 
 def plain(value):

@@ -61,7 +61,12 @@ autocode --resume-paused --retry-builder M2
 ```
 
 Repeat `--retry-builder` to select additional failed milestones. Successful siblings
-are retained rather than rerun. A Builder that needs the stronger model its batch's
+are retained rather than rerun. Other settings can accompany an accepted retry and apply to
+the continuing run; a refused retry saves none of that invocation's settings. A parallel member
+reruns on the Builder route saved in its own run, so a Builder model, provider or reasoning
+effort change with `--retry-builder` is refused. A member stopped on quota or content-filter
+refusal asks `route-terra`; its answer changes that route.
+A Builder that needs the stronger model its batch's
 checkers run does not pause the run and cannot be retried this way: its milestone is
 built serially later (see [Builder retry policy](models.md#builder-retry-policy)).
 A Builder stopped by its model's quota or its provider's content filter asks you to name another

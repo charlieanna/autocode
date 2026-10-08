@@ -352,12 +352,21 @@ answer already moved the route, and it must not share that model's GLM or MiMo f
 models a refusal's question lists pass the same checks. When two members stop, AutoCode asks
 about them one at a time.
 
+Changing another role's settings while a member's question is open withdraws the old
+request and asks that member's `route-terra` question again under the new settings.
+Use the fresh request's token to answer it.
+
 While the question is open the status view offers no per-member retry for a member stopped
 either way: the question is the next step. AutoCode never reruns a member its provider's
 content filter refused on the model that refused it: `--retry-builder M1` is refused while its
 route is still that model, so it runs again only on the model your answer names. A member
 stopped on quota can still be named with `--retry-builder M1`, which runs the same model again
 (for example once its quota has reset).
+
+A settings change beside `--retry-builder` is saved only when the retry is accepted.
+The member reruns on its own saved Builder route: a Builder model, provider or reasoning
+effort change beside its retry is refused with nothing saved. To change a member stopped
+on quota or refusal to another model, answer its `route-terra` question instead.
 
 If you answer the request with corrective information (`--resolver-response
 provide_information`) or leave it paused instead, no model is named and no question stays
