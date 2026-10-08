@@ -98,7 +98,7 @@ LISTINGS = [
     (b'1 buy milk [done]\n2 walk dog open\n', False, True),  # only the observed line is formatted
     (b'2 walk dog [open]\n', False, True),  # the observed item is missing
     (b'1 buy milk [closed]\n2 walk dog [open]\n', False, False),
-    (b'01 buy milk [done]\n2 walk dog [open]\n', False, False),  # the bound ID changed
+    (b'01 buy milk [done]\n2 walk dog [open]\n', True, False),  # listing IDs are the program's; stability is the oracle
     (b'ID TEXT STATUS\n1 buy milk [done]\n2 walk dog [open]\n', False, False),
     (b'1 buy milk [done]\n\n2 walk dog [open]\n', False, False),
     (b'1 buy milk [done]\n2 walk dog [open]\n\n', False, False),
@@ -396,7 +396,7 @@ class BriefAcceptanceTests(unittest.TestCase):
     def test_live_multi_item_listing_of_a_correct_product_passes_and_its_mutant_fails(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
         # The pattern both live runs sealed: the bound item, not the whole listing.
-        self.assertEqual(r'1\ buy\ milk\ \[(?:open|done)\]', manifest['observations'][0]['pattern'])
+        self.assertEqual(r'[^\s]+\ buy\ milk\ \[(?:open|done)\]', manifest['observations'][0]['pattern'])
         code, observation, files = self.run_candidate(LIST_PRODUCT, manifest=manifest)
         self.assertEqual(0, code, observation)
         self.assertEqual('PASS', observation['verdict'])
@@ -448,6 +448,25 @@ class BriefAcceptanceTests(unittest.TestCase):
                           {'placeholder': 'ID', 'step': 2, 'argument': 1}], sealed['bindings'])
         code, observation, _ = self.run_candidate(LIST_PRODUCT, manifest=manifest)
         self.assertEqual(0, code, observation)
+
+    def test_bound_id_and_text_from_different_items_do_not_invent_an_impossible_line(self):
+        # Live run awtus4gz: add milk, add bread, complete 2, add eggs, list. The
+        # Reviewer bound TEXT=milk and ID=2 (bread). The listing format still holds
+        # for every line; requiring the impossible line `2 milk …` was a false refusal.
+        steps = [{'argv': ['add', 'milk']}, {'argv': ['add', 'bread']},
+                 {'argv': ['complete', '2']}, {'argv': ['add', 'eggs']}, {'argv': ['list']}]
+        bindings = [{'placeholder': 'TEXT', 'step': 0, 'argument': 1},
+                    {'placeholder': 'ID', 'step': 2, 'argument': 1}]
+        manifest = brief.bind(self.sources, [{**listing_proposal(self.sources), 'steps': steps,
+                                              'observe_step': 4, 'bindings': bindings}])
+        observation = manifest['observations'][0]
+        self.assertEqual(r'[^\s]+\ milk\ \[(?:open|done)\]', observation['pattern'])
+        self.assertEqual('', brief.output_reason(
+            b'1 milk [open]\n2 bread [done]\n3 eggs [open]\n', observation['pattern'],
+            brief.line_pattern(observation)))
+        self.assertIn('original brief format', brief.output_reason(
+            b'1 milk open\n2 bread done\n3 eggs open\n', observation['pattern'],
+            brief.line_pattern(observation)))
 
     def test_every_listed_line_must_have_the_declared_format(self):
         manifest = brief.bind(self.sources, [listing_proposal(self.sources)])
