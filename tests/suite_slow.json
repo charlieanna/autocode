@@ -17,6 +17,7 @@
   "tests.test_units": "19 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_bugfix_workflow": "17 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_verify": "14 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_base_definition_proof": "121 s locally (Linux, 4 shared CPUs, one module at a time), 2026-10-07; real npm, Yarn and pnpm suites through verify and regression.prove (#652)",
   "tests.test_assignment_scenarios": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_dashboard_consumer": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_catalogue_t12": "347 s in CI (Ubuntu, 4 modules at a time), 2026-10-04; drives the dashboard suites in a real browser",
