@@ -37,6 +37,17 @@ def write(path, text):
     target.write_text(text)
 
 
+def classify_unchanged_attempt(data):
+    """Describe this fixture's no-edit report without inventing a retry cause."""
+    failure = data["builder_failure"]
+    return {"diagnosis": "The assigned Builder completed without source changes; this offline fixture cannot establish a causal correction.",
+            "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "",
+            "evidence_refs": list(failure["evidence_refs"]),
+            "example": "The fixture's Builder reported No source changes for its assigned implementation.",
+            "probe": "", "untestable": "The unchanged report is evidence of no progress, not proof of a cause that would make a retry succeed.",
+            "failure_class": "unknown", "failure_id": failure["failure_id"]}
+
+
 def act(task):
     scenario = os.environ.get("AUTOCODE_SCENARIO", "correct")
     mid = task["milestone_id"]
@@ -101,6 +112,11 @@ def main():
         result = json.loads(Path(data["original"]["output"]).read_text())
         result["summary"] = result.get("summary") or "Repaired report without replaying implementation"
         Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
+        print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
+        return
+    if data.get("stage") == "investigate_stuck" and os.environ.get("AUTOCODE_SCENARIO") == "no_change":
+        # This read-only classification must never re-run a Builder's act().
+        Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(classify_unchanged_attempt(data)))
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
     changed, summary, kind, drop_summary = act(data["current_task"])
