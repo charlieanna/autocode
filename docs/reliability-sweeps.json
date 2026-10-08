@@ -1,5 +1,16 @@
 [
   {
+    "date": "2026-10-08",
+    "profile": "glm53-mimo",
+    "master": "a8852cf4",
+    "mode": "live",
+    "runs": 3,
+    "passed": 2,
+    "false_completions": 0,
+    "median_minutes": 94,
+    "note": "Three cases, one run each. bugfix-iso-weeks and feature-timesheet-by-project completed (oracle 5/5, 6/6). greenfield-todo-cli stopped honestly at the 100-minute budget in completion review (INTERRUPTED_UNGRADED)."
+  },
+  {
     "date": "2026-10-07",
     "profile": "glm53-openai",
     "master": "4e7e6895",
