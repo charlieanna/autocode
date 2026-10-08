@@ -1,0 +1,57 @@
+[
+  {
+    "date": "2026-10-07",
+    "profile": "glm53-openai",
+    "master": "4e7e6895",
+    "mode": "live",
+    "runs": 3,
+    "passed": 2,
+    "false_completions": 0,
+    "median_minutes": 27,
+    "note": "Three cases, one run each. Feature stopped honestly on a padding contradiction (#676); bug-fix and to-do completed. docs/bugs/2026-10-07-default-profile-reliability-cases.md"
+  },
+  {
+    "date": "2026-10-04",
+    "profile": "claude-tiers",
+    "master": "e8366ad",
+    "mode": "live",
+    "runs": 9,
+    "passed": 8,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Three runs of each case. To-do 2/3: one honest stop on event-ID citations. docs/bugs/2026-10-04-claude-reliability-cases.md"
+  },
+  {
+    "date": "2026-10-01",
+    "profile": "claude-tiers",
+    "master": "fba6e738",
+    "mode": "live",
+    "runs": 2,
+    "passed": 1,
+    "false_completions": 1,
+    "median_minutes": null,
+    "note": "Re-run of the two failed cases after budget/prompt fixes. Greenfield false completion through the requirements boundary. docs/bugs/2026-10-01-reliability-live-cases.md"
+  },
+  {
+    "date": "2026-10-01",
+    "profile": "glm53-openai",
+    "master": "68e89aa4",
+    "mode": "live",
+    "runs": 3,
+    "passed": 1,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "First three-case run. Greenfield deliverable correct (10/10) but never completed (permission recovery). docs/bugs/2026-10-01-reliability-live-cases.md"
+  },
+  {
+    "date": "2026-10-08",
+    "profile": "fake",
+    "master": "06d6c390",
+    "mode": "fake",
+    "runs": 64,
+    "passed": 62,
+    "false_completions": 0,
+    "median_minutes": null,
+    "note": "Full fake catalog. feature-refund-window NOT_EXERCISED (no quota stop); stuck-planner-citation SKIPPED (live-only Investigator)."
+  }
+]

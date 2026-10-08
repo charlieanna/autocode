@@ -23,6 +23,25 @@ OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
 
+## Reliability
+
+AutoCode does not report completion without evidence. Live sweeps on the
+three-case portfolio (small new application, feature in an existing project,
+bug fix) are recorded in [docs/reliability-table.md](docs/reliability-table.md)
+and [RELIABILITY.md](RELIABILITY.md). Fake-provider rows are kept separate
+and never mixed with these. The table is generated, never edited by hand:
+
+```sh
+python tools/reliability_table.py docs/reliability-sweeps.json
+```
+
+| Date | Profile | Runs | Passed | False completions |
+| --- | --- | ---: | ---: | ---: |
+| 2026-10-07 | glm53-openai | 3 | 2 | 0 |
+| 2026-10-04 | claude-tiers | 9 | 8 | 0 |
+| 2026-10-01 | claude-tiers | 2 | 1 | 1 |
+| 2026-10-01 | glm53-openai | 3 | 1 | 0 |
+
 When a run stops for input, continue it from the project or its task worktree:
 
 ```sh
