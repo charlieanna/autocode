@@ -226,7 +226,7 @@ function assertBlockedCreationCatalogue(snapshot, label, pattern, retryExpected)
   assert.equal(snapshot.submit.description, 'create-model-catalogue-status', label + ' associates the visible explanation');
   assert.equal(snapshot.gate.visible, true, label + ' renders a visible creation gate');
   assert.equal(snapshot.status.visible, true, label + ' renders a visible status message');
-  assert.match(snapshot.status.text, pattern, label + ' keeps its state explanation visible');
+  assert.match(snapshot.status.text, pattern, label + ' keeps its state explanation visible: ' + snapshot.status.text);
   assert.equal(snapshot.status.role, 'status', label + ' exposes one announced status');
   assert.equal(snapshot.status.live, 'polite', label + ' announces the visible status');
   assert.equal(snapshot.detailLive, null, label + ' does not duplicate the announcement in Models & reasoning');
@@ -421,9 +421,23 @@ function creationCatalogueEvidence(snapshot) {
     // Catalogue loading, empty, failure, and recovery stay visible beside the
     // blocked creation action at every accepted viewport. The detailed model
     // controls remain closed here, so hidden DOM text cannot satisfy this test.
+    const creationModels = data('()=>[...new Set([...conversationProfile.required.map(role=>conversationProfile.routes[role].model),"openai/gpt-5.6-terra"])]');
+    const readyCreationCatalogue = {usable:true,models:creationModels,reasoning_levels:{terra:['medium','high']}};
     for(const viewport of [{name:'desktop',width:1440,height:1024},{name:'tablet',width:1024,height:768},{name:'mobile',width:390,height:844}]){
       browser('set', 'viewport', String(viewport.width), String(viewport.height));browser('wait', '150');
-      data('()=>{showNewTask();syncModelOptions({usable:true,models:["openai/gpt-5.6-terra"],reasoning_levels:{terra:["medium","high"]}});const select=document.querySelector("#terra-model");select.value="openai/gpt-5.6-terra";document.querySelector(".models-disclosure").open=false;return select.value;}');
+      data('()=>{showNewTask();syncModelOptions('+JSON.stringify(readyCreationCatalogue)+');const select=document.querySelector("#terra-model");select.value="openai/gpt-5.6-terra";document.querySelector(".models-disclosure").open=false;return select.value;}');
+      if(viewport.name==='desktop'){
+        data('()=>{syncConversationTransport({transport:"unsupported",version:"2.0.20"});return true;}');
+        let blocked = setCreationCatalogue(readyCreationCatalogue);
+        assertBlockedCreationCatalogue(blocked, 'unsupported transport', /require built-in OpenCode 1\.x/, true);
+        capture(captures, 'model-catalogue-unsupported-transport-desktop', viewport);
+        data('()=>{syncConversationTransport({transport:"missing",version:null});return true;}');
+        blocked = setCreationCatalogue(readyCreationCatalogue);
+        assertBlockedCreationCatalogue(blocked, 'missing transport', /Built-in OpenCode is unavailable/, true);
+        capture(captures, 'model-catalogue-missing-transport-desktop', viewport);
+        data('()=>{syncConversationTransport({transport:"available",version:"1.18.33"});return true;}');
+        observations.push({name:'unsupported and missing transport block a complete catalogue'});
+      }
       let catalogue = setCreationCatalogue({loading:true});
       const loading=creationCatalogueEvidence(catalogue);
       assertBlockedCreationCatalogue(catalogue, viewport.name+' loading', /Loading compatible models/, false);
@@ -437,13 +451,14 @@ function creationCatalogueEvidence(snapshot) {
       assert.equal(catalogue.retry.text.trim(), 'Retry catalogue');
       capture(captures, 'model-catalogue-empty-'+viewport.name, viewport);
 
-      catalogue = setCreationCatalogue({error:'Fixture catalogue request failed.'});
+      catalogue = setCreationCatalogue({error:'SECRET_fixture_catalogue_failure'});
       const failed=creationCatalogueEvidence(catalogue);
-      assertBlockedCreationCatalogue(catalogue, viewport.name+' failed', /Fixture catalogue request failed/, true);
+      assertBlockedCreationCatalogue(catalogue, viewport.name+' failed', /Model catalogue unavailable/, true);
+      assert.ok(!catalogue.status.text.includes('SECRET_fixture_catalogue_failure'), viewport.name+' failure keeps provider diagnostics out of the visible status');
       assert.equal(data('()=>document.querySelector("#terra-model").value'), 'openai/gpt-5.6-terra', viewport.name+' failure preserves the saved selection');
       capture(captures, 'model-catalogue-failed-'+viewport.name, viewport);
 
-      catalogue = setCreationCatalogue({usable:true,models:['openai/gpt-5.6-terra'],reasoning_levels:{terra:['medium','high']}});
+      catalogue = setCreationCatalogue(readyCreationCatalogue);
       const recovered = data('()=>({selector:document.querySelector("#terra-model").disabled,start:document.querySelector("#create-submit").disabled,description:document.querySelector("#create-submit").getAttribute("aria-describedby"),gateVisible:!document.querySelector("#create-model-catalogue-gate").hidden,value:document.querySelector("#terra-model").value,levels:[...document.querySelector("#terra-reasoning-effort").options].map(o=>o.value)})');
       assert.equal(recovered.selector, false, viewport.name+' recovery re-enables the model selector');
       assert.equal(recovered.start, false, viewport.name+' recovery re-enables Start conversation');
@@ -599,6 +614,7 @@ function creationCatalogueEvidence(snapshot) {
         'supported model replacement before-selection, selected-unconfirmed, confirming, real failed action, real unconfirmed action, status reconciliation, and confirmed receipt',
         'unsupported replacement disabled selector and adjacent accessible reason',
         'catalogue loading, empty, failed, and recovered states at desktop, tablet, and mobile with rendered visible status, accessible association, adjacent retry availability, preserved selections, and supported reasoning levels',
+        'unsupported and missing conversation transport block a complete catalogue; provider error details remain hidden',
         'archive/remove dialogs: safe focus, focus trap, Escape, scrim, focus return, real confirmation, Undo, and durable Restore at desktop, tablet, and mobile',
         'stale mutation restrictions, safe retry/navigation/copy, mobile target size, and overflow',
       ],
