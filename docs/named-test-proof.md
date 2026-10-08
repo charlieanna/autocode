@@ -57,12 +57,24 @@ each name with or without a description). Name-first requests such as
 "Add TestA, a real regression ... plus TestB and TestC" also count. Negations,
 examples and alternatives do not. The proof must run Go tests, and the project
 must not already declare the name as a top-level test in a `*_test.go` file.
-Comments, strings and callable production APIs do not make a test existing or
-requested. This inventory does not replace Go compilation or execution proof.
-The user's own `--edit-goal` is never refused by this check and settles which
-requested names stay. `TestMain` and `TestXxx` are never tests to write. Other
-frameworks, and bug fixes proven by their diagnosis's cases, keep the
-criterion-ID convention. The details and limits are in
+Comments, strings and callable production APIs (`func TestConnection() error`,
+"a func named TestConnection that returns an error", "a func called
+TestConnection in product.go") do not make a test existing or requested; "a
+func named TestParse in parser_test.go" or "a func named TestA, a regression
+test" does. This inventory does not replace Go compilation or execution proof.
+A subtest path such as `TestCacheExpiry/expired` is requested as the user wrote
+it (a quoted one with its spaces as underscores, as Go runs it): planning
+stages and refusals ask for `test: TestCacheExpiry/expired`. Declaring that
+path, a path under it or its whole test function accounts for it; another
+subtest of the function does not, since the runner binds that one to its own
+outcome only. "Instead of", "rather than" or "not" right before the path
+withdraws that path; before the function, the function and the paths of it an
+earlier message asked for. The user's own `--edit-goal` is never
+refused by this check and settles which requested names stay; an edit of a
+design job's plan, which "Build it." archives when it plans the build afresh,
+settles nothing for the build. `TestMain` and `TestXxx` are never tests to
+write. Other frameworks, and bug fixes proven by their diagnosis's cases, keep
+the criterion-ID convention. The details and limits are in
 `docs/bugs/2026-10-06-native-proof-names.md`.
 
 For Node, register each case as a real test, keeping its existing assertions
