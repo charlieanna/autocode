@@ -65,6 +65,10 @@ class DriveError(RuntimeError):
     """The harness could not take the run any further."""
 
 
+class UserAnswerRequired(DriveError):
+    """The question needs a person because the driver has no usable answer."""
+
+
 class InterruptedDrive(DriveError):
     """The CLI was interrupted; its delivery and remaining usage are ungraded."""
 
@@ -95,8 +99,8 @@ def _question_answer(question: dict) -> str:
                     option, re.I):
             continue
         return option
-    raise DriveError(f"question {question['id']} has no usable default and no concrete option; "
-                     "a user answer is required")
+    raise UserAnswerRequired(f"question {question['id']} has no usable default and no concrete option; "
+                             "a user answer is required")
 
 
 def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
@@ -270,7 +274,12 @@ class Driver:
                 if not after["done"] and all(after[key] == view[key] for key in keys):
                     raise DriveError(f"no progress at {view['status']!r} (next_stage={view['next_stage']!r})")
             else:
-                self.serve(need)
+                try:
+                    self.serve(need)
+                except UserAnswerRequired:
+                    # A question the fixture cannot answer is a product stop;
+                    # the scenario's expected ending and oracle judge it.
+                    return view
 
     def answered_explicitly(self, need: dict) -> bool:
         return (need["kind"] == "answer" and bool(self.explicit_answers) and bool(need.get("questions"))
