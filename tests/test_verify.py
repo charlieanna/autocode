@@ -1343,6 +1343,86 @@ class VerifyCase(unittest.TestCase):
         project, base_suite, result = self.node_verify(seed, candidate, suite_command='sh test/run.sh')
         self.assert_base_definition_fails(base_suite, result)
 
+    def test_selector_paths_follow_literals_and_dirname_joins(self):
+        text = ('fs.readFileSync("tests.json", "utf8");\n'
+                'fs.readFileSync(path.join(__dirname, "dir", "list.json"));\n'
+                'fs.readFileSync(name);\n'
+                'fs.readFileSync("a" + "b");\n')
+        self.assertEqual([("cwd", "tests.json"), ("file", "dir/list.json"), ("cwd", "ab")],
+                         verify._read_paths(text))
+        self.assertEqual(["sh test/run.sh", "inherit"],
+                         verify._exec_command_literals(
+                             'execSync("sh test/run.sh", {stdio: "inherit"});\n'))
+        self.assertTrue(verify._shell_script("test/run.sh", "node list.js\n"))
+        self.assertTrue(verify._shell_script("run", "#!/usr/bin/env bash\n"))
+        self.assertFalse(verify._shell_script("run.js", "#!/usr/bin/env node\n"))
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_shell_script_selector_cannot_hide_a_break(self):
+        """`node run-tests.js` → `sh test/run.sh` → `node list.js` stays on the base selector (#662)."""
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': 'require("node:child_process").execSync("sh test/run.sh",'
+                            ' {stdio: "inherit"});\n',
+            'test/run.sh': 'node list.js\n',
+            'list.js': 'require("node:child_process").execSync("node --test test/calc.test.js",'
+                       ' {stdio: "inherit"});\n',
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'list.js': 'require("node:child_process").execSync("node --test test/feature.test.js",'
+                       ' {stdio: "inherit"});\n',
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_data_file_selector_cannot_hide_a_break(self):
+        """A literal fs read of tests.json is part of the suite definition, not candidate product (#662)."""
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-tests.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'run-tests.js': ('const fs = require("node:fs");\n'
+                             'fs.readFileSync("./calc.js", "utf8");\n'
+                             'const list = JSON.parse(fs.readFileSync("tests.json", "utf8"));\n'
+                             'require("node:child_process").execSync("node --test " + list.join(" "),'
+                             ' {stdio: "inherit"});\n'),
+            'tests.json': '["test/calc.test.js"]\n',
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            'tests.json': '["test/feature.test.js"]\n',
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_runner_config_selector_cannot_hide_a_break(self):
+        """A mocha config the runner loads by convention stays on the base spec list (#662)."""
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node run-mocha.js"}}),
+            'calc.js': self.ADD_ONLY,
+            'run-mocha.js': ('const fs = require("node:fs");\n'
+                             'const name = "." + "mocharc.json";\n'
+                             'const spec = JSON.parse(fs.readFileSync(name, "utf8")).spec;\n'
+                             'require("node:child_process").execSync("node --test " + spec.join(" "),'
+                             ' {stdio: "inherit"});\n'),
+            '.mocharc.json': '{"spec": ["test/calc.test.js"]}\n',
+            'test/calc.test.js': self.ADD_TEST,
+        }
+        candidate = {
+            'calc.js': self.ADD_BROKEN,
+            '.mocharc.json': '{"spec": ["test/feature.test.js"]}\n',
+            'test/feature.test.js': self.MUL_TEST,
+        }
+        project, base_suite, result = self.node_verify(seed, candidate)
+        self.assert_base_definition_fails(base_suite, result)
+
     @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
     def test_t18_pretest_deleting_the_old_test_cannot_hide_a_break(self):
         seed = {
