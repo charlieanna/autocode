@@ -557,6 +557,11 @@ def run_role(
         finally:
             try:
                 provider_guard.close()
+            except supervision.VerifiedStop as error:
+                if error.cause == 'stage_deadline':
+                    timed_out = True
+                else:
+                    interrupted = True
             except processes.ProcessError as error:
                 cleanup_error = str(error)
             except KeyboardInterrupt:  # the stage's one interrupt, after its provider was collected

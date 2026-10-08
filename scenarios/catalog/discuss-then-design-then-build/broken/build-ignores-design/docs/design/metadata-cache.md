@@ -5,6 +5,12 @@ nothing, recycled every ~2000 requests, against an upstream limit of 60 metadata
 
 ## Decisions
 
+Freshness is settled: TTL is caller-configurable through `ttl_seconds`, with a 3600-second default.
+Use the injectable clock; expire at elapsed clock time >= TTL, including equality, and never serve stale metadata.
+On expiration fetch metadata once, publish atomically, and let other workers reuse the record; propagate upstream errors.
+The later build edits only app/ and tests/, preserving this design, the decision note and root README.md.
+Use controlled urllib.request.urlopen responses and socket-free pipes or file barriers for process tests, not network listeners.
+
 1. Module `app/shared_cache.py`, class `SharedFileCache(directory, ttl_seconds, clock)`. `clock` is a
    zero-argument callable returning seconds; it is the cache's only source of time.
 2. One method reads through the cache: `get_or_fetch(key, fetch)`. An entry younger than `ttl_seconds` is

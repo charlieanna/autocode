@@ -1930,6 +1930,117 @@ class TurnTests(unittest.TestCase):
             self.assertTrue(follows(["app/shared_cache.py", "tests/test_shared_cache.py"]).ok,
                             follows(["app/shared_cache.py"]).detail)
 
+    def test_freshness_predicates_require_every_decision_outside_rejected_options(self):
+        policy = catalog.load("discuss-then-design-then-build").oracle().__globals__["freshness_policy"]
+        clauses = {
+            "ttl": "TTL governs freshness.",
+            "caller_configurable": "The caller controls TTL per lookup.",
+            "default_3600": "The default is 3600 seconds.",
+            "injectable_clock": "Use an injectable clock.",
+            "expiry_at_equality": "An entry expires when age >= TTL.",
+            "no_stale": "Never serve stale metadata.",
+            "single_refresh": "The owner invokes `fetch(tld)` once.",
+            "atomic_publication": "Publish using os.replace.",
+            "worker_reuse": "Other workers reuse the new record.",
+            "upstream_errors": "Propagate upstream errors.",
+        }
+        full = "\n".join(clauses.values())
+        self.assertTrue(all(policy(full).values()), policy(full))
+        for name in clauses:
+            if name == "ttl":  # Other clauses still explicitly name TTL.
+                continue
+            without = "\n".join(text for key, text in clauses.items() if key != name)
+            with self.subTest(decision=name):
+                self.assertFalse(policy(without)[name])
+                self.assertFalse(policy(without + "\n## Rejected\n" + clauses[name])[name])
+        self.assertFalse(policy(full.replace("fetch(tld)` once", "fetch(tld)` twice"))["single_refresh"])
+        self.assertFalse(policy(full.replace(">= TTL", "> TTL"))["expiry_at_equality"])
+        signature = full.replace(clauses["caller_configurable"], "").replace(clauses["injectable_clock"], "")
+        signature += "\n`metadata(tld: str, *, ttl: float = 3600, clock: Callable[[], float] | None = None) -> dict`"
+        self.assertTrue(all(policy(signature).values()), policy(signature))
+
+    def test_injected_callback_is_not_an_export_but_missing_public_interface_is(self):
+        interface = catalog.load("discuss-then-design-then-build").oracle().__globals__["named_interface"]
+        text = ("Module `app/cache.py`; `metadata(tld: str, *, ttl: float = 3600, "
+                "clock: Callable[[], float] | None = None) -> dict`. "
+                "Take a new `clock()` reading. Also call `publish(record)`.")
+        modules, signatures = interface(text)
+        self.assertEqual(["app/cache.py"], modules)
+        self.assertNotIn("clock", signatures)
+        self.assertIn("metadata", signatures, "the exported typed signature still binds the build")
+        self.assertIn("publish", signatures)
+        _, signatures = interface("Module `app/cache.py`; call its public `clock()` and `publish(record)`.")
+        self.assertIn("clock", signatures, "a real public clock is not globally exempt")
+        _, signatures = interface(text.replace("clock", "now"))
+        self.assertNotIn("now", signatures, "callback recognition is parameter-based, not a clock whitelist")
+        _, signatures = interface(text + " The module also exports `clock() -> float`.")
+        self.assertIn("clock", signatures, "a separately declared function is not exempt as a callback")
+
+    def test_freshness_rejects_inclusive_hits_and_explicitly_excluded_equality(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        policy = scenario.oracle().__globals__["freshness_policy"]
+        reference = (scenario.reference / "docs/design/metadata-cache.md").read_text()
+        wrong = reference.replace("elapsed clock time >= TTL, including equality",
+                                  "elapsed clock time > TTL, excluding equality")
+        wrong = wrong.replace("An entry younger than `ttl_seconds`", "A cache hit with age <= ttl_seconds")
+        self.assertFalse(policy(wrong)["expiry_at_equality"])
+        self.assertFalse(policy(reference.replace("## Rejected", "Expiration excludes equality.\n\n## Rejected"))["expiry_at_equality"])
+        self.assertTrue(policy(reference + "\nExpiration excludes equality.")["expiry_at_equality"],
+                        "a rejected policy is not a settled contradictory decision")
+        self.assertTrue(policy("A fresh hit requires age < ttl_seconds.")["expiry_at_equality"])
+        self.assertTrue(policy("An entry expires at age >= TTL, including equality.")["expiry_at_equality"])
+
+    def test_freshness_requires_caller_control_not_a_hard_coded_ttl_identifier(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        policy = scenario.oracle().__globals__["freshness_policy"]
+        reference = (scenario.reference / "docs/design/metadata-cache.md").read_text()
+        wrong = reference.replace("TTL is caller-configurable through `ttl_seconds`, with a 3600-second default",
+                                  "TTL uses hard-coded ttl_seconds with a 3600-second default")
+        self.assertFalse(policy(wrong)["caller_configurable"])
+        self.assertFalse(policy("The TTL field is `ttl_seconds: float = 3600`.")["caller_configurable"],
+                         "a field initializer is not a configurable API")
+        self.assertFalse(policy(reference.replace("## Rejected", "TTL is fixed and callers cannot override it.\n\n## Rejected"))["caller_configurable"])
+        self.assertTrue(policy(reference + "\nTTL is fixed and callers cannot override it.")["caller_configurable"],
+                        "a rejected fixed TTL does not invalidate the configurable design")
+        self.assertTrue(policy("The caller controls TTL per lookup. "
+                               "`metadata(tld: str, *, ttl: float = 3600)`")["caller_configurable"])
+        self.assertTrue(policy("`metadata(tld: str, *, ttl: float = 3600)`")["caller_configurable"])
+
+    def test_typed_public_export_with_callback_name_must_exist_and_keep_its_parameters(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "project", scenario.reference)
+            design = project / "docs/design/metadata-cache.md"
+            text = design.read_text().replace("## Rejected", "Constructor `Cache(clock: Callable[[], float])`; "
+                                            "injected `clock` callback. The module also exports `clock(unit: str)`.\n\n## Rejected")
+            design.write_text(text)
+            code = project / "app/callback.py"
+            code.write_text("class Cache:\n    def __init__(self, clock): pass\n")
+            follows = lambda: next(row for row in scenario.oracle()(project, scenario) if row.name == "build_follows_design")
+            missing = follows()
+            self.assertFalse(missing.ok)
+            self.assertIn("'clock'", missing.detail)
+            code.write_text(code.read_text() + "def clock(): return 1000\n")
+            self.assertFalse(follows().ok, "the typed positional parameter must not be ignored")
+            code.write_text("class Cache:\n    def __init__(self, clock): pass\ndef clock(unit): return 1000\n")
+            self.assertTrue(follows().ok, follows().detail)
+
+    def test_live_turn_declares_the_same_strict_paths_and_socket_free_tests_as_the_oracle(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        message = scenario.turns[0].say
+        self.assertEqual("Build it.", scenario.turns[1].say)
+        for constraint in ("3600-second default", "including at equality", "injectable clock",
+                           "edit only app/ and tests/", "root README.md", "controlled urllib.request.urlopen",
+                           "pipes or file barriers", "must not require network or loopback binding permission"):
+            self.assertIn(constraint, message)
+        self.assertEqual(("app/", "tests/"), scenario.fake_turn_paths[2])
+        checks = catalog.load("discuss-then-design-then-build").oracle().__globals__["conversation_checks"]
+        turns = [{"changed_files": ["docs/decisions/cache.json"]}, {"changed_files": ["docs/design/cache.md"]},
+                 {"changed_files": ["app/cache.py", "README.md"]}]
+        boundary = next(row for row in checks({"turns": turns}) if row.name == "build_turn_changed_only_its_report")
+        self.assertFalse(boundary.ok, "README remains outside the unchanged acceptance boundary")
+
     def test_a_design_s_private_helpers_do_not_bind_the_build(self):
         """A live design listed `_check_fetch_budget(...)` among "example names"; the build merged two helpers."""
         scenario = catalog.load("discuss-then-design-then-build")

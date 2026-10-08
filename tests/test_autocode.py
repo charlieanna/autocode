@@ -779,6 +779,63 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual(1, active["stage_timeout_seconds"])
         self.assertTrue(active["accounted"])
 
+    def test_keeper_stop_routes_deadline_without_replaying_or_accepting_partial_work(self):
+        partial = self.root / "partial.py"
+        self.settings["limits"] = {"stage_timeout_seconds": 1}
+        commands = []
+
+        class Child:
+            pid = 987654321
+            def poll(child): return -15
+
+        @contextlib.contextmanager
+        def launch(command, *, checkpoint, **kwargs):
+            commands.append(command)
+            partial.write_text("# incomplete provider work\n")
+            kwargs["stdout"].write('{"type":"thread.started","thread_id":"partial"}\n')
+            checkpoint({'owner': {}, 'provider': {'pid': Child.pid}})
+            yield Child()
+            raise runner.supervision.VerifiedStop('stage_deadline')
+
+        with patch.object(runner.supervision, "launch", launch), \
+             patch.object(runner.supervision, "receipt", return_value={'phase': 'stopped', 'cause': 'stage_deadline', 'cleanup_error': None}), \
+             patch.object(s, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
+             patch.object(runner.processes, "preflight"), \
+             patch.object(runner.processes, "wait_for_stage", return_value=(-15, False)), \
+             patch.object(runner, "load_stage_report") as report:
+            with self.assertRaises(s.Paused) as caught:
+                runner.run_role(role="terra", prompt="small handoff", sandbox="workspace-write", workspace=self.root,
+                    run_dir=self.run, state=self.state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                    model="gpt-5.6-terra", allow_write=True, dry_run=False)
+        self.assertEqual("PAUSED_PROVIDER_TIMEOUT", caught.exception.status)
+        self.assertEqual(1, len(commands), "a collected deadline does not grant an automatic replay")
+        self.assertEqual("# incomplete provider work\n", partial.read_text())
+        self.assertIn('"thread_id":"partial"', Path(self.state['active_stage']['events']).read_text())
+        self.assertFalse(runner.stage_completed(self.state, self.state['active_stage']))
+        report.assert_not_called()
+
+    def test_uncertain_keeper_cleanup_still_blocks_as_process_cleanup(self):
+        class Child:
+            pid = 987654321
+            def poll(child): return -15
+
+        @contextlib.contextmanager
+        def launch(command, *, checkpoint, **kwargs):
+            checkpoint({'owner': {}, 'provider': {'pid': Child.pid}})
+            yield Child()
+            raise runner.supervision.SupervisionError('Keeper cleanup receipt is incomplete')
+
+        with patch.object(runner.supervision, "launch", launch), \
+             patch.object(runner.supervision, "receipt", return_value={'phase': 'uncertain', 'cause': 'stage_deadline', 'cleanup_error': 'not collected'}), \
+             patch.object(s, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
+             patch.object(runner.processes, "preflight"), \
+             patch.object(runner.processes, "wait_for_stage", return_value=(-15, False)):
+            with self.assertRaises(s.Paused) as caught:
+                runner.run_role(role="terra", prompt="small handoff", sandbox="workspace-write", workspace=self.root,
+                    run_dir=self.run, state=self.state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                    model="gpt-5.6-terra", allow_write=True, dry_run=False)
+        self.assertEqual("PAUSED_PROCESS_CLEANUP", caught.exception.status)
+
     def test_automatic_timeout_recovery_archives_stopped_terra_and_continues_glm(self):
         before = s.snapshot(self.root)
         base = self.run / "iterations/005/terra-01"
