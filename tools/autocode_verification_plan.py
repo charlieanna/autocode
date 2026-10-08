@@ -56,6 +56,55 @@ EXPECTED_FAILURE_RULE = (
     "commands (N/M with one status per command for several), or wrap it so it exits 0 exactly when it fails as it "
     "should, for example sh -c 'X; test $? -eq 2'.")
 
+# Clean replay refuses a Validator check that runs git status (autocode_check_replay.WORKTREE_STATE). Live design
+# plans told the Validator to run one anyway, in the contract and in the Completion Reviewer's and Resolver's
+# tasks, and the replay refused every report that obeyed (#185, 2026-10-07). This pattern is narrower than the
+# replay's because it reads prose: git, its global options (-C PATH, --no-pager), then the status subcommand, also
+# as a Python argument list ('git','status'); never "git diff --stat ... app/status.py" or "the exit status". It
+# cannot tell an instruction from a prohibition ("do not run git status"), so the rule says not to name it at all.
+_ARG_SEP = r"""(?:\s+|['"]\s*,\s*['"])"""
+# -c VALUE and -C PATH take only their own branch: were -c also a plain option, a run of them would have 2**n parses.
+GIT_STATUS = re.compile(rf"""\bgit(?:{_ARG_SEP}(?:-c{_ARG_SEP}[^\s'",]+|-(?!c{_ARG_SEP})-?[a-z][\w-]*(?:=[^\s'",]+)?))*"""
+                        rf"""{_ARG_SEP}status\b""", re.IGNORECASE)
+GIT_STATUS_RULE = (
+    "Never name git status in a check plan (an acceptance criterion's verification_method, a task's validation_plan "
+    "or requirements), not even to forbid it: it reads the working tree's Git state, not the product. The runner "
+    "refuses a Validator check that runs it (the Validator is told so) and refuses a plan that names it. Check the "
+    "delivered files and behavior instead. Scope needs no such check: the runner pauses a Builder that changes a "
+    "file outside its task's affected_paths (when the task names them), and rejects a workflow job's change "
+    "outside the paths that job may write.")
+
+
+def task_rows(task, name):
+    """A task's rows the Validator follows, labelled for refuse_git_status: validation_plan, then requirements."""
+    task = task or {}
+    return [(f"{name}.{field}", text) for field in ("validation_plan", "requirements")
+            for text in task.get(field) or []]
+
+
+def refuse_git_status(rows):
+    """Refuse a new plan's (where, text) row that names git status, with GIT_STATUS_RULE as the reason.
+
+    Callers pass only what an author has just written (a draft contract, a Completion Reviewer's or Resolver's
+    next_task, a new progressive proposal), so the author gets a report repair. An approved contract, an assigned
+    task or a saved progressive plan is never checked here again: a run saved before this rule keeps them.
+    """
+    named = []
+    for where, text in rows:
+        text = str(text)
+        try:
+            parts = [text, *commands(text)]
+        except ValueError:  # a malformed exit declaration is refused where commands are checked, not here
+            parts = [text]
+        if any(GIT_STATUS.search(part) for part in parts):
+            named.append(f"{where} `{text if len(text) <= 240 else text[:237] + '...'}`")
+    # Every row at once: live plans named it in two or more, and a repair that fixed only the one named would
+    # spend the report's repairs one row at a time.
+    if named:
+        raise ValueError("; ".join(named) + (" name" if len(named) > 1 else " names") + " git status. "
+                         + GIT_STATUS_RULE)
+
+
 def executable(text):
     text = text.strip()
     try:

@@ -60,8 +60,11 @@ class ReworkPolicyTests(unittest.TestCase):
         def record(stage, value, role):
             output, events = directory / (stage + '.json'), directory / (stage + '.jsonl')
             output.write_text(json.dumps(value))
-            events.write_text(json.dumps({'type': 'item.completed', 'item': {
-                'id': 'check', 'type': 'command_execution', 'command': 'check-invalid-input', 'exit_code': 1}}) + '\n')
+            item = {'id': 'check', 'type': 'command_execution', 'command': 'check-invalid-input', 'exit_code': 1}
+            if stage == 'sol':
+                item.update({key: validator['checks'][0][key] for key in
+                             ('timed_out', 'interrupted', 'error', 'supervision_errors') if key in validator['checks'][0]})
+            events.write_text(json.dumps({'type': 'item.completed', 'item': item}) + '\n')
             result = {**common, 'stage': stage, 'role': role, 'output': str(output), 'events': str(events),
                       'source_revision': validator_source if stage == 'sol' else 'source', 'exit_code': 0, 'changed_files': [],
                       'launch_route': {'model': 'worker' if role == 'terra' else 'reviewer'},
@@ -91,7 +94,8 @@ class ReworkPolicyTests(unittest.TestCase):
         if state_change:
             state_change(state)
         runtime = SimpleNamespace(
-            support=SimpleNamespace(snapshot=lambda workspace: {'revision': 'source'}, verify_checks=support.verify_checks),
+            support=SimpleNamespace(snapshot=lambda workspace: {'revision': 'source'}, verify_checks=support.verify_checks,
+                                    events=support.events),
             lifecycle=SimpleNamespace(assign_task=Mock(side_effect=self.assign), wait_for_user=Mock()),
             goals=SimpleNamespace(record_decision=Mock()),
             milestones=SimpleNamespace(handle_gate=Mock(side_effect=self.gate)),
@@ -133,6 +137,29 @@ class ReworkPolicyTests(unittest.TestCase):
 
     def route(self, case):
         return policy.route(case.runtime, case.state, case.decision, case.record, case.queue, retry, run_dir=case.run)
+
+    def test_verified_operational_checks_never_qualify_for_direct_execution_retry(self):
+        for metadata in ({'timed_out': True}, {'interrupted': True}, {'error': 'receipt unavailable'},
+                         {'supervision_errors': ['not stopped']}):
+            with self.subTest(metadata=metadata):
+                case = self.case(validation_change=lambda value: value['checks'][0].update(metadata))
+                with patch.object(retry, 'failure', wraps=retry.failure) as failure:
+                    self.assert_fallback(case)
+                failure.assert_not_called()
+                case.runtime.lifecycle.assign_task.assert_not_called()
+
+    def test_shared_pending_human_guard_preserves_exact_reassessment_decision(self):
+        for human in ({'status': 'WAITING_FOR_USER', 'user_request': {'kind': 'permission', 'token': 'exact'}},
+                      {'pending_questions': [{'id': 'Q1', 'question': 'Keep this scope?'}]},
+                      {'resolver_human_proposal': {'revision': 2, 'request': 'scope'}},
+                      {'status': 'WAITING_FOR_USER', 'resolver_human_request': {'request_id': 'R1', 'token': 'exact'}}):
+            with self.subTest(human=human):
+                state = {'status': 'RUNNING', 'milestone_progress': {'current': {'builder_reassessment': {'failure_id': 'f1'}}},
+                         **copy.deepcopy(human)}
+                expected = copy.deepcopy(state)
+                with self.assertRaises(util.Paused):
+                    policy.guard_pending_human(state)
+                self.assertEqual(expected, state)
 
     def assert_fallback(self, case):
         expected = copy.deepcopy(case.state)

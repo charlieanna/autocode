@@ -87,6 +87,8 @@ class AgreementTests(ProgramHarness):
         self.assertIn("Program agreement revision 1, approved by the user.", brief)
         self.assertIn("with exactly this id (C2)", brief)
         self.assertIn("check only what the finished product keeps", brief)
+        # A child plan that copied a prohibition naming git status would be refused (verification_plan).
+        self.assertNotRegex(brief, r"(?i)git status")
         skeleton = self.launches_of("contracts")[0]["brief"]
         self.assertIn("Its own end-to-end flow is the part of each journey its objective covers", skeleton)
         self.assertNotIn("check only what the finished product keeps", self.launches_of("integration")[0]["brief"])

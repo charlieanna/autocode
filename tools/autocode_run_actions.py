@@ -77,6 +77,7 @@ except ImportError:
     import autocode_run_finder as run_finder
     import autocode_run_records as records
     import autocode_stop as stop
+    import autocode_accepted_source as accepted_source
     import autocode_support as support
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
@@ -93,6 +94,7 @@ def explicit_recovery_requested(args):
                 getattr(args, 'abandon_stage', None),
                 getattr(args, 'diagnose_failed_stage', False),
                 getattr(args, 'grant_recovery', None) is not None,
+                getattr(args, 'accept_source_edit', False),
                 bool(budget_flags)))
 
 
@@ -477,6 +479,12 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # with --grant-recovery N.
             if state.get("recovery_context") is None:
                 state["recovery_context"] = {}
+            if getattr(args, "accept_source_edit", False):
+                try:
+                    accepted_source.accept_reviewed_source(state, workspace)
+                except ValueError as error:
+                    print(f"Input rejected: {error}", file=sys.stderr)
+                    return 2
             # Validate the displayed grant before resume bookkeeping changes
             # the user events bound into the resolver request's identity.
             if args.grant_recovery is not None:

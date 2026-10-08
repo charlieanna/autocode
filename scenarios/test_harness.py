@@ -243,6 +243,24 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                 run.require_mode(args)
 
 
+class DriverFlagTests(unittest.TestCase):
+    def test_new_run_only_flags_go_to_the_first_call_and_never_to_a_saved_run(self):
+        flags = ["--provider", "claude", "--workflow", "build", "--builder-strong-model", "claude-sonnet-5-5",
+                 "--builder-strong-model=claude-opus-5-5", "--workflow=build", "--terra-model", "claude-haiku"]
+        done = subprocess.CompletedProcess([], 0, "", "")
+        with tempfile.TemporaryDirectory() as root, patch("harness.driver.run_cli", return_value=done) as launch:
+            driver = Driver(Path(root), Path(root), flags, {}, autocode=["cli"], max_steps=5, timeout_seconds=60)
+            driver.call("start", task="Build")
+            driver.run_dir = Path(root) / "saved-run"
+            driver.call("resume", "--resume-paused")
+        first, then = (call.args[0] for call in launch.call_args_list)
+        self.assertEqual(flags, first[first.index("--no-chat") + 1:])
+        # The CLI refuses --builder-strong-model and --workflow on a saved run, so a resume never repeats them.
+        self.assertEqual(["--provider", "claude", "--terra-model", "claude-haiku", "--resume-paused"],
+                         then[then.index("--no-chat") + 1:])
+        self.assertEqual(flags, driver.flags)
+
+
 class DriverTimeoutTests(unittest.TestCase):
     def setUp(self):
         self.events = []
@@ -2205,6 +2223,95 @@ class FakeSchemaTests(unittest.TestCase):
                           "kind": "none", "nested": {"n": 0}}, report)
 
 
+class FakeBuilderClassificationTests(unittest.TestCase):
+    def setUp(self):
+        import importlib
+        temporary = tempfile.TemporaryDirectory(prefix='fake-classification-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        config = self.root / 'config.json'
+        config.write_text(json.dumps({'check': 'true', 'paths': [], 'brief': 'x'}))
+        with patch.dict(os.environ, {'SCENARIO_FAKE_CONFIG': str(config)}):
+            self.fake = importlib.import_module('harness.fake_codex')
+        self.scenario = catalog.load('feature-stock-refusals')
+        shutil.copytree(self.scenario.dir / 'broken/vacuous-refusal-tests', self.root / 'project')
+        self.project = self.root / 'project'
+        self.receipts = self.project / 'run'
+        self.receipts.mkdir()
+        self.output = self.receipts / 'completion-review-01.json'
+        self.after = self.receipts / 'completion-review-01.after.json'
+        self.name = 'test_c3_move_more_than_on_hand_is_refused'
+        self.identity = dict(task_id='current-task', contract_hash='approved-contract', contract_revision=2)
+        self.output.write_text(json.dumps({**self.identity, 'status': 'REWORK', 'findings': [{'finding':
+            f'regression_proof is not PASS: Test case C3 has no test named {self.name} '
+            'that passes with the change and did not pass without it'}]}))
+        self.after.write_text(json.dumps({'revision': 'current-source', 'files': {
+            path: hashlib.sha256((self.project / path).read_bytes()).hexdigest()
+            for path in ('stock.py', 'tests/test_stock.py')}}))
+        self.data = {'builder_failure': {'failure_id': 'current-failure', 'binding': self.identity,
+            'record': {'output': str(self.output), 'after_ref': str(self.after), 'source_revision': 'current-source'},
+            'evidence_refs': [str(self.output), str(self.after)]}}
+
+    def report(self, data=None):
+        with patch.object(self.fake, 'CONFIG', {'fault': 'vacuous_refusal_tests'}), \
+                patch.object(self.fake, 'run_check', side_effect=AssertionError('must not rerun checks')):
+            return self.fake.report_for('investigate_stuck', self.data if data is None else data)
+
+    def probe(self, report):
+        import shlex
+        return subprocess.run(shlex.split(report['probe']), cwd=self.project, capture_output=True,
+                              text=True, timeout=15)
+
+    def test_stock_classification_binds_current_failure_and_reads_receipts_without_writing(self):
+        before = {p: p.read_bytes() for p in self.project.rglob('*') if p.is_file()}
+        report = self.report()
+        self.assertEqual('execution', report['failure_class'])
+        self.assertEqual('current-failure', report['failure_id'])
+        self.assertEqual(self.data['builder_failure']['evidence_refs'], report['evidence_refs'])
+        self.assertEqual('retry', report['recommendation'])
+        self.assertIn(self.name, report['diagnosis'])
+        self.assertIn('tests/test_stock.py', report['guidance'])
+        self.assertTrue(report['example'])
+        self.assertEqual('', report['untestable'])
+        result = self.probe(report)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.project.rglob('*') if p.is_file()})
+
+    def test_stock_probe_rejects_stale_identity_false_receipt_and_changed_code(self):
+        report = self.report()
+        original = self.output.read_bytes()
+        for update in ({'status': 'COMPLETE'}, {'findings': []}, {'task_id': 'stale-task'},
+                       {'contract_hash': 'stale-contract'}, {'contract_revision': 1}):
+            with self.subTest(update=update):
+                self.output.write_text(json.dumps({**json.loads(original), **update}))
+                self.assertNotEqual(0, self.probe(report).returncode)
+        self.output.write_bytes(original)
+        shutil.copy2(self.scenario.reference / 'tests/test_stock.py', self.project / 'tests/test_stock.py')
+        self.assertNotEqual(0, self.probe(report).returncode)
+        snapshot = json.loads(self.after.read_text())
+        snapshot['files']['tests/test_stock.py'] = hashlib.sha256(
+            (self.project / 'tests/test_stock.py').read_bytes()).hexdigest()
+        self.after.write_text(json.dumps(snapshot))
+        self.assertNotEqual(0, self.probe(report).returncode, 'strengthened tests are not the vacuous cause')
+
+    def test_stock_classification_requires_real_failure_and_exact_allowed_refs(self):
+        for update in ({'status': 'COMPLETE'}, {'findings': []}):
+            with self.subTest(update=update):
+                self.output.write_text(json.dumps({**self.identity, 'status': 'REWORK', 'findings': [], **update}))
+                with self.assertRaisesRegex(SystemExit, 'actual failed'):
+                    self.report()
+        self.data['builder_failure']['evidence_refs'] = [str(self.output)]
+        with self.assertRaisesRegex(SystemExit, 'pinned report/source'):
+            self.report()
+
+    def test_generic_investigator_pause_does_not_gain_classification_or_retry(self):
+        report = self.report({})
+        self.assertEqual('pause', report['recommendation'])
+        self.assertEqual([], report['evidence_refs'])
+        self.assertNotIn('failure_class', report)
+        self.assertNotIn('failure_id', report)
+
+
 class HybridScenarioTests(unittest.TestCase):
     def test_a_hybrid_scenario_is_skipped_under_a_live_profile(self):
         with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
@@ -2503,12 +2610,20 @@ class HybridRouteTests(unittest.TestCase):
 
     def test_the_hybrid_tool_config_reads_back_as_written(self):
         import tomllib
-        config = {"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
-                  "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
-                  "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
-                  "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
-                           "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]}}
+        live = {"name": "claude", "command": ["claude-stage", "{report}"], "prompt": "stdin", "output": "report_file",
+                "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
+                "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
+                "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
+                         "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]},
+                "builder_retry": {"strong_model": "claude-sonnet-5-5", "checker_model": "claude-opus-5-5",
+                                  "strong_effort": "high"}}
+        config = hybrid.tool_config(live, ["python3", "stage.py", "{report}"], "stdin")
+        self.assertEqual({"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
+                          **{key: live[key] for key in ("models", "version_command", "auth", "roles")}}
+                         | {"builder_retry": live["builder_retry"]}, config)
+        # The live tool's Builder retry policy survives the round trip, so a hybrid Builder escalates as it does.
         self.assertEqual(config, tomllib.loads(hybrid.toml(config)))
+        self.assertEqual(live["builder_retry"], tomllib.loads(hybrid.toml(config))["builder_retry"])
 
     def test_a_live_tool_that_cannot_be_split_by_stage_is_refused(self):
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
@@ -2613,8 +2728,10 @@ class HybridRunTests(unittest.TestCase):
             tools.mkdir(parents=True)
             (Path(home) / "live_standin.py").write_text(LIVE_STANDIN)
             models = {role: f"live-{role}" for role in profiles.ROLES}
+            retry = {"strong_model": "live-strong", "checker_model": "live-completion"}
             (tools / "livestandin.toml").write_text(hybrid.toml({
-                "name": "livestandin", "prompt": "stdin", "models": sorted(models.values()),
+                "name": "livestandin", "prompt": "stdin", "models": sorted([*models.values(), "live-strong"]),
+                "builder_retry": retry,
                 "command": [sys.executable, str(Path(home) / "live_standin.py"), "{workspace}", "exec", "--model",
                             "{model}", "--output-schema", "{schema}", "-o", "{report}"],
                 "version_command": [sys.executable, "--version"],
@@ -2635,6 +2752,11 @@ class HybridRunTests(unittest.TestCase):
             self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "builder",
                                                        "validator", "completion")], [row["model"] for row in served])
             self.assertEqual({home}, {row["xdg"] for row in served})
+            # The hybrid tool AutoCode ran on kept the live tool's Builder retry policy.
+            import tomllib
+            written = Path(result["evidence"]) / "hybrid" / "config" / "autocode" / "providers" / "hybrid.toml"
+            self.assertEqual(retry, tomllib.loads(written.read_text())["builder_retry"])
+            self.assertEqual("live-strong", state["settings"]["builder_retry"]["strong_model"])
 
 
 class StockRefusalsProductTests(unittest.TestCase):

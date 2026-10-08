@@ -29,6 +29,8 @@ try:
     from . import autocode_rework_policy as rework, autocode_check_refs as check_refs
     from . import autocode_process as processes
     from . import autocode_builder_policy as builder_policy
+    from . import autocode_failure_classification as classification
+    from . import autocode_builder_failure as builder_failure
     from . import autocode_failures as failures
     from . import autocode_quota_route as quota_route
     from . import autocode_tool_containment as containment
@@ -43,6 +45,8 @@ except ImportError:
     import autocode_check_refs as check_refs
     import autocode_process as processes
     import autocode_builder_policy as builder_policy
+    import autocode_failure_classification as classification
+    import autocode_builder_failure as builder_failure
     import autocode_failures as failures
     import autocode_quota_route as quota_route
     import autocode_tool_containment as containment
@@ -828,10 +832,14 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     if not failed:
         return False
     try:
-        runtime.support.verify_checks(copy.deepcopy(failed), state["workspace"], accepted["events"],
+        verified_checks = copy.deepcopy(validation['checks'])
+        runtime.support.verify_checks(verified_checks, state["workspace"], accepted["events"],
                                       **runtime.check_evidence_options(accepted))
     except ValueError as error:
         _stale("known correction lacks an executed independent failure: " + str(error))
+    facts = builder_failure.check_facts(verified_checks, accepted, state['workspace'], read_events=support.events)
+    if classification.classify({'record': accepted, 'checks': facts, 'checks_verified': True}) != 'execution':
+        return False  # Retain the existing queued diagnosis; do not charge an operational check failure.
     _verify_reports(state, decision, record, accepted, run_dir)
     if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the failed evidence")
@@ -847,7 +855,10 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     _verify_reports(state, decision, record, accepted, run_dir)
     if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
         _stale("source or binding changed while checking the proposed correction")
-    action = retry_policy.failure(candidate, record["output"], "Attested bounded correction: " + change["hypothesis"])
+    action = retry_policy.failure(candidate, record["output"], "Attested bounded correction: " + change["hypothesis"],
+                                  classification='execution')
+    if action not in ('retry', 'escalate', 'pause', 'defer'):
+        raise util.Paused('PAUSED_BUILDER_CLASSIFICATION', 'Verified correction returned a non-execution action')
     if action in ("pause", "defer"):
         candidate["next_stage"] = "terra"
         runtime.goals.record_decision(candidate, decision)
@@ -981,9 +992,60 @@ def _exhausted_builder(state, request, packet):
     """A known exhausted policy never needs a paid diagnosis to discover it."""
     if _validation_only(request, packet) or not builder_policy.enabled(state) or not request.get("source_output"):
         return
+    # This locked preview must never turn an ambiguous source proposal into an
+    # execution failure or launch an Investigator. Only sealed independent FAIL
+    # evidence can prove an already exhausted execution lane here.
+    validation = packet.get('validation') or {}
+    binding = packet.get('binding') or {}
+    try:
+        from . import autocode_failure_classification as classification
+    except ImportError:
+        import autocode_failure_classification as classification
+    if (request.get('provenance') == 'source_report_not_accepted_review'
+            or validation.get('verdict') != 'FAIL'
+            or any(validation.get(key) != binding.get(key) for key in ('task_id', 'source_revision', 'contract_hash'))
+            or not any(row.get('stage') == 'sol' and not row.get('rejected')
+                       and row.get('output') == validation.get('output') for row in packet.get('prior_attempts', []))
+            or not any(type(check.get('exit_code')) is int and check['exit_code'] > 0
+                       for check in validation.get('checks', []))):
+        return
+    row = next((row for row in state.get('milestone_progress', {}).values()
+                if row.get('contract_hash') == binding.get('contract_hash')
+                and (state.get('current_task') or {}).get('milestone_id') in
+                row.get('milestone_ids', [row.get('id')])), {})
+    if row.get('builder_reassessment'):
+        return  # The bounded reassessment assignment gate, not execution policy, owns this request.
+    accepted = next(row for row in packet['prior_attempts'] if row.get('stage') == 'sol'
+                    and not row.get('rejected') and row.get('output') == validation.get('output'))
+    verified_checks = copy.deepcopy(validation.get('checks', []))
+    paths = [accepted.get('events'), *[check['evidence_ref'] for check in verified_checks
+                                     if not check['evidence_ref'].startswith('event:')]]
+    originals = {str(Path(item['original_path']).resolve()): item['sha256'] for item in packet['originals']}
+    for path in paths:
+        if not path:
+            continue
+        current_path = Path(path) if Path(path).is_absolute() else Path(state['workspace']) / path
+        if (str(current_path.resolve()) not in originals or not current_path.is_file()
+                or util.file_hash(current_path) != originals[str(current_path.resolve())]):
+            _stale('verified failure evidence changed before exhaustion preview')
+    try:
+        support.verify_checks(verified_checks, state['workspace'], accepted.get('events'),
+                              receipt_only=accepted.get('output_mode') == 'report_file',
+                              capture_context=accepted.get('capture_context'))
+    except (ValueError, OSError) as error:
+        _stale('exhaustion preview lacks a verified current failure: ' + str(error))
+    facts = builder_failure.check_facts(verified_checks, accepted, state['workspace'], read_events=support.events)
+    classification_value = classification.classify({
+        'record': next((row for row in packet.get('prior_attempts', [])
+                        if row.get('output') == request['source_output']), {}),
+        'checks': facts, 'checks_verified': True,
+        'checkpoint': {'decision': 'needs_replan'} if row.get('needs_replan') else {},
+        'checkpoint_verified': bool(row.get('needs_replan'))})
+    if classification_value != 'execution':
+        return  # Non-execution decisions belong to the controller, never locked preview.
     candidate = copy.deepcopy(state)
     action = builder_policy.failure(candidate, request["source_output"],
-                                    "Independent failure reached the saved Builder retry/escalation limit")
+                                    "Independent failure reached the saved Builder retry/escalation limit", classification='execution')
     if action not in ("pause", "defer"):
         return  # A preview must not charge, grant a retry, or switch any route.
     candidate["next_stage"] = "terra"

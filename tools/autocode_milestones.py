@@ -335,6 +335,9 @@ def observe_validation(state, current):
 
 def before_assignment(state, decision, current):
     if not enabled(state):
+        if (state.get('current_task') and state.get('goal_contract') and state.get('milestone_progress')
+                and state['milestone_progress'].get(key(state), {}).get('builder_reassessment')):
+            raise s.Paused('PAUSED_MILESTONE_REPLAN', 'Retained approach reassessment requires the existing milestone gate')
         return
     spec = decision["next_task"]
     # A validate task writes nothing: assign_task gives it its milestone's paths, so it may have none
@@ -383,11 +386,12 @@ def before_assignment(state, decision, current):
     if gate == replan.REQUIRED:
         proposed = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
         if (decision["status"] != "REWORK" or not decision.get("evidence")
-                or approach(proposed) == row.get("last_approach")):
+                or approach(proposed) == (row.get('builder_reassessment') or {}).get('failed_approach', row.get("last_approach"))):
             raise s.Paused("PAUSED_MILESTONE_REPLAN", "Repeated failed criteria require an evidence-backed REWORK with a changed approach or smaller batch")
         row["replans"] += 1
         row["reviews_without_progress"] = 0
         row["needs_replan"] = False
+        row.pop('builder_reassessment', None)
         state['no_progress_batches'] = 0
 
 
@@ -451,6 +455,9 @@ def check_budget(state):
 
 def dispatch_guard(state, stage):
     if not enabled(state):
+        if (state.get('current_task') and state.get('goal_contract') and state.get('milestone_progress')
+                and state['milestone_progress'].get(key(state), {}).get('builder_reassessment')):
+            raise s.Paused('PAUSED_MILESTONE_REPLAN', 'Retained approach reassessment requires the existing milestone gate')
         return
     if state.get("settings", {}).get("workflow"):
         raise s.Paused("PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Builder → Validator → Plan Reviewer routing")
@@ -459,8 +466,31 @@ def dispatch_guard(state, stage):
         if row is None:
             raise s.Paused("PAUSED_MILESTONE_TASK", "The Plan Reviewer must assign a bounded milestone task before implementation")
         check_budget(state)
-        if row.get("needs_replan") and settings(state)["stalled_reviews"]:
+        if replan.pending(row, settings(state)):
             raise s.Paused("PAUSED_MILESTONE_REPLAN", "The Plan Reviewer must reassess repeated failed checks before another writer attempt")
+
+
+def request_builder_reassessment(state, evidence):
+    """A genuine approach diagnosis requests bounded REWORK, not validation authority.
+
+    Sole writer of progress.builder_reassessment; the shared replan prompt/gate
+    read it, and before_assignment consumes it after accepting changed REWORK.
+    """
+    row = progress(state) if enabled(state) else None
+    if row is None or not evidence.get('failure_id') or not evidence.get('evidence_refs'):
+        state.update(status='PAUSED_MILESTONE_REPLAN', phase='PAUSED_OR_BLOCKED',
+                     next_stage='astra_review', stop_reason='Approach failure requires an existing bounded milestone assignment')
+        return
+    row['builder_reassessment'] = {key: copy.deepcopy(evidence[key]) for key in ('failure_id', 'evidence_refs')}
+    row['builder_reassessment'].update(diagnosis=copy.deepcopy(evidence.get('diagnosis')),
+                                      failed_approach=approach(state['current_task']),
+                                      source_output=evidence['record'].get('output'),
+                                      source_revision=evidence['record'].get('source_revision'))
+    if replan.pending(row, settings(state)) == replan.EXHAUSTED:
+        state.update(status='PAUSED_MILESTONE_STALLED', phase='PAUSED_OR_BLOCKED', next_stage='astra_review',
+                     stop_reason='Builder approach reassessment exhausted the existing replan limit')
+        return
+    state.update(status='RUNNING', phase='REVIEWING', next_stage='astra_review')
 
 
 def handle_gate(state, error, current, *, ask_user, origin=None):

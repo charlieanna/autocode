@@ -13,9 +13,13 @@ from pathlib import Path
 try:
     from . import autocode_util as util, autocode_check_refs as check_refs
     from . import autocode_tool_containment as containment, autocode_visual_evidence as visual
+    from . import autocode_failure_classification as classification
+    from . import autocode_builder_failure as builder_failure
 except ImportError:
     import autocode_util as util, autocode_check_refs as check_refs
     import autocode_tool_containment as containment, autocode_visual_evidence as visual
+    import autocode_failure_classification as classification
+    import autocode_builder_failure as builder_failure
 
 
 def _require(condition, reason):
@@ -234,6 +238,14 @@ def _eligible(state, decision, record, previous_criteria, prior_request, pending
                     and isinstance(row.get('finding'), str) and row['finding'].strip() for row in findings))
 
 
+def guard_pending_human(state):
+    """A completed repair proposal cannot consume an unanswered human decision."""
+    pending = (state.get('status') in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL')
+               or any(state.get(key) for key in ('user_request', 'pending_questions', 'resolver_human_proposal')))
+    if pending:
+        raise util.Paused('PAUSED_RESOLVER', 'Resolve the existing human decision before assigning or diagnosing this repair')
+
+
 def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     """Preserve human holds; queue other repairs and replace only a proven first repair."""
     _require(record.get('stage') in (None, 'astra_review') and decision.get('status') == 'REWORK',
@@ -243,14 +255,8 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     prior_request = bool(state.get('resolution_request'))
     # A historical display receipt may remain after domain-level goal approval.
     # Hold actual waiting states, unresolved questions/requests and queued proposals.
-    pending_human = (state.get('status') in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL')
-                     or any(state.get(key) for key in ('user_request', 'pending_questions',
-                                                       'resolver_human_proposal')))
-    if pending_human:
-        # queue_resolution normally clears these fields for a new diagnosis.
-        # A completed review must not consume a still-unanswered human decision.
-        raise util.Paused('PAUSED_RESOLVER',
-                          'Resolve the existing human decision before assigning or diagnosing this repair')
+    guard_pending_human(state)
+    pending_human = False
     root = Path(run_dir)
     workspace = Path(state['workspace'])
     completion = _verify(record, workspace, root, decision)
@@ -317,10 +323,14 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
                 return False
             shared_receipt |= not receipt_path.is_relative_to(root) or not raw.is_relative_to(root)
     try:
-        runtime.support.verify_checks(copy.deepcopy(failed), workspace, accepted['events'],
+        verified_checks = copy.deepcopy(validation['checks'])
+        runtime.support.verify_checks(verified_checks, workspace, accepted['events'],
                                       **runtime.check_evidence_options(accepted))
     except ValueError as error:
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Failed check lacks an executed Validator receipt') from error
+    facts = builder_failure.check_facts(verified_checks, accepted, workspace, read_events=runtime.support.events)
+    if classification.classify({'record': accepted, 'checks': facts, 'checks_verified': True}) != 'execution':
+        return False  # Keep the sealed queued handoff; no operational failure buys a writer retry.
     if shared_receipt:
         return False  # Captures outside the run directory still need ordinary Resolver admission.
     current = source_scope.snapshot(workspace, state, base_snapshot=runtime.support.snapshot)
@@ -337,7 +347,9 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     candidate = copy.deepcopy(state)
     candidate['iteration'] += 1
     reason = 'Completion Owner supplied a bounded REWORK assignment: ' + decision['next_objective']
-    action = retry_policy.failure(candidate, record['output'], reason)
+    action = retry_policy.failure(candidate, record['output'], reason, classification='execution')
+    if action != 'retry':
+        return False  # Only a verified ordinary execution retry is a direct assignment.
     _require(action == 'retry', 'Direct repair must not manufacture an escalation allowance')
     try:
         runtime.lifecycle.assign_task(candidate, decision, current)
