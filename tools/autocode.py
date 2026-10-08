@@ -388,7 +388,11 @@ def run_role(
     child_options = {"start_new_session": True, "env": child_environment}
     if engine == "opencode":
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
-        prompt = provider_launch.containment_prompt(prompt, worker_context)
+        current_proof = False
+        if original_stage == 'sol' and worker_context.get('tool_containment') and regression.required(state):
+            current_proof = regression.complete(state, source_scope.snapshot(workspace, state)['revision'])
+        prompt = provider_launch.containment_prompt(prompt, worker_context, stage=original_stage,
+            regression_proof_current=current_proof, regression_handoff=regression.handoff(state) if current_proof else None)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
     child_options["env"].update(output_policy.environment(state["settings"], workspace, events))

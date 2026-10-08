@@ -131,3 +131,26 @@ assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project
 cannot use a supported runner, settle that compatibility blocker during planning;
 do not downgrade an approved named criterion to prose to make a run finish.
+
+## Contained Tester Evidence
+
+A contained Tester cannot bind or connect sockets. If the named regression
+tests exercise real HTTP/end-to-end behavior, it must not run that network-dependent
+regression command again: inspect the named tests and cite the runner's existing
+clean-copy proof, not a model claim of execution. At launch, the runner checks
+the proof's source revision against the current source, its receipt hash, and
+the integrity of its check artifacts using the existing completion-proof
+validator. The entire presented proof must also match the runner's fresh handoff
+projection, including JSON types. Only then is `runner_regression_proof_current`
+true; missing or altered handoff evidence is not authenticated even when the
+saved runner proof is valid. A PASS receipt alone is not sufficient authority.
+The tests must assert the approved flow, not only health or static behavior;
+missing, stale, incomplete, failed, skipped or zero-test proof cannot establish
+HTTP PASS.
+
+The Tester still executes permitted independent non-network checks and captures
+their receipts in `tool_containment.scratch`. It cites `regression_proof` directly
+(`verdict`, `source_revision`, `case_tests`, `checks`, `path`), never through a
+check that reads run files, which are absent from clean replay. This changes no
+network permissions, replay policy or completion requirements. Uncontained
+Testers retain the existing instruction to run the regression command themselves.

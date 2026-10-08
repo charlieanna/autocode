@@ -104,7 +104,7 @@ def stage_record(worker):
     return record
 
 
-def containment_prompt(prompt, worker):
+def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=False, regression_handoff=None):
     """Advertise only the current stage's permitted scratch area, not broader write access."""
     policy = worker.get('tool_containment')
     if not policy:
@@ -127,6 +127,30 @@ def containment_prompt(prompt, worker):
                    'stage\'s state, events, or receipts. It is the only place under .autocode/ this stage '
                    'can write, so it replaces any other evidence or scratch directory named above. '
                    'A denial is a blocker, not permission to bypass.\n')
+    if stage == 'sol':
+        # Bind the entire presented projection, including JSON types, not only its source revision.
+        regression_proof_current = (regression_proof_current and regression_handoff is not None
+            and json.dumps(data.get('regression_proof'), sort_keys=True) == json.dumps(regression_handoff, sort_keys=True))
+        data['runner_regression_proof_current'] = regression_proof_current
+        instruction += ('\nCONTAINED TESTER: this launch cannot bind or connect sockets. '
+            'This overrides the earlier instruction to run the regression command once when that '
+            'command needs network access: do not re-execute HTTP tests inside this boundary. '
+            'Inspect the named case_tests and the runner checks to confirm they assert the approved '
+            'flow, not just health or static behavior. Cite regression_proof verdict, source_revision, '
+            'case_tests, checks and artifact path as runner-executed evidence, never as your own execution. '
+            'Only a current runner-authenticated PASS covering that behavior can establish HTTP PASS; '
+            'missing, stale, incomplete, failed, skipped or zero-test evidence cannot. '
+            'A mock or static check cannot replace required real HTTP/end-to-end proof. '
+            'Still execute permitted independent non-network checks, focusing on uncovered acceptance '
+            'criteria, and capture their receipts under tool_containment.scratch using capture_command '
+            'and the check schema. Cite runner proof directly, not a check command that reads run files: '
+            'clean replay has no runner artifacts. Uncovered required network behavior remains '
+            'BLOCKED/NOT_VERIFIED. Do not fabricate checks or relax verification/completion requirements.\n')
+        instruction += ('The runner authenticated the current regression PASS at launch; inspect its '
+                        'coverage before citing it.\n' if regression_proof_current else
+                        'No current runner-authenticated regression PASS is available in this handoff. '
+                        'Do not report HTTP PASS; report FAIL for an unproven required regression and '
+                        'record unavailable execution as BLOCKED/NOT_VERIFIED.\n')
     return before + instruction + marker + json.dumps(data, indent=2)
 
 
