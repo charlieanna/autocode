@@ -63,9 +63,32 @@ and reattachment use the saved settings. For scoped Python proof, use
 `start_options=("--test-root", "components/api/")`; the root selects tests, not
 generic write ownership. Generated component runs bind their original ownership
 declaration to this caller-selected root before plan approval and execution.
-At `PAUSED_COMPONENT_PLAN`, `needs` remains `kind: resume` with additive
-`edit_required`, `action: --edit-goal FILE` and `feedback_action: --feedback TEXT`.
-Correct the draft and approve its fresh token; an unchanged resume is not a repair.
+An older shipped component run with no saved root uses only its exact, single
+original generated ownership declaration to derive a transient root for admission
+and regression proof. It does not rewrite the original task, settings, approval,
+user events or historical evidence. An explicit root must still match; generic
+rootless tasks gain neither a test root nor write authority from model text.
+
+At `PAUSED_COMPONENT_PLAN`, `needs.kind` remains `resume` for compatibility.
+First check `needs.new_run_required`: when true, `needs.action` is `fresh_run`,
+`needs.edit_required` is false, and `needs.feedback_action` is null. The original
+caller declaration is missing/ambiguous or the saved root disagrees with it.
+These immutable inputs cannot be repaired by editing the model's plan. Preserve
+the stopped run and use `TaskRun.start` for a fresh component run in a separately
+caller-owned workspace, with the correct generated declaration and matching
+launch-only root. That new plan still requires approval. Feedback at this stop
+is rejected before recording an event or scheduling a new model draft. Never
+change the original task or saved root to make the old approval usable.
+
+With a valid caller binding, `needs.edit_required` is true instead: incorrect
+body paths or deferred/prohibited mandatory flow can be repaired. Follow
+`needs.action` (`--edit-goal FILE`) or `needs.feedback_action` (`--feedback TEXT`),
+then inspect and approve the new draft with its newly displayed token. The old
+approval token cannot approve it. Plain resume leaves the checkpoint unchanged
+and launches no Builder; adding `--test-root` on resume cannot repair a
+launch-only setting. A valid older rootless run needs no root flag to edit its
+plan. The recovery card, progress line and issue/finder guidance distinguish
+these two cases without promising that an unchanged resume repairs either one.
 
 A caller that keeps each invocation's output, as `autocode program` keeps a
 workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
@@ -428,7 +451,7 @@ run is waiting for:
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
 | `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota or a content-filter refusal | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason`; `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota or content-filter stop whose request was answered without a model | Resume a pause, once resolved |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `new_run_required` with `action=fresh_run` preserves an immutable caller-binding failure and requires a new run; `edit_required` at a repairable component-plan stop prescribes `action` (`--edit-goal FILE`) or `feedback_action` (`--feedback TEXT`), then fresh approval; otherwise `action` when one command continues, such as `--resume-paused --no-progress-limit N` at a `PAUSED_NO_PROGRESS` its unchanged-batch limit caused, with `no_progress_batches`, the retained count N must exceed (or N is `0`), or `--resume-paused --retry-builder M` at a parallel Builder member's quota or content-filter stop whose request was answered without a model | Start a fresh run when required; otherwise correct and freshly approve an edit-required plan, or resume once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver

@@ -57,6 +57,7 @@ try:
     from . import autocode_verification_schedule as schedule
     from . import autocode_wrapped_runner as wrapped_runner
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_component_plan as component_plan
 except ImportError:
     import autocode_follow_up as follow_up
     import autocode_test_cases as test_cases
@@ -70,6 +71,7 @@ except ImportError:
     import autocode_verification_schedule as schedule
     import autocode_wrapped_runner as wrapped_runner
     import autocode_launch_inputs as launch_inputs
+    import autocode_component_plan as component_plan
 
 STAGE = "regression_proof"
 SUMMARY_KEYS = ("framework", "verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
@@ -213,7 +215,10 @@ def _drop_finished_launch_refs(workspace):
 
 
 def settings(state):
-    return state.get("settings", {}).get("regression") or {}
+    options = state.get("settings", {}).get("regression") or {}
+    root = component_plan.effective_root(state.get("task", ""), options.get("test_root"))
+    # Legacy caller ownership is transient: saved settings also bind handoffs.
+    return {**options, "test_root": root} if root is not None and options.get("test_root") is None else options
 
 
 def rooted(options):
