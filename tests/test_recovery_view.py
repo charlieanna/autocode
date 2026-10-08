@@ -201,6 +201,30 @@ class RecoveryViewTests(unittest.TestCase):
         state['orchestration_batch']['workers'][0]['status'] = 'RUNNING'
         self.assertFalse(any(row['kind'] == 'retry_builder' for row in self.card(state)['actions']))
 
+    def test_a_member_model_stop_answered_without_a_model_names_its_one_control(self):
+        # #541: once its request was answered with information (or left paused), no question is open and
+        # needs.action and the card name one control: a quota stop reruns unchanged, a refusal is asked again.
+        def answered(status):
+            worker = {'milestone_id': 'M1', 'run_dir': '/runs/1', 'workspace': '/work/1', 'pause_status': status,
+                      'model': 'p/glm'}
+            return self.state(status, next_stage='orchestrator', orchestration_batch={
+                'status': 'BUILDING', 'contract_hash': 'approved', 'workers': [
+                    {'milestone_id': 'M1', 'run_dir': '/runs/1', 'workspace': '/work/1', 'status': status},
+                    {'milestone_id': 'M2', 'status': 'BUILT'}]}, resolver={
+                'human_response_frontier': {'request_id': 'r1', 'pause_status': status},
+                'human_escalations': {'r1': {'status': 'consumed', 'identity': {'proposal': {
+                    'origin': {'pause_status': status, 'quota_worker': worker}}}}}})
+        for status, label in (('PAUSED_BUDGET', 'Retry Builder task M1 unchanged'),
+                              ('PAUSED_CONTENT_FILTER', 'Ask which model Builder task M1 continues on')):
+            state = answered(status)
+            view = run_view.view(state)
+            self.assertEqual('--resume-paused --retry-builder M1', view['needs'].get('action'))
+            self.assertEqual([(['M1'], label)], [(row['milestone_ids'], row['label'])
+                                                 for row in view['recovery']['actions'] if row['kind'] == 'retry_builder'])
+            # While a question is open it is the next step, and no retry is offered (#465).
+            state['pending_questions'] = [{'id': 'route-terra', 'question': 'Name the model'}]
+            self.assertFalse(any(row['kind'] == 'retry_builder' for row in self.card(state)['actions']))
+
     def test_job_report_and_dependency_actions_are_specific(self):
         state = self.state('PAUSED_JOB_FAILURE')
         selected = recovery.project(state, {'kind':'retry_job','job_retry_token':'job-token'})['actions'][1]

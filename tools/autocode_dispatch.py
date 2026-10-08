@@ -671,6 +671,11 @@ def request_retry(state, run_dir, selected, *, issued=None):
         if row.get("processes") and processes.live_processes(row["processes"]):
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKERS", "A Builder is still running; wait before retrying")
         s.assert_no_legacy_process(Path(row["run_dir"]), Path(row["workspace"]))
+    try:
+        from . import autocode_resolver_human as human
+    except ImportError:
+        import autocode_resolver_human as human
+    asked = worker_quota.asked_member(state, human.current(state) or issued)
     for mid in selected:
         result = Path(rows[mid]["run_dir"]) / "result.json"
         saved = s.read(result) if result.exists() else {}
@@ -678,13 +683,9 @@ def request_retry(state, run_dir, selected, *, issued=None):
             raise ValueError(f"Builder {mid} already completed; its work will be retained")
         if saved.get("status") == builder_policy.SERIAL:
             raise ValueError(f"Builder {mid} left its stronger attempt to a serial build after this batch")
-        refused = worker_quota.refused_retry(rows[mid], saved)
+        refused = worker_quota.refused_retry(state, rows[mid], saved, asked=asked)
         if refused:
-            raise ValueError(refused)
-    try:
-        from . import autocode_resolver_human as human
-    except ImportError:
-        import autocode_resolver_human as human
+            raise refused  # ValueError, or the member's stop collected again when no question is open (#541)
     human.supersede_operational(state, 'Operator explicitly selected stopped Builder members for retry')
     for mid in selected:
         rows[mid]["retry_requested"] = True

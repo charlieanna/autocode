@@ -67,7 +67,10 @@ built serially later (see [Builder retry policy](models.md#builder-retry-policy)
 A Builder stopped by its model's quota or its provider's content filter asks you to name another
 model instead, and the status view does not offer it a retry (see
 [A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
-`--retry-builder` refuses a refused Builder; for a quota stop it reruns the same model.
+`--retry-builder` refuses a refused Builder while its question is open; for a quota stop it
+reruns the same model. Once that question was answered with corrective information or left
+paused, `--retry-builder` is the member's one way on: it asks a refused member's question
+again, launching nothing, or reruns a quota-stopped member unchanged.
 An explicit retry archives an uncertain stage while preserving its edits and logs.
 Report-only repairs and completed-response recovery run automatically through the
 existing bounded recovery mechanisms. After a revised
@@ -845,8 +848,13 @@ recovery flag) consumes it, without a provider call:
 - If the stop needs an operator control that information cannot supply (a spent
   automatic-recovery allowance, a reached time, iteration, milestone or
   no-progress bound, a repeated failure, a Builder retry limit, a stopped
-  parallel member, a stalled milestone, spent report-only repairs, an
-  unreconciled attempt), the run stays paused. Spent report-only repairs and
+  parallel member, a parallel member stopped on its quota or by its
+  provider's content filter, a stalled milestone, spent report-only repairs, an
+  unreconciled attempt), the run stays paused. A member stopped on its model
+  continues only with `--resume-paused --retry-builder M`, which asks a refused
+  member's model question again or reruns a quota-stopped one unchanged
+  ([A parallel Builder stopped on its model](models.md#a-parallel-builder-stopped-on-its-model)).
+  Spent report-only repairs and
   validation-only rounds that stalled on open blocking findings are held under
   whichever pause carries them, `PAUSED_RESOLVER` included. Where the CLI
   accepts a control at that stop, the stop reason and status name that exact
@@ -865,7 +873,7 @@ recovery flag) consumes it, without a provider call:
   launches. The continuation does not renew the per-incident Resolver attempts
   or the pending report-repair attempts that an explicit resume at other
   pauses renews, so a stop found there, such as a live transport change,
-  Resolver's own per-incident limit or a parallel Builder member that still
+  Resolver's own per-incident limit or another parallel Builder member that
   needs a model only you can name, is a new stop or a new request. Any other
   stop is held.
 

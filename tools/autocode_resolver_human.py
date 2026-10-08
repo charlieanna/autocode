@@ -12,11 +12,14 @@ from pathlib import Path
 
 try:
     from . import autocode_support as support, autocode_operational_information as information
-    from . import autocode_bug_questions as bug_questions, autocode_recovery_limits as recovery_limits
+    from . import autocode_bug_questions as bug_questions, autocode_member_stop as member_stop
+    from . import autocode_recovery_limits as recovery_limits
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
     import autocode_support as support, autocode_bug_questions as bug_questions
-    import autocode_operational_information as information, autocode_recovery_limits as recovery_limits
+    import autocode_operational_information as information
+    import autocode_member_stop as member_stop
+    import autocode_recovery_limits as recovery_limits
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 
 
@@ -422,6 +425,9 @@ def stale_request_message(state):
     if live:
         return ('This request is out of date; a newer AutoResolver request is active. '
                 'Answer request ' + live['request_id'] + ' with its own token.')
+    step = member_stop.next_step(state)  # A relaunch asks nothing at an answered member's stop (#541).
+    if step:
+        return 'This request was already answered and no question is open. ' + step
     parts = ['autocode']
     if state.get('workspace'):
         parts.append('--workspace ' + shlex.quote(str(state['workspace'])))
@@ -537,7 +543,8 @@ def review_operational_response(state):
 
     The response itself stays a hold. Corrective information on an operational_exhaustion
     request is also scheduled for one AutoResolver re-evaluation at the next resume (#486,
-    autocode_operational_information); leave_paused is final.
+    autocode_operational_information); leave_paused is final. At a parallel Builder member's
+    model stop the stop reason names that member's one control (autocode_member_stop, #541).
     """
     resolver = state.get('resolver') or {}
     event = resolver.get('pending_human_response')
@@ -558,6 +565,9 @@ def review_operational_response(state):
     if information.schedule(state, event, entry, resolver['human_response_frontier']):
         resolution['reason'] = ('Corrective information is retained for one AutoResolver re-evaluation at the next '
                                 'resume; this response did not authorize another attempt or new limits.')
+    step = member_stop.next_step(state)  # A parallel member's model stop names its one control (#541).
+    if step:
+        state['stop_reason'] = f"{state.get('stop_reason') or ''} {step}".strip()
     return copy.deepcopy(resolution)
 
 

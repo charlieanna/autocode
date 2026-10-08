@@ -2,19 +2,23 @@
 
 A worker stopped on its model, by quota or by its provider's content filter (quota_route.STATUSES),
 hands the parent the same route-terra question a serial Builder asks (#184, #458, #465). The answer
-reruns only that member, on the named model. Nothing reruns the model a content filter refused.
+reruns only that member, on the named model. Nothing reruns the model a content filter refused. Once
+the question was answered without a model, --retry-builder is that member's one control
+(autocode_member_stop, #541).
 """
 from pathlib import Path
 
 try:
     from . import autocode_quota_route as quota_route, autocode_util as util, autocode_roles as roles
     from . import autocode_provider_refusal as provider_refusal, autocode_support as support
+    from . import autocode_member_stop as member_stop
 except ImportError:
     import autocode_quota_route as quota_route
     import autocode_util as util
     import autocode_roles as roles
     import autocode_provider_refusal as provider_refusal
     import autocode_support as support
+    import autocode_member_stop as member_stop
 
 
 def payload(state, directory, workspace):
@@ -70,28 +74,32 @@ def question(state, attempt, *, family=None, **options):
     return asked
 
 
-def current(state, origin):
-    """Find only the stopped member of this exact BUILDING batch."""
-    worker = (origin or {}).get("quota_worker") or {}
-    batch = state.get("orchestration_batch") or {}
-    if batch.get("status") != "BUILDING" or state.get("next_stage") != "orchestrator":
+current = member_stop.current  # The stopped member a request's origin names, for the answer path.
+
+
+def asked_member(state, public):
+    """What the open request asks about: a member's milestone ID, "" for another request, None for none."""
+    if not public and not state.get("pending_questions"):
         return None
-    for row in batch.get("workers", []):
-        if (row.get("milestone_id") == worker.get("milestone_id")
-                and row.get("run_dir") == worker.get("run_dir")
-                and row.get("workspace") == worker.get("workspace")
-                and row.get("status") in quota_route.STATUSES
-                and row.get("status") == worker.get("pause_status", quota_route.QUOTA_STATUS)):
-            return row, worker
-    return None
+    try:
+        origin = state["resolver"]["human_escalations"][public["request_id"]]["identity"]["proposal"]["origin"]
+        return origin["quota_worker"]["milestone_id"] if public["scope"] == "operational_exhaustion" else ""
+    except (KeyError, TypeError):
+        return ""
 
 
-def refused_retry(row, result):
-    """Why --retry-builder may not rerun this batch member, or None.
+def refused_retry(state, row, result, *, asked):
+    """The error --retry-builder raises for this batch member, or None when it may rerun it.
 
     A member its provider's content filter refused reruns only on another model: the one a person names
-    in answer to its route-terra question, which moves its saved route (#465). A quota stop keeps #458's
-    explicit same-model retry.
+    in answer to its route-terra question, which moves its saved route (#465). While a request is open
+    (``asked``, from asked_member) the retry is refused (ValueError) and points at that member's question
+    only when it is the one asked. With none open (the request was answered with information or left
+    paused, #541) the member's saved stop is collected again instead: the returned Paused carries it, so
+    AutoResolver asks its route-terra question again, and nothing launches. That is the answered member's
+    control (autocode_member_stop); another refused member is asked about after the answered member
+    continues, whichever way it stopped. A quota stop keeps
+    #458's explicit same-model retry.
     """
     worker = result.get("quota_worker")
     if result.get("status") != quota_route.REFUSAL_STATUS or not worker:
@@ -102,10 +110,22 @@ def refused_retry(row, result):
         routed = None  # unreadable: never assume the route moved
     if worker.get("model") and routed and routed != worker["model"]:
         return None
-    return (f"Builder {row['milestone_id']} was refused by its provider's content filter on "
-            f"{worker.get('model') or 'its model'}, and the same model is likely to refuse it again, so "
-            "--retry-builder does not rerun it there. It continues on the model a person names in answer "
-            "to its route-terra question.")
+    milestone = row["milestone_id"]
+    first = (member_stop.answered(state) or ({},))[0].get("milestone_id")
+    if asked is None and first in (None, milestone):
+        return stop(state, row, result, Path(row["run_dir"]))
+    if asked is None:
+        then = (f"AutoCode continues from Builder {first}'s stop first, with --resume-paused --retry-builder "
+                f"{first}, and asks which model this member continues on after it.")
+    elif asked == milestone:
+        then = ("It continues on the model a person names in answer to its open route-terra question "
+                "(--answer route-terra=MODEL).")
+    else:
+        then = ("AutoCode asks which model it continues on once the open request"
+                + (f" about Builder {asked}" if asked else "") + " is answered.")
+    return ValueError(f"Builder {milestone} was refused by its provider's content filter on "
+                      f"{worker.get('model') or 'its model'}, and the same model is likely to refuse it again, so "
+                      f"--retry-builder does not rerun it there. {then}")
 
 
 def validate_model(model, worker, family):
