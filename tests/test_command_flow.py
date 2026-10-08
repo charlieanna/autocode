@@ -19,6 +19,13 @@ class ConfigToolFlow(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
+        artifacts = os.environ.get("BUILD_AUDIT_ARTIFACTS")
+        if artifacts:
+            destination = Path(artifacts).resolve()
+            destination.mkdir(parents=True, exist_ok=True)
+            # Copy before TemporaryDirectory cleanup; the fixture itself remains
+            # outside the artifact directory's possible Git ancestor.
+            self.addCleanup(shutil.copytree, self.root, destination / self.root.name)
         self.project = self.root / "project"
         self.project.mkdir()
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
@@ -83,9 +90,16 @@ class ConfigToolFlow(unittest.TestCase):
         '''))
 
     def launch(self, *args, answers="CLI\nyes\n"):
-        return subprocess.run([*self.entry, "--provider", "fixturetool", "--workspace", str(self.project),
-                               "--in-place", *args], cwd=self.root, env=self.env, input=answers,
-                              capture_output=True, text=True, timeout=90)
+        try:
+            return subprocess.run([*self.entry, "--provider", "fixturetool", "--workspace", str(self.project),
+                                   "--in-place", *args], cwd=self.root, env=self.env, input=answers,
+                                  capture_output=True, text=True, timeout=90)
+        except subprocess.TimeoutExpired as error:
+            if os.environ.get("BUILD_AUDIT_ARTIFACTS"):
+                for name, value in (("stdout", error.stdout), ("stderr", error.stderr)):
+                    (self.root / ("command-timeout." + name + ".log")).write_bytes(
+                        value.encode() if isinstance(value, str) else value or b"")
+            raise
 
     def complete_run(self, *, prompt="stdin", observe_stdin=False, track_invocations=False, events=False):
         self.configure_fixture(prompt=prompt, observe_stdin=observe_stdin, track_invocations=track_invocations,
