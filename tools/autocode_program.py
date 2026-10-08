@@ -58,6 +58,7 @@ try:
     from . import autocode_planning_graph as graph, autocode_program_agreement as agreement
     from . import autocode_program_children as children, autocode_taskrun as taskrun
     from . import autocode_verify as verify_runner
+    from . import autocode_source_snapshot as source_snapshot
 except ImportError:
     import autocode_util as util
     import autocode_workspaces as workspaces
@@ -66,9 +67,11 @@ except ImportError:
     import autocode_program_children as children
     import autocode_taskrun as taskrun
     import autocode_verify as verify_runner
+    import autocode_source_snapshot as source_snapshot
 
 
-KINDS = ("code", "integration", "deployment")
+KINDS = ("code", "content", "integration", "deployment")
+AGREEMENT_POLICY = 2
 ID_RE = agreement.ID_RE
 STATE_LOCK = threading.Lock()  # worker threads update records; the main thread serializes state
 # Workstreams in one batch launch in parallel threads, but `git worktree add` on one repository
@@ -161,7 +164,7 @@ def validate_manifest(value):
     if not isinstance(rows, list) or not rows:
         raise ValueError("Program manifest needs at least one workstream")
     allowed = {"id", "kind", "brief", "owns", "depends_on", "acceptance_criteria", "engine",
-               "skeleton", "skeleton_exempt", "checks"}
+               "skeleton", "skeleton_exempt", "journeys", "checks"}
     ids = []
     for row in rows:
         if isinstance(row, dict) and row.get("kind") == "ui":
@@ -296,6 +299,11 @@ def derive_manifest(approved, *, name=None, source_run=None):
     journey_id = "J1"
     while journey_id in criteria:
         journey_id = "journey-" + journey_id
+    skeleton_journey = "skeleton-journey"
+    while skeleton_journey in criteria or skeleton_journey == journey_id:
+        skeleton_journey = "journey-" + skeleton_journey
+    first = next(row for row in workstreams if row.get("skeleton"))
+    first["journeys"] = [skeleton_journey]
     workstreams.append({
         "id": integration_id, "kind": "integration", "owns": [], "depends_on": sinks,
         "brief": ("Validate the complete approved flow on the merged result of every workstream:\n- "
@@ -312,7 +320,8 @@ def derive_manifest(approved, *, name=None, source_run=None):
                      "body": copy.deepcopy(body)},
         "shared": {key: list(body.get(key, [])) for key in SHARED_LISTS if body.get(key)},
         "journeys": [{"id": journey_id, "name": "Main user journey",
-                      "steps": list(flow) or [body.get("intended_outcome") or "The approved outcome"]}],
+                      "steps": list(flow) or [body.get("intended_outcome") or "The approved outcome"]},
+                     {"id": skeleton_journey, "name": "Walking skeleton journey", "steps": [first["brief"]]}],
         "workstreams": workstreams,
     }
     manifest["shared"]["interfaces"] = []
@@ -368,17 +377,26 @@ def sync_agreement(state, manifest):
     value = agreement.digest(manifest)
     approved = record["approved"]
     if approved is not None and record["digest"] == value:
-        record["pending"] = None
+        if record.get("policy") != AGREEMENT_POLICY:
+            record["pending"] = {"revision": record["revision"], "digest": value,
+                                 "token": agreement.token(record["revision"], value), "policy_upgrade": True,
+                                 "affected": list(state["workstreams"]), "changes": [
+                                     "Inheritance policy upgrade: renew approval of this same agreement; every child needs a fresh conforming plan. "
+                                     "Existing runs, receipts and worktrees are retained; legacy acceptance is not reconstructed."]}
+        else:
+            record["pending"] = None
         return
     if approved is not None:
         problems = agreement.revision_problems(approved, manifest)
         # A version may never go down, even for an interface removed since its producer delivered it.
         kept = {row["id"] for row in agreement.interfaces(approved)}
         for row in agreement.interfaces(manifest):
+            previous = record.get("interface_versions", {}).get(row["id"], 0)
             delivered = state["interfaces"].get(row["id"])
-            if row["id"] not in kept and delivered and row["version"] <= delivered["version"]:
-                problems.append(f"interface {row['id']} was delivered as version {delivered['version']} and removed "
-                                f"since; it may come back only as version {delivered['version'] + 1} or later")
+            previous = max(previous, (delivered or {}).get("version", 0))
+            if row["id"] not in kept and previous and row["version"] != previous + 1:
+                problems.append(f"interface {row['id']} was approved as version {previous} and removed since; "
+                                f"it may come back only as exactly version {previous + 1}")
         if problems:
             raise ValueError("The manifest is not a revision of the approved program agreement: " + "; ".join(problems)
                              + ". Restore it, or use a new program name to start over")
@@ -406,10 +424,13 @@ def approve_agreement(state, manifest, selected):
                          f"manifest: {pending['token']}")
     previous = record["approved"]
     record.update(revision=pending["revision"], digest=pending["digest"], approved=copy.deepcopy(manifest),
-                  approved_at=util.now(), pending=None)
+                  approved_at=util.now(), pending=None, policy=AGREEMENT_POLICY)
     record["history"].append({"revision": pending["revision"], "digest": pending["digest"],
                               "approved_at": record["approved_at"], "affected": pending["affected"],
-                              "changes": pending["changes"]})
+                              "changes": pending["changes"], **({"policy_upgrade": True} if pending.get("policy_upgrade") else {})})
+    versions = record.setdefault("interface_versions", {})
+    versions.update({row["id"]: row["version"] for row in agreement.interfaces(previous or {})})
+    versions.update({row["id"]: row["version"] for row in agreement.interfaces(manifest)})
     for iid, (old, new) in (agreement.bumped_interfaces(previous, manifest) if previous else {}).items():
         for request in state["change_requests"]:
             if request["interface"] == iid and request["status"] == "open":
@@ -452,10 +473,12 @@ def integration_head(state):
 
 # --- briefs -----------------------------------------------------------------
 
-def _journey_lines(manifest):
+def _journey_lines(manifest, ids=None):
     """Each user journey with its steps, and what a simulated one does not prove."""
     lines = []
     for row in agreement.journeys(manifest):
+        if ids is not None and row["id"] not in ids:
+            continue
         lines.append(f"- {row['id']} {row['name']}: " + " -> ".join(row["steps"]))
         if row.get("simulated"):
             lines.append(f"  This journey is simulated. Say in its evidence that it does not prove: "
@@ -536,7 +559,7 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
                   "Its own end-to-end flow is the part of each journey its objective covers: later workstreams add "
                   "the other steps, and the final check verifies each whole journey. Leave runnable checks (tests) "
                   "that prove its part end to end: they are re-run after every later merge."]
-        lines += _journey_lines(manifest) + [""]
+        lines += _journey_lines(manifest, workstream.get("journeys")) + [""]
     elif agreement.needs_skeleton(manifest, workstream["id"]):
         base = agreement.skeleton(manifest)
         lines += [f"The walking skeleton ({base}) is merged and verified on this branch: extend it; do not rebuild "
@@ -548,12 +571,11 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
                   "check only what the finished product keeps: never the working tree's state or uncommitted files, and never "
                   "that a command, option or file a later workstream adds is missing, unknown or refused.", ""]
     lines += ["This workstream's objective:", workstream["brief"].strip(), ""]
-    criteria = agreement.requirements(manifest)
+    criteria = agreement.definitions(manifest, workstream["id"])
     inherited = agreement.inherited(manifest, workstream["id"])
     # The final check inherits requirements its own row need not list; it is told to keep each by id, so it is told
     # what each one says too.
-    listed = list(dict.fromkeys(workstream.get("acceptance_criteria", [])
-                                + [cid for cid in inherited if cid in criteria]))
+    listed = list(dict.fromkeys(workstream.get("acceptance_criteria", []) + inherited))
     if listed:
         lines.append("Acceptance criteria for this workstream:")
         for item in listed:
@@ -565,7 +587,9 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
         lines += _journey_lines(manifest) + [""]
     if inherited:
         lines += ["Inherited requirements: keep each as an acceptance criterion of your plan with exactly this id "
-                  f"({', '.join(inherited)}). A plan that drops one is rejected by the program.", ""]
+                  f"({', '.join(inherited)}). Keep its criterion text unchanged, including case, punctuation and "
+                  "inner whitespace (outer whitespace may differ), and preserve human_review: true. Preserve inherited constraints, exclusions "
+                  "and permission boundaries. Verification methods may adapt to this run's proof base.", ""]
     if workstream["kind"] == "integration":
         # A live final check copied the parent's test: marks, which its regression proof cannot pass on a
         # base that already delivers them (2026-10-06).
@@ -612,14 +636,15 @@ def abandon(record, reason, *, new_worktree=False):
     """
     # A resolution merged by hand is on the integration branch, as a merged workstream is: start from there.
     new_worktree = new_worktree or bool(record.get("manual_merge"))
-    entry = {"at": util.now(), "reason": reason, **{key: record[key] for key in
-             ("run_dir", "run_status", "merged_commit", "workspace", "branch", "pin", "approved_plan")
+    entry = {"at": util.now(), "reason": reason, "status": record["status"], **{key: copy.deepcopy(record[key]) for key in
+             ("run_dir", "run_status", "started_at", "merged_commit", "workspace", "branch", "base_commit", "pin", "approved_plan",
+              "verification", "accepted_source", "plan_check", "manual_merge")
              if record.get(key)}}
     record.setdefault("retired_runs", []).append(entry)
     children.detach(record)
     for key in ("finished_at", "conflict", "plan_check", "approved_plan", "integration_check", "error",
                 "merged_commit", "merged_at", "merge_note", "checks", "journeys", "verification", "pin",
-                "blocked_reason", "manual_merge"):
+                "blocked_reason", "manual_merge", "accepted_source", "conflict_delivery"):
         record.pop(key, None)
     if new_worktree:
         for key in ("workspace", "branch", "base_commit"):
@@ -639,17 +664,86 @@ def _upstream(manifest, wid):
     return found
 
 
+def accepted_integration_frontier(state):
+    """Find an accepted descendant of every receipt, never infer acceptance from Git HEAD."""
+    workspace = state["integration"]["workspace"]
+    base = state["integration"].get("base_commit")
+    commits, deliveries = {base} if base else set(), set()
+    for wid, current in state["workstreams"].items():
+        for row in [current, *(current.get("retired_runs") or [])]:
+            if row.get("status") != "MERGED":
+                continue
+            head = row.get("merged_commit")
+            proof, approval, check, pin = [row.get(key) or {} for key in ("verification", "approved_plan", "plan_check", "pin")]
+            if (not all(isinstance(value, dict) for value in (proof, approval, check, pin))
+                    or not head or proof.get("head") != head or proof.get("verdict") not in ("PASS", "NO_CHECKS")
+                    or not approval.get("token") or approval.get("run_dir") != row.get("run_dir")
+                    or not check.get("approved") or check.get("token") != approval["token"]
+                    or check.get("dropped") or check.get("boundaries") or not pin.get("scope")
+                    or pin.get("policy") != AGREEMENT_POLICY or any(approval.get(key) != value for key, value in pin.items())):
+                raise util.Paused("PAUSED_INTEGRATION_DIRTY", f"Accepted delivery {wid} has no matching approval/verification receipt. "
+                                  f"Preserved workspace: {workspace}; run: {row.get('run_dir')}. Reconcile the saved receipt and "
+                                  "Git history with the original evidence, or start a new program from an explicitly reviewed "
+                                  "checkout. No legacy acceptance was reconstructed and no work was discarded")
+            commits.add(head)
+            deliveries.add((wid, head))
+    history = [row for row in state.get("events", []) if row.get("event") == "workstream_merged"]
+    if set((row.get("workstream"), row.get("commit")) for row in history) != deliveries:
+        raise util.Paused("PAUSED_INTEGRATION_DIRTY", f"Accepted merge history and delivery receipts disagree in {workspace}; "
+                          "retain all worktrees and reconcile original receipts (legacy retired records are not acceptance). "
+                          "Alternatively start a new program from an explicitly reviewed checkout")
+    if not commits or any(not isinstance(head, str) or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", head) for head in commits):
+        raise util.Paused("PAUSED_INTEGRATION_DIRTY", "No exact accepted integration frontier is recorded; preserve the worktree and reconcile its receipts")
+    for candidate in dict.fromkeys([row["commit"] for row in reversed(history)] + [base]):
+        if candidate and all(subprocess.run(["git", "-C", workspace, "merge-base", "--is-ancestor", head, candidate],
+                                            capture_output=True).returncode == 0 for head in commits):
+            return candidate
+    raise util.Paused("PAUSED_INTEGRATION_DIRTY", "Accepted integration commits do not have one validated ancestry; preserve all accepted deliveries for reconciliation")
+
+
+def isolate_retired_integration(project, state):
+    """Keep a retired final check's branch, index, untracked work and evidence intact."""
+    previous = state["integration"]
+    record = next(row for row in state["workstreams"].values() if row["kind"] == "integration")
+    retired = next((row for row in reversed(record.get("retired_runs") or [])
+                    if row.get("workspace") == previous["workspace"] and not row.get("isolated_into")), None)
+    if retired is None:
+        return
+    base = accepted_integration_frontier(state)
+    head, dirty = integration_head(state), _dirty_source(previous["workspace"])
+    if head == base and not dirty:
+        return
+    guarded = [wid for wid, row in state["workstreams"].items()
+               if row.get("manual_merge") or any(old.get("manual_merge") for old in row.get("retired_runs") or [])]
+    if guarded:
+        raise util.Paused("PAUSED_INTEGRATION_DIRTY", "Retired final check shares a guarded manual resolution for "
+                          + ", ".join(guarded) + f" in {previous['workspace']}. Land or explicitly reconcile that resolution "
+                          "before isolating the final check; its branch, checks, index and all work are preserved")
+    suffix = uuid.uuid4().hex[:8]
+    fresh = _worktree(project, f"program-{state['key']}-integration-{suffix}",
+                      f"autocode/program-{state['key']}/integration-{suffix}", base)
+    retired.update(isolated_into=copy.deepcopy(fresh), preserved_head=head, preserved_status=dirty)
+    state.setdefault("retired_integrations", []).append(copy.deepcopy(previous))
+    state["integration"] = fresh
+    for key in ("workspace", "branch", "base_commit"):
+        record.pop(key, None)
+    note(state, "retired_integration_isolated", preserved=previous["workspace"], workspace=fresh["workspace"], base=base)
+
+
 def mark_stale(manifest, state):
     """Workstreams built from a part of the agreement that a later approved revision changed."""
     revision = state["agreement"]["revision"]
     records = state["workstreams"]
     stale = [wid for wid, record in records.items() if record.get("pin") and record["status"] not in ("PENDING", "STALE")
-             and record["pin"]["scope"] != agreement.scope_digest(manifest, wid)]
+             and (record["pin"].get("policy") != AGREEMENT_POLICY
+                  or record["pin"]["scope"] != agreement.scope_digest(manifest, wid))]
     rechecked = set(stale) | {wid for wid, record in records.items() if record["status"] == "STALE"}
     for wid in stale:
         record = records[wid]
         reason = (f"agreement revision {revision} changed what workstream {wid} is built from "
                   f"(it was built under revision {record['pin']['revision']})")
+        if record["pin"].get("policy") != AGREEMENT_POLICY:
+            reason = "renewed inheritance-policy approval requires a fresh child plan; the agreement revision is unchanged"
         # A merged workstream, or one built on a workstream that is re-checked too, restarts from the
         # integration head that will hold the re-checked result; otherwise it keeps its worktree.
         abandon(record, reason, new_worktree=record["status"] == "MERGED" or bool(_upstream(manifest, wid) & rechecked))
@@ -663,6 +757,9 @@ def inspect(manifest, state, wid, record, view):
     if view is None or record["status"] in ("MERGED", "STALE"):
         return
     approved = view.get("approved_contract")
+    if not (isinstance(approved, dict) and isinstance(approved.get("body"), dict) and approved.get("token")):
+        approved = None
+    previous_approval = record.pop("approved_plan", None)
     if approved:
         criteria, plan = approved["body"].get("acceptance_criteria") or [], approved
     elif view.get("status") == "AWAITING_GOAL_APPROVAL" and view.get("displayed_plan"):
@@ -671,24 +768,29 @@ def inspect(manifest, state, wid, record, view):
         criteria, plan = None, None
     if plan is not None:
         missing = agreement.dropped(manifest, wid, criteria)
-        if approved and missing:
-            record.pop("approved_plan", None)  # the plan the run now holds is not one the program accepted
+        boundaries = agreement.lost_boundaries(manifest, approved["body"] if approved else plan, approved=bool(approved))
+        fingerprint = util.digest(plan)
         check = record.get("plan_check") or {}
-        if not missing:
-            record["plan_check"] = {"token": plan["token"], "dropped": [], "approved": bool(approved)}
-        elif check.get("token") != plan["token"]:
+        if not missing and not boundaries:
+            record["plan_check"] = {"token": plan["token"], "fingerprint": fingerprint, "dropped": [],
+                                    "boundaries": [], "approved": bool(approved)}
+        elif check.get("fingerprint") != fingerprint:
             rejections = record.get("plan_rejections", 0) + 1
             record["plan_rejections"] = rejections
-            record["plan_check"] = {"token": plan["token"], "dropped": missing, "approved": bool(approved),
+            record["plan_check"] = {"token": plan["token"], "fingerprint": fingerprint, "dropped": missing,
+                                    "boundaries": boundaries, "approved": bool(approved),
                                     "exhausted": rejections > MAX_PLAN_REJECTIONS}
             note(state, "plan_rejected", workstream=wid, dropped=missing, approved=bool(approved))
-            text = ("The program agreement rejects this plan: it drops inherited requirement(s) "
-                    + ", ".join(missing) + ". Keep each inherited requirement as an acceptance criterion with exactly "
-                    "its id (" + ", ".join(agreement.inherited(manifest, wid)) + "); a workstream may not drop a "
-                    "requirement it inherited.")
+            reason = ("drops inherited requirement(s) " + ", ".join(missing) if missing else
+                      "drops inherited boundaries " + "; ".join(boundaries))
+            text = ("The program agreement rejects this plan: it " + reason + ". Keep each inherited requirement's "
+                    "id, exact criterion definition and human_review obligation, and every inherited constraint "
+                    "and permission boundary. Copy their text from the brief; do not weaken or paraphrase it.")
             if rejections <= MAX_PLAN_REJECTIONS:
                 if approved:
-                    abandon(record, "its approved plan dropped inherited requirement(s) " + ", ".join(missing))
+                    abandon(record, "its approved plan " + reason)
+                    if previous_approval:
+                        record["retired_runs"][-1]["approved_plan"] = previous_approval
                     return
                 try:
                     children.apply_view(record, children.feedback(record, text))
@@ -701,9 +803,9 @@ def inspect(manifest, state, wid, record, view):
                 return
         else:
             record["plan_check"].pop("replanning", None)  # the child shows the rejected plan again
-        if approved and not missing:
-            record["approved_plan"] = {"token": approved["token"], **(record.get("pin") or {})}
-    elif (record.get("plan_check") or {}).get("dropped") and view.get("status") == "RUNNING":
+        if approved and not missing and not boundaries:
+            record["approved_plan"] = {"token": approved["token"], "run_dir": record.get("run_dir"), **(record.get("pin") or {})}
+    elif ((record.get("plan_check") or {}).get("dropped") or (record.get("plan_check") or {}).get("boundaries")) and view.get("status") == "RUNNING":
         # The child no longer shows the rejected plan: a person acted on it (feedback), and the child
         # re-plans when advanced. That plan is checked again; nothing merges before one keeps every
         # inherited id.
@@ -732,6 +834,8 @@ def plan_blocked(record, *, merging=False):
     resumable = not (check.get("approved") or check.get("exhausted")) or check.get("replanning")
     if check.get("dropped") and (merging or not resumable):
         return f"its plan drops inherited requirement(s) {', '.join(check['dropped'])}"
+    if check.get("boundaries") and (merging or not resumable):
+        return "its plan drops inherited boundaries " + "; ".join(check["boundaries"])
     return None
 
 
@@ -769,11 +873,19 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
         # brief.md is the brief that started the workstream's current run; resuming it leaves that alone.
         brief = compose_brief(manifest, workstream, state, from_head=from_head)
         (artifact / "brief.md").write_text(brief + "\n")
+        prior = next((row.get("accepted_source") for row in reversed(record.get("retired_runs") or [])
+                      if row.get("accepted_source")), None)
+        meta = workspaces.keep_out_of_git(workspace) / "task-workspace.json"
+        data = util.read_object(meta)
+        data.pop("accepted_recheck", None)
+        if prior and source_snapshot.snapshot(workspace, paths=prior["snapshot"].get("source_paths", []))["revision"] == prior["snapshot"]["revision"]:
+            data["accepted_recheck"] = copy.deepcopy(prior)
+        util.atomic_json(meta, data)
     with STATE_LOCK:
         if not record.get("run_dir"):
             # The part of the agreement this run is built from; a revision that changes it retires the run.
             record["pin"] = {"revision": state["agreement"]["revision"],
-                             "scope": agreement.scope_digest(manifest, workstream["id"])}
+                             "scope": agreement.scope_digest(manifest, workstream["id"]), "policy": AGREEMENT_POLICY}
         record.update(status="RUNNING", started_at=util.now())
         record.pop("error", None)
         record.pop("command", None)  # rewritten from the invocation itself
@@ -835,7 +947,15 @@ def _commit_all(workspace, message):
     """Commit every change except runner metadata and bytecode caches; return the new commit or None when clean."""
     if workspaces.git(workspace, "diff", "--cached", "--name-only", "--", ".autocode"):
         raise util.Paused("PAUSED_METADATA", "Runner metadata is staged; unstage .autocode before integrating")
-    workspaces.git(workspace, "add", "-A", "--", ".", ":!.autocode", ":(exclude)*__pycache__*", ":(exclude)*.pyc")
+    paths = list(dict.fromkeys(path for args in (("diff", "HEAD", "--name-only", "-z"),
+                                                ("diff", "--cached", "--name-only", "-z"),
+                                                ("ls-files", "--others", "--exclude-standard", "-z"))
+                              for path in subprocess.run(["git", "-C", str(workspace), *args], check=True,
+                                                         capture_output=True, text=True).stdout.split("\0")))
+    paths = [path for path in paths
+             if path and not path.startswith(".autocode/") and not _bytecode(path)]
+    if paths:
+        workspaces.git(workspace, "add", "-A", "--", *(f":(literal){path}" for path in paths))
     if not workspaces.git(workspace, "diff", "--cached", "--name-only"):
         return None
     workspaces.git(workspace, *GIT_IDENTITY, "commit", "-q", "-m", message)
@@ -882,9 +1002,9 @@ def check_owners(manifest, state, wid, command):
     return list(dict.fromkeys(owner for owner, found in _owned_checks(manifest, state, wid) if found == command))
 
 
-def verify_integration(manifest, state, program_dir, wid, timeout):
+def verify_integration(manifest, state, program_dir, wid, timeout, *, commands=None):
     """Re-run the cumulative checks in a clean copy of the integration branch; return the receipt."""
-    commands = cumulative_checks(manifest, state, wid)
+    commands = cumulative_checks(manifest, state, wid) if commands is None else commands
     number = state["verification_count"] = state.get("verification_count", len(state["verifications"])) + 1
     out = program_dir / "verify" / f"{number:03d}-{wid}"
     rows = []
@@ -928,7 +1048,7 @@ def _check_advice(manifest, state, wid, record, command):
             f"{retire}. Then rerun. ")
 
 
-def land(manifest, state, workstream, record, program_dir, options, *, before, branch_head, manual=False, final=True):
+def land(manifest, state, workstream, record, program_dir, options, *, before, branch_head, manual=False, final=True, resolution_checks=None):
     """Verify the integrated result after a merge; undo the program's merge and pause when it fails.
 
     ``before`` is the integration head before the program merged the workstream (None when it made
@@ -937,7 +1057,10 @@ def land(manifest, state, workstream, record, program_dir, options, *, before, b
     that publishes its interfaces, verifies the skeleton and records the verification.
     """
     wid = workstream["id"]
-    result = verify_integration(manifest, state, program_dir, wid, options.get("check_timeout", CHECK_TIMEOUT))
+    if resolution_checks is None:
+        result = verify_integration(manifest, state, program_dir, wid, options.get("check_timeout", CHECK_TIMEOUT))
+    else:
+        result = verify_integration(manifest, state, program_dir, wid, options.get("check_timeout", CHECK_TIMEOUT), commands=resolution_checks)
     is_skeleton = workstream.get("skeleton")
     if result["verdict"] == "FAIL" or (is_skeleton and result["verdict"] == "NO_CHECKS"):
         integration = state["integration"]["workspace"]
@@ -972,9 +1095,13 @@ def land(manifest, state, workstream, record, program_dir, options, *, before, b
     record.pop("merge_from", None)
     if not final:
         return
+    record.pop("conflict_delivery", None)
     record.pop("manual_merge", None)
     record.update(verification={key: result[key] for key in ("verdict", "head", "at", "receipts")},
                   verified_checks=len(result["checks"]), merged_under=record.get("pin"))
+    record["accepted_source"] = {"snapshot": source_snapshot.snapshot(state["integration"]["workspace"], paths=workstream["owns"]),
+                                 "approved_plan": copy.deepcopy(record["approved_plan"]),
+                                 "verification": copy.deepcopy(record["verification"])}
     record.pop("stale_reason", None)
     if is_skeleton:
         state["skeleton"] = {"workstream": wid, "commit": result["head"], "checks": len(result["checks"]),
@@ -1003,6 +1130,11 @@ def require_checked_plan(workstream, record):
             "so the program could not check that it keeps every inherited requirement, and it was not merged. "
             f"Follow up its run (autocode --workspace {record.get('workspace')} --run-dir {record.get('run_dir')} "
             "--follow-up \"...\") so it plans again, approve that plan when it asks, then rerun the program"))
+    approved, check, pin = record["approved_plan"], record.get("plan_check") or {}, record.get("pin") or {}
+    if (not check.get("approved") or check.get("token") != approved.get("token") or check.get("dropped")
+            or check.get("boundaries") or approved.get("run_dir") != record.get("run_dir") or not pin.get("scope")
+            or pin.get("policy") != AGREEMENT_POLICY or any(approved.get(key) != value for key, value in pin.items())):
+        raise util.Paused("PAUSED_INHERITANCE", f"Workstream {workstream['id']} has no current checked plan bound to its run and agreement")
 
 
 def integrate(manifest, state, workstream, record, program_dir, options):
@@ -1062,7 +1194,9 @@ def integrate(manifest, state, workstream, record, program_dir, options):
     if result.returncode:
         subprocess.run(["git", "-C", str(integration), "merge", "--abort"], capture_output=True, text=True)
         record.pop("merge_from", None)
-        record.update(status="CONFLICT", conflict=(result.stdout + result.stderr).strip()[-2000:])
+        record.update(status="CONFLICT", conflict=(result.stdout + result.stderr).strip()[-2000:],
+                      conflict_delivery={"branch_head": branch_head, "checks": list(record.get("checks", [])),
+                                         "approved_plan": copy.deepcopy(record["approved_plan"])})
         note(state, "merge_conflict", workstream=workstream["id"], branch=record["branch"])
         raise util.Paused(
             "PAUSED_MERGE_CONFLICT",
@@ -1123,14 +1257,35 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
         # Its run may have delivered more since the conflict (a person followed it up): that work is not on the branch
         # the person merged (#626). The resolution is checked on its own first, publishing nothing yet.
         later = bool(_uncommitted(record["workspace"]))
+        reason = held(manifest, state, workstream["id"], merging=True)
+        # A newer run's checks may require its unmerged follow-up files. Check the resolution against
+        # the checks captured at conflict time; the ordinary final merge uses the current run's checks.
+        delivery = record.get("conflict_delivery")
+        resolution_checks = None
+        if later:
+            if not delivery:
+                raise util.Paused("PAUSED_MERGE_CONFLICT", f"Workstream {workstream['id']} has later work but no conflict-time "
+                                  "check receipt. Preserve the hand merge and child worktree; commit and merge its later "
+                                  "work by hand, then rerun to check the full current delivery")
+            current = record.get("checks", [])
+            record["checks"] = delivery["checks"]
+            try:
+                resolution_checks = cumulative_checks(manifest, state, workstream["id"])
+            finally:
+                record["checks"] = current
         land(manifest, state, workstream, record, program_dir, options, before=None, branch_head=branch_head,
-             manual=True, final=not later)
+             manual=True, final=not later and not reason, resolution_checks=resolution_checks)
         record.pop("conflict", None)
+        if reason and not later:
+            record.update(status="CONFLICT", blocked_reason=reason,
+                          manual_merge={"commit": integration_head(state), "branch_head": branch_head,
+                                        "checks": list(record.get("checks", []))})
+            return False
         if later:
             # The later work merges on top as an ordinary merge, with every check a merge has. Until it lands, the
             # resolution on the branch is guarded like a merged workstream: its checks run on every other merge.
             record.update(status="COMPLETE", manual_merge={"commit": integration_head(state), "branch_head": branch_head,
-                                                           "checks": list(record.get("checks", []))})
+                                                           "checks": list(delivery["checks"])})
             note(state, "manual_merge_with_later_work", workstream=workstream["id"], commit=integration_head(state))
             reason = held(manifest, state, workstream["id"], merging=True)
             if reason:
@@ -1142,6 +1297,13 @@ def adopt_manual_merge(manifest, state, workstream, record, program_dir, options
                       merge_note="conflict resolved manually")
         note(state, "workstream_merged", workstream=workstream["id"], commit=record["merged_commit"], manual=True)
         return True
+    delivery = record.get("conflict_delivery")
+    if delivery and subprocess.run(["git", "-C", str(integration), "merge-base", "--is-ancestor", delivery["branch_head"], "HEAD"],
+                                    capture_output=True).returncode == 0:
+        missing = workspaces.git(integration, "rev-list", "--reverse", f"HEAD..{record['branch']}").splitlines()
+        raise util.Paused("PAUSED_MERGE_CONFLICT", f"Workstream {workstream['id']}'s hand resolution contains its conflict-time tip "
+                          f"but not later commit(s): {', '.join(missing)}. Preserve the resolution and merge "
+                          f"{record['branch']} into {state['integration']['branch']} by hand, then rerun; no delivery was accepted")
     return False
 
 
@@ -1204,7 +1366,7 @@ def held(manifest, state, wid, *, merging=False):
     if agreement.needs_skeleton(manifest, wid) and not state.get("skeleton"):
         return "waiting for the walking skeleton to be merged and verified"
     if kind == "integration":
-        behind = [row["id"] for row in manifest["workstreams"] if row["kind"] == "code"
+        behind = [row["id"] for row in manifest["workstreams"] if row["kind"] not in ("integration", "deployment")
                   and state["workstreams"][row["id"]]["status"] != "MERGED"]
         if behind:
             return "the final check waits until every workstream is merged: " + ", ".join(behind)
@@ -1287,7 +1449,7 @@ def summarize(manifest, state, state_path):
     pending_deploy_only = all(
         row["status"] == "MERGED" or (row["kind"] == "deployment" and
             (row["status"] in ("PENDING", "STALE") or row.get("blocked_reason"))) for row in rows)
-    exhausted = any(check.get("exhausted") and check.get("dropped") and not check.get("replanning")
+    exhausted = any(check.get("exhausted") and (check.get("dropped") or check.get("boundaries")) and not check.get("replanning")
                     for check in (row.get("plan_check") or {} for row in rows))
     pending = state["agreement"]["pending"]
     if pending:
@@ -1379,6 +1541,7 @@ def execute(options, source, manifest, project, program_dir, state_path):
                 inspect(manifest, state, wid, record, views.get(wid))
                 if record["status"] == "CONFLICT":
                     adopt_manual_merge(manifest, state, by_id[wid], record, program_dir, options)
+            isolate_retired_integration(project, state)
             fresh.clear()
             save()
             for wid, record in state["workstreams"].items():
@@ -1399,7 +1562,7 @@ def execute(options, source, manifest, project, program_dir, state_path):
             batch = rows[:options["max_parallel"]]
             for workstream, record in batch:
                 if (workstream["kind"] == "integration" and record["status"] in ("PENDING", "STALE")
-                        and workspaces.git(state["integration"]["workspace"], "status", "--porcelain", "--untracked-files=no")):
+                        and _dirty_source(state["integration"]["workspace"])):
                     raise util.Paused("PAUSED_INTEGRATION_DIRTY", (
                         "The final check starts on the integration worktree, which has uncommitted changes: commit "
                         f"or discard (git restore) the uncommitted changes in {state['integration']['workspace']}; "
@@ -1442,6 +1605,13 @@ def execute(options, source, manifest, project, program_dir, state_path):
 def _save(state_path, state):
     with STATE_LOCK:
         util.atomic_json(state_path, state)
+
+
+def _dirty_source(workspace):
+    tracked = workspaces.git(workspace, "status", "--porcelain", "--untracked-files=no")
+    untracked = subprocess.run(["git", "-C", str(workspace), "ls-files", "--others", "--exclude-standard", "-z"],
+                               check=True, capture_output=True, text=True).stdout.split("\0")
+    return tracked or any(path and not path.startswith(".autocode/") and not _bytecode(path) for path in untracked)
 
 
 # --- CLI ------------------------------------------------------------------------
@@ -1537,6 +1707,8 @@ def cli_show(argv):
     if record["pending"]:
         print(agreement.render(manifest, revision=record["pending"]["revision"], value=record["pending"]["digest"],
                                previous=record["approved"]))
+        if record["pending"].get("policy_upgrade"):
+            print("\n" + "\n".join(record["pending"]["changes"]))
     else:
         print(agreement.render(manifest, revision=record["revision"], value=record["digest"]))
         print(f"\nRevision {record['revision']} is approved ({record['approved_at']}).")

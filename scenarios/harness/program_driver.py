@@ -137,7 +137,13 @@ def renamed(row: dict, ids: dict[str, str]) -> dict:
 def revise(manifest: dict, edits: dict) -> dict:
     """The person's edits laid over the derived manifest: tables merge, anything else replaces."""
     for key, value in edits.items():
-        if isinstance(value, dict) and isinstance(manifest.get(key), dict):
+        if key == "workstreams" and isinstance(value, dict) and isinstance(manifest.get(key), list):
+            for wid, fields in value.items():
+                row = next((row for row in manifest[key] if row["id"] == wid), None)
+                if row is None:
+                    raise DriveError(f"program revision names unknown workstream {wid}")
+                row.update(json.loads(json.dumps(fields)))
+        elif isinstance(value, dict) and isinstance(manifest.get(key), dict):
             revise(manifest[key], value)
         else:
             manifest[key] = json.loads(json.dumps(value))
@@ -160,6 +166,7 @@ class ProgramDriver:
         self.summary: dict = {}      # the last program summary
         self.shown: list[str] = []   # agreement tokens `program show` displayed
         self.approved: list[str] = []
+        self.child_views, self.plan_view = {}, {}
         # The scenario's [program] with its workstream ids renamed to the derived ones (map_workstreams).
         self.ids: dict[str, str] = {}
         self.edits = json.loads(json.dumps(scenario.program_revise))
@@ -168,6 +175,7 @@ class ProgramDriver:
         self.changes = [{"interface": step["interface"], "by": step["by"], "after": step["after"],
                          "decide": step["decide"], "request": None, "decided": False}
                         for step in scenario.program_changes]
+        self.revisions = [{**step, "edited": False} for step in scenario.program_revisions]
 
     # --- CLI ----------------------------------------------------------------
 
@@ -222,8 +230,12 @@ class ProgramDriver:
     def map_workstreams(self, derived: dict) -> None:
         """Rename the workstreams the scenario's [program] names to the derived manifest's (workstream_ids)."""
         named = named_workstreams(self.scenario.program_revise, self.scenario.program_changes)
+        named |= set(self.edits.get("workstreams", {}))
+        named |= {step[key].removeprefix("merged:") for step in self.revisions for key in ("workstream", "after")}
         self.ids = workstream_ids(derived, [row for row in self.scenario.fake_milestones if row["id"] in named],
                                   named_in=self.scenario.brief)
+        if isinstance(self.edits.get("workstreams"), dict):
+            self.edits["workstreams"] = {self.ids.get(wid, wid): fields for wid, fields in self.edits["workstreams"].items()}
         shared = self.edits.get("shared")
         if isinstance(shared, dict) and isinstance(shared.get("interfaces"), list):
             shared["interfaces"] = [renamed(row, self.ids) if isinstance(row, dict) else row
@@ -235,6 +247,10 @@ class ProgramDriver:
             if "publish" in step:
                 step["publish"] = renamed(step["publish"], self.ids)
             record.update(by=step["by"], after=step["after"])
+        for step in self.revisions:
+            step["workstream"] = self.ids.get(step["workstream"], step["workstream"])
+            after = step["after"].removeprefix("merged:")
+            step["after"] = "merged:" + self.ids.get(after, after)
 
     def plan_leg(self) -> str:
         """Plan and approve the program; an empty string once approved, else the status it stopped at."""
@@ -283,7 +299,7 @@ class ProgramDriver:
                                      + tail(proc)) from None
                 self.approve(pending)
                 continue
-            if self.raise_due_change(summary) or self.decide_changes(summary) or self.serve_workstreams(summary):
+            if self.raise_due_change(summary) or self.decide_changes(summary) or self.revise_due_scope(summary) or self.serve_workstreams(summary):
                 last = None
                 continue
             rows = summary["workstreams"]
@@ -367,6 +383,17 @@ class ProgramDriver:
     def read_manifest(self) -> dict:
         return json.loads(self.manifest.read_text())
 
+    def revise_due_scope(self, summary):
+        merged = {row["id"] for row in summary["workstreams"] if row["status"] == "MERGED"}
+        for step in self.revisions:
+            if not step["edited"] and step["after"].removeprefix("merged:") in merged:
+                manifest = self.read_manifest()
+                next(row for row in manifest["workstreams"] if row["id"] == step["workstream"])["brief"] = step["brief"]
+                self.write_manifest(manifest)
+                step["edited"] = True
+                return True
+        return False
+
     def write_manifest(self, manifest: dict) -> None:
         self.manifest.write_text(json.dumps(manifest, indent=2) + "\n")
 
@@ -383,13 +410,22 @@ class ProgramDriver:
             (self.root / "program-summary.json").write_text(json.dumps(self.summary, indent=2))
         for wid, runs in self.workstream_runs().items():
             for number, run in enumerate(runs, start=1):
-                state = Path(run["run_dir"]) / "state.json"
-                if state.is_file():
-                    target = self.root / "workstreams" / wid / f"{number:02d}-state.json"
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(state, target)
+                child = WorkstreamDriver(wid, Path(run["run_dir"]), Path(run["workspace"]), self.root, [], self.child_env,
+                                         autocode=self.autocode, timeout_seconds=60, max_steps=1)
+                try:
+                    view = child.view()
+                except DriveError as error:
+                    view = {"unavailable": str(error)}
+                self.child_views[run["run_dir"]] = view
+                target = self.root / "workstreams" / wid / f"{number:02d}-view.json"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(json.dumps(view, indent=2))
         if self.plan.run_dir:
-            (self.root / "state.json").write_text(json.dumps(self.plan.state(), indent=2))
+            try:
+                self.plan_view = self.plan.view()
+            except DriveError as error:
+                self.plan_view = {"unavailable": str(error)}
+            (self.root / "plan-view.json").write_text(json.dumps(self.plan_view, indent=2))
         return self.summary
 
     def product(self) -> Path:
@@ -401,32 +437,29 @@ class ProgramDriver:
         """Every run each workstream had, retired ones first: {workstream: [{run_dir, retired}]}."""
         found = {}
         for row in self.summary.get("workstreams") or []:
-            runs = [{"run_dir": item["run_dir"], "retired": True} for item in row.get("retired_runs") or []
+            runs = [{"run_dir": item["run_dir"], "workspace": item.get("workspace") or row.get("workspace"),
+                     "created_at": item.get("started_at"), "retired": True} for item in row.get("retired_runs") or []
                     if item.get("run_dir")]
             if row.get("run_dir"):
-                runs.append({"run_dir": row["run_dir"], "retired": False})
+                runs.append({"run_dir": row["run_dir"], "workspace": row["workspace"], "created_at": row.get("started_at"), "retired": False})
             found[row["id"]] = runs
         return found
 
     def record(self) -> dict:
         """What an oracle may know about how the program went (harness.oracle.program_checks)."""
-        plan_state = self.plan.state() if self.plan.run_dir else {}
-        try:
-            plan_view = self.plan.view() if self.plan.run_dir else {}
-        except DriveError:
-            plan_view = {}
+        plan_view = self.plan_view
+        plan_state = _metric_input(plan_view)
         plan_steps = self.steps[:self.plan_steps]
         children, states = {}, []
         for wid, runs in self.workstream_runs().items():
             children[wid] = []
             for run in runs:
-                path = Path(run["run_dir"]) / "state.json"
-                state = json.loads(path.read_text()) if path.is_file() else {}
+                view = self.child_views.get(run["run_dir"], {})
+                state = _metric_input(view)
                 states.append(state)
                 numbers = metrics(state)
-                workflow = state.get("workflow")
-                children[wid].append({**run, "created_at": state.get("created_at"), "status": state.get("status"),
-                                      "workflow": workflow.get("kind") if isinstance(workflow, dict) else workflow,
+                children[wid].append({**view, **run, "created_at": run.get("created_at") or min(
+                    (row["started_at"] for row in state["stages"] if row.get("started_at")), default=None),
                                       "stages": numbers["stage_names"],
                                       "model_stages": numbers["model_stage_names"]})
         program_state = {}
@@ -453,6 +486,7 @@ class ProgramDriver:
             "agreement": {"shown": list(self.shown), "approved": list(self.approved)},
             "workstream_ids": dict(self.ids),
             "interfaces": interfaces, "declared_checks": declared, "changes": [dict(record) for record in self.changes],
+            "revisions": [dict(record) for record in self.revisions],
             "answers": self.answers, "cli_calls": [step["kind"] for step in self.steps],
             "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in self.steps],
             # Every model stage of the plan run and of every workstream run, for [run] requires_stages.
@@ -462,3 +496,8 @@ class ProgramDriver:
                                               for stage in state.get("stages") or []]}),
                         "runs": 1 + len(states)},
         }
+
+
+def _metric_input(view):
+    attempts = (view.get("usage", {}).get("accounting") or {}).get("attempts") or []
+    return {"status": view.get("status", ""), "stages": [{**row, "metrics": {"provider_tokens": row.get("tokens")}} for row in attempts]}

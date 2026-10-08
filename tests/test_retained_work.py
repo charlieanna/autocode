@@ -11,6 +11,7 @@ import tempfile
 import unittest
 
 import autocode_retained_work as retained_work
+import autocode_util as util
 
 ELF = b"\x7fELF\x02\x01\x01" + b"\0" * 64
 
@@ -93,6 +94,54 @@ class RetainedWorkTests(unittest.TestCase):
         data = json.loads(after.read_text()); data['files']['outside.txt'] = 'stray'
         after.write_text(json.dumps(data))
         self.assertIsNone(retained_work.fresh_candidate(state, retry, 'r1'))
+
+
+    def accepted_recheck(self):
+        state, retry = self.state({"src/new.go": "1"})
+        state["stages"] = []
+        contract = {"task_id": "goal", "revision": 1, "body": {"open_blocking_questions": []}, "origin": "agent_plan"}
+        contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
+        approval = {"actor": "user_cli", "token": f"r1:{contract['hash']}"}
+        contract.update(approval_status="approved", approval_event=approval)
+        state.update(goal_contract=contract, user_events=[approval])
+        state["current_task"]["contract_hash"] = contract["hash"]
+        meta = self.workspace / ".autocode/task-workspace.json"
+        meta.parent.mkdir()
+        receipt = {"snapshot": json.loads(Path(retry["before_ref"]).read_text()),
+                   "approved_plan": {"token": "r1:prior", "run_dir": "prior-run"},
+                   "verification": {"head": "h", "verdict": "PASS"}}
+        meta.write_text(json.dumps({"accepted_recheck": receipt}))
+        return state, retry, meta, receipt
+
+    def test_exact_accepted_source_is_candidate_for_fresh_review_not_cached_credit(self):
+        state, retry, _, _ = self.accepted_recheck()
+        value = retained_work.fresh_candidate(state, retry, "r1")
+        self.assertEqual({"source_revision": "r1", "retained_paths": [], "accepted_recheck": True,
+                          "prior_approved_plan": "r1:prior"}, value)
+        self.assertNotIn("validation", value)
+        self.assertNotIn("completion", value)
+
+    def test_unchanged_recheck_requires_fresh_approval_exact_source_and_current_task(self):
+        state, retry, _, _ = self.accepted_recheck()
+        for change in ({"approval_status": "draft"}, {"approval_event": {"actor": "user", "token": "old"}}):
+            modified = copy.deepcopy(state)
+            modified["goal_contract"].update(change)
+            self.assertIsNone(retained_work.fresh_candidate(modified, retry, "r1"))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, "different"))
+        for fields in ({"task_id": "other"}, {"rolled_back": True}):
+            self.assertIsNone(retained_work.fresh_candidate(state, {**retry, **fields}, "r1"))
+        Path(retry["after_ref"]).write_text(json.dumps({"head": "h", "revision": "r1", "files": {"different": "x"}}))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, "r1"))
+
+    def test_revoked_rolled_back_or_checked_earlier_receipts_are_not_candidates(self):
+        state, retry, meta, receipt = self.accepted_recheck()
+        for key in ("rolled_back", "checked_earlier"):
+            changed = copy.deepcopy(receipt)
+            changed["verification"][key] = True
+            meta.write_text(json.dumps({"accepted_recheck": changed}))
+            self.assertIsNone(retained_work.fresh_candidate(state, retry, "r1"))
+        meta.write_text(json.dumps({"accepted_recheck": {**receipt, "revoked": True}}))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, "r1"))
 
 
 class OwnRepairSourceTests(unittest.TestCase):

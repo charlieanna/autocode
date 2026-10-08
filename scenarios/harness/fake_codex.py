@@ -401,7 +401,8 @@ def milestone_task(milestone_id: str) -> dict:
     row = milestone_row(milestone_id)
     # A program workstream re-checked after an agreement revision may find its files already right.
     rechecked = WORKSTREAM is not None and all(conforms(path) for path in row["paths"])
-    return {"kind": "validate" if rechecked else "implement", "milestone_id": milestone_id,
+    forced = CONFIG.get("fault") == "program_recheck_implement" and WORKSTREAM and WORKSTREAM["id"] == "S"
+    return {"kind": "validate" if rechecked and not forced else "implement", "milestone_id": milestone_id,
             "objective": row["objective"],
             "affected_paths": list(row["paths"]), "requirements": [row["objective"]],
             "validation_plan": [row["verify"]], "acceptance_criteria": criterion_ids(milestone_id),
@@ -424,7 +425,7 @@ def verification_method(row: dict) -> str:
     """A milestone's check; a re-checked workstream whose files already conform guards its criteria with a
     test it already has, as a live Planner marked a skeleton's re-check (2026-10-06), so the runner's
     regression proof runs on an unchanged source."""
-    test = first_test(row["paths"]) if milestone_task(row["id"])["kind"] == "validate" else None
+    test = first_test(row["paths"]) if WORKSTREAM and all(conforms(path) for path in row["paths"]) else None
     return "guard: " + test if test else row["verify"]
 
 
@@ -531,6 +532,28 @@ def scripted_fault(name: str) -> dict:
     return runpy.run_path(str(scenario_dir().parents[1] / "harness" / name))
 
 
+def inherit_program(body):
+    """Script a Planner quoting the exact inherited definitions, not a weaker same-id substitute."""
+    task = WORKSTREAM["task"]
+    criteria = {}
+    for cid, text in re.findall(r"^- ([A-Za-z0-9._-]+): (.+)$", task, re.M):
+        if cid in WORKSTREAM["inherited"]:
+            human = "human_review: true" in text
+            text = re.sub(r"\s+\((?:verify:|human_review:).*$", "", text)
+            criteria[cid] = {"criterion": text, "human_review": human}
+    for row in body["acceptance_criteria"]:
+        if row["id"] in criteria:
+            row.update(criteria[row["id"]])
+    found = re.search(r"Approved parent contract .*?\n```json\n(.*?)\n```", task, re.S)
+    parent = json.loads(found.group(1)) if found else {}
+    for key, label in (("constraints", "Shared constraints"), ("permission_boundaries", "Permission boundaries")):
+        found = re.search(re.escape(label) + r":\n((?:- .*\n)+)", task)
+        shared = [line[2:] for line in found.group(1).splitlines()] if found else []
+        body[key] = list(dict.fromkeys(body[key] + list(parent.get(key) or []) + shared))
+    body["scope_exclusions"] = list(dict.fromkeys(body["scope_exclusions"] + list(parent.get("scope_exclusions") or [])))
+    return body
+
+
 def contract(final: bool = False) -> dict:
     existing = (DATA.get("goal_contract") or {}).get("body") or {}
     if PROGRESSIVE and existing.get("intended_outcome") == RENEWED_OUTCOME:
@@ -538,7 +561,7 @@ def contract(final: bool = False) -> dict:
         body.pop("initial_task", None)
         if final:
             body["initial_task"] = progressive_task()
-        return body
+        return inherit_program(body) if WORKSTREAM else body
     body = {
         "intended_outcome": outcome(),
         "intended_user": "The person who made the request",
@@ -568,13 +591,15 @@ def contract(final: bool = False) -> dict:
         body["deliverables"] = [p for row in MILESTONES for p in row["paths"]]
         body["acceptance_criteria"] = [{"id": cid, "criterion": row["objective"],
                                         "verification_method": verification_method(row), "human_review": False}
-                                       for row in MILESTONES for cid in criterion_ids(row["id"])]
+                                        for row in MILESTONES for cid in criterion_ids(row["id"])]
+        body["acceptance_criteria"] = list({row["id"]: {**row, "criterion": CONFIG.get("criteria", {}).get(row["id"], row["criterion"])}
+                                            for row in body["acceptance_criteria"]}.values())
         if final:
             first = milestone_task(MILESTONES[0]["id"])
             body["initial_task"] = {key: first[key] for key in
                                     ("kind", "milestone_id", "objective", "affected_paths",
                                      "requirements", "acceptance_criteria", "validation_plan")}
-        return body
+        return inherit_program(body) if WORKSTREAM else body
     if CONFIG.get("fault") == "recovery_novelty_narrow":
         # #423: the failing task owns two criteria, so the Resolver's repair can keep only one.
         body["acceptance_criteria"].append({"id": "C2", "criterion": "Blank and whitespace-only names print usage",
@@ -619,7 +644,7 @@ def contract(final: bool = False) -> dict:
                 "directly and confirm exact stdout/stderr bytes and exit codes 0/2/2.")
         if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
             body["initial_task"] = progressive_task()
-    return body
+    return inherit_program(body) if WORKSTREAM else body
 
 
 def emit(event: dict) -> None:

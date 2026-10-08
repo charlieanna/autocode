@@ -30,12 +30,17 @@ checkout_of() gives an explicit --run-dir its own checkout, resume_acknowledges(
 saved statuses a bare ``autocode resume`` stands for --resume-paused, and continue_hint() the
 line printed after a user action saved on a run.
 
-A lower-layer module beside autocode_util: it imports nothing from AutoCode, so it can
-never join an import cycle. It is read-only: it creates no directory, takes no lock,
+A lower-layer module beside autocode_util: it imports only pure component policy,
+never a controller. It is read-only: it creates no directory, takes no lock,
 touches no registry and launches nothing. A run that is live when it is chosen is refused
 later by the run lock, as for an explicit --run-dir.
 """
 from __future__ import annotations
+
+try:
+    from . import autocode_component_plan as component_plan
+except ImportError:
+    import autocode_component_plan as component_plan
 
 import dataclasses
 import datetime as dt
@@ -216,6 +221,10 @@ def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
         hint = f"It has finished ({run.status}); show it with: {_command(run, '--status')}"
         return hint + (f'; continue it with: {_command(run, "--follow-up")} "TEXT"' if run.complete else "")
     if run.status == 'PAUSED_COMPONENT_PLAN':
+        need = component_plan.recovery(state.get('task', ''),
+            (state.get('settings') or {}).get('regression', {}).get('test_root'))
+        if need.get('new_run_required'):
+            return need['recovery_hint'] + f" Inspect the retained run with: {_command(run, '--status')}"
         return (f"Correct the component plan with: {_command(run, '--edit-goal FILE')} "
                 f"(or {_command(run, '--feedback TEXT')} to request a new draft); the corrected plan needs fresh approval.")
     flags = f"--unit {unit}" if unit else ""

@@ -565,6 +565,11 @@ def initial_decision(body):
 
 def feedback(state, text):
     """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
+    if state.get('status') == 'PAUSED_COMPONENT_PLAN':
+        need = component_plan.recovery(state.get('task', ''),
+            (state.get('settings') or {}).get('regression', {}).get('test_root'))
+        if need.get('new_run_required'):
+            raise ValueError(need['recovery_hint'])
     no_contract_v2 = not state.get("goal_contract") and state.get("settings", {}).get("planning_flow") == "v2"
     if (state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET", "PAUSED_COMPONENT_PLAN")
             and not no_contract_v2) or not text.strip():

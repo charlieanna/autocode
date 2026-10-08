@@ -8,9 +8,59 @@ import autocode_recovery_view as recovery
 import autocode_run_view as run_view
 import autocode_run_finder as finder
 import autocode_recovery_novelty as novelty
+import autocode_progress_view as progress
+import autocode_issue as issue
 
 
 class RecoveryViewTests(unittest.TestCase):
+    def test_immutable_caller_binding_requires_fresh_run_in_every_public_reader(self):
+        task = ("Implement the api component of a larger system: HTTP service. "
+                "Own only the directory components/api/; do not create or edit any file outside it.")
+        ownership = "Own only the directory components/api/; do not create or edit any file outside it."
+        for original, root in ((task, "components/other"), (task.replace(ownership, ""), None),
+                               (task + " " + ownership, None)):
+            with self.subTest(task=original, root=root):
+                state = self.state('PAUSED_COMPONENT_PLAN', task=original, stop_reason='Repairable-looking body path')
+                state['settings']['regression'] = {'test_root': root}
+                before = copy.deepcopy(state)
+                view = run_view.view(state)
+                need = view['needs']
+                self.assertEqual('resume', need['kind'])
+                self.assertTrue(need.get('new_run_required'))
+                self.assertFalse(need.get('edit_required'))
+                self.assertEqual('fresh_run', need['action'])
+                self.assertIsNone(need['feedback_action'])
+                self.assertEqual(['inspect', 'new_run'], [row['kind'] for row in view['recovery']['actions']])
+                record = {'worktree': '/p', 'run_dir': '/p/.autocode/runs/old', 'owner': 'acme', 'repo': 'api', 'number': 7}
+                line = progress.progress(state, accepted=(), stage=None, needs=need)['needs_you']
+                texts = [line, finder.continue_hint('/p/.autocode/runs/old', state),
+                         '\n'.join(issue.next_steps(record, view)), view['recovery']['actions'][-1]['effect']]
+                for text in texts:
+                    self.assertIn('fresh', text.lower())
+                    self.assertNotIn('--edit-goal', text)
+                    self.assertNotIn('--feedback', text)
+                    self.assertNotIn('--resume-paused', text)
+                self.assertEqual(before, state)
+
+    def test_valid_legacy_binding_keeps_body_repair_even_if_stop_reason_claims_binding_failure(self):
+        state = self.state('PAUSED_COMPONENT_PLAN', task=(
+            'Implement the api component of a larger system: HTTP service. '
+            'Own only the directory components/api/; do not create or edit any file outside it.'),
+            stop_reason='Model claims the caller root disagrees and requires a new run')
+        before = copy.deepcopy(state)
+        view = run_view.view(state)
+        need = view['needs']
+        self.assertTrue(need['edit_required'])
+        self.assertFalse(need.get('new_run_required'))
+        self.assertEqual('--edit-goal FILE', need['action'])
+        record = {'worktree': '/p', 'run_dir': '/p/.autocode/runs/old', 'owner': 'acme', 'repo': 'api', 'number': 7}
+        line = progress.progress(state, accepted=(), stage=None, needs=need)['needs_you']
+        for text in (line, '\n'.join(issue.next_steps(record, view))):
+            self.assertIn('--edit-goal', text)
+            self.assertIn('--feedback', text)
+            self.assertNotIn('--resume-paused', text)
+        self.assertEqual(before, state)
+
     def test_component_plan_stop_requires_edit_and_fresh_approval(self):
         state = self.state('PAUSED_COMPONENT_PLAN', stop_reason='Component plan: outside ownership')
         before = copy.deepcopy(state)

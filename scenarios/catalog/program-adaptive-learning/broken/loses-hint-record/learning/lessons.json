@@ -1,0 +1,4 @@
+[
+  {"id": "addition", "text": "Two plus three", "question": "2+3", "answer": "5", "hint": "Count two then three"},
+  {"id": "subtraction", "text": "Five minus two", "question": "5-2", "answer": "3", "hint": "Take two away from five"}
+]

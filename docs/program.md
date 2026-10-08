@@ -92,9 +92,10 @@ and the milestone's criterion ids as `acceptance_criteria`. Then:
 - One `integration` workstream is appended. It depends on every sink milestone,
   validates the approved end-to-end flow, and lists every acceptance criterion. If a
   milestone is already named `integration`, the generated one gets a noncolliding id.
-- `journeys` gets one journey, `J1` "Main user journey" (another id if a criterion is
-  already `J1`), whose steps are the approved `end_to_end_flow` (or the outcome when
-  there is none).
+- `journeys` gets `J1` "Main user journey", whose steps are the approved
+  `end_to_end_flow` (or the outcome when there is none), plus `skeleton-journey`
+  "Walking skeleton journey" from the first workstream's brief. Ids avoid criterion
+  collisions. The skeleton selects only its thin journey; integration inherits both.
 - Shared constraints, permission boundaries, technical approach, end-to-end flow and
   deliverables are copied into `shared`; `shared.interfaces` is left empty.
 - `contract` holds the whole approved contract body with its `task_id`, `revision` and
@@ -162,15 +163,16 @@ worktree.
 | Field | Rule |
 | --- | --- |
 | `version`, `name`, `brief` | `version` is 1; `name` and `brief` are nonempty. The name keys the program's state (`.autocode/programs/<key>`): another name is another program |
-| `workstreams[]` fields | Only `id`, `kind`, `brief`, `owns`, `depends_on`, `acceptance_criteria`, `engine`, `skeleton`, `skeleton_exempt`, `checks` |
+| `workstreams[]` fields | Only `id`, `kind`, `brief`, `owns`, `depends_on`, `acceptance_criteria`, `engine`, `skeleton`, `skeleton_exempt`, `journeys`, `checks` |
 | `workstreams[].id` | Starts with a letter or digit, then letters, digits, `.`, `_`, `-`; at most 64 characters; unique |
-| `kind` | `code`, `integration`, `deployment`. Program-level `ui` is explicitly deferred until UI checkpoint recovery is supported; use `autocode ui` separately |
+| `kind` | `code`, `content`, `integration`, `deployment`. `content` is non-runtime work such as documentation. Program-level `ui` is explicitly deferred until UI checkpoint recovery is supported; use `autocode ui` separately |
 | `owns` | Literal repository-relative paths (no globs, `..`, `.git`, or `.autocode`). Non-integration workstreams must declare at least one. Two workstreams that could run at the same time may not own the same or nested paths; workstreams ordered by a dependency may |
 | `depends_on` | Known ids, no self, no duplicates, acyclic |
 | integration | Exactly one: the final check of the whole product on the merged result. It must (transitively) depend on every non-deployment workstream |
 | deployment | Must (transitively) depend on the integration workstream; nothing except another deployment may depend on it |
 | `skeleton` | Exactly one workstream, a `code` workstream with no dependencies. Every other workstream must (transitively) depend on it unless it is `skeleton_exempt` |
-| `skeleton_exempt` | The reason a `code` workstream other than the skeleton need not wait for it (nonempty text, shown on approval) |
+| `skeleton_exempt` | Only a `content` workstream may declare this nonempty reason for not waiting for the skeleton. It cannot produce or consume a declared runtime interface |
+| `workstreams[].journeys` | Only the skeleton may select a nonempty list of distinct agreement journey ids. Without it, the skeleton inherits every journey; integration always inherits all journeys |
 | `contract` or `requirements` | Where the requirements come from: the parent contract's acceptance criteria (derived manifests), or a top-level `requirements` list of `{id, criterion, verification_method, human_review}` with unique ids. Never both; both may be absent. `contract` is an object and its `body` an object; each of the body's `acceptance_criteria` needs an `id` and a `criterion`, and the ids are unique |
 | `workstreams[].acceptance_criteria` | Requirement ids the workstream inherits. When the agreement has requirements, each must be one of them, and every requirement must be listed by some workstream. When it has none (no parent contract acceptance criteria and no `requirements`), the ids are listed in the workstream's brief but neither inherited nor checked |
 | `journeys` | Required and nonempty: `{id, name, steps, simulated, does_not_prove}` with nonempty `steps`. A `simulated: true` journey must say what it does not prove. Ids are unique and differ from requirement ids |
@@ -238,8 +240,9 @@ Each invocation does one pass:
    [Interfaces and change requests](#interfaces-and-change-requests)); while its plan
    holds the program at `PAUSED_INHERITANCE`, until a person sends its run back to plan
    again (see [Inherited requirements](#inherited-requirements)); and, for deployment,
-   without `--authorize-deployment`. The final check is held until every code
-   workstream is merged. The summary gives the reason as `blocked_reason`.
+   without `--authorize-deployment`. The final check is held until every other
+   non-deployment workstream, including `content`, is merged. The summary gives
+   the reason as `blocked_reason`.
 8. Repeats steps 3 to 7 until nothing more can start. Each child is invoked at most
    once per pass.
 9. Prints a JSON summary and exits `0` only when the program is `COMPLETE`, otherwise `2`.
@@ -301,7 +304,7 @@ point, the pass pauses at `PAUSED_INTEGRATION_DIRTY` instead.
 | `AUTHORIZATION_REQUIRED` | Everything else is merged; deployment workstreams need authorization to start or resume | Rerun with `--authorize-deployment` after deciding deployment is wanted |
 | `BLOCKED` | A child invocation failed, with or without a saved checkpoint | Inspect its logs, then use `--retry-workstream ID`; missing checkpoints must be restored |
 | `PAUSED_MERGE_CONFLICT` | A completed workstream conflicts with the integration branch; the merge was aborted, both branches are intact. That pass ends; later passes merge and start the other workstreams | Merge it by hand in the integration worktree, commit, rerun (the program adopts the manual merge once the cumulative checks pass, and only under the run's checked plan, as any merge; then work the run left uncommitted in its worktree after the conflict, such as a follow-up's, is committed and merged on top of it as an ordinary merge. Until that merge lands, the checks your merge passed run on every other merge, and its interfaces and the skeleton count as delivered only once it lands. Work committed on the workstream branch after your merge needs another merge by hand) |
-| `PAUSED_INTEGRATION_DIRTY` | The integration worktree has uncommitted tracked changes, such as a retired final check run's edits ([open bug](bugs/2026-10-06-program-integration-retired-leftovers.md)), or is not on its recorded branch. Raised before a merge or an adopted conflict resolution, before the final check starts and before an [interrupted merge](#run-it) is taken back, and repeated there on every rerun until it is cleared | Commit or discard (`git restore`) the changes, or restore the branch, then rerun |
+| `PAUSED_INTEGRATION_DIRTY` | The active integration worktree is dirty or on the wrong branch, or a retired final check cannot be isolated from an exact accepted frontier (missing receipts, inconsistent ancestry or a guarded manual resolution) | Preserve the worktrees and reconcile the named branch, original receipts or manual resolution. When legacy acceptance cannot be established, start a new program from an explicitly reviewed checkout; no evidence is reconstructed |
 | `PAUSED_OWNERSHIP` | A completed workstream changed files outside `owns`, or switched branches. Nothing was merged; every rerun repeats it, and nothing starts until it is fixed | Correct the workstream delivery or restore its recorded branch, then rerun |
 | `PAUSED_METADATA` | Runner metadata was staged or committed. Every rerun repeats it, and nothing starts until it is fixed | Unstage `.autocode` without deleting it, or remove the metadata diff, then rerun |
 | `PAUSED_INTERFACE_CHANGE` | A delivery changes a shared interface without an approved change. Nothing was merged; every rerun repeats it, and nothing starts until it is fixed | Remove that change, or raise it with `program request-change` and approve the new interface version |
@@ -352,14 +355,14 @@ A revision may not change:
 
 - the workstream graph: ids, `kind`, `owns`, `depends_on`, which workstream is the
   `skeleton` and which are `skeleton_exempt`;
-- an interface's definition without raising its version, and a version may never go
-  down, not even across a removal: an interface that was delivered and removed since
-  may come back only with a version greater than the delivered one.
+- an interface's definition without advancing its version by exactly one. An unchanged
+  definition must keep its version: no version-only bump or skipped version is allowed.
+  Removing an interface does not erase its approved version history, even if it was
+  never delivered; reintroducing it requires exactly the last approved version plus one.
 
-Such a manifest is refused with the reason (for the last rule: `interface X was
-delivered as version N and removed since; it may come back only as version N+1 or
-later`) by `show`, `approve`, `run` and `status`; restore it, or start a new program
-with a new name (the name keys the program's state, so a renamed manifest is a new
+Such a manifest is refused with the reason by `show`, `approve`, `run` and `status`;
+restore it, or start a new program with a new name (the name keys the program's state,
+so a renamed manifest is a new
 program). The graph and interface definitions are compared ignoring order and
 spelled-out defaults: reordering `owns`, `depends_on`, or an interface's `paths` or
 `consumers`, writing out `skeleton: false`, `consumers: []` or `producer: null`, or
@@ -371,6 +374,12 @@ Briefs, requirements, journeys, checks, shared lists, the parent contract and
 interfaces at a new version can all change. Adding an interface, or removing one, is an
 ordinary revision. Program state saved before agreements existed is refused the same
 way: use a new program name.
+
+An older inheritance-policy approval also requires renewed human approval, even when
+the manifest is unchanged. This uses the same agreement revision and token, records a
+`policy_upgrade` approval-history entry, and requires fresh conforming child plans.
+It is not a fabricated manifest revision or proof of legacy acceptance. Runs, receipts
+and worktrees remain available for reconciliation.
 
 A revision affects a workstream when it changes that workstream's part of the
 agreement (its scope fingerprint):
@@ -417,36 +426,40 @@ branch; its re-check starts from there and is merged and verified again, even wh
 changes nothing. Workstreams the revision does not affect keep their runs and their
 approval.
 
-A re-check whose files already conform can stall when its run plans an implementation
-task, since its Builder has nothing to change
-([open bug](bugs/2026-10-06-program-recheck-implement-stall.md)). A validation-only re-check
-completes with nothing changed when its criteria are checked by the Validator or marked
-`guard:` with a test the workstream already has: the runner's regression proof then runs
-the suite on the unchanged source and needs each guard's test to pass there
-([named test proof](named-test-proof.md)). A criterion marked `test:` needs a change, so it
-cannot pass a re-check that changes nothing, unless the person granted the test-only
-regression-proof exception, which makes the plan's tests guards.
+A re-check may leave source unchanged, including an implementation task whose files
+already conform. Exact accepted-source snapshots and matching prior approval and
+verification receipts admit that source only as a candidate for fresh review. The
+fresh run still invokes its Builder and independent review against the current source;
+old PASS receipts give no completion credit. `guard:` proof can verify behavior already
+present, while `test:` still requires discriminating change proof
+([named test proof](named-test-proof.md)).
 
-The final check runs in the shared integration worktree, and retiring its run (a
-revision that changes its scope before it merged, or an approved plan that drops a
-journey) leaves that run's uncommitted edits there. The next merge, or the fresh final
-check's start, pauses at `PAUSED_INTEGRATION_DIRTY` until you commit or discard them
-([open bug](bugs/2026-10-06-program-integration-retired-leftovers.md)).
+When a retired final check leaves edits or extra commits, the controller can create a
+fresh integration worktree at the exact accepted integration frontier. It validates
+approval, check and merge-history receipts and ancestry rather than trusting HEAD.
+The old branch, HEAD, index, untracked files and run evidence stay intact; retired
+checks are removed from the active cumulative set until their workstream lands again.
+Unknown legacy receipts or a guarded manual resolution pause for reconciliation,
+not deletion or automatic acceptance. A curated, explicitly reviewed checkout may
+instead seed a new program with fresh approvals.
 
 ## Inherited requirements
 
 A workstream inherits the requirement ids in its `acceptance_criteria` (only when the
-agreement has requirements); the final check inherits every journey id and every
+agreement has requirements); the skeleton also inherits its selected journey ids
+(all journeys by default). The final check inherits every journey id and every
 requirement id that a workstream other than a deployment workstream lists. A
 requirement only deployment workstreams list is theirs: the final check, which runs
 before them and may not deploy, does not inherit it, and a change to it does not
 affect the final check. A workstream's brief lists its inherited ids, and its plan must
-keep each one as an acceptance criterion with exactly that id. Every pass, the program
+keep each one exactly once, with the same id and criterion text (only outer whitespace
+may differ), preserving `human_review: true`. Every pass, the program
 reads each child's plan from its status view: the draft shown for approval
 (`displayed_plan`) or the plan in force (`approved_contract`):
 
-- A draft that drops an inherited id gets the program's `--feedback` naming the dropped
-  ids before anyone approves it, and plans again at its next invocation. This feedback
+- A draft that loses an inherited definition, human-review obligation, constraint or
+  permission boundary gets the program's `--feedback` naming the loss before anyone
+  approves it, and plans again at its next invocation. This feedback
   is the only input the program ever gives a child; it never approves anything.
 - An approved plan that drops one is never resumed or merged. Its run is retired
   (`STALE`) and a fresh run plans again in the same worktree, or, while a conflict
@@ -462,27 +475,24 @@ reads each child's plan from its status view: the draft shown for approval
   (`autocode --workspace WORKTREE --run-dir RUN --feedback "..."`), or revise the
   agreement. Once the run is back at `RUNNING` with no plan shown, the next `program
   run` resumes it to plan again. The program checks that plan like any other but sends
-  no more feedback of its own: a plan that still drops an inherited id pauses again, and
-  nothing merges until a plan keeps every inherited id.
+  no more feedback of its own: a plan that still loses an inherited obligation pauses
+  again, and nothing merges until a plan keeps all inherited definitions and boundaries.
 
 `plan_check` records the plan token checked, the ids it dropped and whether it was
-approved. A plan that keeps every inherited id is recorded in `approved_plan` once it
+approved. A conforming plan is recorded in `approved_plan` once it
 is approved, and nothing merges without it, a conflict resolved by hand included. It
 follows the plan in force: it is dropped when the completed run shows no approved plan,
 or an approved plan that drops an inherited id; a retired run takes its `approved_plan`
-into its `retired_runs` entry, so a fresh run merges only under its own. Ids are
-compared exactly: a renamed criterion counts as dropped.
+into its `retired_runs` entry, so a fresh run merges only under its own. Ids and
+definitions are compared exactly: a renamed, duplicated or weakened criterion,
+or a removed human-review obligation, counts as dropped. `plan_check.boundaries`
+also records lost parent/shared constraints and permission boundaries; approved plans
+must retain parent scope exclusions. Verification methods may adapt to the proof base.
 
-The program checks ids, not wording: a plan that keeps an inherited id but rewrites its
-criterion into something weaker passes this check. A child is expected to reword its
-criteria into a testable form (worked examples, `test:` or `guard:` proof), and no
-comparison of the text tells that apart from a weakening, so what a kept criterion says
-is left to the child run, as in any run. Its brief states each inherited requirement as
-the agreement words it, and its runner sends back a draft that drops a backticked
-literal from one; its Plan Reviewer compares the plan with that brief and flags a
-weakened guarantee; and you approve its plan by exact token. Its Validator then checks
-the criteria of that approved plan, not the agreement's wording, so a weakening that
-plan review and your approval let through is built and verified as written.
+Keeping an id alone is insufficient. Case, punctuation and inner whitespace in its
+criterion remain part of the agreement. Put worked examples and `test:` or `guard:`
+proof in verification details without weakening the inherited definition. Exact
+human plan approval and independent validation remain separate requirements.
 
 ## Interfaces and change requests
 
@@ -537,9 +547,9 @@ removed.
 ## Walking skeleton and cumulative checks
 
 Exactly one workstream is the walking skeleton. Every other workstream, apart from a
-`skeleton_exempt` code workstream, is held until the skeleton is merged and its
+`skeleton_exempt` content workstream, is held until the skeleton is merged and its
 cumulative checks pass on the integration branch (`skeleton` in the summary). The
-skeleton's brief lists each journey's steps (and what a simulated one does not prove)
+skeleton's brief lists its selected journeys' steps (and what a simulated one does not prove)
 and asks for runnable checks that prove the journey end to end; every other brief,
 apart from a `skeleton_exempt` workstream's, says to extend the skeleton, not rebuild
 or bypass it.
@@ -555,6 +565,14 @@ The checks run in a scratch copy of the integration worktree, never in it, each 
 to `--check-timeout` seconds (default 900). Receipts are kept under
 `.autocode/programs/<key>/verify/NNN-<workstream>/`, numbered by a counter over every
 verification of the program; the state file keeps the latest 50 (`verifications`).
+
+A hand-resolved conflict with later uncommitted child work is checked first against
+the frozen conflict-time checks. Until the later delivery lands, those checks guard
+every other merge; the later delivery then uses its own current checks. If the hand
+resolution contains the conflict-time tip but lacks later branch commits,
+`PAUSED_MERGE_CONFLICT` names their exact commit ids (#666). Merge those commits by
+hand and rerun; the controller
+does not automatically merge that late committed work or count it as delivered.
 
 - **Pass:** the workstream is `MERGED`, with `verification` (verdict, head, receipts)
   and the pin it was merged under. A skeleton is recorded in `skeleton`; a producer's
@@ -586,8 +604,9 @@ run with your permissions in a scratch copy; that is not a sandbox.
 
 ## Final check: journeys
 
-The integration workstream is the final check. It starts only once every code
-workstream is merged, on the integration branch itself. It inherits, by id, every
+The integration workstream is the final check. It starts only once every other
+non-deployment workstream (including content) is merged, on the integration branch
+itself. It inherits, by id, every
 journey and every requirement a workstream other than a deployment workstream lists
 (see [Inherited requirements](#inherited-requirements)), and its brief lists each
 journey's steps; for a simulated journey, the brief asks its evidence to say what the
@@ -597,11 +616,11 @@ Each new run of the final check is proven against the integration head it starts
 before it starts, the program writes that head as the `base_commit` of the integration
 worktree's `.autocode/task-workspace.json`, which the run reads once
 ([bug note](bugs/2026-10-06-final-check-proof-base.md)). The program's own delivery checks
-keep the head the first run on its current record started from (a revision that retires the
-final check with a new worktree record, after an upstream re-check or once it merged, renews
-it), so after a retire in place they still cover commits made on the branch since. Since the
-merged product already delivers the
-criteria the final check inherits, its brief asks the plan to mark those `guard:`, naming
+keep the head the first run on its current record started from; a new integration
+worktree record renews it, including isolation of a retired final check at the accepted
+frontier. Without that replacement, they still cover commits made on the branch since.
+Since the merged product already delivers the criteria the final check inherits,
+its brief asks the plan to mark those `guard:`, naming
 the tests the merged workstreams already have, and `test:` only for an integration defect
 it repairs ([named test proof](named-test-proof.md)).
 
@@ -732,6 +751,19 @@ producer and both consumers, and the final check by journey
 ```sh
 .venv/bin/python scenarios/run.py run program-notes-cli --fake
 ```
+
+`program-adaptive-learning` adds shared exact hint-rule inheritance in engine and
+backend, named simulated journeys, SQLite persistence across separate processes,
+interface reapproval and an unchanged-source implementation re-check with fresh review:
+
+```sh
+.venv/bin/python scenarios/run.py run program-adaptive-learning --fake
+.venv/bin/python examples/adaptive-learning/run.py
+```
+
+The example runs the reference product, not AutoCode. Hint-assisted and independent
+answers have different recorded outcomes; these simulations do not establish real
+learning efficacy. These commands describe coverage, not a current test or live pass.
 
 The `PROGRAM-01` scenario in [scenarios](scenarios.md) provides the end-to-end oracle
 for a live trial (`--mode program`); a live profile stops there at the agreement for a

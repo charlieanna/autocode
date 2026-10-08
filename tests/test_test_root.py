@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ import autocode_regression as regression
 import autocode_test_root as test_root
 import autocode_util as util
 import autocode_verify as verify
+import autocode_multicomponent as components
 from tests.test_verify import Project, git, isolated_python
 
 ARCHITECTURE = {"README.md": "Two components.\n", "architecture/components.json": '[{"id":"gateway"},{"id":"store"}]\n'}
@@ -144,9 +146,31 @@ class StoreTests(unittest.TestCase):
                             "components/store/tests/test_store.py": test})
         criterion = {"id": "C1", "criterion": "Real local HTTP health, POST, GET flow",
                      "verification_method": "test: test_c1_real_http_flow"}
-        proof = self.prove(root="components/store", criterion=criterion)
-        self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
-        self.assertEqual({"C1": ["components.store.tests.test_store.StoreTests.test_c1_real_http_flow"]}, proof["case_tests"])
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                self.project.write({"components/store/server.py": server})
+                run = state(self.project, root=None if legacy else "components/store",
+                            criterion=criterion, python=isolated_python(self))
+                if legacy:
+                    run["task"] = components.component_brief(
+                        components.Component("store", "HTTP service", ("R1",), (), (), ()), components.Architecture())
+                before = deepcopy(run)
+                regression.settings(run)
+                self.assertEqual(before, run)
+                proof = regression.prove(run, self.project.root, self.run_dir)
+                self.assertEqual(before["settings"], run["settings"])
+                self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
+                self.assertTrue(proof["commands"]["suite"].endswith("discover -v -s components/store"), proof)
+                self.assertEqual({"C1": ["components.store.tests.test_store.StoreTests.test_c1_real_http_flow"]}, proof["case_tests"])
+                handoff = regression.handoff(run)
+                self.assertEqual(proof["case_tests"], handoff["case_tests"])
+                self.assertEqual(proof["source_revision"], handoff["source_revision"])
+                self.assertTrue(handoff["checks"])
+                revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
+                self.assertTrue(regression.complete(run, revision))
+                self.project.write({"components/store/server.py": server.replace('self.reply(201, note)', 'self.reply(500, note)')})
+                revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
+                self.assertFalse(regression.complete(run, revision))
 
     def test_unmarked_test_directory_and_empty_collection(self):
         for directory, verdict in (("tests", verify.PASS), ("checks", verify.UNVERIFIED)):
@@ -288,6 +312,172 @@ class StoreTests(unittest.TestCase):
                         framework=framework, base_suite=baseline, suite_command=suite, new_behavior=True,
                         test_root=root, timeout=120)
                     self.assertEqual(expected, proof["verdict"], self.reasons(proof))
+
+    def test_wrong_framework_kind_cannot_use_unparsed_baseline_exit_codes(self):
+        python = self.pytest_python()
+        root = "components/gateway"
+        suite = f"{shlex.quote(python)} -m unittest discover -v -s {root}"
+        for layout in ("architecture", "README", "existing"):
+            base = {"README.md": "A new component.\n"} if layout == "README" else ARCHITECTURE
+            if layout == "existing":
+                base = {**base, **component_files(), f"{root}/tests/test_gateway.py": SMOKE_TEST,
+                    f"{root}/tests/test_pytest_only.py": "from components.gateway import server\n"
+                        "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n"}
+            self.project = Project(base)
+            self.addCleanup(self.project.close)
+            self.project.write(component_files() if layout != "existing" else {
+                f"{root}/server.py": SERVER.format(status=200),
+                f"{root}/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+            supplied = verify.Framework("pytest", suite, python=python, test_root=root)
+            canonical = verify.detect_framework(self.project.root, python=python, test_root=root, base=self.project.base)
+            self.assertEqual(("unittest", suite), (canonical.name, canonical.suite))
+            baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
+                framework=supplied, suite_command=suite, timeout=120)
+            self.assertIsNone(baseline["receipt"]["results"])
+            self.assertFalse(baseline["receipt"]["results_expected"])
+            self.assertEqual("passing" if layout == "existing" else "failing", baseline["health"])
+            self.assertEqual(0 if layout == "existing" else 1, baseline["receipt"]["exit_code"])
+            with self.subTest(layout=layout, interface="verify"):
+                proof = verify.verify(self.project.root, self.project.base, self.run_dir,
+                    framework=supplied, base_suite=baseline, new_behavior=True, test_root=root, timeout=120)
+                receipt = proof["checks"]["suite_on_candidate"]
+                self.assertEqual(0, receipt["exit_code"])
+                self.assertIsNone(receipt["results"])
+                self.assertFalse(receipt["results_expected"])
+                self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+                self.assertTrue(any("scoped suite" in reason for reason in proof["unverified"]), proof)
+                self.assertFalse(any("nothing under" in note for note in proof["notes"]), proof)
+            with self.subTest(layout=layout, interface="prove"):
+                detect = verify.detect_framework
+                initial = True
+                def selected_framework(*args, **kwargs):
+                    nonlocal initial
+                    if initial:
+                        initial = False
+                        return supplied
+                    return detect(*args, **kwargs)
+                # Only initial selection is injected; detection and proof executions stay real.
+                with patch.object(verify, "detect_framework", side_effect=selected_framework):
+                    proof = self.prove(python=python)
+                self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+                self.assertTrue(any("scoped suite" in reason for reason in proof["unverified"]), proof)
+
+    def test_existing_scoped_explicit_suites_keep_real_preservation_evidence(self):
+        collector = f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway -p test_gateway.py"
+        # An opaque wrapper must still execute its base definition over candidate product code.
+        for command in (collector, "sh components/gateway/check.sh"):
+            with self.subTest(command=command):
+                self.project = Project({**ARCHITECTURE, **component_files(),
+                    "components/gateway/tests/test_gateway.py": SMOKE_TEST,
+                    "components/gateway/check.sh": collector + " > /dev/null 2>&1\n"})
+                self.addCleanup(self.project.close)
+                self.project.write({"components/gateway/server.py": SERVER.format(status="fixed"),
+                    "components/gateway/tests/test_gateway.py": NEW_TEST.replace("'ok', server.health()", "'fixed', server.health()")})
+                run = state(self.project)
+                run["settings"]["regression"]["test_command"] = command
+                proof = regression.prove(run, self.project.root, self.run_dir)
+                self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
+
+    def test_wrong_kind_cannot_borrow_typed_baseline_then_hide_candidate_results(self):
+        commit(self.project, {**component_files(), "components/gateway/tests/test_gateway.py": SMOKE_TEST})
+        good = verify.detect_framework(self.project.root, python=sys.executable,
+            test_root="components/gateway", base=self.project.base)
+        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
+            framework=good, suite_command=good.suite, timeout=120)
+        self.assertTrue(baseline["receipt"]["results"]["passed"])
+        self.project.write({"components/gateway/server.py": SERVER.format(status=200),
+            "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+        wrong = verify.Framework("pytest", good.suite, python=good.python, test_root=True)
+        # Keep the targeted checks native; only the suite metadata is deliberately wrong.
+        targeted = good.targeted(["components/gateway/tests/test_new.py"])
+        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
+            framework=wrong, base_suite=baseline, regression_command=targeted,
+            new_behavior=True, test_root="components/gateway", timeout=120)
+        receipt = proof["checks"]["suite_on_candidate"]
+        self.assertEqual(0, receipt["exit_code"], proof)
+        self.assertIsNone(receipt["results"])
+        self.assertFalse(receipt["results_expected"])
+        self.assertFalse(proof["failures"], proof)
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+        self.assertTrue(any("scoped suite" in reason for reason in proof["unverified"]), proof)
+
+    def test_canonical_first_suite_does_not_depend_on_scope_descriptor_type(self):
+        self.project.write(component_files())
+        framework = verify.detect_framework(self.project.root, python=sys.executable,
+            test_root="components/gateway", base=self.project.base)
+        framework.test_root = True
+        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
+            framework=framework, suite_command=framework.suite, timeout=120)
+        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
+            framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+        self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
+
+    def test_scoped_preservation_requires_same_base_completed_passing_evidence(self):
+        commit(self.project, component_files())
+        framework = verify.detect_framework(self.project.root, python=sys.executable,
+            test_root="components/gateway", base=self.project.base)
+        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
+            framework=framework, suite_command=framework.suite, timeout=120)
+        for condition in ("normal", "wrong base", "skipped", "zero", "incomplete", "timeout", "interrupted", "regression"):
+            with self.subTest(condition=condition):
+                supplied = deepcopy(baseline)
+                candidate = deepcopy(baseline["receipt"])
+                receipt = supplied["receipt"]
+                results = receipt["results"]
+                if condition == "wrong base":
+                    supplied["base"] = "0" * 40
+                elif condition == "skipped":
+                    results["skipped"], results["passed"] = results["passed"], []
+                elif condition == "zero":
+                    results.update(passed=[], total=0)
+                elif condition == "incomplete":
+                    results["complete"] = False
+                elif condition == "timeout":
+                    receipt["timed_out"] = True
+                elif condition == "interrupted":
+                    receipt["supervision_errors"] = ["fault-injected interruption"]
+                elif condition == "regression":
+                    results["complete"] = False
+                    candidate["results"]["failed"], candidate["results"]["passed"] = candidate["results"]["passed"], []
+                    candidate["exit_code"] = 1
+                with patch.object(verify, "run_suite", return_value=candidate):
+                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
+                        framework=framework, base_suite=supplied, preserve_only=True, test_root="components/gateway")
+                expected = verify.PASS if condition == "normal" else verify.FAIL if condition == "regression" else verify.UNVERIFIED
+                self.assertEqual(expected, proof["verdict"], proof)
+
+    def test_canonical_first_root_requires_complete_executed_candidate_tests(self):
+        self.project.write(component_files())
+        framework = verify.detect_framework(self.project.root, python=sys.executable,
+            test_root="components/gateway", base=self.project.base)
+        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
+            framework=framework, suite_command=framework.suite, timeout=120)
+        executed = verify.verify(self.project.root, self.project.base, self.run_dir,
+            framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway")
+        self.assertEqual(verify.PASS, executed["verdict"], self.reasons(executed))
+        for condition in ("skipped", "zero", "incomplete", "timeout", "interrupted"):
+            with self.subTest(condition=condition):
+                candidate = deepcopy(executed["checks"]["suite_on_candidate"])
+                results = candidate["results"]
+                if condition == "skipped":
+                    results["skipped"], results["passed"] = results["passed"], []
+                elif condition == "zero":
+                    results.update(passed=[], total=0)
+                elif condition == "incomplete":
+                    results["complete"] = False
+                elif condition == "timeout":
+                    candidate["timed_out"] = True
+                else:
+                    candidate["supervision_errors"] = ["fault-injected interruption"]
+                def run_suite(selected, command, tree, directory, stem, **kwargs):
+                    if command == framework.suite:
+                        return candidate
+                    return executed["checks"][stem.replace("-", "_")]
+                with patch.object(verify, "run_suite", side_effect=run_suite):
+                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
+                        framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway")
+                self.assertNotEqual(verify.PASS, proof["verdict"], proof)
+                self.assertFalse(any("nothing under" in note for note in proof["notes"]), proof)
 
     def test_candidate_only_detection_cannot_override_pinned_ancestor_policy(self):
         commit(self.project, {"pytest.ini": "[pytest]\n"})

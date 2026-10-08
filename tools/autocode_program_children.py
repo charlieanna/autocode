@@ -37,7 +37,7 @@ WAITING_CODE = {"WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"}
 NO_LOCK = nullcontext()
 VIEW_FIELDS = ("needs", "progress")  # copied from the child's latest status view by apply_view
 INTERNAL_FIELDS = ("command", "runs_before")  # this module's bookkeeping; a program summary leaves it out
-RUN_FIELDS = ("run_dir", "run_status", "runs_before", "exit_code", "command", "last_invocation_at", *VIEW_FIELDS)
+RUN_FIELDS = ("run_dir", "run_status", "runs_before", "exit_code", "command", "last_invocation_at", "approved_plan", *VIEW_FIELDS)
 
 
 def _run(workspace, run_dir) -> taskrun.TaskRun:
