@@ -146,7 +146,7 @@ def accept_proposal(state, value, *, origin):
         clear_candidate(state)
         return
     rules.validate_proposal(proposal, criteria, initial=True)
-    rules.refuse_git_status(proposal)
+    verification.refuse_new_plan(rules.check_rows(proposal))
     validate_product_paths(body, proposal)
     product_checklist(body, [check for row in proposal["slices"] for check in row["checks"]])
     limits = initial_limits(state)
@@ -1058,8 +1058,9 @@ def apply_revision(state, stage, value, record, *, product_findings):
         proved = ledger["completion_proof"]["criterion_ids"]
         rules.validate_revision(previous["proposal"], proposal, criteria, established=ledger["required_checks"],
                                 verified_done=done, verified_criteria=proved)
-        rules.refuse_git_status(proposal)  # the new proposal only: the saved one is not checked again
-        verification.refuse_git_status(verification.task_rows(value["initial_task"], "initial_task"))
+        # The new proposal and its task only, in one refusal: the saved plan is not checked again.
+        steps, requirements = verification.task_rows(value["initial_task"], "initial_task")
+        verification.refuse_new_plan(rules.check_rows(proposal) + steps, requirements)
         try:
             validate_product_paths(state["goal_contract"]["body"], proposal)
             transition.pop("scope_issue", None)

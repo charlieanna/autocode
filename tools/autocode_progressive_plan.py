@@ -86,14 +86,14 @@ def check_commands(check):
     return commands
 
 
-def refuse_git_status(proposal):
-    """Refuse a new proposal whose slice check names git status (verification_plan.GIT_STATUS_RULE).
+def check_rows(proposal):
+    """A proposal's slice check methods, labelled for verification_plan.refuse_new_plan.
 
-    Called only where an author's new proposal is accepted. check_commands and validate_revision also read
-    saved plans, so a progressive plan saved before the rule keeps working.
+    Refused only where an author's new proposal is accepted. check_commands and validate_revision also read
+    saved plans, so a progressive plan saved before its rules keeps working.
     """
-    verification_plan.refuse_git_status([(f"check {check.get('id', '')} method", check.get("method", ""))
-                                         for row in proposal.get("slices") or [] for check in row.get("checks") or []])
+    return [(f"check {check.get('id', '')} method", check.get("method", ""))
+            for row in proposal.get("slices") or [] for check in row.get("checks") or []]
 
 
 def _validate_operands(command, where):

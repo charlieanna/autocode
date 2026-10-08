@@ -3,13 +3,16 @@
 Natural-language methods stay with the Validator. Commands are plain shell
 commands or backtick snippets explicitly requested for execution. Quoted
 documentation examples are not commands. Depends only on the standard library
-and the exit-expectation helper.
+and the exit-expectation helper. refuse_new_plan asks /bin/sh, the replay's
+shell, to parse a new plan's commands (sh -n), which runs none of them.
 """
 from pathlib import Path, PurePosixPath
 import hashlib
 import json
+import os
 import re
 import shlex
+import subprocess
 
 try:
     from . import autocode_verification_expectations as expectations
@@ -74,35 +77,99 @@ GIT_STATUS_RULE = (
     "file outside its task's affected_paths (when the task names them), and rejects a workflow job's change "
     "outside the paths that job may write.")
 
+# The replay runs every planned command as /bin/sh -c COMMAND (autocode_command_supervision.run, through
+# autocode_verify.run_command; a recognized test command only gets result options added). A live Completion Reviewer
+# wrote python3 -c "... '```python' ..." as a next_task step: inside double quotes a backtick starts a command
+# substitution, every replay stopped at "Syntax error: EOF in backquote substitution", every Validator report
+# citing it was refused, and the run paused at PAUSED_INVALID_OUTPUT (djtwgjcl, 2026-10-07).
+SHELL = "/bin/sh"
+SHELL_SYNTAX_RULE = (
+    "The runner runs each command a check plan names with /bin/sh -c and refuses a plan with a command that shell "
+    "cannot parse: never put a backtick inside double quotes, where the shell reads it as the start of another "
+    "command, and put code that needs a backtick or both kinds of quotes in a file in the repository and run that.")
+
 
 def task_rows(task, name):
-    """A task's rows the Validator follows, labelled for refuse_git_status: validation_plan, then requirements."""
-    task = task or {}
-    return [(f"{name}.{field}", text) for field in ("validation_plan", "requirements")
-            for text in task.get(field) or []]
+    """A task's rows the Validator follows, labelled for refuse_new_plan: (validation_plan steps, requirements).
 
-
-def refuse_git_status(rows):
-    """Refuse a new plan's (where, text) row that names git status, with GIT_STATUS_RULE as the reason.
-
-    Callers pass only what an author has just written (a draft contract, a Completion Reviewer's or Resolver's
-    next_task, a new progressive proposal), so the author gets a report repair. An approved contract, an assigned
-    task or a saved progressive plan is never checked here again: a run saved before this rule keeps them.
+    The replay runs the commands of the steps (approved_commands); the requirements are only read.
     """
-    named = []
-    for where, text in rows:
+    task = task or {}
+    return tuple([(f"{name}.{field}", text) for text in task.get(field) or []]
+                 for field in ("validation_plan", "requirements"))
+
+
+def shell_error(command, *, timeout=5):
+    """The replay shell's own error line when it cannot parse ``command``, else "".
+
+    ``sh -n`` reads the command without running any of it, so nothing here touches files or the network.
+    """
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = []
+    scripts = [command]
+    if len(words) > 2 and PurePosixPath(words[0]).name == "sh" and words[1] == "-c":
+        # Its own sh parses this script when the check runs: an author's sh -c '...' or the wrapper
+        # expectations.wrapped puts around a planned command that must exit non-zero.
+        scripts.append(words[2])
+    for script in scripts:
+        try:
+            parsed = subprocess.run([SHELL, "-n", "-c", script], stdin=subprocess.DEVNULL, capture_output=True,
+                                    text=True, errors="replace", timeout=timeout, cwd="/",
+                                    env={"PATH": os.defpath, "LC_ALL": "C"})
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # Fail open: a shell that cannot be started (no /bin/sh, no process slot, a NUL byte in the
+            # command) or that does not answer in time says nothing about the command. The replay still
+            # reports a command it cannot run.
+            return ""
+        if parsed.returncode > 0:
+            lines = [line.strip() for line in parsed.stderr.splitlines() if line.strip()]
+            return lines[0][:300] if lines else f"{SHELL} -n exited {parsed.returncode}"
+    return ""
+
+
+def _shown(text):
+    return text if len(text) <= 240 else text[:237] + "..."
+
+
+def refuse_new_plan(steps, requirements=()):
+    """Refuse a new plan with every row that names git status or plans a command /bin/sh cannot parse.
+
+    ``steps`` and ``requirements`` are (where, text) rows: steps are the rows whose commands the replay runs (a
+    criterion's verification_method, a task's validation_plan step, a progressive check's method), requirements
+    are only read by the Validator. Each is checked for git status (GIT_STATUS_RULE); only the commands that
+    commands() extracts from a step are parsed (SHELL_SYNTAX_RULE), never prose. Callers pass only what an
+    author has just written (a draft contract, a Completion Reviewer's or Resolver's next_task, a new
+    progressive proposal), so the author gets a report repair. An approved contract, an assigned task or a
+    saved progressive plan is never checked here again: a run saved before these rules keeps them.
+    """
+    named, unparsable, errors = [], [], {}
+    for where, text, replayed in [(*row, True) for row in steps] + [(*row, False) for row in requirements]:
         text = str(text)
         try:
-            parts = [text, *commands(text)]
+            planned = commands(text)
         except ValueError:  # a malformed exit declaration is refused where commands are checked, not here
-            parts = [text]
-        if any(GIT_STATUS.search(part) for part in parts):
-            named.append(f"{where} `{text if len(text) <= 240 else text[:237] + '...'}`")
-    # Every row at once: live plans named it in two or more, and a repair that fixed only the one named would
-    # spend the report's repairs one row at a time.
+            planned = []
+        if any(GIT_STATUS.search(part) for part in (text, *planned)):
+            named.append(f"{where} `{_shown(text)}`")
+        for command in planned if replayed else ():
+            if command not in errors:
+                errors[command] = shell_error(command)
+            if errors[command]:
+                unparsable.append(f"{where} `{_shown(text)}` ({errors[command]})")
+                break
+    # Every row at once: live plans named git status in two or more, and a repair that fixed only the one named
+    # would spend the report's repairs one row at a time.
+    problems = []
     if named:
-        raise ValueError("; ".join(named) + (" name" if len(named) > 1 else " names") + " git status. "
-                         + GIT_STATUS_RULE)
+        problems.append("; ".join(named) + (" name" if len(named) > 1 else " names") + " git status. "
+                        + GIT_STATUS_RULE)
+    if unparsable:
+        problems.append("; ".join(unparsable) + f" cannot be parsed by {SHELL}, so "
+                        + ("they" if len(unparsable) > 1 else "it") + " can never run. " + SHELL_SYNTAX_RULE)
+    if problems:
+        raise ValueError(" ".join(problems))
 
 
 def executable(text):

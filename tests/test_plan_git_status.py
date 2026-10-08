@@ -80,17 +80,17 @@ class RuleTests(unittest.TestCase):
         for row in LIVE:
             with self.subTest(row=row):
                 with self.assertRaises(ValueError) as refused:
-                    plan.refuse_git_status([("AC1's verification_method", "python3 -m unittest"),
+                    plan.refuse_new_plan([("AC1's verification_method", "python3 -m unittest"),
                                             ("AC5's verification_method", row)])
                 message = str(refused.exception)
                 self.assertTrue(message.startswith("AC5's verification_method `"), message)
                 self.assertTrue(message.endswith("names git status. " + RULE), message)
-        plan.refuse_git_status([("step", row) for row in PROSE])
+        plan.refuse_new_plan([("step", row) for row in PROSE])
 
     def test_every_row_that_names_it_is_refused_at_once(self):
         # wgmlq3o7's draft named it in a criterion and in the initial task: one repair must see both.
         with self.assertRaises(ValueError) as refused:
-            plan.refuse_git_status([("AC5's verification_method", LIVE[1]), ("step", "python3 -m unittest"),
+            plan.refuse_new_plan([("AC5's verification_method", LIVE[1]), ("step", "python3 -m unittest"),
                                     ("initial_task.validation_plan", STEP)])
         self.assertTrue(str(refused.exception).startswith(
             f"AC5's verification_method `{LIVE[1]}`; initial_task.validation_plan `{STEP}` name git status. "),
@@ -107,7 +107,7 @@ class RuleTests(unittest.TestCase):
         row = "Run `go test ./a` and `go test ./b` and confirm exit code 2."
         with self.assertRaisesRegex(ValueError, "one status"):
             plan.commands(row)
-        plan.refuse_git_status([("next_task.requirements", row)])
+        plan.refuse_new_plan([], [("next_task.requirements", row)])
 
     def test_the_rule_says_what_the_runner_enforces_instead(self):
         # assert_within_assignment over current_task.affected_paths; stage_access.stray for workflow jobs.
@@ -158,7 +158,7 @@ class ContractTests(unittest.TestCase):
         state = {"task_id": "t", "task": "Greet", "answers": {}, "user_events": [], "acceptance_criteria": [],
                  "status": "RUNNING"}
         lifecycle.migrate(state)
-        with patch.object(plan, "refuse_git_status"):
+        with patch.object(plan, "refuse_new_plan"):
             lifecycle.install_draft(state, body() | {"acceptance_criteria": [
                 {"id": "C1", "criterion": "Contract holds", "verification_method": STEP, "human_review": False}]},
                 origin="fixture")
