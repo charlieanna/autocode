@@ -1,0 +1,316 @@
+[
+  {
+    "name": "silent-add",
+    "sources": [
+      {
+        "id": "task:0",
+        "kind": "task",
+        "text": "`todo.py add TEXT` appends a to-do and exits 0. `todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0."
+      }
+    ],
+    "manifest": {
+      "version": 1,
+      "inventory_hash": "ad00d45566411bf795265e12b1b21c597720ca01c00ac57d70c0b96306e88aae",
+      "inactive_declaration_ids": [],
+      "observations": [
+        {
+          "declaration": {
+            "source_id": "task:0",
+            "source_kind": "task",
+            "source_sha256": "49ff7e5fdd3ae04667993838a7adb2b94389ebd5cee80331185f9f1392247dc8",
+            "span": [
+              0,
+              132
+            ],
+            "quote": "`todo.py add TEXT` appends a to-do and exits 0. `todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0.",
+            "literal": "ID TEXT [open|done]",
+            "literal_span": [
+              86,
+              105
+            ],
+            "literal_sha256": "d3c5281389b555327d7ac706a88c825069d25d43547a6a2a969516b463dfd1aa",
+            "program": "todo.py",
+            "observe_argv": [
+              "add",
+              "TEXT"
+            ],
+            "commands": [
+              [
+                "add",
+                "TEXT"
+              ],
+              [
+                "list"
+              ]
+            ],
+            "id": "brief-65c5097843e13f3a3cd6ed5f"
+          },
+          "proposal": {
+            "declaration_id": "brief-65c5097843e13f3a3cd6ed5f",
+            "criterion_ids": [
+              "C1"
+            ],
+            "steps": [
+              {
+                "argv": [
+                  "add",
+                  "buy milk"
+                ]
+              },
+              {
+                "argv": [
+                  "add",
+                  "walk dog"
+                ]
+              }
+            ],
+            "observe_step": 1,
+            "bindings": [
+              {
+                "placeholder": "TEXT",
+                "step": 1,
+                "argument": 1
+              }
+            ]
+          },
+          "pattern": "[^\\s]+\\ walk\\ dog\\ \\[(?:open|done)\\]",
+          "hash": "5f3f666017e5d92707f70a9000b9170bd5e2e10cf765d5e8874b10dbfa51d75c"
+        },
+        {
+          "declaration": {
+            "source_id": "task:0",
+            "source_kind": "task",
+            "source_sha256": "49ff7e5fdd3ae04667993838a7adb2b94389ebd5cee80331185f9f1392247dc8",
+            "span": [
+              48,
+              132
+            ],
+            "quote": "`todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0.",
+            "literal": "ID TEXT [open|done]",
+            "literal_span": [
+              86,
+              105
+            ],
+            "literal_sha256": "d3c5281389b555327d7ac706a88c825069d25d43547a6a2a969516b463dfd1aa",
+            "program": "todo.py",
+            "observe_argv": [
+              "list"
+            ],
+            "commands": [
+              [
+                "add",
+                "TEXT"
+              ],
+              [
+                "list"
+              ]
+            ],
+            "id": "brief-cbf08a5378bd3128ec9dd2fb"
+          },
+          "proposal": {
+            "declaration_id": "brief-cbf08a5378bd3128ec9dd2fb",
+            "criterion_ids": [
+              "C1"
+            ],
+            "steps": [
+              {
+                "argv": [
+                  "add",
+                  "buy milk"
+                ]
+              },
+              {
+                "argv": [
+                  "add",
+                  "walk dog"
+                ]
+              },
+              {
+                "argv": [
+                  "list"
+                ]
+              }
+            ],
+            "observe_step": 2,
+            "bindings": [
+              {
+                "placeholder": "TEXT",
+                "step": 0,
+                "argument": 1
+              }
+            ]
+          },
+          "pattern": "[^\\s]+\\ buy\\ milk\\ \\[(?:open|done)\\]",
+          "hash": "f2290ff52a0bfef5b317735e13c455b1b775199fd6f3ea22ffb8a292420bc067"
+        }
+      ],
+      "hash": "70349165b55a95d3138b648ce1140005667bcd920b769f16944e9eb3072cbdd5"
+    }
+  },
+  {
+    "name": "single-add",
+    "sources": [
+      {
+        "id": "task:0",
+        "kind": "task",
+        "text": "`todo.py add TEXT` prints the new to-do as `ID TEXT [open|done]` and exits 0, and `todo.py list` prints every to-do, one per line, and exits 0."
+      }
+    ],
+    "manifest": {
+      "version": 1,
+      "inventory_hash": "d9c9e52b9163053e4424f4b67c3f5974cd4b844b87b540478fa8ef290e664dff",
+      "inactive_declaration_ids": [],
+      "observations": [
+        {
+          "declaration": {
+            "source_id": "task:0",
+            "source_kind": "task",
+            "source_sha256": "c46f84ee10ef96e14859b1abf3466fdcae26c6338d6126cf93831ef29398cd86",
+            "span": [
+              0,
+              143
+            ],
+            "quote": "`todo.py add TEXT` prints the new to-do as `ID TEXT [open|done]` and exits 0, and `todo.py list` prints every to-do, one per line, and exits 0.",
+            "literal": "ID TEXT [open|done]",
+            "literal_span": [
+              44,
+              63
+            ],
+            "literal_sha256": "d3c5281389b555327d7ac706a88c825069d25d43547a6a2a969516b463dfd1aa",
+            "program": "todo.py",
+            "observe_argv": [
+              "add",
+              "TEXT"
+            ],
+            "commands": [
+              [
+                "add",
+                "TEXT"
+              ],
+              [
+                "list"
+              ]
+            ],
+            "id": "brief-b5c6c675f1bdb9e927083dfe"
+          },
+          "proposal": {
+            "declaration_id": "brief-b5c6c675f1bdb9e927083dfe",
+            "criterion_ids": [
+              "C1"
+            ],
+            "steps": [
+              {
+                "argv": [
+                  "add",
+                  "buy milk"
+                ]
+              },
+              {
+                "argv": [
+                  "add",
+                  "walk dog"
+                ]
+              }
+            ],
+            "observe_step": 1,
+            "bindings": [
+              {
+                "placeholder": "TEXT",
+                "step": 1,
+                "argument": 1
+              }
+            ]
+          },
+          "pattern": "[^\\s]+\\ walk\\ dog\\ \\[(?:open|done)\\]",
+          "hash": "237180b1683fb79c357cc3eb01d5d63b4c56f458bdbd8a28049887f24a1dfa74"
+        }
+      ],
+      "hash": "10ad65d5c9ba9e14a56073252fa9c4e260388a30a099f86656883b9a16f721e3"
+    }
+  },
+  {
+    "name": "semicolon",
+    "sources": [
+      {
+        "id": "task:0",
+        "kind": "task",
+        "text": "`todo.py add TEXT` appends a to-do and exits 0; `todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0."
+      }
+    ],
+    "manifest": {
+      "version": 1,
+      "inventory_hash": "82ffaffdf1b6fb6129c68181c89c16641ccad63812d823679ebb771d02231501",
+      "inactive_declaration_ids": [],
+      "observations": [
+        {
+          "declaration": {
+            "source_id": "task:0",
+            "source_kind": "task",
+            "source_sha256": "b9af546533b4a0ead5acb1cd80e91bbc595f084745cbdf122c67922a0a2566da",
+            "span": [
+              48,
+              132
+            ],
+            "quote": "`todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0.",
+            "literal": "ID TEXT [open|done]",
+            "literal_span": [
+              86,
+              105
+            ],
+            "literal_sha256": "d3c5281389b555327d7ac706a88c825069d25d43547a6a2a969516b463dfd1aa",
+            "program": "todo.py",
+            "observe_argv": [
+              "list"
+            ],
+            "commands": [
+              [
+                "add",
+                "TEXT"
+              ],
+              [
+                "list"
+              ]
+            ],
+            "id": "brief-c719d58d3ae72361a0920ee6"
+          },
+          "proposal": {
+            "declaration_id": "brief-c719d58d3ae72361a0920ee6",
+            "criterion_ids": [
+              "C1"
+            ],
+            "steps": [
+              {
+                "argv": [
+                  "add",
+                  "buy milk"
+                ]
+              },
+              {
+                "argv": [
+                  "add",
+                  "walk dog"
+                ]
+              },
+              {
+                "argv": [
+                  "list"
+                ]
+              }
+            ],
+            "observe_step": 2,
+            "bindings": [
+              {
+                "placeholder": "TEXT",
+                "step": 0,
+                "argument": 1
+              }
+            ]
+          },
+          "pattern": "[^\\s]+\\ buy\\ milk\\ \\[(?:open|done)\\]",
+          "hash": "ef504745f8c2cc8e99a5a4c03adba6a84e3d53cafbe01ccb53bda33c0b7bebb7"
+        }
+      ],
+      "hash": "d159c86c811df1d8de1d988f79b8bc9288ad6a54ee8bef8abf812c51047c1532"
+    }
+  }
+]

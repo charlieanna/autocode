@@ -48,8 +48,18 @@ def sources(state):
     return records
 
 
+def _version(state):
+    """A sealed manifest pins this run's compiler, including subsequent reviews."""
+    wrapper = _wrapper((state.get('goal_contract') or {}).get('body'))
+    return wrapper['manifest']['version'] if wrapper else acceptance.VERSION
+
+
+def _inventory(state, records=None):
+    return acceptance.inventory(sources(state) if records is None else records, version=_version(state))
+
+
 def inventory(state):
-    return [{**row, 'declaration_hash': acceptance.digest(row)} for row in acceptance.inventory(sources(state))]
+    return [{**row, 'declaration_hash': acceptance.digest(row)} for row in _inventory(state)]
 
 
 def _wrapper(body):
@@ -67,7 +77,7 @@ def _past_observations(state):
 
 def _amendments(state, changes):
     """Derive inactive declarations from exact, genuine source amendments."""
-    declarations = {row['id']: row for row in acceptance.inventory(sources(state))}
+    declarations = {row['id']: row for row in _inventory(state)}
     human_sources = sources(state)
     records = {row['id']: row for row in human_sources}
     order = {row['id']: index for index, row in enumerate(human_sources)}
@@ -124,7 +134,7 @@ def _verify_review(review, manifest):
 
 def validate_body(state, body, *, ready=False):
     wrapper = _wrapper(body)
-    declared = acceptance.inventory(sources(state))
+    declared = _inventory(state)
     if wrapper is None:
         if ready and declared:
             raise ValueError('The original brief needs independent Plan Reviewer output observations before approval')
@@ -136,12 +146,12 @@ def validate_body(state, body, *, ready=False):
     manifest = wrapper['manifest']
     previous = _wrapper((state.get('goal_contract') or {}).get('body'))
     if (not ready and wrapper == previous
-            and manifest.get('inventory_hash') != acceptance.digest(acceptance.inventory(human_sources))):
+            and manifest.get('inventory_hash') != acceptance.digest(_inventory(state, human_sources))):
         # A new genuine human event can add obligations while the Planner drafts
         # a revision. Retain and authenticate the old binding; only the final
         # Reviewer may replace it, and approval always requires the full inventory.
         retained = next((human_sources[:length] for length in range(1, len(human_sources))
-                         if acceptance.digest(acceptance.inventory(human_sources[:length])) == manifest['inventory_hash']), None)
+                         if acceptance.digest(_inventory(state, human_sources[:length])) == manifest['inventory_hash']), None)
         if retained is None:
             raise ValueError('The retained original-brief source inventory changed')
         manifest = acceptance.verify(retained, manifest, inactive=inactive)
@@ -156,7 +166,7 @@ def validate_body(state, body, *, ready=False):
 def reviewed_body(state, body, proposals, record, *, changes=()):
     result = copy.deepcopy(body)
     previous = _wrapper((state.get('goal_contract') or {}).get('body'))
-    if not acceptance.inventory(sources(state)) and previous is None:
+    if not _inventory(state) and previous is None:
         if result.get(KEY) is not None:
             raise ValueError('A model cannot invent an original-brief observation record')
         return result
@@ -170,7 +180,7 @@ def reviewed_body(state, body, proposals, record, *, changes=()):
         raise ValueError('Original-brief observations require the actual Plan Reviewer report')
     amendments = [*(previous or {}).get('amendments', []), *changes]
     inactive, amendments, replacements = _amendments(state, amendments)
-    manifest = acceptance.bind(sources(state), proposals, inactive=inactive)
+    manifest = acceptance.bind(sources(state), proposals, inactive=inactive, version=_version(state))
     if previous:
         by_declaration = {row['declaration']['id']: row for row in manifest['observations']}
         successors = {old['declaration']['id']: new['id'] for old, new in replacements}

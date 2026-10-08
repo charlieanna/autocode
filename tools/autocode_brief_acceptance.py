@@ -23,7 +23,7 @@ from pathlib import PurePosixPath
 import re
 import shlex
 
-VERSION = 1
+VERSION = 2
 MAX_STEPS = 8
 MAX_ARGUMENTS = 32
 MAX_ARGUMENT_BYTES = 4096
@@ -163,7 +163,13 @@ def _invocation(text):
     return {'program': _program(words[0]), 'argv': words[1:]}
 
 
-def inventory(sources):
+def _compiler_version(version):
+    if type(version) is not int or version not in (1, VERSION):
+        raise ValueError('Unsupported acceptance manifest')
+    return version
+
+
+def inventory(sources, *, version=VERSION):
     """Independently inventory supported output declarations with exact source bindings.
 
     Human records are supplied in authenticated chronological order. New
@@ -172,16 +178,22 @@ def inventory(sources):
     Fenced examples do not create declarations. Character spans reference the original source bytes'
     decoded text; their content identity is the unmodified UTF-8 source hash.
     """
+    # Version 1 is retained for sealed runs: changing a parser must not rewrite
+    # an already-approved declaration, observation identity or reviewer receipt.
+    _compiler_version(version)
     result, earlier_commands = [], {}
     for source in _source_records(sources):
         text = source['text']
         scanned = _FENCE.sub(lambda match: re.sub(r'[^\r\n]', ' ', match.group()), text)
         invocations = []
-        for span in _SPAN.finditer(scanned):
-            invocation = _invocation(span[1])
-            if invocation is None:
-                continue
+        command_spans = [(span, invocation) for span in _SPAN.finditer(scanned)
+                         if (invocation := _invocation(span[1])) is not None]
+        for index, (span, invocation) in enumerate(command_spans):
             end = _clause_end(scanned, span.end())
+            if version >= 2 and index + 1 < len(command_spans):
+                # Even an unsuccessful next invocation owns its own description.
+                # Inline output/data spans do not terminate the current command.
+                end = min(end, command_spans[index + 1][0].start())
             tail = scanned[span.end():end]
             # Successful setup invocations are source declarations too; output
             # expectations may not invent an undeclared command or exit code.
@@ -459,14 +471,14 @@ def _bind_one(declaration, proposal):
     return observation
 
 
-def bind(sources, proposals, *, inactive=()):
+def bind(sources, proposals, *, inactive=(), version=VERSION):
     """Bind every active declaration; only caller-authenticated IDs may be inactive.
 
     Inactive IDs are not proposal fields. The caller derives them from actual
     authenticated amendment receipts, then checks preserve() before approval.
     Keep the full source inventory binding even when one obligation is replaced.
     """
-    full_inventory = inventory(sources)
+    full_inventory = inventory(sources, version=version)
     if not isinstance(inactive, (list, tuple)) or any(not isinstance(ident, str) for ident in inactive):
         raise ValueError('Inactive declaration IDs must be caller-authenticated IDs')
     if len(set(inactive)) != len(inactive) or not set(inactive) <= {row['id'] for row in full_inventory}:
@@ -484,7 +496,7 @@ def bind(sources, proposals, *, inactive=()):
         proposed[ident] = proposal
     if set(proposed) != set(by_id):
         raise ValueError('Every supported original-brief declaration needs an observation')
-    manifest = {'version': VERSION, 'inventory_hash': digest(full_inventory),
+    manifest = {'version': version, 'inventory_hash': digest(full_inventory),
                 'inactive_declaration_ids': sorted(inactive),
                 'observations': [_bind_one(row, proposed[row['id']]) for row in declared]}
     manifest['hash'] = digest(manifest)
@@ -494,13 +506,14 @@ def bind(sources, proposals, *, inactive=()):
 def verify(sources, manifest, *, inactive=()):
     """Recompute canonical source/expectation bindings; trust no persisted regex or hash."""
     _exact(manifest, ('version', 'inventory_hash', 'inactive_declaration_ids', 'observations', 'hash'), 'Acceptance manifest')
-    if type(manifest['version']) is not int or manifest['version'] != VERSION or not isinstance(manifest['observations'], list):
+    _compiler_version(manifest['version'])
+    if not isinstance(manifest['observations'], list):
         raise ValueError('Unsupported acceptance manifest')
     proposals = []
     for row in manifest['observations']:
         _exact(row, ('declaration', 'proposal', 'pattern', 'hash'), 'Canonical observation')
         proposals.append(row['proposal'])
-    canonical = bind(sources, proposals, inactive=inactive)
+    canonical = bind(sources, proposals, inactive=inactive, version=manifest['version'])
     if manifest != canonical:
         raise ValueError('Original-brief source or canonical observation binding changed')
     return canonical
@@ -572,7 +585,8 @@ def commands(sources, manifest, *, inactive=(), python='python3', timeout=15):
 
 def _manifest_observations(manifest):
     _exact(manifest, ('version', 'inventory_hash', 'inactive_declaration_ids', 'observations', 'hash'), 'Acceptance manifest')
-    if type(manifest['version']) is not int or manifest['version'] != VERSION or not isinstance(manifest['observations'], list):
+    _compiler_version(manifest['version'])
+    if not isinstance(manifest['observations'], list):
         raise ValueError('Unsupported acceptance manifest')
     body = {key: value for key, value in manifest.items() if key != 'hash'}
     if manifest['hash'] != digest(body):
@@ -596,6 +610,8 @@ def preserve(previous, proposed, *, replacements=()):
     New independent observations may be added, never used to erase old proof.
     """
     before, after = _manifest_observations(previous), _manifest_observations(proposed)
+    if previous['version'] != proposed['version']:
+        raise ValueError('An accepted brief compiler version cannot change within a run')
     authorized, used_new = {}, set()
     for replacement in replacements:
         _exact(replacement, REPLACEMENT_SCHEMA['required'], 'Authenticated replacement')
