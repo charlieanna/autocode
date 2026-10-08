@@ -33,9 +33,13 @@ def approved(state):
         return False
 
 
+def _git_argv(workspace, *args):
+    return ['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
+            '-C', str(workspace), *args]
+
+
 def git(workspace, *args, env=None, data=None):
-    proc = subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
-                           '-C', str(workspace), *args], input=data, capture_output=True,
+    proc = subprocess.run(_git_argv(workspace, *args), input=data, capture_output=True,
                           env={**os.environ, **(env or {})})
     if proc.returncode:
         raise ValueError(proc.stderr.decode(errors='replace').strip() or 'Git checkpoint operation failed')
@@ -46,9 +50,35 @@ def content_files(snapshot):
     return {name: value for name, value in snapshot['files'].items() if value != 'deleted'}
 
 
+def _read_blob_identity(output, oid, mode):
+    """Read one length-framed batch reply without retaining a whole regular blob."""
+    header = output.readline(256)
+    fields = header[:-1].split(b' ')
+    if (not header.endswith(b'\n') or len(fields) != 3
+            or fields[0] != oid.encode() or fields[1] != b'blob'
+            or not fields[2].isdigit()):
+        raise ValueError('Git checkpoint batch returned an invalid blob header')
+    remaining = int(fields[2])
+    digest = hashlib.sha256()
+    target = bytearray() if mode == '120000' else None
+    while remaining:
+        data = output.read(min(remaining, 64 * 1024))
+        if not data:
+            raise ValueError('Git checkpoint batch returned a truncated blob')
+        remaining -= len(data)
+        if target is None:
+            digest.update(data)
+        else:
+            target.extend(data)
+    if output.read(1) != b'\n':
+        raise ValueError('Git checkpoint batch returned an invalid blob terminator')
+    return ('symlink:' + target.decode() if target is not None else
+            ('executable:' if mode == '100755' else '') + digest.hexdigest())
+
+
 def tree_files(workspace, revision):
-    """Compare actual blobs, modes and links; reject unsupported submodule snapshots."""
-    result = {}
+    """Compare actual blobs, modes and links through one streamed Git batch."""
+    entries = []
     for entry in git(workspace, 'ls-tree', '-rz', revision).split(b'\0'):
         if not entry:
             continue
@@ -56,9 +86,36 @@ def tree_files(workspace, revision):
         mode, kind, oid = meta.decode().split()
         if kind != 'blob':
             raise ValueError('Checkpoint restoration requires ordinary files; nested Git repositories are unsupported')
-        data = git(workspace, 'cat-file', 'blob', oid)
-        result[name.decode()] = ('symlink:' + data.decode() if mode == '120000' else
-                                ('executable:' if mode == '100755' else '') + hashlib.sha256(data).hexdigest())
+        entries.append((name.decode(), mode, oid))
+    result = {}
+    if not entries:
+        return result
+    # One request and response at a time avoids full-tree buffering and pipe
+    # backpressure. Stderr uses a file so it cannot block a large stdout reply.
+    with tempfile.TemporaryFile() as errors:
+        proc = subprocess.Popen(_git_argv(workspace, 'cat-file', '--batch'),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors)
+        try:
+            for name, mode, oid in entries:
+                proc.stdin.write(oid.encode() + b'\n')
+                proc.stdin.flush()
+                result[name] = _read_blob_identity(proc.stdout, oid, mode)
+            proc.stdin.close()
+            if proc.stdout.read(1):
+                raise ValueError('Git checkpoint batch returned unexpected trailing output')
+            if proc.wait():
+                errors.seek(0)
+                raise ValueError(errors.read().decode(errors='replace').strip()
+                                 or 'Git checkpoint operation failed')
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+            for pipe in (proc.stdin, proc.stdout):
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
     return result
 
 

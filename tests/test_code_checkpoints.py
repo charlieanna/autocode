@@ -1,5 +1,7 @@
 """Public checkpoint CLI tests with real Git and owned temporary run fixtures."""
 import copy
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -7,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import autocode_code_checkpoints as checkpoints
 import autocode_checkpoint_cli as operation
@@ -263,3 +265,143 @@ class RealCheckpointFlow(unittest.TestCase):
         self.assertTrue(done['evidence']['check_replay'],done)
         proof=done['evidence']['check_replay'];self.assertEqual('PASS',proof['verdict'])
         self.assertNotEqual(rows[-1]['source_revision'],proof['source_revision'])
+
+
+class TreeFiles(unittest.TestCase):
+    def repository(self, files):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        checkpoints.git(root, 'init', '-q')
+        for name, data in files.items():
+            (root / name).write_bytes(data)
+        checkpoints.git(root, 'add', '.')
+        checkpoints.git(root, '-c', 'user.name=Fixture', '-c', 'user.email=f@example.test',
+                        'commit', '-qm', 'base')
+        return root
+
+    def test_one_batch_preserves_binary_empty_repeated_blobs_modes_links_and_literal_names(self):
+        files = {f'repeated-{n}.txt': b'repeated\n' for n in range(128)}
+        files.update({'binary\nfile\t.bin': bytes(range(256)) * 512,
+                      '--empty': b'', 'script': b'#!/bin/sh\nexit 0\n'})
+        root = self.repository(files)
+        (root / 'script').chmod(0o755)
+        (root / 'link').symlink_to('binary\nfile\t.bin')
+        checkpoints.git(root, 'add', '.')
+        tree = checkpoints.git(root, 'write-tree').decode().strip()
+        before = (checkpoints.git(root, 'rev-parse', 'HEAD'), tree)
+        expected = {name: ('executable:' if name == 'script' else '')
+                    + hashlib.sha256(data).hexdigest() for name, data in files.items()}
+        expected['link'] = 'symlink:binary\nfile\t.bin'
+        with patch.object(checkpoints.subprocess, 'Popen', wraps=subprocess.Popen) as launches:
+            actual = checkpoints.tree_files(root, tree)
+        self.assertEqual(expected, actual)
+        commands = [call.args[0] for call in launches.call_args_list]
+        self.assertEqual(2, len(commands), commands)
+        self.assertEqual(['cat-file', '--batch'], commands[1][-2:])
+        self.assertIn('core.hooksPath=/dev/null', commands[1])
+        self.assertIn('core.fsmonitor=false', commands[1])
+        self.assertEqual(before, (checkpoints.git(root, 'rev-parse', 'HEAD'),
+                                  checkpoints.git(root, 'write-tree').decode().strip()))
+        self.assertEqual(files['binary\nfile\t.bin'], (root / 'binary\nfile\t.bin').read_bytes())
+
+    def test_submodule_is_rejected_before_a_batch_is_started(self):
+        root = self.repository({'file': b'base\n'})
+        commit = checkpoints.git(root, 'rev-parse', 'HEAD').strip()
+        tree = checkpoints.git(root, 'mktree', data=b'160000 commit ' + commit + b'\tnested\n').decode().strip()
+        with patch.object(checkpoints.subprocess, 'Popen', wraps=subprocess.Popen) as launches:
+            with self.assertRaisesRegex(ValueError, 'nested Git repositories'):
+                checkpoints.tree_files(root, tree)
+        self.assertEqual(1, launches.call_count)
+
+    def test_malformed_reply_kills_and_reaps_the_owned_batch(self):
+        oid = 'a' * 40
+        proc = MagicMock()
+        proc.stdin = io.BytesIO()
+        proc.stdout = io.BytesIO(b'not a blob header\n')
+        proc.poll.return_value = None
+        proc.wait.return_value = -9
+        with patch.object(checkpoints, 'git', return_value=f'100644 blob {oid}\tfile\0'.encode()), \
+                patch.object(checkpoints.subprocess, 'Popen', return_value=proc):
+            with self.assertRaisesRegex(ValueError, 'invalid blob header'):
+                checkpoints.tree_files('/unused-fixture', 'tree')
+        proc.kill.assert_called_once_with()
+        proc.wait.assert_called_once_with()
+        self.assertTrue(proc.stdin.closed)
+        self.assertTrue(proc.stdout.closed)
+
+    def test_native_batch_failure_cannot_return_a_tree_identity(self):
+        oid = 'a' * 40
+        proc = MagicMock()
+        proc.stdin = io.BytesIO()
+        proc.stdout = io.BytesIO(f'{oid} blob 0\n\n'.encode())
+        proc.poll.return_value = 1
+        proc.wait.return_value = 1
+        def start(*args, stderr, **kwargs):
+            stderr.write(b'fixture Git batch failure\n')
+            return proc
+        with patch.object(checkpoints, 'git', return_value=f'100644 blob {oid}\tfile\0'.encode()), \
+                patch.object(checkpoints.subprocess, 'Popen', side_effect=start):
+            with self.assertRaisesRegex(ValueError, 'fixture Git batch failure'):
+                checkpoints.tree_files('/unused-fixture', 'tree')
+        proc.kill.assert_not_called()
+        self.assertTrue(proc.stdin.closed)
+        self.assertTrue(proc.stdout.closed)
+
+    def test_unrequested_trailing_output_is_rejected(self):
+        oid = 'a' * 40
+        proc = MagicMock()
+        proc.stdin = io.BytesIO()
+        proc.stdout = io.BytesIO(f'{oid} blob 0\n\nextra'.encode())
+        proc.poll.return_value = None
+        proc.wait.return_value = -9
+        with patch.object(checkpoints, 'git', return_value=f'100644 blob {oid}\tfile\0'.encode()), \
+                patch.object(checkpoints.subprocess, 'Popen', return_value=proc):
+            with self.assertRaisesRegex(ValueError, 'trailing output'):
+                checkpoints.tree_files('/unused-fixture', 'tree')
+        proc.kill.assert_called_once_with()
+        self.assertTrue(proc.stdin.closed)
+        self.assertTrue(proc.stdout.closed)
+
+    def test_empty_tree_does_not_launch_a_batch(self):
+        with patch.object(checkpoints, 'git', return_value=b''), \
+                patch.object(checkpoints.subprocess, 'Popen') as launch:
+            self.assertEqual({}, checkpoints.tree_files('/unused-fixture', 'tree'))
+        launch.assert_not_called()
+
+
+class BatchBlobReplies(unittest.TestCase):
+    def test_empty_blob_and_unicode_symlink_with_sha256_object_ids(self):
+        oid = 'b' * 64
+        self.assertEqual(hashlib.sha256(b'').hexdigest(),
+                         checkpoints._read_blob_identity(io.BytesIO(f'{oid} blob 0\n\n'.encode()),
+                                                         oid, '100644'))
+        target = 'dir/δ\nfile'
+        data = target.encode()
+        reply = f'{oid} blob {len(data)}\n'.encode() + data + b'\n'
+        self.assertEqual('symlink:' + target,
+                         checkpoints._read_blob_identity(io.BytesIO(reply), oid, '120000'))
+
+    def test_regular_blob_reads_are_bounded_and_use_exact_binary_size(self):
+        oid = 'b' * 40
+        data = bytes(range(256)) * 1024 + b'\nlooks like a header\n'
+        class BoundedStream(io.BytesIO):
+            def read(self, size=-1):
+                if not 0 < size <= 64 * 1024:
+                    raise AssertionError(f'Unbounded blob read: {size}')
+                return super().read(size)
+        stream = BoundedStream(f'{oid} blob {len(data)}\n'.encode() + data + b'\n')
+        self.assertEqual('executable:' + hashlib.sha256(data).hexdigest(),
+                         checkpoints._read_blob_identity(stream, oid, '100755'))
+
+    def test_malformed_missing_mismatched_and_truncated_replies_are_rejected(self):
+        oid = 'b' * 40
+        replies = [b'', b'garbage\n', f'{oid} missing\n'.encode(),
+                   f'{"a" * 40} blob 0\n\n'.encode(), f'{oid} tree 0\n\n'.encode(),
+                   f'{oid} blob -1\n'.encode(), f'{oid} blob size\n'.encode(),
+                   f'{oid} blob 3\nxy'.encode(), f'{oid} blob 1\nx!'.encode(),
+                   f'{oid} blob 0'.encode(), b'a' * 257 + b'\n']
+        for reply in replies:
+            with self.subTest(reply=reply):
+                with self.assertRaises(ValueError):
+                    checkpoints._read_blob_identity(io.BytesIO(reply), oid, '100644')
