@@ -341,10 +341,11 @@ def program_checks(run: dict | None, scenario, *, journeys: dict[str, str] | Non
             first_run = {wid: min((str(child.get("created_at") or "") for child in (run.get("children") or {})
                                    .get(wid) or []), default="") for wid in expected}
             started = {wid for wid in expected if not accepted_at or first_run[wid] < accepted_at}
-            rechecked = {wid for wid in expected if (rows.get(wid, {}).get("merged_under") or {}).get("revision")
-                         == (program.get("agreement") or {}).get("revision")}
+            revision = request.get("accepted_in_revision", (program.get("agreement") or {}).get("revision"))
+            rechecked = {wid for wid in expected if isinstance((rows.get(wid, {}).get("merged_under") or {}).get("revision"), int)
+                         and rows[wid]["merged_under"]["revision"] >= revision}
             checks.append(Check(f"change_rechecked_producer_and_consumers[{step['interface']}]",
-                                bool(expected) and rechecked == expected and retired <= expected
+                                bool(expected) and rechecked == expected and retired <= (expected | {integration})
                                 and started <= retired,
                                 f"retired since the change was accepted {sorted(retired)}, started before it "
                                 f"{sorted(started)}, re-checked under the latest revision {sorted(rechecked)}, "

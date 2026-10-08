@@ -36,15 +36,15 @@ CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architectu
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
-KEYS = {"title", "category", "requires", "fake", "run", "turn", "hybrid", "program", "brief_from", "components"}
+KEYS = {"title", "brief", "category", "requires", "fake", "run", "turn", "hybrid", "program", "brief_from", "components"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
-FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "turn_paths", "answers"}
+FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "criteria", "turn_paths", "answers"}
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
 # whose first call it answers (later attempts, such as a repair Builder, are live).
 HYBRID_KEYS = {"scripted", "first_attempt"}
 # [program] max_parallel: `program run --max-parallel`; revise: the person's own edits, merged into the derived
 # manifest before they first approve it (tables merge, anything else replaces); change: [[program.change]] steps.
-PROGRAM_KEYS = {"max_parallel", "revise", "change"}
+PROGRAM_KEYS = {"max_parallel", "revise", "change", "revision"}
 # A change request the person raises once ``after`` ("merged:<workstream>") holds, then decides: reject it with a
 # resolution, or accept it by publishing the interface anew (publish holds the new fields, version included).
 CHANGE_KEYS = {"after", "interface", "by", "reason", "decide", "resolution", "publish"}
@@ -93,6 +93,7 @@ class Scenario:
     # each milestone's id, dependencies, owned paths and verify command so the
     # scripted provider can rehearse parallel scheduling without model spend.
     fake_milestones: tuple[dict, ...] = ()
+    fake_criteria: dict = field(default_factory=dict)
     # [fake] turn_paths: in a conversation the solution is the end state of every turn; entry i lists
     # the solution path prefixes the scripted model delivers in turn i (0 = the brief).
     fake_turn_paths: tuple[tuple[str, ...], ...] = ()
@@ -107,6 +108,7 @@ class Scenario:
     program_max_parallel: int = 2
     program_revise: dict = field(default_factory=dict)
     program_changes: tuple[dict, ...] = ()
+    program_revisions: tuple[dict, ...] = ()
     components_architecture: str = ""
 
     @property
@@ -171,6 +173,10 @@ def load(scenario_id: str) -> Scenario:
         raise ValueError(f"{scenario_id}: [hybrid] scripted and first_attempt are lists of stage names, together "
                          "not empty, with no stage in both")
     answers = fake.get("answers", {})
+    criteria = fake.get("criteria", {})
+    if not isinstance(criteria, dict) or not all(isinstance(key, str) and isinstance(value, str) and value.strip()
+                                               for key, value in criteria.items()):
+        raise ValueError(f"{scenario_id}: [fake] criteria maps ids to nonempty criterion definitions")
     if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
         raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
     turns = []
@@ -192,10 +198,15 @@ def load(scenario_id: str) -> Scenario:
     # turn_paths and per-turn reports by it), so a message may not begin another (an identical one
     # does) or the brief, which is turn 0's task.
     brief_from = meta.get("brief_from")
+    if "brief" in meta and "brief_from" in meta:
+        raise ValueError(f"{scenario_id}: brief and brief_from cannot both be specified")
     if brief_from is not None and (not isinstance(brief_from, str) or not brief_from
                                    or Path(brief_from).name != brief_from or brief_from == scenario_id):
         raise ValueError(f"{scenario_id}: brief_from must name a different catalog scenario")
-    brief = ((CATALOG / brief_from / "brief.md") if brief_from else root / "brief.md").read_text().strip()
+    brief = meta["brief"] if "brief" in meta else ((CATALOG / brief_from / "brief.md") if brief_from else root / "brief.md").read_text()
+    if not isinstance(brief, str) or not brief.strip():
+        raise ValueError(f"{scenario_id}: brief must be nonempty text")
+    brief = brief.strip()
     components = meta.get("components", {})
     if not isinstance(components, dict) or (components and (
             meta["category"] != "components" or set(components) != {"architecture"})):
@@ -218,11 +229,12 @@ def load(scenario_id: str) -> Scenario:
         known_failure=run.get("known_failure", ""), fake_flags=tuple(fake.get("flags", ())),
         fake_fault=fake.get("fault", ""), fake_live_calls=bool(fake.get("live_investigator", False)),
         fake_probe=fake.get("probe", ""), turns=tuple(turns), requires_stages=tuple(run.get("requires_stages", ())),
-        fake_milestones=tuple(fake.get("milestones", ())),
+        fake_milestones=tuple(fake.get("milestones", ())), fake_criteria=dict(criteria),
         fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())),
         hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
         program_max_parallel=program.get("max_parallel", 2), program_revise=program.get("revise", {}),
-        program_changes=tuple(program.get("change", ())), components_architecture=architecture)
+        program_changes=tuple(program.get("change", ())), program_revisions=tuple(program.get("revision", ())),
+        components_architecture=architecture)
 
 
 def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
@@ -280,6 +292,12 @@ def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
                 raise ValueError(f"{where}: an acceptance publishes the interface anew: publish = {{version = N, ...}}")
         else:
             raise ValueError(f"{where}: decide is \"accept\" or \"reject\"")
+    for number, step in enumerate(program.get("revision", []), start=1):
+        if (not isinstance(step, dict) or set(step) != {"after", "workstream", "brief"}
+                or not isinstance(step["after"], str) or not step["after"].startswith("merged:")
+                or step["after"].removeprefix("merged:") not in ids or step["workstream"] not in ids
+                or not isinstance(step["brief"], str) or not step["brief"].strip()):
+            raise ValueError(f"{scenario_id}: [[program.revision]] {number} needs after=merged:ID, workstream=ID and brief")
     return program
 
 

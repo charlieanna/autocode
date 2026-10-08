@@ -1,0 +1,3 @@
+.autocode/
+__pycache__/
+*.pyc

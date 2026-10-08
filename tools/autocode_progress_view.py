@@ -233,6 +233,10 @@ def _asked(needs, state=None):
     if kind == "planning_budget":
         return "plan review budget used up"
     if kind == "resume":
+        if needs.get("new_run_required"):
+            return "preserve this run; start a fresh component run with valid caller binding and new plan approval"
+        if needs.get("edit_required"):
+            return f"correct the plan with {needs['action']} or {needs['feedback_action']}; fresh approval needed"
         return "inspect the pause, then resume"
     if kind == "retry_job" and needs.get("route"):
         route = needs["route"]

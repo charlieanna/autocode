@@ -1,6 +1,7 @@
 """tools/autocode_multicomponent.py: batching/ownership logic, and one end-to-end
 build+integrate through the real CLI with a scripted, per-component fake model."""
 import json
+import copy
 import os
 import runpy
 import shlex
@@ -15,6 +16,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import autocode_multicomponent as mc
+import autocode_goals as goals
+import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
 from .test_verify import isolated_python_env
 
@@ -361,6 +364,155 @@ class BuildAndIntegrateTests(unittest.TestCase):
         self.assertFalse(outside.exists())
         stages = {json.loads(path.read_text())["stage"] for path in observations.glob("*.json")}
         self.assertNotIn("terra", stages)
+
+
+class LegacyComponentRunTests(unittest.TestCase):
+    """Real CLI reattachment of the shipped rootless schema, without implicit approval."""
+    setUp = BuildAndIntegrateTests.setUp
+    write_manifest = BuildAndIntegrateTests.write_manifest
+
+    def edit(self, run, path):
+        view = TaskRun(run.workspace, run.run_dir, command=run.command,
+            options=("--edit-goal", str(path)), env=self.env, timeout=120).advance()
+        return run.advance_until_input() if (view.get("needs") or {}).get("kind") == "continue" else view
+
+    def saved_run(self, *, generic=False, invalid=False):
+        observations = self.root / "observations"
+        spec = {"description": "the alpha component", "file": "components/alpha/message.txt",
+            "content": "from alpha\n", "check": "test -f components/alpha/message.txt", "observations": str(observations)}
+        old_spec = copy.deepcopy(spec)
+        if invalid == "flow":
+            old_spec["end_to_end_flow"] = ["Build the Docker image, deferred to separate integration."]
+        elif invalid:
+            old_spec.update(file="server.py", plan_paths=["components/alpha/message.txt"])
+        self.write_manifest(alpha=old_spec)
+        original = mc.component_brief(self.arch.components["alpha"], self.arch)
+        # Seed an approved checkpoint through the public CLI's generic path, then
+        # restore the shipped original task in this owned historical fixture only.
+        # The approval, contract, events and rootless settings are not rewritten.
+        run = TaskRun.start(self.repo, "Legacy task:\n" + original,
+            command=(sys.executable, str(HERE / "autocode.py")), options=FIXTURE_OPTIONS,
+            env=self.env, timeout=120)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        run.approve_plan(view["needs"]["token"])
+        self.write_manifest(alpha=spec)
+        saved = util.read(run.run_dir / "state.json")
+        self.assertNotIn("test_root", saved["settings"].get("regression", {}))
+        if not generic:
+            saved["task"] = original
+        util.atomic_json(run.run_dir / "state.json", saved)
+        return TaskRun(self.repo, run.run_dir, command=run.command, options=FIXTURE_OPTIONS,
+                       env=self.env, timeout=120), observations
+
+    def test_valid_legacy_approved_component_advances_with_original_approval(self):
+        run, _ = self.saved_run()
+        approved = run.status()["approved_contract"]
+        saved = util.read(run.run_dir / "state.json")
+        before = copy.deepcopy(saved)
+        view = run.advance_until_input()
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        goals.execution_guard(saved)
+        self.assertEqual(before, saved)
+        self.assertEqual(approved, view["approved_contract"])
+        after = util.read(run.run_dir / "state.json")
+        self.assertEqual(before["user_events"], after["user_events"])
+        self.assertNotIn("test_root", after["settings"].get("regression", {}))
+
+    def test_invalid_legacy_plan_keeps_evidence_and_needs_edit_then_new_approval(self):
+        run, observations = self.saved_run(invalid=True)
+        checkpoint = run.run_dir / "state.json"
+        saved = util.read(checkpoint)
+        saved["validation"] = {"source_revision": "historical", "evidence_hashes": {"proof": "historical"}}
+        util.atomic_json(checkpoint, saved)
+        retained = {key: copy.deepcopy(saved[key]) for key in ("goal_contract", "user_events", "validation", "settings")}
+        view = run.advance()
+        self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
+        self.assertEqual("resume", view["needs"]["kind"])
+        self.assertTrue(view["needs"]["edit_required"])
+        after = util.read(checkpoint)
+        self.assertEqual(retained, {key: after[key] for key in retained})
+        before = checkpoint.read_bytes()
+        run.resume_paused()
+        self.assertEqual(before, checkpoint.read_bytes())
+        self.assertFalse(any(json.loads(path.read_text())["stage"] == "terra" for path in observations.glob("*.json")))
+        self.assertFalse((self.repo / "components").exists())
+        corrected = copy.deepcopy(view["approved_contract"]["body"])
+        corrected["deliverables"] = ["components/alpha/message.txt"]
+        path = run.run_dir / "corrected.json"
+        util.atomic_json(path, corrected)
+        revised = self.edit(run, path)
+        self.assertEqual("approve_plan", revised["needs"]["kind"])
+        before = checkpoint.read_bytes()
+        with self.assertRaises(TaskRunError):
+            run.approve_plan(view["approved_contract"]["token"])
+        self.assertEqual(before, checkpoint.read_bytes())
+        run.approve_plan(revised["needs"]["token"])
+        self.assertEqual("TASK_COMPLETE", run.advance_until_input()["status"])
+        self.assertNotIn("test_root", util.read(checkpoint)["settings"].get("regression", {}))
+
+    def test_generic_rootless_taskrun_keeps_normal_advance_behavior(self):
+        run, _ = self.saved_run(generic=True)
+        self.assertEqual("TASK_COMPLETE", run.advance_until_input()["status"])
+        self.assertNotIn("test_root", util.read(run.run_dir / "state.json")["settings"].get("regression", {}))
+
+    def test_legacy_valid_paths_with_deferred_docker_flow_need_feedback_and_fresh_approval(self):
+        run, observations = self.saved_run(invalid="flow")
+        view = run.advance()
+        self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
+        self.assertIn("explicitly deferred", view["stop_reason"])
+        self.assertFalse(view["done"])
+        self.assertFalse(any(json.loads(path.read_text())["stage"] == "terra" for path in observations.glob("*.json")))
+        old_token = view["approved_contract"]["token"]
+        run.feedback("Component-local check correction.")
+        revised = run.advance_until_input()
+        self.assertEqual("approve_plan", revised["needs"]["kind"], (revised["status"], revised.get("stop_reason")))
+        self.assertNotEqual(old_token, revised["needs"]["token"])
+        self.assertFalse((self.repo / "components").exists())
+        with self.assertRaises(TaskRunError):
+            run.approve_plan(old_token)
+        self.assertNotIn("test_root", util.read(run.run_dir / "state.json")["settings"].get("regression", {}))
+
+    def test_legacy_ambiguous_malformed_and_explicit_mismatch_are_rejected_before_builder(self):
+        run, observations = self.saved_run()
+        checkpoint = run.run_dir / "state.json"
+        original = util.read(checkpoint)
+        ownership = "Own only the directory components/alpha/; do not create or edit any file outside it."
+        for task, root in ((original["task"] + " " + ownership, None),
+                (original["task"].replace("components/alpha/;", "components/beta/;"), None),
+                (original["task"].replace(ownership, ""), None),
+                (original["task"], "components/beta")):
+            with self.subTest(task=task, root=root):
+                saved = copy.deepcopy(original)
+                saved["task"] = task
+                if root:
+                    saved["settings"].setdefault("regression", {})["test_root"] = root
+                util.atomic_json(checkpoint, saved)
+                view = run.advance()
+                self.assertEqual("PAUSED_COMPONENT_PLAN", view["status"])
+                self.assertTrue(view['needs'].get('new_run_required'))
+                self.assertFalse(view['needs'].get('edit_required'))
+                self.assertEqual(saved["goal_contract"], util.read(checkpoint)["goal_contract"])
+                before = checkpoint.read_bytes()
+                run.resume_paused()
+                self.assertEqual(before, checkpoint.read_bytes())
+                corrected = run.run_dir / 'binding-corrected-body.json'
+                util.atomic_json(corrected, saved['goal_contract']['body'])
+                with self.assertRaises(TaskRunError):
+                    self.edit(run, corrected)
+                self.assertEqual(before, checkpoint.read_bytes())
+                attempts = {path.name: path.read_bytes() for path in observations.glob("*.json")}
+                with self.assertRaises(TaskRunError):
+                    run.feedback('Component-local check correction.')
+                self.assertEqual(before, checkpoint.read_bytes())
+                self.assertEqual(attempts, {path.name: path.read_bytes() for path in observations.glob("*.json")})
+        self.assertFalse(any(json.loads(path.read_text())["stage"] == "terra" for path in observations.glob("*.json")))
+        fresh = self.root / 'fresh-component'
+        git(self.root, 'clone', '--quiet', str(self.repo), str(fresh))
+        started = TaskRun.start(fresh, original['task'], command=run.command,
+            options=FIXTURE_OPTIONS, start_options=('--test-root', 'components/alpha'), env=self.env, timeout=120)
+        self.assertEqual('approve_plan', started.status()['needs']['kind'])
+        self.assertFalse((fresh / 'components').exists(), 'Fresh start is not implicit Builder approval')
 
 
 class CliTests(BuildAndIntegrateTests):

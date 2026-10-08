@@ -579,10 +579,11 @@ inherits, verified by `[fake] check`, delivering the solution files no milestone
 owns. A code workstream whose files already match the solution (a re-check after
 an agreement revision) plans a validate-only task, and marks its criteria
 `guard:` with a test the workstream already has, as a live Planner did, so the
-runner's regression proof runs on an unchanged source. That is the fake's choice, not the
-product's: a re-check planned as an implementation of a workstream that
-already conforms stalls the program, since its Builder has nothing to change
-([docs/bugs/2026-10-06-program-recheck-implement-stall.md](../docs/bugs/2026-10-06-program-recheck-implement-stall.md)).
+runner's regression proof runs on an unchanged source. An implementation re-check may
+also leave source unchanged when exact accepted-source snapshots and approval/check
+receipts match. It still invokes a fresh Builder and independent review: previous
+acceptance is candidate provenance, never completion credit. `program-adaptive-learning`
+scripts this implementation re-check path after an approved revision.
 The integration workstream marks each inherited id `guard:` as its brief asks, naming a
 merged workstream's test (or its own journey test) when the solution has one, else the
 scenario check, so its proof runs against the integration head and matches guards in files
@@ -601,15 +602,35 @@ new, so a scaffold (a `.gitignore`, an empty `tests/__init__.py`) stops the walk
 skeleton (docs/bugs/2026-10-06-regression-proof-scaffold-base.md).
 
 ```sh
-$PY scenarios/run.py run program-notes-cli --fake                                   # PASS, about 30 s
-$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/search-shadows-list   # HONEST_BLOCKER
-$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/case-sensitive-search # FALSE_COMPLETE
+$PY scenarios/run.py run program-notes-cli --fake
+$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/search-shadows-list   # expected HONEST_BLOCKER
+$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/case-sensitive-search # expected FALSE_COMPLETE
 ```
 
 A fake program run takes about 30 s and some 20 CLI calls (plan, derive, show,
 approve, about eight `program run` passes, a change request, a revision and a
 plan approval per workstream run), roughly four times a typical fake scenario.
 A live run spends about one run per workstream run, the plan included.
+
+## Adaptive learning
+
+`program-adaptive-learning` exercises a walking skeleton, learning-engine and backend
+workstreams, exact shared hint-rule inheritance, an accepted interface change and
+an unchanged-source implementation re-check. Its named journey is read -> hint ->
+answer -> progress -> next. Hint-assisted correctness earns one point without
+mastery; independent correctness earns two and advances the lesson. Reading again
+must not clear a pending hint. The oracle checks SQLite outcomes across a writer
+process exit and a separate reader process, not merely reopening an in-memory object.
+These simulated outcomes do not prove that real students learn better.
+
+```sh
+$PY scenarios/run.py run program-adaptive-learning --fake
+$PY examples/adaptive-learning/run.py
+$PY examples/adaptive-learning/run.py --database .scenario-runs/learning-progress.sqlite
+```
+
+The examples run the catalog reference implementations, not AutoCode or a live
+qualification. None of these commands or catalog entries asserts a current pass.
 
 ## Components and local Compose
 
@@ -749,6 +770,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `design-review-with-answers` | conversation | Issue #185: a design review asks which ordering consumers need, and each reply revises the same review in the same run. Before any answer ordering is a question, not a blocker; after "Ordering is per-domain." it is blocking (a transfer moves a domain to another registry, splitting its events across `registry_id` partitions); after "Per-registry is fine." that concern is resolved under the same id. The migration gap stays blocking, the unowned DLQ is advisory, nothing is renumbered or invented, and each turn runs only the Architect and changes only the review. The oracle reads the report's `revisions` trail and each turn's kept report. |
 | `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then an explicit design request settling caller-configurable TTL (3600-second default), injectable clock, expiry at elapsed time >= TTL including equality, no stale fallback and propagated upstream errors, then exactly "Build it.". The design writes only `docs/design/`; the build writes only `app/` and `tests/`, preserving the decision note, approved design and root README. Socket-free fixtures use controlled `urllib.request.urlopen` responses and pipes/file barriers, not loopback servers or socket-backed managers. The build checks the approved design first (`check_design`); the oracle judges its prescribed public modules/signatures, strict clock boundary and cross-process shared cache. The design and build turns each have their plan approved. |
 | `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies the journey `capture-and-find` by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
+| `program-adaptive-learning` | program | Differential hint-assisted versus independent correctness in engine and SQLite backend, cross-process persistence, sticky hints, named simulated journeys, interface reapproval and unchanged-source implementation re-check with fresh review. Does not establish real learning efficacy. See [Adaptive learning](#adaptive-learning). |
 | `local-compose-two-services` | components | Architecture -> independent component TaskRuns -> integration -> local runtime smoke, with an independent fresh-key HTTP oracle and cleanup. Fake transport is the default for `--fake`; real Docker is explicit `--local-docker`. See [Components and local Compose](#components-and-local-compose). |
 
 Planned next: Figma design → implementation. Multi-service local Compose is now

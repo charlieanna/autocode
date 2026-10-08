@@ -113,6 +113,7 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                                   "turns": [turn.say for turn in scenario.turns],
                                   "probe": scenario.fake_probe,
                                   "milestones": list(scenario.fake_milestones),
+                                  "criteria": dict(scenario.fake_criteria),
                                   "turn_paths": [list(row) for row in scenario.fake_turn_paths]}))
     return [*FAKE_FLAGS, *scenario.fake_flags], {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
                         "SCENARIO_FAKE_CONFIG": str(config)}

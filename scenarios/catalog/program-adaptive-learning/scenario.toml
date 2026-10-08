@@ -1,0 +1,100 @@
+title = "Adaptive learning: engine and backend retain differential hint outcomes"
+category = "program"
+brief = """
+Build a tiny offline adaptive-learning product in one Python standard-library repository.
+Use three bounded workstreams: a walking skeleton S, learning engine ENGINE, and backend BACKEND.
+Keep lesson seeds in learning/lessons.json: addition (2+3=5, hint Count two then three)
+and subtraction (5-2=3, hint Take two away from five).
+The named journey is read -> hint -> answer -> progress -> next: one student reads addition,
+requests its hint, answers 5, sees hint-assisted progress and receives addition practice again.
+A separate student answers 5 without a hint and receives subtraction. Correct with a hint must
+count differently from correct alone, in both the engine and the persisted backend record.
+Use criterion C_HINT, with the exact text "Getting a problem right with a hint must count differently
+from getting it right alone", in both ENGINE's and BACKEND's acceptance criteria, not only the final check.
+Independent correctness earns 2 points and mastery; hint-assisted correctness earns 1 point and
+does not establish mastery; a wrong answer earns 0. Never claim this demonstrates real learning.
+After read -> hint -> read of the same lesson -> answer, hint use is still recorded: only answer
+submission clears the pending hint. Reading must never reset it. Persist both outcomes in a real
+SQLite database, surviving the writer process exiting and a separate reader process opening it;
+reopening an object backed by class/global memory is not persistence.
+S owns learning/__init__.py, learning/flow.py, learning/lessons.json, tests/__init__.py and
+tests/test_skeleton.py: a tiny connected in-memory journey with stable Session.read(), hint(),
+answer(), progress() and next() methods and an explicit thin fallback scoring implementation.
+ENGINE owns learning/engine.py and tests/test_engine.py, extends S's flow with evaluate(lesson,
+answer, hinted) returning outcome, points and mastered, without changing learning/flow.py.
+BACKEND owns learning/backend.py and tests/test_backend.py, depends on ENGINE and S, persists
+attempts in SQLite with Repository.save(student, lesson, result, hinted) and attempts(student),
+and proves both outcomes survive reopening. Session accepts a student and optional database path.
+The final integration run adds tests/test_journey.py and verifies the named journeys on the merged
+product. Preserve all earlier end-to-end checks. No network, accounts, deployment or external services.
+"""
+
+[program]
+max_parallel = 2
+
+[program.revise.workstreams.S]
+journeys = ["practice-with-hint"]
+
+[program.revise.shared]
+constraints = ["Python standard library only"]
+permission_boundaries = ["No network, accounts, deployment or external services"]
+interfaces = [{id = "learning-session", summary = "Session connects one student's learning journey", paths = ["learning/flow.py"], version = 1, producer = "S", consumers = ["ENGINE", "BACKEND"], behavior = "Hint-assisted correctness earns 1 point and no mastery; independent correctness earns 2 points and mastery"}]
+
+[[program.revise.journeys]]
+id = "practice-with-hint"
+name = "Read, hint, answer, progress, next"
+steps = ["read addition", "request hint", "answer 5", "see hint-assisted progress", "next addition practice"]
+simulated = true
+does_not_prove = "that real students learn better"
+
+[[program.revise.journeys]]
+id = "independent-answer"
+name = "Independent answer advances the learner"
+steps = ["read addition", "answer 5 without hint", "reopen mastered progress", "next subtraction"]
+
+[[program.change]]
+after = "merged:S"
+interface = "learning-session"
+by = "ENGINE"
+reason = "Hint use must remain sticky until answer submission"
+decide = "accept"
+publish = {version = 2, behavior = "A requested hint remains sticky through answer submission; hint-assisted correctness earns 1 point without mastery, independent correctness earns 2 points with mastery"}
+
+[[program.revision]]
+after = "merged:BACKEND"
+workstream = "ENGINE"
+brief = "Re-check learning/engine.py's differential scoring against the inherited hint rule, including wrong answers; retain all behavior and verify tests/test_engine.py"
+
+[run]
+max_steps = 110
+timeout_minutes = 20
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+fault = "program_recheck_implement"
+
+[fake.criteria]
+C_HINT = "Getting a problem right with a hint must count differently from getting it right alone"
+
+[[fake.milestones]]
+id = "S"
+depends_on = []
+paths = ["learning/__init__.py", "learning/flow.py", "learning/lessons.json", "tests/__init__.py", "tests/test_skeleton.py"]
+objective = "Walking skeleton: read addition, hint, answer 5, see hint-assisted progress, then next addition practice"
+verify = "python3 -m unittest tests.test_skeleton"
+
+[[fake.milestones]]
+id = "ENGINE"
+depends_on = ["S"]
+paths = ["learning/engine.py", "tests/test_engine.py"]
+criteria = ["C_ENGINE", "C_HINT"]
+objective = "Learning engine differentiates hinted, independent and wrong answers with points and mastery"
+verify = "python3 -m unittest tests.test_engine"
+
+[[fake.milestones]]
+id = "BACKEND"
+depends_on = ["ENGINE"]
+paths = ["learning/backend.py", "tests/test_backend.py"]
+criteria = ["C_BACKEND", "C_HINT"]
+objective = "Backend persists the hint-assisted and independent outcomes separately across reopen"
+verify = "python3 -m unittest tests.test_backend"
