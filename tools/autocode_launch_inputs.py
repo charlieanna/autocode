@@ -9,13 +9,15 @@ Shared virtualenvs and node_modules are outside this inventory.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
+from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import sys
 import uuid
 
 try:
@@ -51,61 +53,176 @@ def _path(root, name):
     return current
 
 
+def _identity(info):
+    if not stat.S_ISDIR(info.st_mode):
+        raise ValueError('Ignored input root must be a directory')
+    return info.st_dev, info.st_ino
+
+
+def _cleanup(action, *args, missing_ok=False, **kwargs):
+    """Retain the active failure; a cleanup-only failure is still reported."""
+    failed = sys.exc_info()[0] is not None
+    try:
+        action(*args, **kwargs)
+    except FileNotFoundError:
+        if not missing_ok and not failed:
+            raise
+    except OSError:
+        if not failed:
+            raise
+
+
 @contextmanager
-def _parent(root, name, *, create=False):
-    """Pin every parent with no-follow directory opens before reading or writing."""
-    _path(root, name)
-    root_parts = Path(root).absolute().parts[1:]
-    relative = PurePosixPath(name).parts
+def _file(fd, mode):
+    try:
+        file = os.fdopen(fd, mode)
+    except BaseException:
+        _cleanup(os.close, fd)
+        raise
+    try:
+        yield file
+    finally:
+        _cleanup(file.close)
+
+
+def _system_root(root):
+    """Normalize only authenticated Darwin system prefixes, never a suffix."""
+    if sys.platform != 'darwin' or len(root.parts) < 2 or root.parts[1] not in ('var', 'tmp'):
+        return root, None
+    prefix = Path(os.path.sep) / root.parts[1]
+    info = prefix.lstat()
+    if not stat.S_ISLNK(info.st_mode):
+        return root, None
+    target = os.readlink(prefix)
+    canonical = Path('/private') / prefix.name
+    if info.st_uid != 0 or target not in (f'private/{prefix.name}', str(canonical)):
+        raise ValueError('Ignored input root has an untrusted system alias')
+    target_info = canonical.lstat()
+    if not stat.S_ISDIR(target_info.st_mode) or target_info.st_uid != 0:
+        raise ValueError('Ignored input system alias must name a root-owned directory')
+    alias = (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_ctime_ns,
+             target, target_info.st_dev, target_info.st_ino, target_info.st_mode, target_info.st_uid)
+    return canonical.joinpath(*root.parts[2:]), alias
+
+
+def _open_root(root):
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     fd = os.open(os.path.sep, flags)
     try:
-        for index, part in enumerate((*root_parts, *relative[:-1])):
+        for part in root.parts[1:]:
+            child = os.open(part, flags, dir_fd=fd)
+            previous = fd
+            fd = child
+            _cleanup(os.close, previous)
+        return fd
+    except BaseException:
+        _cleanup(os.close, fd)
+        raise
+
+
+@dataclass(frozen=True)
+class _RootAnchor:
+    root: Path
+    canonical: Path
+    fd: int
+    identity: tuple
+    alias: tuple | None
+
+
+def _fresh(anchor, root):
+    """Rewalk even held roots: a link to the same inode is still forbidden."""
+    root = Path(root).absolute()
+    if type(anchor) is not _RootAnchor or root != anchor.root:
+        raise ValueError('Ignored input operation has a foreign root anchor')
+    canonical, alias = _system_root(root)
+    if canonical != anchor.canonical or alias != anchor.alias:
+        raise ValueError('Ignored input system alias changed during admission')
+    fd = _open_root(canonical)
+    try:
+        if (_identity(os.fstat(fd)) != anchor.identity
+                or _identity(os.fstat(anchor.fd)) != anchor.identity
+                or _identity(root.stat(follow_symlinks=False)) != anchor.identity):
+            raise ValueError('Ignored input root changed during admission')
+        if _system_root(root) != (canonical, alias):
+            raise ValueError('Ignored input system alias changed during admission')
+    finally:
+        _cleanup(os.close, fd)
+
+
+@contextmanager
+def _anchor(root):
+    """Keep the original directory alive for all file admissions in one call."""
+    root = Path(root).absolute()
+    expected = _identity(root.stat(follow_symlinks=False))
+    canonical, alias = _system_root(root)
+    fd = _open_root(canonical)
+    try:
+        anchor = _RootAnchor(root, canonical, fd, expected, alias)
+        _fresh(anchor, root)
+        yield anchor
+    finally:
+        _cleanup(os.close, fd)
+
+
+@contextmanager
+def _parent(root, name, *, create=False, expected_root=None):
+    """Pin every parent with no-follow directory opens before reading or writing."""
+    if expected_root is None:
+        with _anchor(root) as anchor:
+            with _parent(root, name, create=create, expected_root=anchor) as parent:
+                yield parent
+        return
+    _path(root, name)
+    _fresh(expected_root, root)
+    relative = PurePosixPath(name).parts
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.dup(expected_root.fd)
+    try:
+        for part in relative[:-1]:
             try:
                 child = os.open(part, flags, dir_fd=fd)
             except FileNotFoundError:
-                if not create or index < len(root_parts):
+                if not create:
                     raise
                 try:
                     os.mkdir(part, dir_fd=fd)
                 except FileExistsError:
                     pass
                 child = os.open(part, flags, dir_fd=fd)
-            os.close(fd)
+            previous = fd
             fd = child
+            _cleanup(os.close, previous)
         yield fd, relative[-1]
+        _fresh(expected_root, root)
     finally:
-        os.close(fd)
+        _cleanup(os.close, fd)
 
 
-def _read(root, name, limit=None):
-    with _parent(root, name) as (parent, leaf):
+def _read(root, name, limit=None, *, expected_root=None):
+    with _parent(root, name, expected_root=expected_root) as (parent, leaf):
         fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-    with os.fdopen(fd, 'rb') as file:
-        info = os.fstat(file.fileno())
-        if not stat.S_ISREG(info.st_mode) or (limit is not None and info.st_size > limit):
-            raise ValueError(f'Ignored input is not a bounded regular file: {name}')
-        data = file.read() if limit is None else file.read(limit + 1)
-        if limit is not None and len(data) > limit:
-            raise ValueError(f'Ignored input exceeds its source bound: {name}')
+        with _file(fd, 'rb') as file:
+            info = os.fstat(file.fileno())
+            if not stat.S_ISREG(info.st_mode) or (limit is not None and info.st_size > limit):
+                raise ValueError(f'Ignored input is not a bounded regular file: {name}')
+            data = file.read() if limit is None else file.read(limit + 1)
+            if limit is not None and len(data) > limit:
+                raise ValueError(f'Ignored input exceeds its source bound: {name}')
     return data, info.st_mode & 0o777
 
 
-def _write(root, name, data, *, mode=0o600):
+def _write(root, name, data, *, mode=0o600, expected_root=None):
     """Replace one capture file atomically through its pinned parent."""
-    with _parent(root, name, create=True) as (parent, leaf):
+    with _parent(root, name, create=True, expected_root=expected_root) as (parent, leaf):
         temporary = f'.{leaf}.{uuid.uuid4().hex}'
         try:
             fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
-            with os.fdopen(fd, 'wb') as file:
+            with _file(fd, 'wb') as file:
                 file.write(data)
                 os.fchmod(file.fileno(), mode)
             os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
         finally:
-            try:
-                os.unlink(temporary, dir_fd=parent)
-            except FileNotFoundError:
-                pass
+            _cleanup(os.unlink, temporary, dir_fd=parent, missing_ok=True)
 
 
 def _entry(root, name, limit=None):
@@ -118,25 +235,35 @@ def record(state, workspace, run_dir):
     workspace, store = Path(workspace), Path(run_dir) / STORE
     if store.is_symlink():
         raise ValueError('Launch input storage must not be a symlink')
-    manifest = {'version': 1, 'workspace': str(workspace.resolve())}
-    for kind, inventory in (('generated', verify.generated_sources), ('vendored', verify.vendored_files)):
-        try:
-            files = {}
-            for name in inventory(workspace):
-                data, mode = _read(workspace, name, verify.GENERATED_SOURCE_LIMIT if kind == 'generated' else None)
-                digest = hashlib.sha256(data).hexdigest()
-                if kind == 'generated':
-                    _write(run_dir, f'{STORE}/{digest}', data)
-                files[name] = [digest, mode]
-            manifest[kind] = files
-        except (OSError, ValueError):
-            manifest[kind] = None  # failure is retained even if the files later disappear
-    data = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
-    _write(run_dir, f'{STORE}/manifest.json', data)
-    # The base this record vouches for: the one pinned at launch, or None when the checkout was busy and
-    # the base is pinned later (autocode_build_loop); supply() trusts the record only for its own base.
-    state['launch_sources'] = {'manifest_sha256': hashlib.sha256(data).hexdigest(),
-                               'base_commit': state.get('base_commit')}
+    with _anchor(workspace) as source_anchor, _anchor(run_dir) as run_anchor:
+        manifest = {'version': 1, 'workspace': str(workspace.resolve())}
+        for kind, inventory in (('generated', verify.generated_sources), ('vendored', verify.vendored_files)):
+            try:
+                _fresh(source_anchor, workspace)
+                _fresh(run_anchor, run_dir)
+                files = {}
+                for name in inventory(workspace):
+                    data, mode = _read(workspace, name,
+                        verify.GENERATED_SOURCE_LIMIT if kind == 'generated' else None,
+                        expected_root=source_anchor)
+                    digest = hashlib.sha256(data).hexdigest()
+                    if kind == 'generated':
+                        _write(run_dir, f'{STORE}/{digest}', data, expected_root=run_anchor)
+                    files[name] = [digest, mode]
+                manifest[kind] = files
+            except (OSError, ValueError):
+                manifest[kind] = None  # failure is retained even if the files later disappear
+        # A caught copy failure cannot admit a replacement root for the final manifest.
+        _fresh(source_anchor, workspace)
+        _fresh(run_anchor, run_dir)
+        data = (json.dumps(manifest, sort_keys=True, indent=2) + '\n').encode()
+        _write(run_dir, f'{STORE}/manifest.json', data, expected_root=run_anchor)
+        _fresh(source_anchor, workspace)
+        _fresh(run_anchor, run_dir)
+        # The base this record vouches for: the one pinned at launch, or None when the checkout was busy and
+        # the base is pinned later (autocode_build_loop); supply() trusts the record only for its own base.
+        state['launch_sources'] = {'manifest_sha256': hashlib.sha256(data).hexdigest(),
+                                   'base_commit': state.get('base_commit')}
 
 
 def _manifest(state, store, checkout):
@@ -186,30 +313,43 @@ class Supply:
         if self.unverified:
             raise ValueError('; '.join(self.unverified))
         tree = Path(tree)
-        # Iterate the captured inventory, never a fresh scan that can silently lose an entry.
-        for kind, files in (('generated', self.generated), ('vendored', self.vendored)):
-            for name, expected in files.items():
-                data, mode = _read(self.checkout, name, verify.GENERATED_SOURCE_LIMIT if kind == 'generated' else None)
-                if [hashlib.sha256(data).hexdigest(), mode] != expected:
-                    raise ValueError(f'Ignored input changed while preparing a scratch tree: {name}')
-                if kind == 'generated':
-                    captured, _ = _read(self.store, expected[0], verify.GENERATED_SOURCE_LIMIT)
-                    if hashlib.sha256(captured).hexdigest() != expected[0]:
-                        raise ValueError(f'The launch copy of {name} is missing or damaged')
-                    data = captured
-                with _parent(tree, name, create=True) as (parent, leaf):
-                    try:
-                        existing = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
-                    except FileNotFoundError:
-                        existing = None
-                    if existing is not None:
-                        if not stat.S_ISREG(existing.st_mode):
-                            raise ValueError(f'Ignored input destination is not a regular file: {name}')
-                        continue  # a tracked base/overlay entry owns this path
-                    fd = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
-                    with os.fdopen(fd, 'wb') as file:
-                        file.write(data)
-                        os.fchmod(file.fileno(), mode)
+        if not self.generated and not self.vendored:
+            return
+        with ExitStack() as stack:
+            source_anchor = stack.enter_context(_anchor(self.checkout))
+            store_anchor = stack.enter_context(_anchor(self.store)) if self.generated else None
+            tree_anchor = stack.enter_context(_anchor(tree))
+            # Iterate the captured inventory, never a fresh scan that can silently lose an entry.
+            for kind, files in (('generated', self.generated), ('vendored', self.vendored)):
+                for name, expected in files.items():
+                    data, mode = _read(self.checkout, name,
+                        verify.GENERATED_SOURCE_LIMIT if kind == 'generated' else None,
+                        expected_root=source_anchor)
+                    if [hashlib.sha256(data).hexdigest(), mode] != expected:
+                        raise ValueError(f'Ignored input changed while preparing a scratch tree: {name}')
+                    if kind == 'generated':
+                        captured, _ = _read(self.store, expected[0], verify.GENERATED_SOURCE_LIMIT,
+                                            expected_root=store_anchor)
+                        if hashlib.sha256(captured).hexdigest() != expected[0]:
+                            raise ValueError(f'The launch copy of {name} is missing or damaged')
+                        data = captured
+                    with _parent(tree, name, create=True, expected_root=tree_anchor) as (parent, leaf):
+                        try:
+                            existing = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+                        except FileNotFoundError:
+                            existing = None
+                        if existing is not None:
+                            if not stat.S_ISREG(existing.st_mode):
+                                raise ValueError(f'Ignored input destination is not a regular file: {name}')
+                            continue  # a tracked base/overlay entry owns this path
+                        fd = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode, dir_fd=parent)
+                        with _file(fd, 'wb') as file:
+                            file.write(data)
+                            os.fchmod(file.fileno(), mode)
+            _fresh(source_anchor, self.checkout)
+            if store_anchor is not None:
+                _fresh(store_anchor, self.store)
+            _fresh(tree_anchor, tree)
 
 
 
