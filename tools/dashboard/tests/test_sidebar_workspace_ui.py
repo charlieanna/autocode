@@ -8,6 +8,7 @@ the provider-scope boundary runs against ContinuousConversationStore with
 fake providers, matching the style of test_continuous_recovery.py.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -21,13 +22,15 @@ sys.path.insert(0, str(TOOLS / 'dashboard'))
 
 from agent_console import Console  # noqa: E402
 from dashboard_continuous import ContinuousConversationStore  # noqa: E402
+from dashboard_setup import conversation_model_fields  # noqa: E402
 
 HARNESS = Path(__file__).resolve().parent / 'sidebar_workspace_harness.js'
 DASHBOARD_CSS = TOOLS / 'dashboard' / 'dashboard.css'
 
 
 def harness_case(name):
-    return subprocess.run(['node', str(HARNESS), name], capture_output=True, text=True, timeout=180)
+    env = {**os.environ, 'AUTOCODE_TEST_PYTHON': sys.executable}
+    return subprocess.run(['node', str(HARNESS), name], capture_output=True, text=True, timeout=180, env=env)
 
 
 def css_variable_values(css, token):
@@ -73,6 +76,13 @@ class ConversationScopingFixture(unittest.TestCase):
         console = Console([self.project], self.runner, lambda: None,
                           conversation_root=self.root / 'dashboard/conversations',
                           conversation_provider=self.provider)
+        # Fake only the external catalogue and transport; real admission still
+        # checks every required route before dispatching the fake provider.
+        models = sorted({route['model'] for route in
+                         conversation_model_fields()['conversation_routes'].values()})
+        console.catalogue.fetch = lambda **kwargs: {'usable': True, 'models': models}
+        console._probe_conversation_transport = lambda *_: {
+            'status': 'ok', 'data': {'version': '1.18.33'}}
 
         def close():
             console.pool.shutdown(wait=True)

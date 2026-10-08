@@ -388,12 +388,17 @@ class StoreTests(unittest.TestCase):
         self.project.write({"components/gateway/server.py": SERVER.format(status=200),
             "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
         wrong = verify.Framework("pytest", good.suite, python=good.python, test_root=True)
-        # Keep this kind-mismatch control independent of optional pytest installation.
+        # Keep the targeted checks native; only the suite metadata is deliberately wrong.
+        targeted = good.targeted(["components/gateway/tests/test_new.py"])
         proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=wrong, base_suite=baseline, regression_command=good.suite,
+            framework=wrong, base_suite=baseline, regression_command=targeted,
             new_behavior=True, test_root="components/gateway", timeout=120)
         self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
-        self.assertIsNone(proof["checks"]["suite_on_candidate"]["results"])
+        receipt = proof["checks"]["suite_on_candidate"]
+        self.assertEqual(0, receipt["exit_code"], proof)
+        self.assertIsNone(receipt["results"])
+        self.assertFalse(receipt["results_expected"])
+        self.assertFalse(proof["failures"], proof)
         self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
         self.assertTrue(any("scoped suite" in reason for reason in proof["unverified"]), proof)
 

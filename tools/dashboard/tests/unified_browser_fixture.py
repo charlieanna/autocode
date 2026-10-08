@@ -413,6 +413,8 @@ def main():
             'description': 'Fixture-only matrix coverage; it is not task completion.',
             'groups_pointer': '/groups', 'completed_field': 'done', 'total_field': 'total'}]}), encoding='utf8')
         catalogue = root / 'fixture_models.py'
+        # The shipped admission policy checks every conversation route. Keep
+        # those defaults alongside the canonical legacy saved-model replacements.
         routes = conversation_model_fields()['conversation_routes']
         models = sorted({route['model'] for route in routes.values()} |
                         {'openai/' + model for model in CODEX_DEFAULT_MODELS.values()})
@@ -423,8 +425,9 @@ def main():
             _lifecycle_action_count = 0
 
             def _probe_conversation_transport(self, executable):
-                # Supply only the external version-command evidence. Production
-                # transport classification and required-route admission still run.
+                # Supply only the external tool probe; production transport and
+                # required-route admission still run, without consulting a host
+                # installation or invoking a real provider.
                 return {'status': 'ok', 'data': {'version': '1.18.33'}}
 
             def _json_command(self, *args, **kwargs):

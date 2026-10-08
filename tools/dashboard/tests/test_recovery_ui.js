@@ -66,3 +66,80 @@ context.openWorkspaceSetup=()=>calls.push(['setup']);
 const environment=new Element('div');context.renderRecoveryCard(environment,{...run,status:'PAUSED_TRANSPORT_CHANGED'},{...recovery,cause:'PAUSED_TRANSPORT_CHANGED',actions:[]});
 all(environment).find(e=>e.dataset.setupRecovery==='true').onclick();assert.deepEqual(calls.at(-1),['setup']);
 assert.match(text(environment),/task stays paused/);
+
+// A native summary click changes .open before its queued toggle event. Exercise
+// the shipped disclosure and both renderers across that deferred event boundary.
+function deferredRecoveryPage(){
+ const queued=[],requests=[],messages=[];
+ class Node{
+  constructor(tag,text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};this.listeners={};this.parent=null;this._open=false;this.pendingToggle=false;}
+  get isConnected(){return this.root===true||!!this.parent?.isConnected;}
+  get childElementCount(){return this.children.length;}
+  get open(){return this._open;}
+  set open(value){
+   value=!!value;if(value===this._open)return;this._open=value;
+   if(this.pendingToggle)return;this.pendingToggle=true;
+   queued.push(()=>{this.pendingToggle=false;this.ontoggle?.();for(const listener of this.listeners.toggle||[])listener();});
+  }
+  append(...nodes){for(const node of nodes){node.parent=this;this.children.push(node);}}
+  replaceChildren(...nodes){for(const node of this.children)node.parent=null;this.children=[];this.append(...nodes);}
+  setAttribute(key,value){this[key]=value;}
+  addEventListener(kind,listener){(this.listeners[kind]||=[]).push(listener);}
+  querySelector(selector){return all(this).slice(1).find(node=>selector==='summary'?node.tag==='summary':selector==='details[data-recovery-inspection]'&&node.tag==='details'&&node.dataset.recoveryInspection==='true')||null;}
+  click(){if(this.disabled)return;if(this.tag==='summary')this.parent.open=!this.parent.open;this.onclick?.();}
+ }
+ const attention=new Node('div');attention.root=true;
+ const page=vm.createContext({console,$:()=>attention,n:(tag,label)=>new Node(tag,label),card:()=>new Node('div'),
+  button:(label,onclick)=>Object.assign(new Node('button',label),{onclick}),document:{createElement:tag=>new Node(tag)},
+  detailsState:new Map(),latestRun:null,taskReadError:'',taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
+  statusInfo:()=>({group:'stopped',label:'Paused',reason:'Retained checkpoint'}),renderDocument:value=>new Node('pre',JSON.stringify(value)),
+  submitTaskAction:(...args)=>requests.push(args),dashboardNotice:message=>messages.push(message),activateTab:()=>{}});
+ const range=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start)));
+ vm.runInContext(range('function focusKey(', 'function captureControls(')
+  +range('function disclosure(', 'async function api(')
+  +range('function renderRecoveryCard(', 'async function sendChange('),page);
+ return {requests,messages,render(current){page.latestRun=current;page.renderTaskAttention(current);},
+  inspection:()=>attention.querySelector('details[data-recovery-inspection]'),
+  resume:()=>all(attention).find(node=>node.dataset.recoveryAction==='resume'),
+  flush(){while(queued.length)queued.shift()();}};
+}
+const pause={run:'/owned/deferred/run',workspace:'/owned/deferred',status:'PAUSED_REQUESTED',
+ interventions:{mode:'capable',recovery:{...recovery,token:'pause-one',actions:[actions[0]]}}};
+const deferred=deferredRecoveryPage();deferred.render(pause);
+const firstInspection=deferred.inspection();firstInspection.querySelector('summary').click();
+assert.equal(firstInspection.open,true,'Native opening precedes its toggle event');
+assert.equal(deferred.resume().disabled,true,'The toggle event has deliberately not been delivered');
+deferred.render(structuredClone(pause));
+assert.notEqual(deferred.inspection(),firstInspection,'Refresh replaces the actual inspection node');
+assert.equal(deferred.inspection().open,true,'Same-pause refresh retains an opening before its toggle event');
+assert.equal(deferred.resume().disabled,false,'The rebuilt real renderer permits the inspected action');
+deferred.resume().click();
+assert.equal(deferred.requests.length,1);
+assert.equal(deferred.requests[0][1],'recover_pause');
+assert.deepEqual({...deferred.requests[0][2]},{recovery_token:'pause-one',recovery_action:'resume'});
+deferred.flush();
+assert.equal(deferred.inspection().open,true,'Detached opening events cannot close the replacement');
+assert.equal(deferred.resume().disabled,false);
+deferred.inspection().querySelector('summary').click();
+assert.equal(deferred.inspection().open,false,'Native closing also precedes its toggle event');
+deferred.render(structuredClone(pause));
+assert.equal(deferred.inspection().open,false,'Same-pause refresh retains a deferred close');
+assert.equal(deferred.resume().disabled,true);
+deferred.resume().click();deferred.flush();
+assert.equal(deferred.requests.length,1,'A closed inspection cannot run another recovery action');
+assert.equal(deferred.inspection().open,false);
+assert.equal(deferred.resume().disabled,true);
+
+for(const current of [
+ {...pause,interventions:{...pause.interventions,recovery:{...pause.interventions.recovery,token:'pause-two'}}},
+ {...pause,run:'/owned/deferred/other-run'},
+]){
+ const fresh=deferredRecoveryPage();fresh.render(pause);
+ const old=fresh.inspection();old.querySelector('summary').click();fresh.render(current);
+ assert.equal(old.isConnected,false,'Refresh detaches the old inspection');
+ assert.equal(fresh.inspection().open,false,'Another pause or run requires a fresh inspection');
+ assert.equal(fresh.resume().disabled,true);fresh.resume().click();fresh.flush();
+ assert.equal(fresh.inspection().open,false,'Detached opening events cannot inspect another pause or run');
+ assert.equal(fresh.resume().disabled,true);assert.equal(fresh.requests.length,0);
+}
+console.log('Deferred opening/closing survives exact-pause refresh; fresh pauses, other runs and detached events stay gated.');
