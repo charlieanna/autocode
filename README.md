@@ -19,7 +19,7 @@ autocode doctor --workspace /path/to/project
 autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
-OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
+OpenCode is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
 

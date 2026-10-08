@@ -17,14 +17,16 @@ AutoCode is not on PyPI yet. After the first release this step becomes
 `pipx install autocode-supervisor`. If pipx's Python is older than 3.11, add
 `--python python3.11`.
 
-**2. Install the engine and sign in.** The default engine is OpenCode 1.x (2.x is
-refused). Its default routes use two accounts: the Requirements Gatherer, Planner
-and Builder run GLM 5.3 on a **Z.ai Coding Plan**, and the Plan Reviewer, Tester and
-Completion Reviewer run GPT-6 Sol through **ChatGPT** ([Models](models.md#default-models)).
+**2. Install the engine and sign in.** The default engine is OpenCode. The terminal
+adapter accepts 1.x and 2.x; this quickstart pins **1.18.33**, the version qualified
+for strict tool containment on macOS. Its default routes use two accounts: the
+Requirements Gatherer, Planner and Builder run GLM 5.3 on a **Z.ai Coding Plan**,
+and the Plan Reviewer, Tester and Completion Reviewer run GPT-6 Sol through
+**ChatGPT** ([Models](models.md#default-models)).
 So OpenCode needs two logins:
 
 ```sh
-npm install -g opencode-ai@1
+npm install -g opencode-ai@1.18.33
 opencode auth login     # choose OpenAI and sign in with your ChatGPT account
 opencode auth login     # choose Z.AI Coding Plan and enter its API key
 opencode auth list      # both are listed now
@@ -63,6 +65,11 @@ the Codex login instead.
 ```sh
 autocode "Write hello.py that prints a greeting, with a unittest test for it"
 ```
+
+For OpenCode, this command requires macOS with `/usr/bin/sandbox-exec` and the
+pinned engine version above. On Linux or another OpenCode version, see
+[native tool containment](execution.md#native-tool-containment) for the explicit
+choice to use OpenCode's own permission checks without kernel containment.
 
 In a terminal this is a chat. AutoCode may ask a question or two (type the answer),
 then shows the plan: what will be built and how each requirement will be checked.
