@@ -22,6 +22,8 @@ autocode "Build a greeting CLI" --workspace /path/to/project
 OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
+If your account serves only one model, start with `--single-model MODEL` to run
+every role on it (per-role reasoning flags still apply).
 
 ## Reliability
 
