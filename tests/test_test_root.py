@@ -393,6 +393,7 @@ class StoreTests(unittest.TestCase):
         proof = verify.verify(self.project.root, self.project.base, self.run_dir,
             framework=wrong, base_suite=baseline, regression_command=targeted,
             new_behavior=True, test_root="components/gateway", timeout=120)
+        self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
         receipt = proof["checks"]["suite_on_candidate"]
         self.assertEqual(0, receipt["exit_code"], proof)
         self.assertIsNone(receipt["results"])

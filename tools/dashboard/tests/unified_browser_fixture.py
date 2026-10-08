@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human
+from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human, CODEX_DEFAULT_MODELS
 from dashboard_setup import conversation_model_fields
 from dashboard_work_summary import project as work_summary, progress_from_status
 import autocode_verification_view as verification_view
@@ -414,10 +414,10 @@ def main():
             'groups_pointer': '/groups', 'completed_field': 'done', 'total_field': 'total'}]}), encoding='utf8')
         catalogue = root / 'fixture_models.py'
         # The shipped admission policy checks every conversation route. Keep
-        # those defaults in the disposable catalogue alongside the saved-model
-        # replacements exercised by this fixture.
-        models = sorted({route['model'] for route in conversation_model_fields()['conversation_routes'].values()}
-                        | {'openai/gpt-5.6-terra', 'openai/gpt-5.6-sol'})
+        # those defaults alongside the canonical legacy saved-model replacements.
+        routes = conversation_model_fields()['conversation_routes']
+        models = sorted({route['model'] for route in routes.values()} |
+                        {'openai/' + model for model in CODEX_DEFAULT_MODELS.values()})
         catalogue.write_text('print(' + repr('\n'.join(models)) + ')\n', encoding='utf8')
 
         class FixtureConsole(Console):
