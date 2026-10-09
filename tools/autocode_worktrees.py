@@ -27,6 +27,7 @@ Three pieces, each safe to repeat after a crash:
 
 Lower layer only: Git, files and ``autocode_workspaces``; never ``autocode``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,17 +45,28 @@ try:
 except ImportError:
     import autocode_workspaces as workspaces
 
-IDENTITY = {"GIT_AUTHOR_NAME": "AutoCode", "GIT_AUTHOR_EMAIL": "autocode@localhost",
-            "GIT_COMMITTER_NAME": "AutoCode", "GIT_COMMITTER_EMAIL": "autocode@localhost"}
+IDENTITY = {
+    "GIT_AUTHOR_NAME": "AutoCode",
+    "GIT_AUTHOR_EMAIL": "autocode@localhost",
+    "GIT_COMMITTER_NAME": "AutoCode",
+    "GIT_COMMITTER_EMAIL": "autocode@localhost",
+}
 # The same exclusions autocode_support.snapshot applies: runner state and bytecode are not source.
-SOURCE = ["--", ".", ":(exclude).autocode", ":(exclude).autocode-ui",
-          ":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.pyc"]
+SOURCE = [
+    "--",
+    ".",
+    ":(exclude).autocode",
+    ":(exclude).autocode-ui",
+    ":(exclude,glob)**/__pycache__/**",
+    ":(exclude,glob)**/*.pyc",
+]
 COMPLETE = "TASK_COMPLETE"
 
 
 def _git(root, *args, env=None, check=True):
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
-                            env={**os.environ, **(env or {})})
+    result = subprocess.run(
+        ["git", "-C", str(root), *args], capture_output=True, text=True, env={**os.environ, **(env or {})}
+    )
     if check and result.returncode:
         raise ValueError(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result.stdout.strip()
@@ -97,16 +109,25 @@ def deliver(state, workspace) -> str:
             _git(workspace, "checkout", "-q", "--detach")
         title = (state.get("task") or "AutoCode task").strip().splitlines()[0][:72]
         contract = state.get("goal_contract") or {}
-        message = (f"{title}\n\nDelivered by AutoCode run {Path(state.get('run_dir', '')).name or 'unknown'}"
-                   f" (contract revision {contract.get('revision', '?')}).\n")
-        commit = subprocess.run(["git", "-C", str(workspace), "commit-tree", tree, "-p", tip],
-                                input=message, capture_output=True, text=True, check=True,
-                                env={**os.environ, **IDENTITY}).stdout.strip()
+        message = (
+            f"{title}\n\nDelivered by AutoCode run {Path(state.get('run_dir', '')).name or 'unknown'}"
+            f" (contract revision {contract.get('revision', '?')}).\n"
+        )
+        commit = subprocess.run(
+            ["git", "-C", str(workspace), "commit-tree", tree, "-p", tip],
+            input=message,
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, **IDENTITY},
+        ).stdout.strip()
         _git(workspace, "update-ref", f"refs/heads/{branch}", commit, tip)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         return f"\nThe delivered source was not committed to {branch}: {error}"
-    return (f"\nDelivered on branch {branch} ({commit[:12]}). Merge it, then remove this worktree "
-            f"with `autocode clean-worktrees --workspace {state.get('project_workspace', '<project>')} --yes`.")
+    return (
+        f"\nDelivered on branch {branch} ({commit[:12]}). Merge it, then remove this worktree "
+        f"with `autocode clean-worktrees --workspace {state.get('project_workspace', '<project>')} --yes`."
+    )
 
 
 def remove_checkout(repo, tree) -> None:
@@ -157,10 +178,10 @@ def _registered(project):
     found, path = {}, None
     for line in _git(project, "worktree", "list", "--porcelain").splitlines():
         if line.startswith("worktree "):
-            path = Path(line[len("worktree "):]).resolve()
+            path = Path(line[len("worktree ") :]).resolve()
             found[path] = None
         elif line.startswith("branch refs/heads/") and path:
-            found[path] = line[len("branch refs/heads/"):]
+            found[path] = line[len("branch refs/heads/") :]
     return found
 
 
@@ -206,13 +227,17 @@ def assess(project, tree, branch, registered):
     except ValueError as error:
         return False, str(error)
     nested = [p for p in registered if p != tree and p.is_relative_to(tree)]
-    return True, f"complete; {branch} holds its source" + (f"; {len(nested)} Builder worktree(s) inside" if nested else "")
+    return True, f"complete; {branch} holds its source" + (
+        f"; {len(nested)} Builder worktree(s) inside" if nested else ""
+    )
 
 
 def remove(project, tree, registered):
     """Archive the run records, then remove the worktree and any worktrees nested in it."""
-    locks = [tree / ".autocode" / "writer.lock", *(p.parent / "writer.lock"
-                                                    for p in (tree / ".autocode" / "runs").glob("*/state.json"))]
+    locks = [
+        tree / ".autocode" / "writer.lock",
+        *(p.parent / "writer.lock" for p in (tree / ".autocode" / "runs").glob("*/state.json")),
+    ]
     with _locked(locks):
         # Builder worktrees nested in it (from runs before retire_builders existed) go first,
         # so the archive holds their records but no Git checkout.
@@ -222,8 +247,9 @@ def remove(project, tree, registered):
                 if branch and branch.startswith("autocode/builder-"):
                     _git(project, "branch", "-D", branch, check=False)
         archive = workspaces.keep_out_of_git(project) / "archive" / tree.name
-        shutil.copytree(tree / ".autocode", archive, symlinks=True, dirs_exist_ok=True,
-                        ignore=shutil.ignore_patterns("writer.lock"))
+        shutil.copytree(
+            tree / ".autocode", archive, symlinks=True, dirs_exist_ok=True, ignore=shutil.ignore_patterns("writer.lock")
+        )
         # --force: the worktree is detached with the delivered source uncommitted relative to
         # HEAD; assess() has just shown the branch holds exactly that source.
         _git(project, "worktree", "remove", "--force", str(tree))
@@ -235,7 +261,8 @@ def cli(argv) -> int:
     parser = argparse.ArgumentParser(
         prog="autocode clean-worktrees",
         description="Remove task worktrees whose runs are complete and whose branch holds their work. "
-                    "Lists what it would do unless --yes is given; branches are kept for merging.")
+        "Lists what it would do unless --yes is given; branches are kept for merging.",
+    )
     parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
     parser.add_argument("--yes", action="store_true", help="Remove the worktrees listed as removable")
     args = parser.parse_args(argv)

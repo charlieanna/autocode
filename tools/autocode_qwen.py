@@ -1,4 +1,5 @@
 """Qwen Code transport. Uses Qwen CLI directly without OpenCode."""
+
 from __future__ import annotations
 
 import json
@@ -107,7 +108,8 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
 
 def prompt_for_schema(prompt, schema, events):
     """Add schema instructions to the prompt for Qwen."""
-    instructions = ("\nQWEN OUTPUT CONTRACT\n"
+    instructions = (
+        "\nQWEN OUTPUT CONTRACT\n"
         "Return your final report as exactly one JSON object matching the following schema. "
         "Do not wrap it in explanation or markdown code blocks. "
         "The runner validates every required field.\n"
@@ -121,8 +123,8 @@ def prompt_for_schema(prompt, schema, events):
         "and list commands separately in commands_run.\n"
         "Treat the workspace in CURRENT HANDOFF DATA as a strict filesystem boundary. Do not "
         "read, list, search, or modify parent directories, sibling projects, or external "
-        "configuration files.\n"
-        + json.dumps(schema, indent=2) + "\n")
+        "configuration files.\n" + json.dumps(schema, indent=2) + "\n"
+    )
     return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
 
@@ -184,16 +186,18 @@ def normalized_events(rows):
             output = state.get("output", "") or row.get("output", "")
 
             if command and isinstance(command, str) and isinstance(exit_code, int):
-                normalized.append({
-                    "type": "item.completed",
-                    "item": {
-                        "type": "command_execution",
-                        "id": row.get("id", uuid.uuid4().hex),
-                        "command": command,
-                        "exit_code": exit_code,
-                        "aggregated_output": output if isinstance(output, str) else json.dumps(output)
+                normalized.append(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": row.get("id", uuid.uuid4().hex),
+                            "command": command,
+                            "exit_code": exit_code,
+                            "aggregated_output": output if isinstance(output, str) else json.dumps(output),
+                        },
                     }
-                })
+                )
 
         # Handle errors
         elif event_type == "error" or row.get("error"):

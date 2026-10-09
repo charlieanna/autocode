@@ -35,6 +35,7 @@ never a controller. It is read-only: it creates no directory, takes no lock,
 touches no registry and launches nothing. A run that is live when it is chosen is refused
 later by the run lock, as for an explicit --run-dir.
 """
+
 from __future__ import annotations
 
 try:
@@ -72,16 +73,17 @@ class RunNotFound(ValueError):
 @dataclasses.dataclass(frozen=True)
 class Candidate:
     """One saved run the invocation could mean."""
-    run_dir: Path        # resolved
-    workspace: Path      # the run's own checkout (its state's "workspace")
+
+    run_dir: Path  # resolved
+    workspace: Path  # the run's own checkout (its state's "workspace")
     status: str
-    task: str            # the request's first line, shortened
-    created: float       # POSIX seconds: created_at, else the run directory's name, else 0
-    completed: float     # completed_at, else created
-    stopped: bool        # an applied durable stop: terminal (autocode_stop)
-    owner: str | None    # None, "program" or "task flow": the command that drives the run
-    program_plan: bool = False   # the in-place plan run of ``autocode program plan``
-    reason: str = ""     # why choose() took it; empty in a listing
+    task: str  # the request's first line, shortened
+    created: float  # POSIX seconds: created_at, else the run directory's name, else 0
+    completed: float  # completed_at, else created
+    stopped: bool  # an applied durable stop: terminal (autocode_stop)
+    owner: str | None  # None, "program" or "task flow": the command that drives the run
+    program_plan: bool = False  # the in-place plan run of ``autocode program plan``
+    reason: str = ""  # why choose() took it; empty in a listing
 
     @property
     def complete(self) -> bool:
@@ -99,11 +101,11 @@ class Candidate:
 
 @dataclasses.dataclass
 class _Search:
-    where: Path                  # the checkout (or plain folder) messages call "here"
+    where: Path  # the checkout (or plain folder) messages call "here"
     looked_in: list[str]
     candidates: list[Candidate]  # newest first
     unreadable: list[Path]
-    direct: bool = False         # the start directory is inside this one run
+    direct: bool = False  # the start directory is inside this one run
 
 
 def candidates(start) -> list[Candidate]:
@@ -178,8 +180,12 @@ def choose(start, action: str, flags: str = "", unit: str | None = None) -> Cand
         raise RunNotFound(_finished_message(search, _latest_finished(found), here=False, action=action))
     free = [run for run in unfinished if not run.owner]
     if len(free) == 1:
-        return dataclasses.replace(free[0], reason="the only unfinished run" if len(unfinished) == 1
-                                   else "the only unfinished run no program or task flow drives")
+        return dataclasses.replace(
+            free[0],
+            reason="the only unfinished run"
+            if len(unfinished) == 1
+            else "the only unfinished run no program or task flow drives",
+        )
     if not free and len(unfinished) == 1:
         if action == "act":
             return dataclasses.replace(unfinished[0], reason="the only unfinished run")
@@ -201,8 +207,11 @@ def resume_acknowledges(status) -> bool:
     WAITING_FOR_USER. A plain ``autocode`` only shows a pause.
     """
     status = str(status or "")
-    return (status.startswith(("PAUSED_", "BLOCKED_")) or status.endswith("_REWORK_REQUIRED")
-            or status == "RESOLVER_PENDING") and status not in WAITS_FOR_AN_EDIT
+    return (
+        status.startswith(("PAUSED_", "BLOCKED_"))
+        or status.endswith("_REWORK_REQUIRED")
+        or status == "RESOLVER_PENDING"
+    ) and status not in WAITS_FOR_AN_EDIT
 
 
 def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
@@ -215,46 +224,62 @@ def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
     workspace = state.get("workspace")
     run = _candidate(run_dir, Path(workspace) if isinstance(workspace, str) else run_dir, state, {})
     if run.program_plan:
-        return (f"Continue planning with: {_command(run, '--unit autoplanner')}; once the plan is approved: "
-                f"autocode program derive --run-dir {shlex.quote(str(run_dir))} --output program.json")
+        return (
+            f"Continue planning with: {_command(run, '--unit autoplanner')}; once the plan is approved: "
+            f"autocode program derive --run-dir {shlex.quote(str(run_dir))} --output program.json"
+        )
     if run.finished:
         hint = f"It has finished ({run.status}); show it with: {_command(run, '--status')}"
         return hint + (f'; continue it with: {_command(run, "--follow-up")} "TEXT"' if run.complete else "")
-    if run.status == 'PAUSED_COMPONENT_PLAN':
-        need = component_plan.recovery(state.get('task', ''),
-            (state.get('settings') or {}).get('regression', {}).get('test_root'))
-        if need.get('new_run_required'):
-            return need['recovery_hint'] + f" Inspect the retained run with: {_command(run, '--status')}"
-        return (f"Correct the component plan with: {_command(run, '--edit-goal FILE')} "
-                f"(or {_command(run, '--feedback TEXT')} to request a new draft); the corrected plan needs fresh approval.")
+    if run.status == "PAUSED_COMPONENT_PLAN":
+        need = component_plan.recovery(
+            state.get("task", ""), (state.get("settings") or {}).get("regression", {}).get("test_root")
+        )
+        if need.get("new_run_required"):
+            return need["recovery_hint"] + f" Inspect the retained run with: {_command(run, '--status')}"
+        return (
+            f"Correct the component plan with: {_command(run, '--edit-goal FILE')} "
+            f"(or {_command(run, '--feedback TEXT')} to request a new draft); the corrected plan needs fresh approval."
+        )
     flags = f"--unit {unit}" if unit else ""
     if run.owner:
-        return (f"`{OWNER_COMMAND[run.owner]}` drives it: rerun that command to advance it, or relaunch "
-                f"it yourself with: {_command(run, flags)}")
+        return (
+            f"`{OWNER_COMMAND[run.owner]}` drives it: rerun that command to advance it, or relaunch "
+            f"it yourself with: {_command(run, flags)}"
+        )
     if resume_acknowledges(run.status):
         # A plain relaunch only shows this stop; the word resume acknowledges it (autocode_args).
         flags = " ".join(part for part in (flags, "resume") if part)
-        return (f"Continue with: {_command(run, flags)} (or autocode {flags} from its project while it "
-                "is the only unfinished run there)")
+        return (
+            f"Continue with: {_command(run, flags)} (or autocode {flags} from its project while it "
+            "is the only unfinished run there)"
+        )
     plain = f"autocode {flags}" if flags else "plain autocode"
-    return (f"Continue with: {_command(run, flags)} (or {plain} from its project while it is the only "
-            "unfinished run there)")
+    return (
+        f"Continue with: {_command(run, flags)} (or {plain} from its project while it is the only unfinished run there)"
+    )
 
 
 # --- where to look ------------------------------------------------------------------
 
+
 def _search(start) -> _Search:
     start = Path(start).resolve()
     if not start.is_dir():
-        raise RunNotFound(f"No AutoCode run found: {start} is not a directory. Pass the project with "
-                          "--workspace, or name a saved run with --run-dir.")
+        raise RunNotFound(
+            f"No AutoCode run found: {start} is not a directory. Pass the project with "
+            "--workspace, or name a saved run with --run-dir."
+        )
     owners: dict[Path, dict[Path, str]] = {}
     unreadable: list[Path] = []
     run_dir = _enclosing_run(start)
     if run_dir is not None:
         state = run_dir / "state.json"
-        run = (None if _archived(run_dir) or state.is_symlink() or not state.is_file()
-               else _load(run_dir, run_dir.parent.parent.parent, owners, unreadable))
+        run = (
+            None
+            if _archived(run_dir) or state.is_symlink() or not state.is_file()
+            else _load(run_dir, run_dir.parent.parent.parent, owners, unreadable)
+        )
         if run is None:
             # Standing in a run means that run: never fall back to another one of the checkout.
             raise RunNotFound(_unusable_message(run_dir))
@@ -262,9 +287,15 @@ def _search(start) -> _Search:
     checkout = next((path for path in (start, *start.parents) if (path / ".git").exists()), None)
     if checkout is None:
         bootstrapped = start / "autocode-projects"
-        projects = ([path for path in sorted(bootstrapped.iterdir())
-                     if not path.is_symlink() and path.is_dir() and (path / ".git").exists()]
-                    if not bootstrapped.is_symlink() and bootstrapped.is_dir() else [])
+        projects = (
+            [
+                path
+                for path in sorted(bootstrapped.iterdir())
+                if not path.is_symlink() and path.is_dir() and (path / ".git").exists()
+            ]
+            if not bootstrapped.is_symlink() and bootstrapped.is_dir()
+            else []
+        )
         places, looked_in = [], []
         for project in projects:
             trees = _task_worktrees(project)
@@ -291,8 +322,10 @@ def _search(start) -> _Search:
 def _described(project: Path, trees: list[Path]) -> str:
     text = str(project / ".autocode" / "runs")
     if trees:
-        text += (f" and {len(trees)} task worktree{'s' if len(trees) != 1 else ''} under "
-                 f"{project / '.autocode' / 'worktrees'}")
+        text += (
+            f" and {len(trees)} task worktree{'s' if len(trees) != 1 else ''} under "
+            f"{project / '.autocode' / 'worktrees'}"
+        )
     return text
 
 
@@ -361,12 +394,18 @@ def _run_dirs(checkout: Path) -> list[Path]:
         children = sorted(root.iterdir())
     except OSError:
         return []
-    return [child for child in children
-            if not child.is_symlink() and child.is_dir()
-            and not (child / "state.json").is_symlink() and (child / "state.json").is_file()]
+    return [
+        child
+        for child in children
+        if not child.is_symlink()
+        and child.is_dir()
+        and not (child / "state.json").is_symlink()
+        and (child / "state.json").is_file()
+    ]
 
 
 # --- one run -------------------------------------------------------------------------
+
 
 def _load(run_dir: Path, workspace: Path, owners, unreadable, *, parent_of=None) -> Candidate | None:
     state = _read_json(run_dir / "state.json")
@@ -382,8 +421,12 @@ def _load(run_dir: Path, workspace: Path, owners, unreadable, *, parent_of=None)
             return None
         parent = Path(parent).resolve()
         state_path = parent / "state.json"
-        if (parent.parent.name != "runs" or parent.parent.parent.name != ".autocode"
-                or state_path.is_symlink() or not state_path.is_file()):
+        if (
+            parent.parent.name != "runs"
+            or parent.parent.parent.name != ".autocode"
+            or state_path.is_symlink()
+            or not state_path.is_file()
+        ):
             return None
         return _load(parent, parent.parent.parent.parent, owners, unreadable, parent_of=run_dir)
     return _candidate(run_dir, workspace, state, owners)
@@ -396,16 +439,21 @@ def _candidate(run_dir: Path, workspace: Path, state: dict, owners) -> Candidate
     receipts = state.get("applied_interventions")
     owner = _owner(run_dir, workspace, owners) or ("program" if plan else None)
     return Candidate(
-        run_dir=run_dir, workspace=workspace, status=str(state.get("status") or "UNKNOWN"),
+        run_dir=run_dir,
+        workspace=workspace,
+        status=str(state.get("status") or "UNKNOWN"),
         task=_first_line(task.split("\nREQUEST:\n", 1)[-1] if plan else task),
-        created=created, completed=_moment(state.get("completed_at")) or created,
-        stopped=isinstance(receipts, list) and any(
-            isinstance(receipt, dict) and receipt.get("kind") == "stop" for receipt in receipts),
-        owner=owner, program_plan=plan)
+        created=created,
+        completed=_moment(state.get("completed_at")) or created,
+        stopped=isinstance(receipts, list)
+        and any(isinstance(receipt, dict) and receipt.get("kind") == "stop" for receipt in receipts),
+        owner=owner,
+        program_plan=plan,
+    )
 
 
 def _owner(run_dir: Path, workspace: Path, owners) -> str | None:
-    """"program" or "task flow" when that command recorded this run or its worktree."""
+    """ "program" or "task flow" when that command recorded this run or its worktree."""
     data = _worktree_metadata(workspace)
     project = Path(data["project_workspace"]).resolve() if data else workspace
     if project not in owners:
@@ -478,7 +526,7 @@ def _moment_from_name(name: str) -> float | None:
 
 def _first_line(text: str) -> str:
     line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-    return line if len(line) <= TASK_WIDTH else line[:TASK_WIDTH - 3].rstrip() + "..."
+    return line if len(line) <= TASK_WIDTH else line[: TASK_WIDTH - 3].rstrip() + "..."
 
 
 def _latest_finished(found: list[Candidate]) -> Candidate:
@@ -486,6 +534,7 @@ def _latest_finished(found: list[Candidate]) -> Candidate:
 
 
 # --- messages -------------------------------------------------------------------------
+
 
 def _command(run: Candidate, flags: str = "") -> str:
     return f"autocode --run-dir {shlex.quote(str(run.run_dir))}" + (f" {flags}" if flags else "")
@@ -536,31 +585,41 @@ def _unusable_message(run_dir: Path) -> str:
     elif not isinstance(state, dict):
         why = "its state.json could not be read"
     elif state.get("workspace") != str(checkout):
-        why = (f"its state.json names the workspace {state.get('workspace')}, not {checkout} "
-               "(a moved project or a copied run)")
+        why = (
+            f"its state.json names the workspace {state.get('workspace')}, not {checkout} "
+            "(a moved project or a copied run)"
+        )
     else:
         why = f"it is a parallel Builder's run, and its parent run {state.get('parent_run')} cannot be used"
-    return (f"The saved run {run_dir} you are in cannot be used: {why}. No other run was chosen. "
-            "Pass --run-dir to choose a run, or run autocode from the project or task worktree.")
+    return (
+        f"The saved run {run_dir} you are in cannot be used: {why}. No other run was chosen. "
+        "Pass --run-dir to choose a run, or run autocode from the project or task worktree."
+    )
 
 
 def _none_message(search: _Search) -> str:
-    return "\n".join([
-        f"No AutoCode run found in {search.where} (looked in {'; '.join(search.looked_in)}).",
-        *_unreadable_note(search),
-        'Start a task with: autocode "your task"',
-        "or name a saved run: autocode --run-dir /path/to/project/.autocode/runs/RUN"])
+    return "\n".join(
+        [
+            f"No AutoCode run found in {search.where} (looked in {'; '.join(search.looked_in)}).",
+            *_unreadable_note(search),
+            'Start a task with: autocode "your task"',
+            "or name a saved run: autocode --run-dir /path/to/project/.autocode/runs/RUN",
+        ]
+    )
 
 
-def _ambiguous_message(search: _Search, unfinished: list[Candidate], flags: str,
-                       unit: str | None, action: str) -> str:
+def _ambiguous_message(search: _Search, unfinished: list[Candidate], flags: str, unit: str | None, action: str) -> str:
     finished = len(search.candidates) - len(unfinished)
-    lines = [f"{len(unfinished)} unfinished AutoCode runs in {search.where}; add --run-dir to choose one:",
-             *_entries(unfinished, [_listed_flags(run, flags, unit, action) for run in unfinished]),
-             "Inside a task worktree, the same command without --run-dir chooses that worktree's run."]
+    lines = [
+        f"{len(unfinished)} unfinished AutoCode runs in {search.where}; add --run-dir to choose one:",
+        *_entries(unfinished, [_listed_flags(run, flags, unit, action) for run in unfinished]),
+        "Inside a task worktree, the same command without --run-dir chooses that worktree's run.",
+    ]
     if action == "advance" and any(run.program_plan for run in unfinished[:LIST_LIMIT]):
-        lines.append("A run `autocode program` plans continues with --unit autoplanner; once its plan is "
-                     "approved, derive the program with autocode program derive (docs/program.md).")
+        lines.append(
+            "A run `autocode program` plans continues with --unit autoplanner; once its plan is "
+            "approved, derive the program with autocode program derive (docs/program.md)."
+        )
     if finished:
         lines.append(f"Not listed: {finished} finished run{'s' if finished != 1 else ''}.")
     return "\n".join(lines)
@@ -568,8 +627,11 @@ def _ambiguous_message(search: _Search, unfinished: list[Candidate], flags: str,
 
 def _finished_message(search: _Search, latest: Candidate, *, here: bool, action: str = "advance") -> str:
     if here:
-        doing = ("a bare autocode does not relaunch it" if action == "advance"
-                 else "this command needs an unfinished run; to act on it anyway, name it with --run-dir")
+        doing = (
+            "a bare autocode does not relaunch it"
+            if action == "advance"
+            else "this command needs an unfinished run; to act on it anyway, name it with --run-dir"
+        )
         head = f"The run in this directory has finished ({latest.status}); {doing}:"
     else:
         doing = "nothing to resume" if action == "advance" else "this command needs an unfinished run"
@@ -584,29 +646,43 @@ def _finished_message(search: _Search, latest: Candidate, *, here: bool, action:
 
 def _owned_message(search: _Search, run: Candidate) -> str:
     if run.program_plan:
-        hint = ("It plans a program: answer and approve it with the usual flags (autocode --status shows what "
-                f"it needs), continue its planning with {_command(run, '--unit autoplanner')}, then derive "
-                "the program with autocode program derive (docs/program.md).")
+        hint = (
+            "It plans a program: answer and approve it with the usual flags (autocode --status shows what "
+            f"it needs), continue its planning with {_command(run, '--unit autoplanner')}, then derive "
+            "the program with autocode program derive (docs/program.md)."
+        )
     else:
         rerun = "autocode program run MANIFEST" if run.owner == "program" else "autocode tasks MANIFEST"
-        hint = (f"Rerun {rerun} to advance it. Its questions and approvals take the usual flags here "
-                "(autocode --status shows what it needs); to relaunch it yourself, name it with --run-dir.")
-    return "\n".join([f"The only unfinished AutoCode run in {search.where} is driven by "
-                      f"`{OWNER_COMMAND[run.owner]}`; a bare autocode does not advance it:",
-                      _entry(run, "--status"), hint])
+        hint = (
+            f"Rerun {rerun} to advance it. Its questions and approvals take the usual flags here "
+            "(autocode --status shows what it needs); to relaunch it yourself, name it with --run-dir."
+        )
+    return "\n".join(
+        [
+            f"The only unfinished AutoCode run in {search.where} is driven by "
+            f"`{OWNER_COMMAND[run.owner]}`; a bare autocode does not advance it:",
+            _entry(run, "--status"),
+            hint,
+        ]
+    )
 
 
 def _follow_up_message(search: _Search, unfinished: list[Candidate], latest: Candidate | None = None) -> str:
     if latest:
-        return "\n".join([
-            f"--follow-up continues a finished run, but a run in {search.where} started after the latest "
-            "one finished has not finished. It takes --answer, --approve-goal, --feedback or a resume instead:",
-            *_entries(unfinished, "--status"),
-            f'To continue the finished run anyway: {_command(latest, "--follow-up")} "TEXT"'])
+        return "\n".join(
+            [
+                f"--follow-up continues a finished run, but a run in {search.where} started after the latest "
+                "one finished has not finished. It takes --answer, --approve-goal, --feedback or a resume instead:",
+                *_entries(unfinished, "--status"),
+                f'To continue the finished run anyway: {_command(latest, "--follow-up")} "TEXT"',
+            ]
+        )
     lines = [f"--follow-up continues a finished run, and no run in {search.where} has completed."]
     if unfinished:
-        lines += ["An unfinished run takes --answer, --feedback or a plain resume instead:",
-                  *_entries(unfinished, "--status")]
+        lines += [
+            "An unfinished run takes --answer, --feedback or a plain resume instead:",
+            *_entries(unfinished, "--status"),
+        ]
     else:
         lines.append('Start a new task with: autocode "your task"')
     return "\n".join(lines)

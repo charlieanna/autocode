@@ -16,6 +16,7 @@ and a file that matched the committed version before the attempt is restored fro
 A file that changed again after the attempt, or held uncommitted edits before it, is
 left as it is and named.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -49,7 +50,8 @@ def undo(state: dict, record: dict, error):
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as problem:
         restored, kept = [], [f"{path} (restore failed: {problem})" for path in error.paths]
     note = ("; the runner restored " + ", ".join(restored) if restored else "") + (
-        "; left as they are (changed since, or not clean before the attempt): " + ", ".join(kept) if kept else "")
+        "; left as they are (changed since, or not clean before the attempt): " + ", ".join(kept) if kept else ""
+    )
     return StrayWrites(str(error) + note, error.paths)
 
 
@@ -68,8 +70,9 @@ def restore(workspace, record: dict, paths) -> tuple[list[str], list[str]]:
             target.unlink()
             restored.append(path)
         elif before[path] == committed(root, head, path):
-            content = subprocess.run(["git", "-C", str(root), "show", f"{head}:{path}"],
-                                     capture_output=True, check=True).stdout
+            content = subprocess.run(
+                ["git", "-C", str(root), "show", f"{head}:{path}"], capture_output=True, check=True
+            ).stdout
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
             mode = os.stat(target).st_mode
@@ -95,6 +98,7 @@ def committed(root: Path, head: str, path: str) -> str | None:
     fields = listed.stdout.split()
     if listed.returncode or len(fields) < 3 or fields[1] != "blob" or fields[0] not in ("100644", "100755"):
         return None
-    content = subprocess.run(["git", "-C", str(root), "cat-file", "blob", fields[2]], capture_output=True,
-                             check=True).stdout
+    content = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "blob", fields[2]], capture_output=True, check=True
+    ).stdout
     return ("executable:" if fields[0] == "100755" else "") + hashlib.sha256(content).hexdigest()

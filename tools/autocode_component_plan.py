@@ -4,6 +4,7 @@ The original task and any caller-saved root bind ownership. Model constraints an
 workspace names confer no authority. Flow checks cover explicit Docker/container,
 Compose/smoke and gateway-proxy contradictions, not arbitrary natural language.
 """
+
 from __future__ import annotations
 
 import re
@@ -23,8 +24,11 @@ _OPERATIONS = {
     "Compose smoke": r"(?:run |execute )docker compose (?:up|build)\b|(?:run|execute) (?:the )?(?:compose|cross-service) smoke\b",
     "gateway proxy": r"(?:the )?gateway(?: \([^)]*\))? (?:proxies|proxying)\b|(?:test|exercise|run) (?:the )?gateway proxy\b",
 }
-_CLI = {"Docker build": r"docker(?: image)? build", "container run": r"docker run",
-        "Compose smoke": r"docker compose (?:up|build)"}
+_CLI = {
+    "Docker build": r"docker(?: image)? build",
+    "container run": r"docker run",
+    "Compose smoke": r"docker compose (?:up|build)",
+}
 _QUOTED = r'''`[^`]*`|'[^']*'|"(?:\\.|[^"\\])*"'''
 _SEPARATORS = r";|(?<=[.!?])\s+|,\s+|\b(?:but|however|yet|then)\b"
 _AFFIRMATIVE = "(?:" + "|".join(_OPERATIONS.values()) + ")"
@@ -33,21 +37,38 @@ _DEFERRED = re.compile(
     r"(?:during|at) (?:(?:later|separate) integration|integration time)\b|"
     r"(?:exercised|verified|tested|executed) at integration time\b|"
     r"(?:these calls|requests|to the real store) at integration time\b)|"
-    r"\(\s*(?:exercised|verified|tested|executed) at integration time\b", re.I)
+    r"\(\s*(?:exercised|verified|tested|executed) at integration time\b",
+    re.I,
+)
 _PROHIBITED = {
     "Docker build": r"\b(?:no|do not|cannot|must not) (?:run )?docker(?: image)? build\b|"
-                    r"\b(?:do not|cannot|must not) build (?:the |a )?(?:docker|container) image\b|"
-                    r"\bdocker(?: image)? build(?:s|ing)? (?:is|are) (?:prohibited|forbidden|not allowed)\b|"
-                    r"\b(?:image|images) (?:is|are) not built in this run\b",
+    r"\b(?:do not|cannot|must not) build (?:the |a )?(?:docker|container) image\b|"
+    r"\bdocker(?: image)? build(?:s|ing)? (?:is|are) (?:prohibited|forbidden|not allowed)\b|"
+    r"\b(?:image|images) (?:is|are) not built in this run\b",
     "container run": r"\b(?:no|do not|cannot|must not) (?:start|run) (?:the |a )?container\b",
     "Compose smoke": r"\b(?:no|do not|cannot|must not) (?:run )?docker compose\b",
     "gateway proxy": r"\b(?:no|do not|cannot|must not) (?:run |execute )?gateway proxy(?:ing)?\b",
 }
-_OUTPUT_SUFFIX = re.compile(r"\.(?:py|pyi|js|jsx|ts|tsx|html|css|scss|json|ya?ml|toml|ini|cfg|sh|sql|md|txt|png|jpe?g|svg|go|rs|java|c|h|cpp|swift)$", re.I)
+_OUTPUT_SUFFIX = re.compile(
+    r"\.(?:py|pyi|js|jsx|ts|tsx|html|css|scss|json|ya?ml|toml|ini|cfg|sh|sql|md|txt|png|jpe?g|svg|go|rs|java|c|h|cpp|swift)$",
+    re.I,
+)
 _COMPONENT_PATH = re.compile(r"^(?:(?:[A-Za-z]:)?[/\\]+|\.{1,2}/|:\([^)]*\))?components[/\\]")
 _ROOT_PATH = re.compile(r"^(?:[/\\]|[A-Za-z]:[/\\]|\.{1,2}/|~[/\\])")
-_OUTPUT_NAMES = {"Dockerfile", "Makefile", "README", "LICENSE", "tests", "src", "docs",
-                 ".gitignore", ".dockerignore", ".env", ".npmrc", ".editorconfig"}
+_OUTPUT_NAMES = {
+    "Dockerfile",
+    "Makefile",
+    "README",
+    "LICENSE",
+    "tests",
+    "src",
+    "docs",
+    ".gitignore",
+    ".dockerignore",
+    ".env",
+    ".npmrc",
+    ".editorconfig",
+}
 
 
 def _split(text, separator):
@@ -55,7 +76,7 @@ def _split(text, separator):
     start, parts = 0, []
     for match in re.finditer(_QUOTED + "|(?P<separator>" + separator + ")", text, re.I):
         if match.lastgroup == "separator":
-            parts.append(text[start:match.start()])
+            parts.append(text[start : match.start()])
             start = match.end()
     return [*parts, text[start:]]
 
@@ -74,8 +95,8 @@ def _literal(clause):
             continue
         command = clause.lstrip()
         end = occurrence.end()
-        if command.startswith('`'):
-            closing = command.find('`', 1)
+        if command.startswith("`"):
+            closing = command.find("`", 1)
             if closing < 0:
                 continue
             end = len(clause) - len(command) + closing + 1
@@ -83,11 +104,15 @@ def _literal(clause):
         else:
             command = _split(command, r"\(\s*(?:exercised|verified|tested|executed) at integration time\b")[0]
         try:
-            arguments = shlex.split(command)[len(occurrence[0].strip(' `').split()):]
+            arguments = shlex.split(command)[len(occurrence[0].strip(" `").split()) :]
         except ValueError:
             continue
-        if operation == 'Docker build' and not (len(arguments) == 1
-                or any(re.match(r"--?[A-Za-z]", arg) for arg in arguments)) or operation == 'container run' and not arguments:
+        if (
+            operation == "Docker build"
+            and not (len(arguments) == 1 or any(re.match(r"--?[A-Za-z]", arg) for arg in arguments))
+            or operation == "container run"
+            and not arguments
+        ):
             continue
         return operation, end
     return None
@@ -104,10 +129,14 @@ def effective_root(task: str, test_root):
         return test_root
     header = _HEADER.match(task)
     owned = _OWNERSHIP.findall(task)
-    if (not header or ".." in header[1] or len(owned) != 1
-            or len(re.findall(r"\bImplement the \S+ component of a larger system:", task)) != 1
-            or task.count("Own only the directory") != 1
-            or owned[0] != f"components/{header[1]}/"):
+    if (
+        not header
+        or ".." in header[1]
+        or len(owned) != 1
+        or len(re.findall(r"\bImplement the \S+ component of a larger system:", task)) != 1
+        or task.count("Own only the directory") != 1
+        or owned[0] != f"components/{header[1]}/"
+    ):
         raise ValueError("Component plan: malformed or ambiguous generated ownership declaration")
     prefix = owned[0][:-1]
     if test_root is None:
@@ -126,14 +155,23 @@ def recovery(task: str, test_root) -> dict:
     try:
         effective_root(task, test_root)
     except ValueError:
-        return {'new_run_required': True, 'edit_required': False, 'action': 'fresh_run', 'feedback_action': None,
-                'recovery_hint': 'Preserve this stopped run and start a fresh component run with a valid original caller '
-                                 'ownership declaration and matching caller test root, using TaskRun.start. '
-                                 'The saved caller binding is immutable; editing the plan or requesting a new draft '
-                                 'cannot repair it. The fresh plan still needs approval.'}
-    return {'edit_required': True, 'action': '--edit-goal FILE', 'feedback_action': '--feedback TEXT',
-            'recovery_hint': 'Correct the component plan or request a new draft with planning feedback. '
-                             'A corrected draft needs fresh approval; unchanged resume cannot repair this contract.'}
+        return {
+            "new_run_required": True,
+            "edit_required": False,
+            "action": "fresh_run",
+            "feedback_action": None,
+            "recovery_hint": "Preserve this stopped run and start a fresh component run with a valid original caller "
+            "ownership declaration and matching caller test root, using TaskRun.start. "
+            "The saved caller binding is immutable; editing the plan or requesting a new draft "
+            "cannot repair it. The fresh plan still needs approval.",
+        }
+    return {
+        "edit_required": True,
+        "action": "--edit-goal FILE",
+        "feedback_action": "--feedback TEXT",
+        "recovery_hint": "Correct the component plan or request a new draft with planning feedback. "
+        "A corrected draft needs fresh approval; unchanged resume cannot repair this contract.",
+    }
 
 
 def validate(task: str, test_root, body: dict) -> None:
@@ -149,8 +187,11 @@ def validate(task: str, test_root, body: dict) -> None:
     if not re.match(r"\AImplement the .*? component of a larger system\b", task, re.S):
         return
     prefix = root
-    paths = [(f"milestone {row.get('id')}", path)
-             for row in body.get("milestones", []) for path in row.get("affected_paths", [])]
+    paths = [
+        (f"milestone {row.get('id')}", path)
+        for row in body.get("milestones", [])
+        for path in row.get("affected_paths", [])
+    ]
     paths += [("initial_task", path) for path in body.get("initial_task", {}).get("affected_paths", [])]
     for item in body.get("deliverables", []):
         if not isinstance(item, str):
@@ -158,10 +199,15 @@ def validate(task: str, test_root, body: dict) -> None:
         text = item.strip()
         token = not re.search(r"\s", text)
         component_path = _COMPONENT_PATH.match(text)
-        if (_ROOT_PATH.match(text) or (token and text.endswith(('/', '\\')))
-                or (token and (_OUTPUT_SUFFIX.search(text) or text in _OUTPUT_NAMES
-                        or any(char in text for char in "*?[]\\")))
-                or (component_path and (token or _OUTPUT_SUFFIX.search(text)))):
+        if (
+            _ROOT_PATH.match(text)
+            or (token and text.endswith(("/", "\\")))
+            or (
+                token
+                and (_OUTPUT_SUFFIX.search(text) or text in _OUTPUT_NAMES or any(char in text for char in "*?[]\\"))
+            )
+            or (component_path and (token or _OUTPUT_SUFFIX.search(text)))
+        ):
             paths.append(("deliverables", item))
     for location, path in paths:
         try:
@@ -169,7 +215,9 @@ def validate(task: str, test_root, body: dict) -> None:
         except ValueError:
             literal = None
         if literal is None or not (literal == prefix or literal.startswith(prefix + "/")):
-            raise ValueError(f"Component plan: {location} affected/output path {path!r} is not literal ownership under {prefix}/")
+            raise ValueError(
+                f"Component plan: {location} affected/output path {path!r} is not literal ownership under {prefix}/"
+            )
 
     for step in body.get("end_to_end_flow", []):
         clauses = _split(step, _SEPARATORS)
@@ -177,26 +225,46 @@ def validate(task: str, test_root, body: dict) -> None:
             if index:
                 clause = re.sub(r"^\s*and\s+(?=" + _AFFIRMATIVE + ")", "", clause, flags=re.I)
             literal = _literal(clause)
-            parts = ([clause] if (literal and not clause.lstrip().startswith('`'))
-                     or re.match(r"\s*(?:run|execute) docker\b", clause, re.I)
-                     or (not literal and not re.match(r"\s*" + _AFFIRMATIVE, clause, re.I))
-                     else _split(clause, r"\s+and\s+(?=" + _AFFIRMATIVE + ")"))
+            parts = (
+                [clause]
+                if (literal and not clause.lstrip().startswith("`"))
+                or re.match(r"\s*(?:run|execute) docker\b", clause, re.I)
+                or (not literal and not re.match(r"\s*" + _AFFIRMATIVE, clause, re.I))
+                else _split(clause, r"\s+and\s+(?=" + _AFFIRMATIVE + ")")
+            )
             for member, part in enumerate(parts):
                 literal = _literal(part)
-                matches = ([literal] if literal else [(operation, match.end())
-                    for operation, cue in _OPERATIONS.items()
-                    if (match := re.match(r"\s*(?:" + cue + r")", part, re.I))])
+                matches = (
+                    [literal]
+                    if literal
+                    else [
+                        (operation, match.end())
+                        for operation, cue in _OPERATIONS.items()
+                        if (match := re.match(r"\s*(?:" + cue + r")", part, re.I))
+                    ]
+                )
                 for operation, end in matches:
-                    context = re.sub(_QUOTED, ' ', part[end:])
-                    if literal and part.lstrip().startswith('`') and re.match(
-                            r"\s+(?:(?:is|are) not|will not be) (?:required|executed|run|built)\b", context, re.I):
+                    context = re.sub(_QUOTED, " ", part[end:])
+                    if (
+                        literal
+                        and part.lstrip().startswith("`")
+                        and re.match(
+                            r"\s+(?:(?:is|are) not|will not be) (?:required|executed|run|built)\b", context, re.I
+                        )
+                    ):
                         continue
-                    adjacent = (clauses[index + 1] if member == len(parts) - 1 and index + 1 < len(clauses) else '')
+                    adjacent = clauses[index + 1] if member == len(parts) - 1 and index + 1 < len(clauses) else ""
                     if _DEFERRED.search(context) or _DEFERRED.match(adjacent):
-                        raise ValueError(f"Component plan: mandatory end_to_end_flow {operation} is explicitly deferred to integration")
+                        raise ValueError(
+                            f"Component plan: mandatory end_to_end_flow {operation} is explicitly deferred to integration"
+                        )
                     for boundary in body.get("permission_boundaries", []):
                         ban = r"(?:" + _PROHIBITED[operation] + r")(?=\s*(?:[.;,:]|$|here\b|in this run\b))"
                         if re.search(ban, boundary, re.I):
-                            if operation == "Docker build" and not re.search(r"\b(?:docker|container)\b", boundary, re.I):
+                            if operation == "Docker build" and not re.search(
+                                r"\b(?:docker|container)\b", boundary, re.I
+                            ):
                                 continue
-                            raise ValueError(f"Component plan: mandatory end_to_end_flow {operation} is explicitly prohibited")
+                            raise ValueError(
+                                f"Component plan: mandatory end_to_end_flow {operation} is explicitly prohibited"
+                            )

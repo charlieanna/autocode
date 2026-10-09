@@ -1,4 +1,5 @@
 """Permission recurrence through the public CLI, never injected runner state."""
+
 import json
 from pathlib import Path
 
@@ -44,27 +45,43 @@ class PermissionRecoveryCLI(AdversarialCase):
         view = self.driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], self.root)
         surfaced = json.dumps(view)
-        self.assertNotIn("PAUSED_TIMEOUT_RECOVERY", surfaced,
-                         "permission denials must not surface as exhausted timeout recovery")
+        self.assertNotIn(
+            "PAUSED_TIMEOUT_RECOVERY", surfaced, "permission denials must not surface as exhausted timeout recovery"
+        )
         state = self.driver.state()
-        self.assertEqual(0, state.get("automatic_recoveries_since_resume", 0),
-                         "a denial retry must not consume the shared timeout-recovery budget")
+        self.assertEqual(
+            0,
+            state.get("automatic_recoveries_since_resume", 0),
+            "a denial retry must not consume the shared timeout-recovery budget",
+        )
         denials = self.trace("builder_permission_denied")
         self.assertGreaterEqual(len(denials), 2, self.root)
         self.assertLessEqual(len(denials), 4, "the permission ceiling must bound distinct-denial retries")
         surfaced_lower = surfaced.lower()
-        self.assertTrue("external_directory" in surfaced_lower and
-                        ("ceiling" in surfaced_lower or "repeated" in surfaced_lower or
-                         "no progress" in surfaced_lower or "no_progress" in surfaced_lower),
-                        "the hold must name its actual cause")
+        self.assertTrue(
+            "external_directory" in surfaced_lower
+            and (
+                "ceiling" in surfaced_lower
+                or "repeated" in surfaced_lower
+                or "no progress" in surfaced_lower
+                or "no_progress" in surfaced_lower
+            ),
+            "the hold must name its actual cause",
+        )
         before = self.driver.state().get("automatic_recoveries_since_resume", 0)
         for _ in range(2):
             self.invoke("--resume-paused")
             self.assertFalse(self.status()["done"])
-        self.assertEqual(before, self.driver.state().get("automatic_recoveries_since_resume", 0),
-                         "restarts must not mint timeout-recovery allowance either")
-        self.assertEqual(len(denials), len(self.trace("builder_permission_denied")),
-                         "restarts must not launch further denial retries")
+        self.assertEqual(
+            before,
+            self.driver.state().get("automatic_recoveries_since_resume", 0),
+            "restarts must not mint timeout-recovery allowance either",
+        )
+        self.assertEqual(
+            len(denials),
+            len(self.trace("builder_permission_denied")),
+            "restarts must not launch further denial retries",
+        )
 
     def test_successful_diagnostic_cannot_complete_a_broken_product(self):
         config = json.loads(self.config_path.read_text())

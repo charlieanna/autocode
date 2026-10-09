@@ -1,4 +1,5 @@
 """Pure completion reader tests with manually constructed writer checkpoints."""
+
 import json
 import tempfile
 import unittest
@@ -21,78 +22,160 @@ class ProgressiveCompletionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.evidence = Path(self.temp.name) / "replay.txt"
         self.evidence.write_text("runner executed A and B successfully", encoding="ascii")
-        self.check_a = {"id": "A", "relation": "contributes_to", "criterion_ids": ["C1"],
-                        "method": "python -m unittest tests.test_a"}
-        self.check_b = {"id": "B", "relation": "fully_verify", "criterion_ids": ["C1", "C2"],
-                        "method": "python -m unittest tests.test_b"}
-        first = {"id": "S1", "intended_result": "Read and persist progress", "criterion_ids": ["C1"],
-                 "paths": ["src/app.py"], "depends_on": [], "tentative": False, "checks": [self.check_a]}
-        second = {**deepcopy(first), "id": "S2", "criterion_ids": ["C1", "C2"],
-                  "tentative": True, "checks": [self.check_b]}
-        initial = {"version": 1, "needed_because": "Two useful deliveries", "shared_decisions": [],
-                   "outstanding_criteria": [], "done_slices": [], "slices": [first, second]}
-        body = {"acceptance_criteria": [{"id": "C1"}, {"id": "C2"}], "open_blocking_questions": [],
-                **plan.disclosure(initial, ["C1", "C2"])}
+        self.check_a = {
+            "id": "A",
+            "relation": "contributes_to",
+            "criterion_ids": ["C1"],
+            "method": "python -m unittest tests.test_a",
+        }
+        self.check_b = {
+            "id": "B",
+            "relation": "fully_verify",
+            "criterion_ids": ["C1", "C2"],
+            "method": "python -m unittest tests.test_b",
+        }
+        first = {
+            "id": "S1",
+            "intended_result": "Read and persist progress",
+            "criterion_ids": ["C1"],
+            "paths": ["src/app.py"],
+            "depends_on": [],
+            "tentative": False,
+            "checks": [self.check_a],
+        }
+        second = {
+            **deepcopy(first),
+            "id": "S2",
+            "criterion_ids": ["C1", "C2"],
+            "tentative": True,
+            "checks": [self.check_b],
+        }
+        initial = {
+            "version": 1,
+            "needed_because": "Two useful deliveries",
+            "shared_decisions": [],
+            "outstanding_criteria": [],
+            "done_slices": [],
+            "slices": [first, second],
+        }
+        body = {
+            "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
+            "open_blocking_questions": [],
+            **plan.disclosure(initial, ["C1", "C2"]),
+        }
         contract = {"task_id": "T", "revision": 1, "body": body, "approval_status": "approved"}
         contract["hash"] = util.digest({key: contract[key] for key in ("task_id", "revision", "body")})
         self.token = contracts.token(contract)
         event = {"actor": "user_cli", "token": self.token}
         contract["approval_event"] = event
         self.current = {"revision": "source-final"}
-        self.proposal = {**deepcopy(initial), "done_slices": ["S1"],
-                         "slices": [{**deepcopy(second), "tentative": False, "depends_on": ["S1"]}]}
-        self.record = {"version": 1, "delegation": plan.seal_delegation(initial, self.token),
-                       "initial_plan": {"proposal": deepcopy(initial), "plan_hash": plan.plan_identity(initial)},
-                       "future": [], "outstanding_criteria": [],
-                       "required_checks": [self.check_a, self.check_b]}
-        self.state = {"run_dir": self.temp.name, "goal_contract": contract, "user_events": [event],
-                      "progressive": self.record}
+        self.proposal = {
+            **deepcopy(initial),
+            "done_slices": ["S1"],
+            "slices": [{**deepcopy(second), "tentative": False, "depends_on": ["S1"]}],
+        }
+        self.record = {
+            "version": 1,
+            "delegation": plan.seal_delegation(initial, self.token),
+            "initial_plan": {"proposal": deepcopy(initial), "plan_hash": plan.plan_identity(initial)},
+            "future": [],
+            "outstanding_criteria": [],
+            "required_checks": [self.check_a, self.check_b],
+        }
+        self.state = {
+            "run_dir": self.temp.name,
+            "goal_contract": contract,
+            "user_events": [event],
+            "progressive": self.record,
+        }
         self.publish_active()
         old = self.payload("S1", "old-plan", "source-before-S2", [self.check_a], ["S1"], [])
         old_artifact = self.persist_checkpoint(old, "initial-artifact")
-        self.record["history"] = [{"slice_id": "S1", "plan_hash": "old-plan",
-                                   "artifact": old_artifact, "required_checks": [self.check_a]}]
-        self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                  self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+        self.record["history"] = [
+            {"slice_id": "S1", "plan_hash": "old-plan", "artifact": old_artifact, "required_checks": [self.check_a]}
+        ]
+        self.proof = self.payload(
+            "S2",
+            self.record["active"]["plan_hash"],
+            self.current["revision"],
+            self.record["required_checks"],
+            ["S1", "S2"],
+            ["C1", "C2"],
+        )
         self.publish_proof()
 
     def receipt(self, check, source):
         pins = {str(self.evidence): util.file_hash(self.evidence)}
-        return {"status": "PASS", "exit_code": 0, "check_hash": plan.check_identity(check),
-                "contract_token": self.token, "source_revision": source, "evidence_hashes": pins,
-                "replayed": True, "executions": [{"command": command, "status": "PASS", "exit_code": 0,
-                                                  "evidence_hashes": dict(pins)}
-                                                 for command in plan.check_commands(check)]}
+        return {
+            "status": "PASS",
+            "exit_code": 0,
+            "check_hash": plan.check_identity(check),
+            "contract_token": self.token,
+            "source_revision": source,
+            "evidence_hashes": pins,
+            "replayed": True,
+            "executions": [
+                {"command": command, "status": "PASS", "exit_code": 0, "evidence_hashes": dict(pins)}
+                for command in plan.check_commands(check)
+            ],
+        }
 
     def payload(self, sid, plan_hash, source, checks, slices, criteria):
-        return {"version": 1, "contract_token": self.token, "plan_hash": plan_hash,
-                "source_revision": source, "slice_id": sid, "required_checks": deepcopy(checks),
-                "results": {check["id"]: self.receipt(check, source) for check in checks},
-                "verified_slices": slices, "criterion_ids": criteria}
+        return {
+            "version": 1,
+            "contract_token": self.token,
+            "plan_hash": plan_hash,
+            "source_revision": source,
+            "slice_id": sid,
+            "required_checks": deepcopy(checks),
+            "results": {check["id"]: self.receipt(check, source) for check in checks},
+            "verified_slices": slices,
+            "criterion_ids": criteria,
+        }
 
     def persist_checkpoint(self, payload, predecessor):
-        envelope, _ = artifacts.prepare("checkpoint", contract_token=payload["contract_token"],
-            predecessor_identity=predecessor, candidate_identity=payload["plan_hash"],
-            plan_identity=payload["plan_hash"], source_snapshot_identity=payload["source_revision"], report=payload)
+        envelope, _ = artifacts.prepare(
+            "checkpoint",
+            contract_token=payload["contract_token"],
+            predecessor_identity=predecessor,
+            candidate_identity=payload["plan_hash"],
+            plan_identity=payload["plan_hash"],
+            source_snapshot_identity=payload["source_revision"],
+            report=payload,
+        )
         return artifacts.persist(self.temp.name, envelope)
 
     def publish_active(self):
         ph = plan.plan_identity(self.proposal)
-        bindings = {"contract_token": self.token, "predecessor_identity": "old-plan",
-                    "candidate_identity": ph, "plan_identity": ph, "source_snapshot_identity": "review-source"}
+        bindings = {
+            "contract_token": self.token,
+            "predecessor_identity": "old-plan",
+            "candidate_identity": ph,
+            "plan_identity": ph,
+            "source_snapshot_identity": "review-source",
+        }
         envelope, _ = artifacts.prepare("revision", report={"proposal": self.proposal}, **bindings)
         candidate = artifacts.persist(self.temp.name, envelope)
-        envelope, _ = artifacts.prepare("review", report={"accepted": True,
-                                                         "candidate_sha256": candidate["sha256"]}, **bindings)
+        envelope, _ = artifacts.prepare(
+            "review", report={"accepted": True, "candidate_sha256": candidate["sha256"]}, **bindings
+        )
         review = artifacts.persist(self.temp.name, envelope)
-        self.record["active"] = {"definition": deepcopy(self.proposal["slices"][0]), "plan_hash": ph,
-                                 "artifact": candidate, "review": review}
+        self.record["active"] = {
+            "definition": deepcopy(self.proposal["slices"][0]),
+            "plan_hash": ph,
+            "artifact": candidate,
+            "review": review,
+        }
 
     def publish_proof(self):
         artifact = self.persist_checkpoint(self.proof, self.record["active"]["artifact"]["sha256"])
         self.record["completion_proof"] = {**deepcopy(self.proof), "artifact": artifact}
-        entry = {"slice_id": "S2", "plan_hash": self.proof["plan_hash"], "artifact": artifact,
-                 "required_checks": deepcopy(self.proof["required_checks"])}
+        entry = {
+            "slice_id": "S2",
+            "plan_hash": self.proof["plan_hash"],
+            "artifact": artifact,
+            "required_checks": deepcopy(self.proof["required_checks"]),
+        }
         self.record["history"] = self.record["history"][:1] + [entry]
 
     def approve_product_revision(self, *, verification_method=None, scope_exclusions=None, show_retirement=True):
@@ -107,8 +190,9 @@ class ProgressiveCompletionTests(unittest.TestCase):
         if scope_exclusions is not None:
             current["body"]["scope_exclusions"] = scope_exclusions
             if show_retirement:
-                current["body"]["constraints"] += [line for line in scope_exclusions
-                                                     if line.startswith("Progressive check retirement: ")]
+                current["body"]["constraints"] += [
+                    line for line in scope_exclusions if line.startswith("Progressive check retirement: ")
+                ]
         current["hash"] = util.digest({key: current[key] for key in ("task_id", "revision", "body")})
         self.token = contracts.token(current)
         event = {"actor": "user_cli", "token": self.token}
@@ -118,22 +202,38 @@ class ProgressiveCompletionTests(unittest.TestCase):
         self.record["delegation"] = plan.seal_delegation(self.record["initial_plan"]["proposal"], self.token)
         self.current = {"revision": "source-after-product-change"}
         self.publish_active()
-        self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                  self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+        self.proof = self.payload(
+            "S2",
+            self.record["active"]["plan_hash"],
+            self.current["revision"],
+            self.record["required_checks"],
+            ["S1", "S2"],
+            ["C1", "C2"],
+        )
         self.publish_proof()
         return old
 
     def prepare_retirement(self, *, claimed_check=None, canonical=True, show_retirement=True):
         """Preserve A and an old removed demonstration under the prior approval."""
-        removed = {"id": "removed-exercise", "relation": "contributes_to", "criterion_ids": ["C1"],
-                   "method": "python -m unittest tests.test_removed_exercise"}
+        removed = {
+            "id": "removed-exercise",
+            "relation": "contributes_to",
+            "criterion_ids": ["C1"],
+            "method": "python -m unittest tests.test_removed_exercise",
+        }
         past = self.payload("S1", "old-plan", "source-before-S2", [self.check_a, removed], ["S1"], [])
-        self.record["history"][0] = {"slice_id": "S1", "plan_hash": "old-plan",
-                                     "artifact": self.persist_checkpoint(past, "initial-artifact"),
-                                     "required_checks": deepcopy(past["required_checks"])}
+        self.record["history"][0] = {
+            "slice_id": "S1",
+            "plan_hash": "old-plan",
+            "artifact": self.persist_checkpoint(past, "initial-artifact"),
+            "required_checks": deepcopy(past["required_checks"]),
+        }
         claimed = removed if claimed_check is None else claimed_check
-        retirement = {"check_id": claimed["id"], "check_hash": plan.check_identity(claimed),
-                      "removes": "Remove the exercise demonstration; retain learner progress and the full journey"}
+        retirement = {
+            "check_id": claimed["id"],
+            "check_hash": plan.check_identity(claimed),
+            "removes": "Remove the exercise demonstration; retain learner progress and the full journey",
+        }
         line = "Progressive check retirement: " + json.dumps(retirement, sort_keys=True, separators=(",", ":"))
         if not canonical:
             line = "Progressive check retirement: " + json.dumps(retirement)
@@ -143,12 +243,21 @@ class ProgressiveCompletionTests(unittest.TestCase):
 
     def publish_retirement(self, removed, old, grant, *, report_changes=None, bindings=None):
         proposal = deepcopy(self.record["initial_plan"]["proposal"])
-        report = {"proposal": proposal, "contract_body": deepcopy(self.state["goal_contract"]["body"]),
-                  "retired_checks": [deepcopy(removed)], "predecessor_contract_token": contracts.token(old),
-                  **(report_changes or {})}
-        bindings = {"contract_token": grant["contract_token"], "predecessor_identity": None,
-                    "candidate_identity": plan.plan_identity(proposal), "plan_identity": plan.plan_identity(proposal),
-                    "source_snapshot_identity": "reviewed-renewal-source", **(bindings or {})}
+        report = {
+            "proposal": proposal,
+            "contract_body": deepcopy(self.state["goal_contract"]["body"]),
+            "retired_checks": [deepcopy(removed)],
+            "predecessor_contract_token": contracts.token(old),
+            **(report_changes or {}),
+        }
+        bindings = {
+            "contract_token": grant["contract_token"],
+            "predecessor_identity": None,
+            "candidate_identity": plan.plan_identity(proposal),
+            "plan_identity": plan.plan_identity(proposal),
+            "source_snapshot_identity": "reviewed-renewal-source",
+            **(bindings or {}),
+        }
         envelope, _ = artifacts.prepare("proposal", report=report, **bindings)
         grant = {**grant, "artifact": artifacts.persist(self.temp.name, envelope)}
         self.record["retirements"] = [grant]
@@ -195,11 +304,19 @@ class ProgressiveCompletionTests(unittest.TestCase):
     def test_forged_missing_changed_or_unauthenticated_retirement_grants_refuse(self):
         removed, old, grant = self.prepare_retirement()
         valid = self.publish_retirement(removed, old, grant)
-        for changes in ({"kind": "model"}, {"check_id": "unknown"}, {"check_hash": "0" * 64},
-                        {"removes": "another obligation"}, {"contract_token": contracts.token(old)},
-                        {"contract_token": "unapproved-token"}, {"visible_removal": grant["visible_removal"] + " "},
-                        {"artifact": {}}, {"artifact": self.record["history"][0]["artifact"]},
-                        {"approved_by": "user"}, {"authenticated": True}):
+        for changes in (
+            {"kind": "model"},
+            {"check_id": "unknown"},
+            {"check_hash": "0" * 64},
+            {"removes": "another obligation"},
+            {"contract_token": contracts.token(old)},
+            {"contract_token": "unapproved-token"},
+            {"visible_removal": grant["visible_removal"] + " "},
+            {"artifact": {}},
+            {"artifact": self.record["history"][0]["artifact"]},
+            {"approved_by": "user"},
+            {"authenticated": True},
+        ):
             self.record["retirements"] = [{**valid, **changes}]
             self.assertFalse(progressive.ready(self.state, self.current))
         for grants in (None, True, [True], [grant], [valid, valid]):
@@ -212,14 +329,21 @@ class ProgressiveCompletionTests(unittest.TestCase):
     def test_retirement_artifact_must_bind_exact_body_old_definition_and_approved_predecessor(self):
         removed, old, grant = self.prepare_retirement()
         changed = {**deepcopy(removed), "method": "python -m unittest tests.test_other"}
-        for report_changes in ({"contract_body": {}}, {"retired_checks": []}, {"retired_checks": [changed]},
-                               {"predecessor_contract_token": self.token},
-                               {"predecessor_contract_token": "unknown-old-approval"},
-                               {"proposal": {**self.proposal, "shared_decisions": ["tampered"]}}):
+        for report_changes in (
+            {"contract_body": {}},
+            {"retired_checks": []},
+            {"retired_checks": [changed]},
+            {"predecessor_contract_token": self.token},
+            {"predecessor_contract_token": "unknown-old-approval"},
+            {"proposal": {**self.proposal, "shared_decisions": ["tampered"]}},
+        ):
             self.publish_retirement(removed, old, grant, report_changes=report_changes)
             self.assertFalse(progressive.ready(self.state, self.current))
-        for bindings in ({"contract_token": contracts.token(old)}, {"candidate_identity": "changed-candidate"},
-                         {"plan_identity": "changed-plan"}):
+        for bindings in (
+            {"contract_token": contracts.token(old)},
+            {"candidate_identity": "changed-candidate"},
+            {"plan_identity": "changed-plan"},
+        ):
             self.publish_retirement(removed, old, grant, bindings=bindings)
             self.assertFalse(progressive.ready(self.state, self.current))
         valid = self.publish_retirement(removed, old, grant)
@@ -252,16 +376,32 @@ class ProgressiveCompletionTests(unittest.TestCase):
         self.publish_retirement(removed, old, grant)
         for check in (removed, {**removed, "method": "python -m unittest tests.test_replacement"}):
             self.record["required_checks"] = [self.check_a, self.check_b, check]
-            self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                      self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+            self.proof = self.payload(
+                "S2",
+                self.record["active"]["plan_hash"],
+                self.current["revision"],
+                self.record["required_checks"],
+                ["S1", "S2"],
+                ["C1", "C2"],
+            )
             self.publish_proof()
             self.assertFalse(progressive.ready(self.state, self.current))
 
     def test_approved_line_and_consistent_artifact_cannot_retire_unknown_or_stale_definition(self):
-        for claimed in ({"id": "unknown-check", "relation": "contributes_to", "criterion_ids": ["C1"],
-                         "method": "python -m unittest tests.test_unknown"},
-                        {"id": "removed-exercise", "relation": "contributes_to", "criterion_ids": ["C1"],
-                         "method": "python -m unittest tests.test_changed_definition"}):
+        for claimed in (
+            {
+                "id": "unknown-check",
+                "relation": "contributes_to",
+                "criterion_ids": ["C1"],
+                "method": "python -m unittest tests.test_unknown",
+            },
+            {
+                "id": "removed-exercise",
+                "relation": "contributes_to",
+                "criterion_ids": ["C1"],
+                "method": "python -m unittest tests.test_changed_definition",
+            },
+        ):
             removed, old, grant = self.prepare_retirement(claimed_check=claimed)
             self.publish_retirement(claimed, old, grant)
             self.assertFalse(progressive.ready(self.state, self.current))
@@ -270,8 +410,14 @@ class ProgressiveCompletionTests(unittest.TestCase):
         removed, old, grant = self.prepare_retirement()
         self.publish_retirement(removed, old, grant)
         self.record["required_checks"] = [{**self.check_a, "criterion_ids": ["C2"]}, self.check_b]
-        self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                  self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+        self.proof = self.payload(
+            "S2",
+            self.record["active"]["plan_hash"],
+            self.current["revision"],
+            self.record["required_checks"],
+            ["S1", "S2"],
+            ["C1", "C2"],
+        )
         self.publish_proof()
         self.assertFalse(progressive.ready(self.state, self.current))
 
@@ -294,22 +440,33 @@ class ProgressiveCompletionTests(unittest.TestCase):
         proposal = deepcopy(initial["proposal"])
         proposal["slices"][0]["checks"].append(removed)
         ph = plan.plan_identity(proposal)
-        bindings = {"contract_token": contracts.token(old), "predecessor_identity": initial["plan_hash"],
-                    "candidate_identity": ph, "plan_identity": ph, "source_snapshot_identity": "old-reviewed-source"}
+        bindings = {
+            "contract_token": contracts.token(old),
+            "predecessor_identity": initial["plan_hash"],
+            "candidate_identity": ph,
+            "plan_identity": ph,
+            "source_snapshot_identity": "old-reviewed-source",
+        }
         envelope, _ = artifacts.prepare("revision", report={"proposal": proposal}, **bindings)
         candidate = artifacts.persist(self.temp.name, envelope)
-        envelope, _ = artifacts.prepare("review", report={"accepted": True,
-                                                         "candidate_sha256": candidate["sha256"]}, **bindings)
+        envelope, _ = artifacts.prepare(
+            "review", report={"accepted": True, "candidate_sha256": candidate["sha256"]}, **bindings
+        )
         reviewed = artifacts.persist(self.temp.name, envelope)
-        archived = {"initial_plan": initial, "delegation": plan.seal_delegation(initial["proposal"], contracts.token(old)),
-                    "active": {"definition": proposal["slices"][0], "plan_hash": ph,
-                               "artifact": candidate, "review": reviewed}}
+        archived = {
+            "initial_plan": initial,
+            "delegation": plan.seal_delegation(initial["proposal"], contracts.token(old)),
+            "active": {"definition": proposal["slices"][0], "plan_hash": ph, "artifact": candidate, "review": reviewed},
+        }
         entry = self.record["history"][0]
         past = artifacts.verify(self.temp.name, entry["artifact"])["report"]
         past["required_checks"] = [self.check_a]
         past["results"].pop(removed["id"])
-        self.record["history"][0] = {**entry, "required_checks": [self.check_a],
-                                    "artifact": self.persist_checkpoint(past, "initial-artifact")}
+        self.record["history"][0] = {
+            **entry,
+            "required_checks": [self.check_a],
+            "artifact": self.persist_checkpoint(past, "initial-artifact"),
+        }
         self.assertFalse(progressive.ready(self.state, self.current))
         self.record["execution_history"] = [archived]
         before = deepcopy(self.state)
@@ -344,16 +501,23 @@ class ProgressiveCompletionTests(unittest.TestCase):
         old = self.approve_product_revision()
         changed_body = deepcopy(old["body"])
         changed_body["constraints"].append("unapproved mutation")
-        for change in ({"approval_status": "proposed"}, {"hash": "tampered"},
-                       {"body": changed_body},
-                       {"approval_event": {"actor": "model", "token": contracts.token(old)}},
-                       {"approval_event": {"actor": "user_cli", "token": "wrong-approval-token"}},
-                       {"approval_event": True}, {"revision": True}):
+        for change in (
+            {"approval_status": "proposed"},
+            {"hash": "tampered"},
+            {"body": changed_body},
+            {"approval_event": {"actor": "model", "token": contracts.token(old)}},
+            {"approval_event": {"actor": "user_cli", "token": "wrong-approval-token"}},
+            {"approval_event": True},
+            {"revision": True},
+        ):
             with self.subTest(change=change):
                 altered = {**deepcopy(old), **change}
                 self.state["contract_history"] = [altered]
-                self.state["user_events"] = [old["approval_event"], self.state["goal_contract"]["approval_event"],
-                                              altered.get("approval_event")]
+                self.state["user_events"] = [
+                    old["approval_event"],
+                    self.state["goal_contract"]["approval_event"],
+                    altered.get("approval_event"),
+                ]
                 self.assertFalse(progressive.ready(self.state, self.current))
         self.state["contract_history"] = [old]
         self.state["user_events"] = [self.state["goal_contract"]["approval_event"]]
@@ -446,8 +610,14 @@ class ProgressiveCompletionTests(unittest.TestCase):
         product = verification_plan.product_checks(body, self.record["required_checks"])
         self.record["required_checks"].extend(product)
         self.assertEqual(verification_plan.product_checks(body, self.record["required_checks"]), [])
-        self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                  self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+        self.proof = self.payload(
+            "S2",
+            self.record["active"]["plan_hash"],
+            self.current["revision"],
+            self.record["required_checks"],
+            ["S1", "S2"],
+            ["C1", "C2"],
+        )
         self.publish_proof()
         before = deepcopy(self.state)
         self.assertTrue(progressive.ready(self.state, self.current))
@@ -465,19 +635,24 @@ class ProgressiveCompletionTests(unittest.TestCase):
 
     def test_original_product_command_already_represented_needs_no_duplicate_check(self):
         self.approve_product_revision(verification_method=self.check_b["method"])
-        self.assertEqual(verification_plan.product_checks(self.state["goal_contract"]["body"],
-                                                        self.record["required_checks"]), [])
+        self.assertEqual(
+            verification_plan.product_checks(self.state["goal_contract"]["body"], self.record["required_checks"]), []
+        )
         self.assertTrue(progressive.ready(self.state, self.current))
 
     def test_original_prose_method_is_not_guessed_as_product_command(self):
         self.approve_product_revision(verification_method="Inspect the complete learner journey and saved progress")
-        self.assertEqual(verification_plan.product_checks(self.state["goal_contract"]["body"],
-                                                        self.record["required_checks"]), [])
+        self.assertEqual(
+            verification_plan.product_checks(self.state["goal_contract"]["body"], self.record["required_checks"]), []
+        )
         self.assertTrue(progressive.ready(self.state, self.current))
 
     def test_ordinary_absence_and_candidate_only_are_not_completion_success(self):
-        for state in ({}, {"progressive": {"version": 1}},
-                      {"progressive": {"version": 1, "candidate": {"proposal": self.proposal}}}):
+        for state in (
+            {},
+            {"progressive": {"version": 1}},
+            {"progressive": {"version": 1, "candidate": {"proposal": self.proposal}}},
+        ):
             with self.subTest(state=state):
                 self.assertTrue(progressive.ready(state, {}))
                 self.assertFalse(completion.completion_ready(state, {}, {}))
@@ -489,8 +664,15 @@ class ProgressiveCompletionTests(unittest.TestCase):
                 self.assertFalse(progressive.ready(state, self.current))
 
     def test_unknown_ledger_and_missing_approved_delegation_refuse(self):
-        for record in (None, [], True, {"version": 2}, {"version": 1, "unknown": True},
-                       {**self.record, "delegation": {}}, {**self.record, "version": True}):
+        for record in (
+            None,
+            [],
+            True,
+            {"version": 2},
+            {"version": 1, "unknown": True},
+            {**self.record, "delegation": {}},
+            {**self.record, "version": True},
+        ):
             with self.subTest(record=record):
                 self.assertFalse(progressive.ready({**self.state, "progressive": record}, self.current))
         self.state["user_events"] = []
@@ -527,17 +709,33 @@ class ProgressiveCompletionTests(unittest.TestCase):
 
     def test_false_skipped_failed_and_incomplete_receipts_refuse_even_when_persisted(self):
         original = deepcopy(self.proof["results"]["A"])
-        for changes in ({"status": "FAIL"}, {"status": "SKIPPED"}, {"status": True}, {"status": {"PASS": True}},
-                        {"exit_code": False}, {"exit_code": 1}, {"replayed": False}, {"replayed": {}},
-                        {"executions": []}, {"evidence_hashes": {}}, {"check_hash": "stale"},
-                        {"source_revision": "prior-pass"}, {"contract_token": "old-grant"}):
+        for changes in (
+            {"status": "FAIL"},
+            {"status": "SKIPPED"},
+            {"status": True},
+            {"status": {"PASS": True}},
+            {"exit_code": False},
+            {"exit_code": 1},
+            {"replayed": False},
+            {"replayed": {}},
+            {"executions": []},
+            {"evidence_hashes": {}},
+            {"check_hash": "stale"},
+            {"source_revision": "prior-pass"},
+            {"contract_token": "old-grant"},
+        ):
             with self.subTest(changes=changes):
                 self.proof["results"]["A"] = {**original, **changes}
                 self.publish_proof()
                 self.assertFalse(progressive.ready(self.state, self.current))
         self.proof["results"]["A"] = original
-        for changes in ({"status": "SKIPPED"}, {"status": "FAIL"}, {"exit_code": False},
-                        {"evidence_hashes": {}}, {"command": "different-command"}):
+        for changes in (
+            {"status": "SKIPPED"},
+            {"status": "FAIL"},
+            {"exit_code": False},
+            {"evidence_hashes": {}},
+            {"command": "different-command"},
+        ):
             receipt = deepcopy(original)
             receipt["executions"][0].update(changes)
             self.proof["results"]["A"] = receipt
@@ -562,8 +760,14 @@ class ProgressiveCompletionTests(unittest.TestCase):
         self.check_b["relation"] = "contributes_to"
         self.proposal["slices"][0]["checks"] = [deepcopy(self.check_b)]
         self.publish_active()
-        self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                  self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+        self.proof = self.payload(
+            "S2",
+            self.record["active"]["plan_hash"],
+            self.current["revision"],
+            self.record["required_checks"],
+            ["S1", "S2"],
+            ["C1", "C2"],
+        )
         self.publish_proof()
         self.assertEqual(progressive.ledger.require_active(self.state), self.record["active"])
         self.assertFalse(progressive.ready(self.state, self.current))
@@ -581,8 +785,14 @@ class ProgressiveCompletionTests(unittest.TestCase):
         self.check_b["method"] = "Run `python -m unittest tests.test_b` and `python -m unittest tests.test_c`"
         self.proposal["slices"][0]["checks"] = [deepcopy(self.check_b)]
         self.publish_active()
-        self.proof = self.payload("S2", self.record["active"]["plan_hash"], self.current["revision"],
-                                  self.record["required_checks"], ["S1", "S2"], ["C1", "C2"])
+        self.proof = self.payload(
+            "S2",
+            self.record["active"]["plan_hash"],
+            self.current["revision"],
+            self.record["required_checks"],
+            ["S1", "S2"],
+            ["C1", "C2"],
+        )
         self.publish_proof()
         self.assertEqual(len(self.proof["results"]["B"]["executions"]), 2)
         self.assertTrue(progressive.ready(self.state, self.current))
@@ -601,8 +811,12 @@ class ProgressiveCompletionTests(unittest.TestCase):
         self.assertFalse(progressive.ready(self.state, self.current))
 
     def test_missing_and_tampered_checkpoint_review_and_evidence_files_refuse(self):
-        for identity in (self.record["completion_proof"]["artifact"], self.record["active"]["artifact"],
-                         self.record["active"]["review"], self.record["history"][0]["artifact"]):
+        for identity in (
+            self.record["completion_proof"]["artifact"],
+            self.record["active"]["artifact"],
+            self.record["active"]["review"],
+            self.record["history"][0]["artifact"],
+        ):
             path = Path(self.temp.name) / identity["path"]
             contents = path.read_bytes()
             path.write_bytes(contents + b" ")
@@ -620,8 +834,15 @@ class ProgressiveCompletionTests(unittest.TestCase):
         with patch.object(completion, "criteria_definition", side_effect=AssertionError("ordinary gate reached")):
             for independent in (False, True):
                 for human in (False, True):
-                    self.assertFalse(completion.completion_ready(self.state, {"status": "COMPLETE"}, self.current,
-                                     require_independent=independent, require_human_reviews=human))
+                    self.assertFalse(
+                        completion.completion_ready(
+                            self.state,
+                            {"status": "COMPLETE"},
+                            self.current,
+                            require_independent=independent,
+                            require_human_reviews=human,
+                        )
+                    )
 
     def test_valid_progressive_proof_never_overrides_ordinary_failure_or_findings(self):
         self.assertTrue(progressive.ready(self.state, self.current))

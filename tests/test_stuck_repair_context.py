@@ -1,4 +1,5 @@
 """Investigator report repairs retain the file evidence needed for their probes."""
+
 import copy
 import importlib
 import json
@@ -22,13 +23,27 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
         archived.mkdir()
         output = archived / "plan-finalize-report-repair-02.json"
         output.write_text(json.dumps({"unexpected": "field"}))
-        self.state.update(next_stage=stuck.STAGE, stuck_investigation={
-            "identity": "finalize:invalid", "stage": "astra_finalize", "status": "PAUSED_INVALID_OUTPUT",
-            "reason": "$.decisions[0]: unexpected fields"}, stages=[{
-                "stage": "astra_finalize_report_repair", "iteration": 9, "output": str(output),
-                "rejected": True, "rejection_reason": "$.decisions[0]: unexpected fields"}],
-            failure_history={"finalize": {"identity": {"stage": "astra_finalize"},
-                                         "count": 3, "last_error": "unexpected fields"}})
+        self.state.update(
+            next_stage=stuck.STAGE,
+            stuck_investigation={
+                "identity": "finalize:invalid",
+                "stage": "astra_finalize",
+                "status": "PAUSED_INVALID_OUTPUT",
+                "reason": "$.decisions[0]: unexpected fields",
+            },
+            stages=[
+                {
+                    "stage": "astra_finalize_report_repair",
+                    "iteration": 9,
+                    "output": str(output),
+                    "rejected": True,
+                    "rejection_reason": "$.decisions[0]: unexpected fields",
+                }
+            ],
+            failure_history={
+                "finalize": {"identity": {"stage": "astra_finalize"}, "count": 3, "last_error": "unexpected fields"}
+            },
+        )
         self.queue(role="astra", stage=stuck.STAGE, error=ValueError("diagnosed causes' probes did not exit 0"))
         return output
 
@@ -40,8 +55,10 @@ class InvestigatorRepairHandoffTests(unittest.TestCase):
         self.assertEqual(self.state["stuck_investigation"]["reason"], context["stuck"]["reason"])
         self.assertEqual(str(output), context["recent_stages"][0]["output"])
         self.assertEqual(3, context["failure_history"]["finalize"]["count"])
-        self.assertIn({"evidence_ref": str(output), "probe_path": "run/plan-finalize-report-repair-02.json"},
-                      context["evidence_files"])
+        self.assertIn(
+            {"evidence_ref": str(output), "probe_path": "run/plan-finalize-report-repair-02.json"},
+            context["evidence_files"],
+        )
 
     def test_investigator_repair_does_not_permit_shell_event_citations(self):
         self.investigation()
@@ -69,36 +86,60 @@ class InvestigatorRepairContextTests(unittest.TestCase):
         self.schema.write_text("{}")
         self.outside = self.root / "outside.txt"
         self.outside.write_text("not this run")
-        self.state = {"task": "Repair the blank-name behavior", "workspace": str(self.workspace),
-                      "stuck_investigation": {"identity": "finalize:invalid", "stage": "astra_finalize",
-                                              "status": "PAUSED_INVALID_OUTPUT", "reason": "unexpected fields"},
-                      "stages": [{"stage": "astra_finalize", "output": str(self.saved), "rejected": True}],
-                      "failure_history": {}}
+        self.state = {
+            "task": "Repair the blank-name behavior",
+            "workspace": str(self.workspace),
+            "stuck_investigation": {
+                "identity": "finalize:invalid",
+                "stage": "astra_finalize",
+                "status": "PAUSED_INVALID_OUTPUT",
+                "reason": "unexpected fields",
+            },
+            "stages": [{"stage": "astra_finalize", "output": str(self.saved), "rejected": True}],
+            "failure_history": {},
+        }
 
     def helper(self):
         return importlib.import_module("autocode_stuck_repair_context")
 
     def test_context_maps_existing_cited_files_and_omits_invalid_refs_without_mutating_state(self):
         before = copy.deepcopy(self.state)
-        source = {"path": str(self.saved), "content": {"evidence_refs": [
-            "diagnosis.txt:1", str(self.saved), str(self.schema), str(self.saved.parent),
-            "event:read", str(self.outside), "missing.json"]}}
+        source = {
+            "path": str(self.saved),
+            "content": {
+                "evidence_refs": [
+                    "diagnosis.txt:1",
+                    str(self.saved),
+                    str(self.schema),
+                    str(self.saved.parent),
+                    "event:read",
+                    str(self.outside),
+                    "missing.json",
+                ]
+            },
+        }
         context = self.helper().context(self.state, stuck.STAGE, self.run / "state.json", self.workspace, (source,))
-        self.assertEqual([
-            {"evidence_ref": str(self.saved), "probe_path": "run/repair-02.json"},
-            {"evidence_ref": "diagnosis.txt:1", "probe_path": "diagnosis.txt"},
-            {"evidence_ref": str(self.schema), "probe_path": "run/v3-astra_finalize.json"},
-        ], context["evidence_files"])
+        self.assertEqual(
+            [
+                {"evidence_ref": str(self.saved), "probe_path": "run/repair-02.json"},
+                {"evidence_ref": "diagnosis.txt:1", "probe_path": "diagnosis.txt"},
+                {"evidence_ref": str(self.schema), "probe_path": "run/v3-astra_finalize.json"},
+            ],
+            context["evidence_files"],
+        )
         context["stuck"]["reason"] = "changed"
         self.assertEqual(before, self.state)
 
     def test_evidence_files_describes_scratch_names_for_archived_reports_and_schema_files(self):
         refs = [str(self.saved), str(self.schema), "diagnosis.txt:1", "event:read", str(self.saved.parent)]
-        self.assertEqual([
-            {"evidence_ref": str(self.saved), "probe_path": "run/repair-02.json"},
-            {"evidence_ref": str(self.schema), "probe_path": "run/v3-astra_finalize.json"},
-            {"evidence_ref": "diagnosis.txt:1", "probe_path": "diagnosis.txt"},
-        ], self.helper().evidence_files(refs, self.workspace, self.run))
+        self.assertEqual(
+            [
+                {"evidence_ref": str(self.saved), "probe_path": "run/repair-02.json"},
+                {"evidence_ref": str(self.schema), "probe_path": "run/v3-astra_finalize.json"},
+                {"evidence_ref": "diagnosis.txt:1", "probe_path": "diagnosis.txt"},
+            ],
+            self.helper().evidence_files(refs, self.workspace, self.run),
+        )
 
     def test_other_stages_and_a_missing_active_request_have_no_investigation_context(self):
         self.assertEqual({}, self.helper().context(self.state, "sol", self.run / "state.json", self.workspace))

@@ -1,4 +1,5 @@
 """Run only the autocode unit, using the shared durable runtime."""
+
 try:
     from . import autocode as runtime
 except ImportError:

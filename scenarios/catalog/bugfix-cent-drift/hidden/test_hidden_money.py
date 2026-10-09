@@ -1,5 +1,6 @@
 """Invoice, charge and refunds agree to the cent for every order, rounded half up (docs/accounting.md).
 Tax may be rounded per line or on the subtotal: every check here holds for both."""
+
 import random
 import unittest
 from decimal import Decimal
@@ -15,8 +16,15 @@ D = lambda value: Decimal(str(value))
 def carts(seed, count):
     rng = random.Random(seed)
     for _ in range(count):
-        yield [{"sku": f"S{i}", "price": f"{rng.randint(1, 9999) / 100:.2f}", "qty": rng.randint(1, 5),
-                "discount_pct": rng.choice([0, 5, 10, 15, 33, 50])} for i in range(rng.randint(1, 6))]
+        yield [
+            {
+                "sku": f"S{i}",
+                "price": f"{rng.randint(1, 9999) / 100:.2f}",
+                "qty": rng.randint(1, 5),
+                "discount_pct": rng.choice([0, 5, 10, 15, 33, 50]),
+            }
+            for i in range(rng.randint(1, 6))
+        ]
 
 
 class KnownOrders(unittest.TestCase):

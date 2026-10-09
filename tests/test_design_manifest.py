@@ -1,4 +1,5 @@
 """Offline design inventory and public CLI coverage; no models or Figma writes."""
+
 import copy
 import json
 import os
@@ -25,18 +26,35 @@ import autocode_util as util
 from tests.visual_capture_fixtures import make_capture
 
 ROOT = Path(__file__).resolve().parents[1]
-BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-         "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
-         "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
-         "Python standard library only.")
-OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-           "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
-           "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra")
+BRIEF = (
+    "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+    "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
+    "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
+    "Python standard library only."
+)
+OPTIONS = (
+    "--engine",
+    "codex",
+    "--joint-planning",
+    "--astra-model",
+    "gpt-6-astra",
+    "--terra-model",
+    "gpt-5.6-terra",
+    "--sol-model",
+    "gpt-5.6-sol",
+    "--completion-model",
+    "gpt-6-astra",
+    "--glm-model",
+    "gpt-5.6-sol",
+    "--plan-reviewer-model",
+    "gpt-6-astra",
+)
 
 
 def png(path, width=2, height=1):
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
     header = chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
     pixels = zlib.compress((b"\x00" + b"\x11\x22\x33" * width) * height)
     path.write_bytes(b"\x89PNG\r\n\x1a\n" + header + chunk(b"IDAT", pixels) + chunk(b"IEND", b""))
@@ -46,14 +64,31 @@ def bundle(root):
     root.mkdir(parents=True, exist_ok=True)
     png(root / "screen.png")
     (root / "context.txt").write_text("Fixture tokens: spacing 8; foreground #112233; route /greet")
-    artifacts = {kind: {"path": path, "sha256": util.file_hash(root / path)} for kind, path in
-                 (("screenshot", "screen.png"), ("design_context", "context.txt"))}
-    body = {"version": 1, "files": [{"key": "FILEA", "nodes": ["1:2"]}, {"key": "FILEB", "nodes": ["3:4"]}],
-            "cases": [{"id": cid, "file_key": key, "node_id": node, "state": state, "route": "/greet",
-                       "implementation_paths": ["greet.py"], "viewport": {"width": 2, "height": 1,
-                       "device_scale_factor": 1}, "export_scale": 1, "artifacts": copy.deepcopy(artifacts)}
-                      for cid, key, node, state in (("greet.empty", "FILEA", "1:2", "empty"),
-                                                   ("greet.filled", "FILEB", "3:4", "filled"))]}
+    artifacts = {
+        kind: {"path": path, "sha256": util.file_hash(root / path)}
+        for kind, path in (("screenshot", "screen.png"), ("design_context", "context.txt"))
+    }
+    body = {
+        "version": 1,
+        "files": [{"key": "FILEA", "nodes": ["1:2"]}, {"key": "FILEB", "nodes": ["3:4"]}],
+        "cases": [
+            {
+                "id": cid,
+                "file_key": key,
+                "node_id": node,
+                "state": state,
+                "route": "/greet",
+                "implementation_paths": ["greet.py"],
+                "viewport": {"width": 2, "height": 1, "device_scale_factor": 1},
+                "export_scale": 1,
+                "artifacts": copy.deepcopy(artifacts),
+            }
+            for cid, key, node, state in (
+                ("greet.empty", "FILEA", "1:2", "empty"),
+                ("greet.filled", "FILEB", "3:4", "filled"),
+            )
+        ],
+    }
     path = root / "manifest.json"
     path.write_text(json.dumps(body))
     return path, body
@@ -67,7 +102,10 @@ def inventory_bundle(root, *, include_missing_reference=False):
     (root / "icon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
     (root / "inter.woff2").write_bytes(b"font fixture")
     pages = {
-        "FILEA": ("0:1", "Main", """<CANVAS id="0:1" name="Main">
+        "FILEA": (
+            "0:1",
+            "Main",
+            """<CANVAS id="0:1" name="Main">
           <FRAME id="1:2" name="Home" width="2" height="1">
             <FRAME id="1:90" name="Nested layout" width="400" height="100"/>
           </FRAME>
@@ -77,13 +115,18 @@ def inventory_bundle(root, *, include_missing_reference=False):
             <COMPONENT id="1:5" name="Secondary"/>
           </COMPONENT_SET>
           <RECTANGLE id="1:7" name="Logo"/>
-        </CANVAS>"""),
-        "FILEB": ("2:1", "Other", """<CANVAS id="2:1" name="Other">
+        </CANVAS>""",
+        ),
+        "FILEB": (
+            "2:1",
+            "Other",
+            """<CANVAS id="2:1" name="Other">
           <FRAME id="3:4" name="Settings" width="2" height="1"/>
           <COMPONENT_SET id="3:5" name="Button">
             <COMPONENT id="3:6" name="Tertiary"/>
           </COMPONENT_SET>
-        </CANVAS>"""),
+        </CANVAS>""",
+        ),
     }
     files = []
     for key, (page_id, page_name, xml) in pages.items():
@@ -93,44 +136,120 @@ def inventory_bundle(root, *, include_missing_reference=False):
         file_xml_path.write_text("<DOCUMENT>" + xml + "</DOCUMENT>")
         component_page = page_id
         component_node = "1:3" if key == "FILEA" else "3:5"
-        variants = ([{"page_id": component_page, "node_id": "1:4", "properties": {"Type": "primary"}},
-                     {"page_id": component_page, "node_id": "1:5", "properties": {"Type": "secondary"}}]
-                    if key == "FILEA" else
-                    [{"page_id": component_page, "node_id": "3:6", "properties": {"Type": "tertiary"}}])
-        font = {"id": f"font-{key}", "family": "Inter", "style": "Regular", "status": "available",
-                "artifact": {"path": "inter.woff2", "sha256": util.file_hash(root / "inter.woff2")}}
-        asset = {"id": f"logo-{key}", "page_id": page_id, "node_id": "1:7" if key == "FILEA" else "3:4",
-                 "name": "Logo", "mime_type": "image/svg+xml", "status": "available",
-                 "artifact": {"path": "icon.svg", "sha256": util.file_hash(root / "icon.svg")}}
+        variants = (
+            [
+                {"page_id": component_page, "node_id": "1:4", "properties": {"Type": "primary"}},
+                {"page_id": component_page, "node_id": "1:5", "properties": {"Type": "secondary"}},
+            ]
+            if key == "FILEA"
+            else [{"page_id": component_page, "node_id": "3:6", "properties": {"Type": "tertiary"}}]
+        )
+        font = {
+            "id": f"font-{key}",
+            "family": "Inter",
+            "style": "Regular",
+            "status": "available",
+            "artifact": {"path": "inter.woff2", "sha256": util.file_hash(root / "inter.woff2")},
+        }
+        asset = {
+            "id": f"logo-{key}",
+            "page_id": page_id,
+            "node_id": "1:7" if key == "FILEA" else "3:4",
+            "name": "Logo",
+            "mime_type": "image/svg+xml",
+            "status": "available",
+            "artifact": {"path": "icon.svg", "sha256": util.file_hash(root / "icon.svg")},
+        }
         if include_missing_reference and key == "FILEB":
-            font = {"id": "font-missing", "family": "Unknown Sans", "style": "Medium", "status": "missing",
-                    "reason": "Figma font is unavailable in the pinned browser environment"}
-            asset = {"id": "image-missing", "page_id": page_id, "node_id": "3:4", "name": "Hero", "mime_type": "image/png",
-                     "status": "missing", "reason": "Figma export did not return the source image"}
-        files.append({
-            "key": key, "revision": f"revision-{key}",
-            "pages": [{"id": page_id, "name": page_name,
-                       "metadata_xml": {"path": xml_path.name, "sha256": util.file_hash(xml_path)}}],
-            "metadata_xml": {"path": file_xml_path.name, "sha256": util.file_hash(file_xml_path)},
-            "components": [{"key": "SHARED-BUTTON", "name": "Button", "source_page_id": component_page,
-                            "source_node_id": component_node, "variants": variants}],
-            "variables": [{"key": "VARIABLE-COLOR", "name": "foreground", "kind": "COLOR",
-                           "value": {"hex": "#112233"}, "collection": "Foundation", "mode": "Light", "source_id": "VariableID:1", "mode_id": "light"}],
-            "fonts": [font], "assets": [asset],
-            "transitions": ([{"id": "home-details", "source_node_id": "1:2", "target_node_id": "1:6",
-                               "trigger": "click", "action": {"type": "NODE", "destinationId": "1:6"}}] if key == "FILEA" else []),
-        })
+            font = {
+                "id": "font-missing",
+                "family": "Unknown Sans",
+                "style": "Medium",
+                "status": "missing",
+                "reason": "Figma font is unavailable in the pinned browser environment",
+            }
+            asset = {
+                "id": "image-missing",
+                "page_id": page_id,
+                "node_id": "3:4",
+                "name": "Hero",
+                "mime_type": "image/png",
+                "status": "missing",
+                "reason": "Figma export did not return the source image",
+            }
+        files.append(
+            {
+                "key": key,
+                "revision": f"revision-{key}",
+                "pages": [
+                    {
+                        "id": page_id,
+                        "name": page_name,
+                        "metadata_xml": {"path": xml_path.name, "sha256": util.file_hash(xml_path)},
+                    }
+                ],
+                "metadata_xml": {"path": file_xml_path.name, "sha256": util.file_hash(file_xml_path)},
+                "components": [
+                    {
+                        "key": "SHARED-BUTTON",
+                        "name": "Button",
+                        "source_page_id": component_page,
+                        "source_node_id": component_node,
+                        "variants": variants,
+                    }
+                ],
+                "variables": [
+                    {
+                        "key": "VARIABLE-COLOR",
+                        "name": "foreground",
+                        "kind": "COLOR",
+                        "value": {"hex": "#112233"},
+                        "collection": "Foundation",
+                        "mode": "Light",
+                        "source_id": "VariableID:1",
+                        "mode_id": "light",
+                    }
+                ],
+                "fonts": [font],
+                "assets": [asset],
+                "transitions": (
+                    [
+                        {
+                            "id": "home-details",
+                            "source_node_id": "1:2",
+                            "target_node_id": "1:6",
+                            "trigger": "click",
+                            "action": {"type": "NODE", "destinationId": "1:6"},
+                        }
+                    ]
+                    if key == "FILEA"
+                    else []
+                ),
+            }
+        )
     cases = []
-    for key, page_id, node_id, state in (("FILEA", "0:1", "1:2", "default"),
-                                         ("FILEA", "0:1", "1:6", "default"),
-                                         ("FILEB", "2:1", "3:4", "default")):
-        cases.append({"id": f"{key}.{node_id.replace(':', '.')}.{state}", "file_key": key, "page_id": page_id,
-                      "node_id": node_id, "state": state, "route": f"/{node_id.replace(':', '/')}" ,
-                      "implementation_paths": ["src/filea.js" if key == "FILEA" else "src/fileb.js"], "viewport": {"width": 2, "height": 1,
-                      "device_scale_factor": 1}, "export_scale": 1,
-                      "artifacts": {kind: {"path": path, "sha256": util.file_hash(root / path)}
-                                    for kind, path in (("screenshot", "screen.png"),
-                                                       ("design_context", "context.txt"))}})
+    for key, page_id, node_id, state in (
+        ("FILEA", "0:1", "1:2", "default"),
+        ("FILEA", "0:1", "1:6", "default"),
+        ("FILEB", "2:1", "3:4", "default"),
+    ):
+        cases.append(
+            {
+                "id": f"{key}.{node_id.replace(':', '.')}.{state}",
+                "file_key": key,
+                "page_id": page_id,
+                "node_id": node_id,
+                "state": state,
+                "route": f"/{node_id.replace(':', '/')}",
+                "implementation_paths": ["src/filea.js" if key == "FILEA" else "src/fileb.js"],
+                "viewport": {"width": 2, "height": 1, "device_scale_factor": 1},
+                "export_scale": 1,
+                "artifacts": {
+                    kind: {"path": path, "sha256": util.file_hash(root / path)}
+                    for kind, path in (("screenshot", "screen.png"), ("design_context", "context.txt"))
+                },
+            }
+        )
     files_by_key = {file["key"]: file for file in files}
     for case in cases:
         file = files_by_key[case["file_key"]]
@@ -142,33 +261,60 @@ def inventory_bundle(root, *, include_missing_reference=False):
             "transitions": [row["id"] for row in file["transitions"]],
         }
     for file in files:
-        file["screen_states"] = [{"page_id": case["page_id"], "node_id": case["node_id"],
-                                  "state": case["state"], "viewport": copy.deepcopy(case["viewport"])}
-                                 for case in cases if case["file_key"] == file["key"]]
+        file["screen_states"] = [
+            {
+                "page_id": case["page_id"],
+                "node_id": case["node_id"],
+                "state": case["state"],
+                "viewport": copy.deepcopy(case["viewport"]),
+            }
+            for case in cases
+            if case["file_key"] == file["key"]
+        ]
     for file in files:
-        for page in file['pages']:
+        for page in file["pages"]:
             nodes, _ = manifest.inventory._metadata_nodes(page, root)[:2]
             rows = []
             for node in nodes.values():
                 rows.append(dict(node, fonts=[], assets=[], variables=[], transitions=[], visual={}))
-            rows[0]['fonts'] = [{key: file['fonts'][0][key] for key in ('family', 'style')}]
-            rows[0]['variables'] = ['VariableID:1']
+            rows[0]["fonts"] = [{key: file["fonts"][0][key] for key in ("family", "style")}]
+            rows[0]["variables"] = ["VariableID:1"]
             for node in rows:
-                for component in file['components']:
-                    if node['id'] == component['source_node_id']:
-                        node['component_key'] = component['key']
-                    for variant in component['variants']:
-                        if node['id'] == variant['node_id']:
-                            node['component_key'] = component['key'] + '-' + node['id']
-                            node['variant_properties'] = variant['properties']
-                node['assets'] = [{key: row[key] for key in ('id', 'mime_type')} for row in file['assets'] if row['node_id'] == node['id']]
-                node['transitions'] = [{key: row[key] for key in ('id', 'target_node_id', 'trigger', 'action')} for row in file['transitions'] if row['source_node_id'] == node['id']]
-            source = root / (file['key'] + '-source.json')
-            source.write_text(json.dumps(dict(version=1,file_key=file['key'],page_id=page['id'],read_only=True,complete=True,
-                errors=[],nodes=rows,variables=file['variables'])))
-            page['source_json'] = {'path': source.name, 'sha256': util.file_hash(source)}
+                for component in file["components"]:
+                    if node["id"] == component["source_node_id"]:
+                        node["component_key"] = component["key"]
+                    for variant in component["variants"]:
+                        if node["id"] == variant["node_id"]:
+                            node["component_key"] = component["key"] + "-" + node["id"]
+                            node["variant_properties"] = variant["properties"]
+                node["assets"] = [
+                    {key: row[key] for key in ("id", "mime_type")}
+                    for row in file["assets"]
+                    if row["node_id"] == node["id"]
+                ]
+                node["transitions"] = [
+                    {key: row[key] for key in ("id", "target_node_id", "trigger", "action")}
+                    for row in file["transitions"]
+                    if row["source_node_id"] == node["id"]
+                ]
+            source = root / (file["key"] + "-source.json")
+            source.write_text(
+                json.dumps(
+                    dict(
+                        version=1,
+                        file_key=file["key"],
+                        page_id=page["id"],
+                        read_only=True,
+                        complete=True,
+                        errors=[],
+                        nodes=rows,
+                        variables=file["variables"],
+                    )
+                )
+            )
+            page["source_json"] = {"path": source.name, "sha256": util.file_hash(source)}
     for case in cases:
-        case['native_size'] = {'width': 2, 'height': 1}
+        case["native_size"] = {"width": 2, "height": 1}
     body = {"version": 2, "files": files, "cases": cases, "responsive_targets": []}
     path = root / "manifest-v2.json"
     path.write_text(json.dumps(body))
@@ -192,19 +338,49 @@ class DesignManifestTests(unittest.TestCase):
         import autocode_planning as planning
         import autocode_support as support
         import autopilot
+
         parser = autocode_args.build_parser("autopilot", opencode.DEFAULT_MODELS)
-        args = parser.parse_args(["fixture", "--engine", "opencode", "--provider", "opencode",
-            "--figma-manifest", str(self.path), "--terra-model", "zai/glm-5.3", "--terra-reasoning-effort", "high",
-            "--pin-model-role", "terra", "--unlimited-iterations", "--max-seconds", "0", "--max-stage-seconds", "0",
-            "--max-idle-seconds", "0", "--max-tool-seconds", "0"])
+        args = parser.parse_args(
+            [
+                "fixture",
+                "--engine",
+                "opencode",
+                "--provider",
+                "opencode",
+                "--figma-manifest",
+                str(self.path),
+                "--terra-model",
+                "zai/glm-5.3",
+                "--terra-reasoning-effort",
+                "high",
+                "--pin-model-role",
+                "terra",
+                "--unlimited-iterations",
+                "--max-seconds",
+                "0",
+                "--max-stage-seconds",
+                "0",
+                "--max-idle-seconds",
+                "0",
+                "--max-tool-seconds",
+                "0",
+            ]
+        )
         state = {"workspace": str(self.workspace)}
-        with patch.object(opencode, "local_settings", return_value={"engine": "opencode"}), \
-             patch.object(opencode, "check_models"), patch.object(opencode, "check_subscription_routes"), \
-             patch.object(support, "local_settings", side_effect=AssertionError("No Codex login")):
-            settings = autocode_configure.configure(args, state, planning=planning, milestones=milestones, autopilot=autopilot)
+        with (
+            patch.object(opencode, "local_settings", return_value={"engine": "opencode"}),
+            patch.object(opencode, "check_models"),
+            patch.object(opencode, "check_subscription_routes"),
+            patch.object(support, "local_settings", side_effect=AssertionError("No Codex login")),
+        ):
+            settings = autocode_configure.configure(
+                args, state, planning=planning, milestones=milestones, autopilot=autopilot
+            )
         self.assertEqual("opencode", settings["engine"])
-        self.assertEqual(("zai/glm-5.3", "high", True), tuple(settings["roles"]["terra"][key] for key in
-                         ("model", "reasoning_effort", "model_pinned")))
+        self.assertEqual(
+            ("zai/glm-5.3", "high", True),
+            tuple(settings["roles"]["terra"][key] for key in ("model", "reasoning_effort", "model_pinned")),
+        )
         self.assertIsNone(settings["limits"]["iteration_ceiling"])
         for key in ("max_seconds", "stage_timeout_seconds", "idle_timeout_seconds", "tool_timeout_seconds"):
             self.assertEqual(0, settings["limits"][key])
@@ -221,47 +397,62 @@ class DesignManifestTests(unittest.TestCase):
         import autocode_planning as planning
         import autocode_support as support
         import autopilot
+
         parser = autocode_args.build_parser("autopilot", opencode.DEFAULT_MODELS)
-        args = parser.parse_args(["fixture", "--engine", "codex", "--figma-manifest", str(self.path),
-                                  "--figma-file", "https://www.figma.com/design/FILEA?node-id=1-2"])
+        args = parser.parse_args(
+            [
+                "fixture",
+                "--engine",
+                "codex",
+                "--figma-manifest",
+                str(self.path),
+                "--figma-file",
+                "https://www.figma.com/design/FILEA?node-id=1-2",
+            ]
+        )
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}):
-            settings = autocode_configure.configure(args, {"workspace": str(self.workspace)},
-                planning=planning, milestones=milestones, autopilot=autopilot)
+            settings = autocode_configure.configure(
+                args, {"workspace": str(self.workspace)}, planning=planning, milestones=milestones, autopilot=autopilot
+            )
         self.assertEqual("codex", settings["engine"])
         self.assertEqual(args.figma_file, settings["figma_file"])
         args.figma_file = "https://www.figma.com/design/UNDECLARED?node-id=1-2"
         with self.assertRaisesRegex(ValueError, "not declared"):
-            autocode_configure.configure(args, {"workspace": str(self.workspace)},
-                planning=planning, milestones=milestones, autopilot=autopilot)
+            autocode_configure.configure(
+                args, {"workspace": str(self.workspace)}, planning=planning, milestones=milestones, autopilot=autopilot
+            )
         args.figma_file = "https://www.figma.com/design/FILEA?node-id=1-2"
         with patch.object(support, "local_settings", return_value={"auth_mode": "API"}), self.assertRaises(ValueError):
-            autocode_configure.configure(args, {"workspace": str(self.workspace)},
-                planning=planning, milestones=milestones, autopilot=autopilot)
+            autocode_configure.configure(
+                args, {"workspace": str(self.workspace)}, planning=planning, milestones=milestones, autopilot=autopilot
+            )
 
     def test_native_page_collector_is_read_only_and_preserves_full_source_facts(self):
-        node = shutil.which('node')
+        node = shutil.which("node")
         if not node:
-            self.skipTest('Node is required for the connector JavaScript protocol')
-        result = subprocess.run([node, str(ROOT / 'tools/test_figma_inventory_page.cjs')],
-                                text=True, capture_output=True, timeout=20)
+            self.skipTest("Node is required for the connector JavaScript protocol")
+        result = subprocess.run(
+            [node, str(ROOT / "tools/test_figma_inventory_page.cjs")], text=True, capture_output=True, timeout=20
+        )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_plugin_getter_receipt_reconciles_original_resources_and_compressed_transport(self):
         import autocode_design_sources as sources
 
         from tests.figma_inventory_fixtures import plugin_source_bundle
-        if not shutil.which('node'):
-            self.skipTest('Node is required for the offline connector fixture')
-        path, body, receipt, parts = plugin_source_bundle(self.root / 'typed-plugin')
+
+        if not shutil.which("node"):
+            self.skipTest("Node is required for the offline connector fixture")
+        path, body, receipt, parts = plugin_source_bundle(self.root / "typed-plugin")
         self.assertEqual(receipt, sources.reassemble(list(reversed(parts))))
-        self.assertEqual('figma-plugin-api-properties-v1', receipt['source_format'])
-        self.assertEqual(body, manifest.load(path)['body'])
-        text = next(row for row in receipt['nodes'] if row['type'] == 'TEXT')
-        self.assertEqual('Hi 😁 friend', text['visual']['characters'])
-        self.assertEqual(5, text['visual']['text_segments'][1]['start'])
-        self.assertEqual({'wght': 600, 'slnt': 0}, text['fonts'][1]['variationSettings'])
-        self.assertEqual(['v1', 'v2'], text['variables'])
-        self.assertLess(parts[0]['encoded_length'], parts[0]['receipt_length'])
+        self.assertEqual("figma-plugin-api-properties-v1", receipt["source_format"])
+        self.assertEqual(body, manifest.load(path)["body"])
+        text = next(row for row in receipt["nodes"] if row["type"] == "TEXT")
+        self.assertEqual("Hi 😁 friend", text["visual"]["characters"])
+        self.assertEqual(5, text["visual"]["text_segments"][1]["start"])
+        self.assertEqual({"wght": 600, "slnt": 0}, text["fonts"][1]["variationSettings"])
+        self.assertEqual(["v1", "v2"], text["variables"])
+        self.assertLess(parts[0]["encoded_length"], parts[0]["receipt_length"])
 
     def test_plugin_transport_refuses_partial_corrupt_noncanonical_and_mixed_receipts(self):
         import base64
@@ -270,232 +461,336 @@ class DesignManifestTests(unittest.TestCase):
         import autocode_design_sources as sources
 
         from tests.figma_inventory_fixtures import plugin_source_bundle
-        if not shutil.which('node'):
-            self.skipTest('Node is required for the offline connector fixture')
-        _, _, _, original = plugin_source_bundle(self.root / 'typed-transport')
-        for change in ('missing', 'duplicate', 'truncated', 'mixed_hash', 'mixed_page', 'digest',
-                       'code', 'base64', 'size', 'oversized', 'format'):
+
+        if not shutil.which("node"):
+            self.skipTest("Node is required for the offline connector fixture")
+        _, _, _, original = plugin_source_bundle(self.root / "typed-transport")
+        for change in (
+            "missing",
+            "duplicate",
+            "truncated",
+            "mixed_hash",
+            "mixed_page",
+            "digest",
+            "code",
+            "base64",
+            "size",
+            "oversized",
+            "format",
+        ):
             parts = copy.deepcopy(original)
-            if change == 'missing': parts.pop()
-            elif change == 'duplicate': parts[-1] = copy.deepcopy(parts[0])
-            elif change == 'truncated': parts[-1]['json_part'] = parts[-1]['json_part'][:-1]
-            elif change == 'mixed_hash': parts[-1]['receipt_sha256'] = '0' * 64
-            elif change == 'mixed_page': parts[-1]['page_id'] = '9:9'
-            elif change == 'digest':
-                for part in parts: part['receipt_sha256'] = '0' * 64
-            elif change == 'code': parts[0]['json_part'] = '/' + parts[0]['json_part'][1:]
-            elif change == 'base64': parts[0]['json_part'] = '!' + parts[0]['json_part'][1:]
-            elif change == 'size':
-                for part in parts: part['receipt_length'] -= 1
-            elif change == 'oversized':
-                for part in parts: part['receipt_length'] = sources.TRANSPORT_LIMIT + 1
-            elif change == 'format':
-                for part in parts: part['encoding'] = 'invented-compression'
+            if change == "missing":
+                parts.pop()
+            elif change == "duplicate":
+                parts[-1] = copy.deepcopy(parts[0])
+            elif change == "truncated":
+                parts[-1]["json_part"] = parts[-1]["json_part"][:-1]
+            elif change == "mixed_hash":
+                parts[-1]["receipt_sha256"] = "0" * 64
+            elif change == "mixed_page":
+                parts[-1]["page_id"] = "9:9"
+            elif change == "digest":
+                for part in parts:
+                    part["receipt_sha256"] = "0" * 64
+            elif change == "code":
+                parts[0]["json_part"] = "/" + parts[0]["json_part"][1:]
+            elif change == "base64":
+                parts[0]["json_part"] = "!" + parts[0]["json_part"][1:]
+            elif change == "size":
+                for part in parts:
+                    part["receipt_length"] -= 1
+            elif change == "oversized":
+                for part in parts:
+                    part["receipt_length"] = sources.TRANSPORT_LIMIT + 1
+            elif change == "format":
+                for part in parts:
+                    part["encoding"] = "invented-compression"
             with self.subTest(change=change), self.assertRaises(ValueError):
                 sources.reassemble(parts)
         # This legally decodes to the same ASCII bytes but literal-only LZW is
         # noncanonical. A matching SHA cannot legitimize a lossy/alternate codec.
         text = b'{"file_key":"FILEA","page_id":"0:1","source_format":"figma-plugin-api-properties-v1","complete":true,"errors":[]}'
-        binary = b'\x01\x00' + b''.join(code.to_bytes(2, 'big') for code in text)
+        binary = b"\x01\x00" + b"".join(code.to_bytes(2, "big") for code in text)
         encoded = base64.b64encode(binary).decode()
-        part = dict(transport_version=1, encoding='lzw16-base64-json-ascii-v1', source_format=sources.PLUGIN_SOURCE,
-                    file_key='FILEA', page_id='0:1', receipt_sha256=hashlib.sha256(text).hexdigest(),
-                    receipt_length=len(text), encoded_length=len(encoded), part_index=0, part_count=1,
-                    complete=True, error_count=0, json_part=encoded)
-        with self.assertRaisesRegex(ValueError, 'noncanonical'):
+        part = dict(
+            transport_version=1,
+            encoding="lzw16-base64-json-ascii-v1",
+            source_format=sources.PLUGIN_SOURCE,
+            file_key="FILEA",
+            page_id="0:1",
+            receipt_sha256=hashlib.sha256(text).hexdigest(),
+            receipt_length=len(text),
+            encoded_length=len(encoded),
+            part_index=0,
+            part_count=1,
+            complete=True,
+            error_count=0,
+            json_part=encoded,
+        )
+        with self.assertRaisesRegex(ValueError, "noncanonical"):
             sources.reassemble([part])
-        with self.assertRaisesRegex(ValueError, 'size bound'):
-            sources._lzw_decode(sources._lzw_encode(b'A' * 10000), 20)
+        with self.assertRaisesRegex(ValueError, "size bound"):
+            sources._lzw_decode(sources._lzw_encode(b"A" * 10000), 20)
 
     def test_plugin_source_cannot_omit_original_getters_ranges_aliases_modes_or_variant_identity(self):
         from tests.figma_inventory_fixtures import plugin_source_bundle
-        if not shutil.which('node'):
-            self.skipTest('Node is required for the offline connector fixture')
-        path, body, original, _ = plugin_source_bundle(self.root / 'typed-source-refusals')
-        for change in ('getter', 'unreadable', 'transform', 'bounds', 'stroke_map', 'vector_map', 'identity', 'parent', 'child_order', 'segment_field',
-                       'segment_gap', 'segment_text', 'font', 'rich_asset', 'alias', 'mode', 'mode_roster',
-                       'variant', 'instance', 'document_roster', 'document_name', 'format', 'provenance_downgrade'):
+
+        if not shutil.which("node"):
+            self.skipTest("Node is required for the offline connector fixture")
+        path, body, original, _ = plugin_source_bundle(self.root / "typed-source-refusals")
+        for change in (
+            "getter",
+            "unreadable",
+            "transform",
+            "bounds",
+            "stroke_map",
+            "vector_map",
+            "identity",
+            "parent",
+            "child_order",
+            "segment_field",
+            "segment_gap",
+            "segment_text",
+            "font",
+            "rich_asset",
+            "alias",
+            "mode",
+            "mode_roster",
+            "variant",
+            "instance",
+            "document_roster",
+            "document_name",
+            "format",
+            "provenance_downgrade",
+        ):
             receipt = copy.deepcopy(original)
-            nodes = {row['id']: row for row in receipt['nodes']}
-            frame, text = nodes['1:2'], nodes['I4:5;10:12']
-            if change == 'getter': frame['visual'].pop('paddingLeft')
-            elif change == 'unreadable': frame['visual']['effects'] = {'__figma_unreadable__': True}
-            elif change == 'transform': frame['visual']['absoluteTransform'] = {}
-            elif change == 'bounds': frame['visual']['absoluteBoundingBox'] = {}
-            elif change == 'stroke_map': frame['visual']['complexStrokeProperties'] = {}
-            elif change == 'vector_map': nodes['1:8']['visual']['vectorNetwork'] = {}
-            elif change == 'identity': frame['visual']['id'] = '1:99'
-            elif change == 'parent': text['visual']['parent_id'] = '0:1'
-            elif change == 'child_order': frame['visual']['child_ids'].reverse()
-            elif change == 'segment_field': text['visual']['text_segments'][1].pop('letterSpacing')
-            elif change == 'segment_gap': text['visual']['text_segments'][1]['start'] = 6
-            elif change == 'segment_text': text['visual']['text_segments'][0]['characters'] = 'Hi'
-            elif change == 'font': text['fonts'].pop()
-            elif change == 'rich_asset': text['assets'] = []
-            elif change == 'alias': nodes['1:7']['variables'] = []
-            elif change == 'mode': frame['visual']['resolvedVariableModes'] = {'c1': 'invented'}
-            elif change == 'mode_roster': receipt['variable_sources'][0]['valuesByMode'].pop('dark')
-            elif change == 'variant':
-                nodes['1:4']['visual']['variantProperties'] = {'Type': 'invented'}
-                nodes['1:4']['variant_properties'] = {'Type': 'invented'}
-            elif change == 'instance': nodes['1:9']['component_ref']['key'] = 'invented'
-            elif change == 'document_roster': receipt['document_pages'].append(dict(id='9:1', name='Omitted page', type='PAGE'))
-            elif change == 'document_name': receipt['document_pages'][0]['name'] = 'Invented name'
-            elif change == 'format': receipt['source_format'] = 'invented-source'
-            elif change == 'provenance_downgrade': receipt.pop('source_format')
-            target = path.parent / 'source.json'
+            nodes = {row["id"]: row for row in receipt["nodes"]}
+            frame, text = nodes["1:2"], nodes["I4:5;10:12"]
+            if change == "getter":
+                frame["visual"].pop("paddingLeft")
+            elif change == "unreadable":
+                frame["visual"]["effects"] = {"__figma_unreadable__": True}
+            elif change == "transform":
+                frame["visual"]["absoluteTransform"] = {}
+            elif change == "bounds":
+                frame["visual"]["absoluteBoundingBox"] = {}
+            elif change == "stroke_map":
+                frame["visual"]["complexStrokeProperties"] = {}
+            elif change == "vector_map":
+                nodes["1:8"]["visual"]["vectorNetwork"] = {}
+            elif change == "identity":
+                frame["visual"]["id"] = "1:99"
+            elif change == "parent":
+                text["visual"]["parent_id"] = "0:1"
+            elif change == "child_order":
+                frame["visual"]["child_ids"].reverse()
+            elif change == "segment_field":
+                text["visual"]["text_segments"][1].pop("letterSpacing")
+            elif change == "segment_gap":
+                text["visual"]["text_segments"][1]["start"] = 6
+            elif change == "segment_text":
+                text["visual"]["text_segments"][0]["characters"] = "Hi"
+            elif change == "font":
+                text["fonts"].pop()
+            elif change == "rich_asset":
+                text["assets"] = []
+            elif change == "alias":
+                nodes["1:7"]["variables"] = []
+            elif change == "mode":
+                frame["visual"]["resolvedVariableModes"] = {"c1": "invented"}
+            elif change == "mode_roster":
+                receipt["variable_sources"][0]["valuesByMode"].pop("dark")
+            elif change == "variant":
+                nodes["1:4"]["visual"]["variantProperties"] = {"Type": "invented"}
+                nodes["1:4"]["variant_properties"] = {"Type": "invented"}
+            elif change == "instance":
+                nodes["1:9"]["component_ref"]["key"] = "invented"
+            elif change == "document_roster":
+                receipt["document_pages"].append(dict(id="9:1", name="Omitted page", type="PAGE"))
+            elif change == "document_name":
+                receipt["document_pages"][0]["name"] = "Invented name"
+            elif change == "format":
+                receipt["source_format"] = "invented-source"
+            elif change == "provenance_downgrade":
+                receipt.pop("source_format")
+            target = path.parent / "source.json"
             target.write_text(json.dumps(receipt))
-            body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(target)
+            body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(target)
             path.write_text(json.dumps(body))
             with self.subTest(change=change), self.assertRaises(ValueError):
                 manifest.load(path)
 
     def test_retained_manifest_index_is_bound_and_artifacts_cannot_overwrite_it(self):
         record = manifest.retain(manifest.load(self.path), self.workspace)
-        Path(record['manifest_path']).write_text('{}')
-        with self.assertRaisesRegex(ValueError, 'index'):
+        Path(record["manifest_path"]).write_text("{}")
+        with self.assertRaisesRegex(ValueError, "index"):
             manifest.verify(record)
         body = copy.deepcopy(self.body)
-        shutil.copyfile(self.path.parent / 'context.txt', self.path.parent / 'inventory-manifest.json')
-        body['cases'][0]['artifacts']['design_context']['path'] = 'inventory-manifest.json'
+        shutil.copyfile(self.path.parent / "context.txt", self.path.parent / "inventory-manifest.json")
+        body["cases"][0]["artifacts"]["design_context"]["path"] = "inventory-manifest.json"
         self.path.write_text(json.dumps(body))
-        with self.assertRaisesRegex(ValueError, 'reserved'):
+        with self.assertRaisesRegex(ValueError, "reserved"):
             manifest.retain(manifest.load(self.path), self.workspace)
 
     def test_library_only_file_preserves_resources_and_component_prototype_endpoints(self):
-        path, body = inventory_bundle(self.root / 'library-only')
-        file = body['files'][1]
-        for artifact in (file['metadata_xml'], file['pages'][0]['metadata_xml']):
-            target = path.parent / artifact['path']
-            target.write_text(target.read_text().replace('<FRAME id="3:4" name="Settings" width="2" height="1"/>', ''))
-            artifact['sha256'] = util.file_hash(target)
-        file['assets'][0]['node_id'] = '3:6'
-        file['transitions'] = [dict(id='variant-toggle',source_node_id='3:6',target_node_id='3:6',
-                                   trigger='click',action={'type':'NODE','destinationId':'3:6'})]
-        target = path.parent / file['pages'][0]['source_json']['path']
+        path, body = inventory_bundle(self.root / "library-only")
+        file = body["files"][1]
+        for artifact in (file["metadata_xml"], file["pages"][0]["metadata_xml"]):
+            target = path.parent / artifact["path"]
+            target.write_text(target.read_text().replace('<FRAME id="3:4" name="Settings" width="2" height="1"/>', ""))
+            artifact["sha256"] = util.file_hash(target)
+        file["assets"][0]["node_id"] = "3:6"
+        file["transitions"] = [
+            dict(
+                id="variant-toggle",
+                source_node_id="3:6",
+                target_node_id="3:6",
+                trigger="click",
+                action={"type": "NODE", "destinationId": "3:6"},
+            )
+        ]
+        target = path.parent / file["pages"][0]["source_json"]["path"]
         receipt = json.loads(target.read_text())
-        receipt['nodes'] = [row for row in receipt['nodes'] if row['id'] != '3:4']
-        variant = next(row for row in receipt['nodes'] if row['id'] == '3:6')
-        variant['assets'] = [{'id':'logo-FILEB','mime_type':'image/svg+xml'}]
-        variant['transitions'] = [{key:row[key] for key in ('id','target_node_id','trigger','action')} for row in file['transitions']]
-        target.write_text(json.dumps(receipt)); file['pages'][0]['source_json']['sha256'] = util.file_hash(target)
-        file['screen_states'] = []
-        body['cases'] = body['cases'][:2]
-        for case in body['cases']:
-            case['inventory_refs']['assets'].append('FILEB/logo-FILEB')
-            case['inventory_refs']['fonts'].append('FILEB/font-FILEB')
-            case['inventory_refs']['transitions'].append('FILEB/variant-toggle')
+        receipt["nodes"] = [row for row in receipt["nodes"] if row["id"] != "3:4"]
+        variant = next(row for row in receipt["nodes"] if row["id"] == "3:6")
+        variant["assets"] = [{"id": "logo-FILEB", "mime_type": "image/svg+xml"}]
+        variant["transitions"] = [
+            {key: row[key] for key in ("id", "target_node_id", "trigger", "action")} for row in file["transitions"]
+        ]
+        target.write_text(json.dumps(receipt))
+        file["pages"][0]["source_json"]["sha256"] = util.file_hash(target)
+        file["screen_states"] = []
+        body["cases"] = body["cases"][:2]
+        for case in body["cases"]:
+            case["inventory_refs"]["assets"].append("FILEB/logo-FILEB")
+            case["inventory_refs"]["fonts"].append("FILEB/font-FILEB")
+            case["inventory_refs"]["transitions"].append("FILEB/variant-toggle")
         path.write_text(json.dumps(body))
         record = manifest.load(path)
-        projection = design_inventory.builder_slice(body, path.parent, ['src/filea.js'])
-        self.assertEqual(2,len(projection['case_ids']))
-        self.assertIn('variant-toggle', {row['id'] for row in projection['catalog']['transitions']})
+        projection = design_inventory.builder_slice(body, path.parent, ["src/filea.js"])
+        self.assertEqual(2, len(projection["case_ids"]))
+        self.assertIn("variant-toggle", {row["id"] for row in projection["catalog"]["transitions"]})
         import autocode_design_intake as intake
-        intake.require_references(record,['https://www.figma.com/design/FILEA?node-id=1-2',
-                                          'https://www.figma.com/design/FILEB?node-id=3-5'])
+
+        intake.require_references(
+            record, ["https://www.figma.com/design/FILEA?node-id=1-2", "https://www.figma.com/design/FILEB?node-id=3-5"]
+        )
 
     def test_malformed_page_source_is_a_diagnostic_and_never_an_unhandled_exception(self):
-        path, body = inventory_bundle(self.root / 'malformed-source')
-        artifact = body['files'][0]['pages'][0]['source_json']
-        target = path.parent / artifact['path']
-        receipt = json.loads(target.read_text()); receipt.pop('nodes')
-        target.write_text(json.dumps(receipt)); artifact['sha256'] = util.file_hash(target)
+        path, body = inventory_bundle(self.root / "malformed-source")
+        artifact = body["files"][0]["pages"][0]["source_json"]
+        target = path.parent / artifact["path"]
+        receipt = json.loads(target.read_text())
+        receipt.pop("nodes")
+        target.write_text(json.dumps(receipt))
+        artifact["sha256"] = util.file_hash(target)
         path.write_text(json.dumps(body))
-        with self.assertRaisesRegex(ValueError, 'Malformed Figma'):
+        with self.assertRaisesRegex(ValueError, "Malformed Figma"):
             manifest.load(path)
 
     def test_component_properties_and_screen_resource_ownership_cannot_be_fabricated(self):
-        path, body = inventory_bundle(self.root / 'source-bindings')
-        for change in ('key', 'variant', 'asset', 'transition'):
+        path, body = inventory_bundle(self.root / "source-bindings")
+        for change in ("key", "variant", "asset", "transition"):
             broken = copy.deepcopy(body)
-            if change == 'key':
-                broken['files'][0]['components'][0]['key'] = 'FAKE-KEY'
-                for case in broken['cases'][:2]:
-                    case['inventory_refs']['components'] = ['FAKE-KEY']
-            if change == 'variant':
-                broken['files'][0]['components'][0]['variants'][0]['properties'] = {'Type':'invented'}
-            if change == 'asset':
-                broken['cases'][-1]['inventory_refs']['assets'] = []
-                broken['cases'][0]['inventory_refs']['assets'].append('FILEB/logo-FILEB')
-            if change == 'transition':
-                broken['cases'][0]['inventory_refs']['transitions'] = []
+            if change == "key":
+                broken["files"][0]["components"][0]["key"] = "FAKE-KEY"
+                for case in broken["cases"][:2]:
+                    case["inventory_refs"]["components"] = ["FAKE-KEY"]
+            if change == "variant":
+                broken["files"][0]["components"][0]["variants"][0]["properties"] = {"Type": "invented"}
+            if change == "asset":
+                broken["cases"][-1]["inventory_refs"]["assets"] = []
+                broken["cases"][0]["inventory_refs"]["assets"].append("FILEB/logo-FILEB")
+            if change == "transition":
+                broken["cases"][0]["inventory_refs"]["transitions"] = []
             path.write_text(json.dumps(broken))
             with self.subTest(change=change), self.assertRaises(ValueError):
                 manifest.load(path)
 
     def test_reference_delta_binds_affected_source_properties_without_invalidating_other_frames(self):
-        path, body = inventory_bundle(self.root / 'source-drift')
+        path, body = inventory_bundle(self.root / "source-drift")
         old = manifest.load(path)
-        replacement = self.root / 'source-drift-new'
+        replacement = self.root / "source-drift-new"
         shutil.copytree(path.parent, replacement)
-        source = replacement / 'FILEA-source.json'
+        source = replacement / "FILEA-source.json"
         receipt = json.loads(source.read_text())
-        next(row for row in receipt['nodes'] if row['id'] == '1:2')['visual'] = {'fills':[{'color':'changed'}]}
+        next(row for row in receipt["nodes"] if row["id"] == "1:2")["visual"] = {"fills": [{"color": "changed"}]}
         source.write_text(json.dumps(receipt))
-        body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(source)
+        body["files"][0]["pages"][0]["source_json"]["sha256"] = util.file_hash(source)
         (replacement / path.name).write_text(json.dumps(body))
         change = design_identity.delta(old, manifest.load(replacement / path.name))
-        self.assertEqual(['FILEA.1.2.default'], change['changed'])
-        self.assertEqual(['FILEA.1.6.default','FILEB.3.4.default'], change['unchanged'])
+        self.assertEqual(["FILEA.1.2.default"], change["changed"])
+        self.assertEqual(["FILEA.1.6.default", "FILEB.3.4.default"], change["unchanged"])
 
     def test_relocated_identical_reference_bytes_do_not_invalidate_design_evidence(self):
-        path, body = inventory_bundle(self.root / 'identity-relocation')
+        path, body = inventory_bundle(self.root / "identity-relocation")
         original = manifest.load(path)
-        replacement = self.root / 'identity-relocation-new'
+        replacement = self.root / "identity-relocation-new"
         shutil.copytree(path.parent, replacement)
-        (replacement / 'renamed-context.txt').write_bytes((replacement / 'context.txt').read_bytes())
-        body['cases'][0]['artifacts']['design_context']['path'] = 'renamed-context.txt'
+        (replacement / "renamed-context.txt").write_bytes((replacement / "context.txt").read_bytes())
+        body["cases"][0]["artifacts"]["design_context"]["path"] = "renamed-context.txt"
         (replacement / path.name).write_text(json.dumps(body))
         change = design_identity.delta(original, manifest.load(replacement / path.name))
-        self.assertEqual([], change['changed'])
-        self.assertEqual(sorted(case['id'] for case in body['cases']), change['unchanged'])
+        self.assertEqual([], change["changed"])
+        self.assertEqual(sorted(case["id"] for case in body["cases"]), change["unchanged"])
 
     def test_shared_variable_aliases_resolve_by_library_key_not_file_local_id(self):
-        path, body = inventory_bundle(self.root / 'variable-aliases')
-        for file in body['files']:
-            color = file['variables'][0]
-            color['source_id'] = 'VariableID:' + file['key']
-            alias = {**copy.deepcopy(color), 'key': 'VARIABLE-ALIAS', 'name': 'alias',
-                     'source_id': 'AliasID:' + file['key'],
-                     'value': {'type': 'VARIABLE_ALIAS', 'id': color['source_id']}}
-            file['variables'].append(alias)
-            for case in body['cases']:
-                if case['file_key'] == file['key']:
-                    case['inventory_refs']['variables'].append(alias['key'])
-            page = file['pages'][0]
-            source_path = path.parent / page['source_json']['path']
+        path, body = inventory_bundle(self.root / "variable-aliases")
+        for file in body["files"]:
+            color = file["variables"][0]
+            color["source_id"] = "VariableID:" + file["key"]
+            alias = {
+                **copy.deepcopy(color),
+                "key": "VARIABLE-ALIAS",
+                "name": "alias",
+                "source_id": "AliasID:" + file["key"],
+                "value": {"type": "VARIABLE_ALIAS", "id": color["source_id"]},
+            }
+            file["variables"].append(alias)
+            for case in body["cases"]:
+                if case["file_key"] == file["key"]:
+                    case["inventory_refs"]["variables"].append(alias["key"])
+            page = file["pages"][0]
+            source_path = path.parent / page["source_json"]["path"]
             receipt = json.loads(source_path.read_text())
-            receipt['variables'] = file['variables']
-            for node in receipt['nodes']:
-                if node['variables']:
-                    node['variables'] = [color['source_id']]
+            receipt["variables"] = file["variables"]
+            for node in receipt["nodes"]:
+                if node["variables"]:
+                    node["variables"] = [color["source_id"]]
             source_path.write_text(json.dumps(receipt))
-            page['source_json']['sha256'] = util.file_hash(source_path)
+            page["source_json"]["sha256"] = util.file_hash(source_path)
         path.write_text(json.dumps(body))
         manifest.load(path)
         catalog = design_inventory.catalog(body, path.parent)
-        self.assertEqual(2, len(catalog['variables']))
-        reordered = copy.deepcopy(body); reordered['files'].reverse()
+        self.assertEqual(2, len(catalog["variables"]))
+        reordered = copy.deepcopy(body)
+        reordered["files"].reverse()
         self.assertEqual(catalog, design_inventory.catalog(reordered, path.parent))
         conflicting = copy.deepcopy(body)
-        conflicting['files'][1]['variables'][0]['value'] = {'hex': '#ffffff'}
-        source_path = path.parent / conflicting['files'][1]['pages'][0]['source_json']['path']
-        receipt = json.loads(source_path.read_text()); receipt['variables'] = conflicting['files'][1]['variables']
+        conflicting["files"][1]["variables"][0]["value"] = {"hex": "#ffffff"}
+        source_path = path.parent / conflicting["files"][1]["pages"][0]["source_json"]["path"]
+        receipt = json.loads(source_path.read_text())
+        receipt["variables"] = conflicting["files"][1]["variables"]
         source_path.write_text(json.dumps(receipt))
-        conflicting['files'][1]['pages'][0]['source_json']['sha256'] = util.file_hash(source_path)
+        conflicting["files"][1]["pages"][0]["source_json"]["sha256"] = util.file_hash(source_path)
         path.write_text(json.dumps(conflicting))
-        with self.assertRaisesRegex(ValueError, 'conflicting definitions'):
+        with self.assertRaisesRegex(ValueError, "conflicting definitions"):
             manifest.load(path)
 
     def test_two_files_and_declared_frames_cannot_be_silently_dropped(self):
         manifest.load(self.path)
         for change in ("file", "case", "undeclared", "duplicate_id", "duplicate_state"):
             body = copy.deepcopy(self.body)
-            if change == "file": body["files"].pop()
-            if change == "case": body["cases"].pop()
-            if change == "undeclared": body["cases"][0]["node_id"] = "99:1"
-            if change == "duplicate_id": body["cases"][1]["id"] = body["cases"][0]["id"]
-            if change == "duplicate_state": body["cases"].append({**body["cases"][0], "id": "another"})
+            if change == "file":
+                body["files"].pop()
+            if change == "case":
+                body["cases"].pop()
+            if change == "undeclared":
+                body["cases"][0]["node_id"] = "99:1"
+            if change == "duplicate_id":
+                body["cases"][1]["id"] = body["cases"][0]["id"]
+            if change == "duplicate_state":
+                body["cases"].append({**body["cases"][0], "id": "another"})
             with self.subTest(change=change), self.assertRaises(ValueError):
                 manifest.validate(body)
 
@@ -537,48 +832,59 @@ class DesignManifestTests(unittest.TestCase):
             manifest.validate(body, root=self.root / "unmapped-inventory")
 
     def test_v2_undeclared_source_typography_assets_variables_and_transitions_are_refused(self):
-        path,body=inventory_bundle(self.root/'unreported-source')
-        for section in ('fonts','assets','variables','transitions'):
-            broken=copy.deepcopy(body)
-            broken['files'][0][section]=[]
-            for case in broken['cases']:
-                if case['file_key']=='FILEA':
-                    case['inventory_refs'][section]=[]
+        path, body = inventory_bundle(self.root / "unreported-source")
+        for section in ("fonts", "assets", "variables", "transitions"):
+            broken = copy.deepcopy(body)
+            broken["files"][0][section] = []
+            for case in broken["cases"]:
+                if case["file_key"] == "FILEA":
+                    case["inventory_refs"][section] = []
             path.write_text(json.dumps(broken))
-            with self.subTest(section=section), self.assertRaisesRegex(ValueError,'omit|change source'):
+            with self.subTest(section=section), self.assertRaisesRegex(ValueError, "omit|change source"):
                 manifest.load(path)
 
     def test_v2_native_dimensions_cannot_be_replaced_by_thumbnail_dimensions(self):
-        path,body=inventory_bundle(self.root/'native-size')
-        body['cases'][0]['native_size']['width']=1440
+        path, body = inventory_bundle(self.root / "native-size")
+        body["cases"][0]["native_size"]["width"] = 1440
         path.write_text(json.dumps(body))
-        with self.assertRaisesRegex(ValueError,'Native Figma size'):
+        with self.assertRaisesRegex(ValueError, "Native Figma size"):
             manifest.load(path)
 
     def test_v2_invalid_native_dimensions_are_input_errors(self):
-        path, body = inventory_bundle(self.root / 'invalid-native-size')
-        for value in (None, True, '1440', float('inf'), float('nan'), [], 0, -1):
+        path, body = inventory_bundle(self.root / "invalid-native-size")
+        for value in (None, True, "1440", float("inf"), float("nan"), [], 0, -1):
             broken = copy.deepcopy(body)
-            broken['cases'][0]['native_size']['width'] = value
+            broken["cases"][0]["native_size"]["width"] = value
             path.write_text(json.dumps(broken))
-            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'finite and positive'):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "finite and positive"):
                 manifest.load(path)
 
     def test_v2_plan_coverage_binds_every_case_to_existing_criteria_and_ownership(self):
         path, body = inventory_bundle(self.root / "plan-inventory")
         record = manifest.load(path)
-        plan = {"acceptance_criteria": [{"id": "AC1"}], "open_blocking_questions": [],
-                "milestones": [{"id": "M1", "acceptance_criteria": ["AC1"], "affected_paths": ["src/"]}],
-                "design_coverage": {"manifest_hash": record["manifest_hash"],
-                    "cases": [{"id": case["id"], "criterion_ids": ["AC1"], "milestone_ids": ["M1"]}
-                              for case in body["cases"]], "responsive_derivations": []}}
+        plan = {
+            "acceptance_criteria": [{"id": "AC1"}],
+            "open_blocking_questions": [],
+            "milestones": [{"id": "M1", "acceptance_criteria": ["AC1"], "affected_paths": ["src/"]}],
+            "design_coverage": {
+                "manifest_hash": record["manifest_hash"],
+                "cases": [
+                    {"id": case["id"], "criterion_ids": ["AC1"], "milestone_ids": ["M1"]} for case in body["cases"]
+                ],
+                "responsive_derivations": [],
+            },
+        }
         design_plan.validate(record, plan, ready=True)
         for change in ("missing_case", "stale_reference", "unknown_criterion", "unowned_path"):
             broken = copy.deepcopy(plan)
-            if change == "missing_case": broken["design_coverage"]["cases"].pop()
-            if change == "stale_reference": broken["design_coverage"]["manifest_hash"] = "other"
-            if change == "unknown_criterion": broken["design_coverage"]["cases"][0]["criterion_ids"] = ["unknown"]
-            if change == "unowned_path": broken["milestones"][0]["affected_paths"] = ["tests/"]
+            if change == "missing_case":
+                broken["design_coverage"]["cases"].pop()
+            if change == "stale_reference":
+                broken["design_coverage"]["manifest_hash"] = "other"
+            if change == "unknown_criterion":
+                broken["design_coverage"]["cases"][0]["criterion_ids"] = ["unknown"]
+            if change == "unowned_path":
+                broken["milestones"][0]["affected_paths"] = ["tests/"]
             with self.subTest(change=change), self.assertRaises(ValueError):
                 design_plan.validate(record, broken, ready=True)
         self.assertIn("FILEB.3.4.default", "\n".join(design_plan.render(record, plan)))
@@ -594,39 +900,62 @@ class DesignManifestTests(unittest.TestCase):
         first = body["cases"][0]["id"]
         wrong[first] = ["AC2"]
         duplicate = json.dumps(mapping).replace("{", "{" + json.dumps(first) + ': ["AC2"], ', 1)
-        for rows in (["VISUAL_CASE_CRITERIA=" + json.dumps(wrong)],
-                     [declaration, declaration], ["VISUAL_CASE_CRITERIA=" + duplicate],
-                     ["VISUAL_CASE_CRITERIA={"]):
+        for rows in (
+            ["VISUAL_CASE_CRITERIA=" + json.dumps(wrong)],
+            [declaration, declaration],
+            ["VISUAL_CASE_CRITERIA=" + duplicate],
+            ["VISUAL_CASE_CRITERIA={"],
+        ):
             broken = copy.deepcopy(plan)
             broken["constraints"] = rows
             with self.subTest(visual_declaration=rows), self.assertRaises(ValueError):
                 design_plan.validate(record, broken, ready=True)
-        body['cases'][0]['implementation_paths'].append('styles/home.css')
+        body["cases"][0]["implementation_paths"].append("styles/home.css")
         path.write_text(json.dumps(body))
         record = manifest.load(path)
-        plan['design_coverage']['manifest_hash'] = record['manifest_hash']
-        with self.assertRaisesRegex(ValueError, 'owning its implementation paths'):
+        plan["design_coverage"]["manifest_hash"] = record["manifest_hash"]
+        with self.assertRaisesRegex(ValueError, "owning its implementation paths"):
             design_plan.validate(record, plan, ready=True)
-        plan['milestones'][0]['affected_paths'].append('styles/')
+        plan["milestones"][0]["affected_paths"].append("styles/")
         design_plan.validate(record, plan, ready=True)
 
     def test_absent_responsive_reference_requires_documented_derivation(self):
         path, body = inventory_bundle(self.root / "responsive")
-        body["responsive_targets"] = [{"id": "home.mobile", "source_case_id": body["cases"][0]["id"],
-            "reference_case_id": "", "viewport": {"width": 1, "height": 2, "device_scale_factor": 1},
-            "constraints": []}]
+        body["responsive_targets"] = [
+            {
+                "id": "home.mobile",
+                "source_case_id": body["cases"][0]["id"],
+                "reference_case_id": "",
+                "viewport": {"width": 1, "height": 2, "device_scale_factor": 1},
+                "constraints": [],
+            }
+        ]
         path.write_text(json.dumps(body))
         record = manifest.load(path)
-        plan = {"acceptance_criteria": [{"id": "AC1"}], "open_blocking_questions": [],
-                "milestones": [{"id": "M1", "acceptance_criteria": ["AC1"], "affected_paths": ["src/"]}],
-                "design_coverage": {"manifest_hash": record["manifest_hash"],
-                    "cases": [{"id": case["id"], "criterion_ids": ["AC1"], "milestone_ids": ["M1"]}
-                              for case in body["cases"]], "responsive_derivations": []}}
+        plan = {
+            "acceptance_criteria": [{"id": "AC1"}],
+            "open_blocking_questions": [],
+            "milestones": [{"id": "M1", "acceptance_criteria": ["AC1"], "affected_paths": ["src/"]}],
+            "design_coverage": {
+                "manifest_hash": record["manifest_hash"],
+                "cases": [
+                    {"id": case["id"], "criterion_ids": ["AC1"], "milestone_ids": ["M1"]} for case in body["cases"]
+                ],
+                "responsive_derivations": [],
+            },
+        }
         with self.assertRaisesRegex(ValueError, "responsive target"):
             design_plan.validate(record, plan, ready=True)
-        plan["design_coverage"]["responsive_derivations"] = [{"target_id": "home.mobile", "exact_match": False,
-            "basis": "derived_behavior", "behavior": "Stack the two panes while retaining chat navigation",
-            "criterion_ids": ["AC1"], "milestone_ids": ["M1"]}]
+        plan["design_coverage"]["responsive_derivations"] = [
+            {
+                "target_id": "home.mobile",
+                "exact_match": False,
+                "basis": "derived_behavior",
+                "behavior": "Stack the two panes while retaining chat navigation",
+                "criterion_ids": ["AC1"],
+                "milestone_ids": ["M1"],
+            }
+        ]
         design_plan.validate(record, plan, ready=True)
         plan["design_coverage"]["responsive_derivations"][0]["exact_match"] = True
         with self.assertRaises(ValueError):
@@ -649,8 +978,9 @@ class DesignManifestTests(unittest.TestCase):
         path, body = inventory_bundle(self.root / "omitted-page")
         file_metadata = body["files"][0]["metadata_xml"]
         metadata_path = path.parent / file_metadata["path"]
-        metadata_path.write_text(metadata_path.read_text().replace(
-            "</DOCUMENT>", '<CANVAS id="9:9" name="Omitted page"/></DOCUMENT>'))
+        metadata_path.write_text(
+            metadata_path.read_text().replace("</DOCUMENT>", '<CANVAS id="9:9" name="Omitted page"/></DOCUMENT>')
+        )
         file_metadata["sha256"] = util.file_hash(metadata_path)
         path.write_text(json.dumps(body))
         with self.assertRaisesRegex(ValueError, "file pages and metadata differ"):
@@ -673,8 +1003,14 @@ class DesignManifestTests(unittest.TestCase):
 
     def test_v2_missing_approved_state_case_is_not_hidden_by_frame_coverage(self):
         path, body = inventory_bundle(self.root / "omitted-state")
-        body["files"][0]["screen_states"].append({"page_id": "0:1", "node_id": "1:2", "state": "empty",
-            "viewport": {"width": 2, "height": 1, "device_scale_factor": 1}})
+        body["files"][0]["screen_states"].append(
+            {
+                "page_id": "0:1",
+                "node_id": "1:2",
+                "state": "empty",
+                "viewport": {"width": 2, "height": 1, "device_scale_factor": 1},
+            }
+        )
         path.write_text(json.dumps(body))
         with self.assertRaisesRegex(ValueError, "source states and cases differ"):
             manifest.load(path)
@@ -712,15 +1048,24 @@ class DesignManifestTests(unittest.TestCase):
         for change in ("viewport", "scale", "hash", "missing", "escape", "absolute", "empty_state", "nan", "bool"):
             body = copy.deepcopy(self.body)
             case = body["cases"][0]
-            if change == "viewport": case["viewport"]["width"] = 3
-            if change == "scale": case["export_scale"] = 2
-            if change == "hash": case["artifacts"]["screenshot"]["sha256"] = "0" * 64
-            if change == "missing": case["artifacts"]["screenshot"]["path"] = "missing.png"
-            if change == "escape": case["artifacts"]["screenshot"]["path"] = "../screen.png"
-            if change == "absolute": case["implementation_paths"] = ["/tmp/code.py"]
-            if change == "empty_state": case["state"] = "  "
-            if change == "nan": case["export_scale"] = float("nan")
-            if change == "bool": case["viewport"]["device_scale_factor"] = True
+            if change == "viewport":
+                case["viewport"]["width"] = 3
+            if change == "scale":
+                case["export_scale"] = 2
+            if change == "hash":
+                case["artifacts"]["screenshot"]["sha256"] = "0" * 64
+            if change == "missing":
+                case["artifacts"]["screenshot"]["path"] = "missing.png"
+            if change == "escape":
+                case["artifacts"]["screenshot"]["path"] = "../screen.png"
+            if change == "absolute":
+                case["implementation_paths"] = ["/tmp/code.py"]
+            if change == "empty_state":
+                case["state"] = "  "
+            if change == "nan":
+                case["export_scale"] = float("nan")
+            if change == "bool":
+                case["viewport"]["device_scale_factor"] = True
             self.path.write_text(json.dumps(body))
             with self.subTest(change=change), self.assertRaises(ValueError):
                 manifest.load(self.path)
@@ -741,42 +1086,93 @@ class DesignManifestTests(unittest.TestCase):
 
     def passing_state(self):
         retained = manifest.retain(manifest.load(self.path), self.workspace)
-        if not (self.workspace / '.git').exists():
-            subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
-            subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=T', '-c', 'user.email=t@example.test',
-                            'commit', '-q', '--allow-empty', '-m', 'base'], check=True)
-        (self.workspace / 'greet.py').write_text('print("fixture")\n')
-        comparison = self.workspace / '.autocode' / 'comparison.txt'
+        if not (self.workspace / ".git").exists():
+            subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.workspace),
+                    "-c",
+                    "user.name=T",
+                    "-c",
+                    "user.email=t@example.test",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    "base",
+                ],
+                check=True,
+            )
+        (self.workspace / "greet.py").write_text('print("fixture")\n')
+        comparison = self.workspace / ".autocode" / "comparison.txt"
         comparison.write_text("Offline fixture comparison; not genuine browser acceptance")
-        validation = {"design_manifest_hash": retained["manifest_hash"], "design_results": [
-            {"id": case["id"], "status": "PASS", "criterion_ids": ["C1"],
-             **make_capture(self.workspace, retained['manifest_hash'], case),
-             "comparison_ref": str(comparison)} for case in self.body["cases"]],
-            "verdict": "PASS", "criteria_revision": "criteria", "source_revision": util.snapshot(self.workspace)['revision'],
-            "checks": [{"exit_code": 0}], "findings": [], "unverified_criteria": [],
+        validation = {
+            "design_manifest_hash": retained["manifest_hash"],
+            "design_results": [
+                {
+                    "id": case["id"],
+                    "status": "PASS",
+                    "criterion_ids": ["C1"],
+                    **make_capture(self.workspace, retained["manifest_hash"], case),
+                    "comparison_ref": str(comparison),
+                }
+                for case in self.body["cases"]
+            ],
+            "verdict": "PASS",
+            "criteria_revision": "criteria",
+            "source_revision": util.snapshot(self.workspace)["revision"],
+            "checks": [{"exit_code": 0}],
+            "findings": [],
+            "unverified_criteria": [],
             "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": [str(comparison)]}],
-            "reviewer_role": "sol"}
+            "reviewer_role": "sol",
+        }
         criteria = [{"id": "C1", "criterion": "Fixture behavior", "status": "verified", "evidence": "comparison"}]
-        state = {"workspace": str(self.workspace), "version": 2, "settings": {"design_manifest": retained},
-                 "criteria_revision": "criteria", "validation": validation, "acceptance_criteria": criteria}
+        state = {
+            "workspace": str(self.workspace),
+            "version": 2,
+            "settings": {"design_manifest": retained},
+            "criteria_revision": "criteria",
+            "validation": validation,
+            "acceptance_criteria": criteria,
+        }
         validation["evidence_hashes"] = {ref: util.file_hash(ref) for ref in coverage.report_refs(state, validation)}
         return state, {"status": "TASK_COMPLETE", "acceptance_criteria": criteria}, util.snapshot(self.workspace)
 
     def test_whole_completion_requires_every_design_case_on_current_source(self):
         state, decision, current = self.passing_state()
         self.assertTrue(completion.completion_ready(state, decision, current))
-        for change in ("omitted", "unverified", "duplicate", "stale_manifest", "unknown_criterion", "failed_criterion", "no_pin", "stale_source"):
+        for change in (
+            "omitted",
+            "unverified",
+            "duplicate",
+            "stale_manifest",
+            "unknown_criterion",
+            "failed_criterion",
+            "no_pin",
+            "stale_source",
+        ):
             changed = copy.deepcopy(state)
             validation = changed["validation"]
             row = validation["design_results"][-1]
-            if change == "omitted": validation["design_results"].pop()
-            if change == "unverified": row["status"] = "NOT_VERIFIED"
-            if change == "duplicate": row["id"] = validation["design_results"][0]["id"]
-            if change == "stale_manifest": validation["design_manifest_hash"] = "other"
-            if change == "unknown_criterion": row["criterion_ids"] = ["UNKNOWN"]
-            if change == "failed_criterion": validation["criterion_results"][0]["status"] = "FAIL"
-            if change == "no_pin": validation["evidence_hashes"] = {}
-            if change == "stale_source": validation["source_revision"] = "old-source"
+            if change == "omitted":
+                validation["design_results"].pop()
+            if change == "unverified":
+                row["status"] = "NOT_VERIFIED"
+            if change == "duplicate":
+                row["id"] = validation["design_results"][0]["id"]
+            if change == "stale_manifest":
+                validation["design_manifest_hash"] = "other"
+            if change == "unknown_criterion":
+                row["criterion_ids"] = ["UNKNOWN"]
+            if change == "failed_criterion":
+                validation["criterion_results"][0]["status"] = "FAIL"
+            if change == "no_pin":
+                validation["evidence_hashes"] = {}
+            if change == "stale_source":
+                validation["source_revision"] = "old-source"
             with self.subTest(change=change):
                 self.assertFalse(completion.completion_ready(changed, decision, current))
         state["validation"]["design_results"][-1]["status"] = "NOT_VERIFIED"
@@ -789,7 +1185,7 @@ class DesignManifestTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.body))
         state, decision, current = self.passing_state()
         self.assertTrue(completion.completion_ready(state, decision, current))
-        candidate = Path(state['validation']['design_results'][0]['candidate_ref'])
+        candidate = Path(state["validation"]["design_results"][0]["candidate_ref"])
         self.assertEqual((8, 4), manifest.png_dimensions(candidate))
         # A candidate rendered at the reference's smaller export dimensions is wrong.
         png(candidate, width=2, height=1)
@@ -805,9 +1201,12 @@ class DesignManifestTests(unittest.TestCase):
         png(Path(original), width=1)
         self.assertFalse(completion.completion_ready(state, decision, current))
         viewport = self.body["cases"][0]["viewport"]
-        png(Path(original), round(viewport["width"] * viewport["device_scale_factor"]),
-            round(viewport["height"] * viewport["device_scale_factor"]))
-        Path(row['comparison_ref']).write_text("changed after validation")
+        png(
+            Path(original),
+            round(viewport["width"] * viewport["device_scale_factor"]),
+            round(viewport["height"] * viewport["device_scale_factor"]),
+        )
+        Path(row["comparison_ref"]).write_text("changed after validation")
         self.assertFalse(completion.completion_ready(state, decision, current))
 
     def test_report_generation_and_decoding_enforce_complete_inventory_without_mutating_schema(self):
@@ -822,9 +1221,14 @@ class DesignManifestTests(unittest.TestCase):
         broken = copy.deepcopy(state["validation"])
         broken["design_results"].pop()
         with self.assertRaisesRegex(ValueError, "every design case"):
-            reports.review_validation_schema(bound, state, {"stage": "sol_report_repair", "original_stage": "sol"}, broken)
+            reports.review_validation_schema(
+                bound, state, {"stage": "sol_report_repair", "original_stage": "sol"}, broken
+            )
         checkpoint = {"type": "object", "required": ["validation"], "properties": {"validation": schema}}
-        self.assertIn("design_results", coverage.extend_schema(checkpoint, state, "astra_checkpoint")["properties"]["validation"]["required"])
+        self.assertIn(
+            "design_results",
+            coverage.extend_schema(checkpoint, state, "astra_checkpoint")["properties"]["validation"]["required"],
+        )
 
     def test_builder_self_check_without_design_fields_is_not_a_mismatched_manifest(self):
         # apply_review_result used to call report_refs for every non-Builder stage,
@@ -832,9 +1236,13 @@ class DesignManifestTests(unittest.TestCase):
         # for criteria; it does not carry design_results. Independent sol reports
         # still have to account for every case (covered above).
         import autopilot
+
         state, decision, current = self.passing_state()
         self_check = {
-            "verdict": "NOT_VERIFIED", "checks": [], "findings": [], "unverified_criteria": ["C1"],
+            "verdict": "NOT_VERIFIED",
+            "checks": [],
+            "findings": [],
+            "unverified_criteria": ["C1"],
             "criterion_results": [{"id": "C1", "status": "NOT_VERIFIED", "evidence_refs": []}],
             "acceptance_criteria": copy.deepcopy(state["acceptance_criteria"]),
         }
@@ -846,14 +1254,36 @@ class DesignManifestTests(unittest.TestCase):
         class Runtime:
             def check_evidence_options(self, record):
                 return {}
+
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
-        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.test",
-                        "commit", "-q", "--allow-empty", "-m", "base"], check=True)
-        record = {"events": str(self.workspace / "events.jsonl"), "source_revision": "source-a",
-                  "role": "terra", "stage": "self_check", "output": str(self.workspace / "self.json")}
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+            check=True,
+        )
+        record = {
+            "events": str(self.workspace / "events.jsonl"),
+            "source_revision": "source-a",
+            "role": "terra",
+            "stage": "self_check",
+            "output": str(self.workspace / "self.json"),
+        }
         (self.workspace / "events.jsonl").write_text("")
-        autopilot.apply_review_result(Runtime(), state, "self_check", self_check,
-                                      record, self.workspace, self.workspace)
+        autopilot.apply_review_result(
+            Runtime(), state, "self_check", self_check, record, self.workspace, self.workspace
+        )
         self.assertEqual("NOT_VERIFIED", state["validation"]["verdict"])
 
         # Design gaps refuse independent completion, but the final-audit self-check
@@ -865,15 +1295,15 @@ class DesignManifestTests(unittest.TestCase):
         self.assertTrue(completion.completion_ready(probe, decision, current, require_independent=False))
 
     def test_status_retains_inventory_error_when_original_receipt_is_missing(self):
-        path, body = inventory_bundle(self.root / 'status-inventory')
+        path, body = inventory_bundle(self.root / "status-inventory")
         selected = manifest.retain(manifest.load(path), self.workspace)
-        receipt = Path(selected['root']) / body['files'][0]['pages'][0]['source_json']['path']
+        receipt = Path(selected["root"]) / body["files"][0]["pages"][0]["source_json"]["path"]
         receipt.unlink()
-        view = run_view.view({'status': 'PAUSED_DESIGN_REFERENCE', 'settings': {'design_manifest': selected}})
-        self.assertIn('inventory_error', view['design'])
-        self.assertEqual([case['id'] for case in body['cases']], view['design']['not_passing'])
-        self.assertIsNone(view['design']['current_visual_acceptance'])
-        self.assertFalse(coverage.ready({'settings': {'design_manifest': selected}}))
+        view = run_view.view({"status": "PAUSED_DESIGN_REFERENCE", "settings": {"design_manifest": selected}})
+        self.assertIn("inventory_error", view["design"])
+        self.assertEqual([case["id"] for case in body["cases"]], view["design"]["not_passing"])
+        self.assertIsNone(view["design"]["current_visual_acceptance"])
+        self.assertFalse(coverage.ready({"settings": {"design_manifest": selected}}))
 
     def test_status_exposes_inventory_without_claiming_current_visual_acceptance(self):
         state, _, _ = self.passing_state()
@@ -886,6 +1316,7 @@ class DesignManifestTests(unittest.TestCase):
 
 class DesignManifestCliTests(unittest.TestCase):
     """A hand-scripted offline provider tests runtime plumbing, not visual/model quality."""
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="design-cli-")
         self.addCleanup(temporary.cleanup)
@@ -894,20 +1325,46 @@ class DesignManifestCliTests(unittest.TestCase):
         self.workspace = self.root / "project"
         self.workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
-        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.test",
-                        "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+            check=True,
+        )
         bindir = self.root / "bin"
         bindir.mkdir()
         from tests.figma_inventory_fixtures import install_inventory_hook
+
         (bindir / "codex").write_text((ROOT / "tools/live_fixture_provider.py").read_text())
         install_inventory_hook(bindir / "codex")
-        self.env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(self.root / "registry"),
-                    "PYTHONDONTWRITEBYTECODE": "1", "FAKE_DESIGN_PROMPTS": str(self.root / "prompts.jsonl"),
-                    "FAKE_CAPTURE_REPO": str(ROOT)}
+        self.env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "FAKE_DESIGN_PROMPTS": str(self.root / "prompts.jsonl"),
+            "FAKE_CAPTURE_REPO": str(ROOT),
+        }
 
     def start(self):
-        return taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
-            start_options=("--figma-manifest", str(self.path)), env=self.env, timeout=120)
+        return taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=("--figma-manifest", str(self.path)),
+            env=self.env,
+            timeout=120,
+        )
 
     def scope_inventory_to_fixture_task(self):
         for case in self.body["cases"]:
@@ -955,8 +1412,7 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertTrue(view["done"], view)
         self.assertEqual([], view["design"]["not_passing"])
         prompts = [json.loads(line) for line in (self.root / "prompts.jsonl").read_text().splitlines()]
-        self.assertEqual({case["id"] for case in self.body["cases"]},
-                         set(prompts[-1]["ids"]))
+        self.assertEqual({case["id"] for case in self.body["cases"]}, set(prompts[-1]["ids"]))
 
     def test_public_taskrun_never_completes_with_unavailable_source_assets(self):
         self.path, self.body = inventory_bundle(self.root / "exports-blocked", include_missing_reference=True)
@@ -979,128 +1435,177 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertIn("every approved design case", view["stop_reason"])
 
     def test_public_native_intake_collects_both_files_before_plan_approval_and_survives_restart(self):
-        self.path, self.body = inventory_bundle(self.root / 'native-exports')
+        self.path, self.body = inventory_bundle(self.root / "native-exports")
         self.scope_inventory_to_fixture_task()
-        self.env['FAKE_NATIVE_MANIFEST'] = str(self.path)
-        run = taskrun.TaskRun.start(self.workspace,BRIEF,options=OPTIONS,
-            start_options=('--figma-file','https://www.figma.com/design/FILEA?node-id=1-2',
-                           '--figma-additional-file','https://www.figma.com/design/FILEB?node-id=3-4'),
-            env=self.env,timeout=120)
-        view=run.status()
-        self.assertEqual('approve_plan',view['needs']['kind'],view)
-        self.assertEqual(3,len(view['design']['case_ids']))
-        run=taskrun.TaskRun(self.workspace,run.run_dir,options=OPTIONS,env=self.env,timeout=120)
-        self.assertEqual(view['design']['plan_coverage'],run.status()['design']['plan_coverage'])
-        prompts=[json.loads(line) for line in (self.root/'prompts.jsonl').read_text().splitlines()]
-        self.assertEqual('collect_design',prompts[0]['stage'])
-        run.approve_plan(view['needs']['token'])
-        self.assertTrue(run.advance_until_input()['done'])
+        self.env["FAKE_NATIVE_MANIFEST"] = str(self.path)
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=(
+                "--figma-file",
+                "https://www.figma.com/design/FILEA?node-id=1-2",
+                "--figma-additional-file",
+                "https://www.figma.com/design/FILEB?node-id=3-4",
+            ),
+            env=self.env,
+            timeout=120,
+        )
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual(3, len(view["design"]["case_ids"]))
+        run = taskrun.TaskRun(self.workspace, run.run_dir, options=OPTIONS, env=self.env, timeout=120)
+        self.assertEqual(view["design"]["plan_coverage"], run.status()["design"]["plan_coverage"])
+        prompts = [json.loads(line) for line in (self.root / "prompts.jsonl").read_text().splitlines()]
+        self.assertEqual("collect_design", prompts[0]["stage"])
+        run.approve_plan(view["needs"]["token"])
+        self.assertTrue(run.advance_until_input()["done"])
 
     def test_public_native_unreadable_page_blocks_before_planning(self):
-        self.env['FAKE_NATIVE_BLOCKED']='1'
-        run=taskrun.TaskRun.start(self.workspace,BRIEF,options=OPTIONS,
-            start_options=('--figma-file','https://www.figma.com/design/FILEA'),env=self.env,timeout=120)
-        view=run.status()
-        self.assertFalse(view['done'])
-        self.assertEqual('PAUSED_DESIGN_INPUT',view['status'],view)
-        self.assertIn('Unreadable approved FILEB',view['stop_reason'])
-        self.assertFalse((self.workspace/'greet.py').exists())
+        self.env["FAKE_NATIVE_BLOCKED"] = "1"
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=("--figma-file", "https://www.figma.com/design/FILEA"),
+            env=self.env,
+            timeout=120,
+        )
+        view = run.status()
+        self.assertFalse(view["done"])
+        self.assertEqual("PAUSED_DESIGN_INPUT", view["status"], view)
+        self.assertIn("Unreadable approved FILEB", view["stop_reason"])
+        self.assertFalse((self.workspace / "greet.py").exists())
 
     def test_native_reference_revision_updates_approved_urls_and_keeps_original_receipts(self):
-        self.path, self.body = inventory_bundle(self.root / 'native-original')
+        self.path, self.body = inventory_bundle(self.root / "native-original")
         self.scope_inventory_to_fixture_task()
-        self.env['FAKE_NATIVE_MANIFEST'] = str(self.path)
-        references = ('https://www.figma.com/design/FILEA?node-id=1-2',
-                      'https://www.figma.com/design/FILEB?node-id=3-4',
-                      'https://www.figma.com/design/FILEA?node-id=1-6')
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
-            start_options=('--figma-file', references[0], '--figma-additional-file', references[1],
-                           '--figma-additional-file', references[2]),
-            env=self.env, timeout=120)
+        self.env["FAKE_NATIVE_MANIFEST"] = str(self.path)
+        references = (
+            "https://www.figma.com/design/FILEA?node-id=1-2",
+            "https://www.figma.com/design/FILEB?node-id=3-4",
+            "https://www.figma.com/design/FILEA?node-id=1-6",
+        )
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=(
+                "--figma-file",
+                references[0],
+                "--figma-additional-file",
+                references[1],
+                "--figma-additional-file",
+                references[2],
+            ),
+            env=self.env,
+            timeout=120,
+        )
         old = run.status()
-        saved = json.loads(run._invoke('status', '--status').stdout)['settings']
-        replacement = self.root / 'native-replacement'
+        saved = json.loads(run._invoke("status", "--status").stdout)["settings"]
+        replacement = self.root / "native-replacement"
         shutil.copytree(self.path.parent, replacement)
-        body = copy.deepcopy(self.body); body['files'][1]['key'] = 'FILEC'
-        for case in body['cases']:
-            if case['file_key'] == 'FILEB':
-                case['file_key'] = 'FILEC'; case['id'] = case['id'].replace('FILEB', 'FILEC')
-        source = body['files'][1]['pages'][0]['source_json']
-        source_path = replacement / source['path']
-        receipt = json.loads(source_path.read_text()); receipt['file_key'] = 'FILEC'
-        source_path.write_text(json.dumps(receipt)); source['sha256'] = util.file_hash(source_path)
-        candidate = replacement / self.path.name; candidate.write_text(json.dumps(body))
-        proposed = run.revise_design(candidate, old['design']['manifest_hash'], 'Replace the approved second reference file')
-        current = json.loads(run._invoke('status', '--status').stdout)['settings']
-        self.assertEqual([references[0], references[2], 'https://www.figma.com/design/FILEC'], current['figma_references'])
-        self.assertEqual(saved['roles'], current['roles']); self.assertEqual(saved['limits'], current['limits'])
-        self.assertEqual(list(references), proposed['design']['reference_changes'][-1]['previous_references'])
-        self.assertEqual('PAUSED_DESIGN_INPUT_CHANGED', proposed['status'])
-        self.assertFalse(proposed['done'])
-        self.assertTrue(Path(saved['design_manifest']['manifest_path']).is_file())
+        body = copy.deepcopy(self.body)
+        body["files"][1]["key"] = "FILEC"
+        for case in body["cases"]:
+            if case["file_key"] == "FILEB":
+                case["file_key"] = "FILEC"
+                case["id"] = case["id"].replace("FILEB", "FILEC")
+        source = body["files"][1]["pages"][0]["source_json"]
+        source_path = replacement / source["path"]
+        receipt = json.loads(source_path.read_text())
+        receipt["file_key"] = "FILEC"
+        source_path.write_text(json.dumps(receipt))
+        source["sha256"] = util.file_hash(source_path)
+        candidate = replacement / self.path.name
+        candidate.write_text(json.dumps(body))
+        proposed = run.revise_design(
+            candidate, old["design"]["manifest_hash"], "Replace the approved second reference file"
+        )
+        current = json.loads(run._invoke("status", "--status").stdout)["settings"]
+        self.assertEqual(
+            [references[0], references[2], "https://www.figma.com/design/FILEC"], current["figma_references"]
+        )
+        self.assertEqual(saved["roles"], current["roles"])
+        self.assertEqual(saved["limits"], current["limits"])
+        self.assertEqual(list(references), proposed["design"]["reference_changes"][-1]["previous_references"])
+        self.assertEqual("PAUSED_DESIGN_INPUT_CHANGED", proposed["status"])
+        self.assertFalse(proposed["done"])
+        self.assertTrue(Path(saved["design_manifest"]["manifest_path"]).is_file())
         reviewed = run.resume_paused()
-        self.assertEqual('approve_plan', reviewed['needs']['kind'], reviewed)
-        self.assertNotEqual(old['needs']['token'], reviewed['needs']['token'])
+        self.assertEqual("approve_plan", reviewed["needs"]["kind"], reviewed)
+        self.assertNotEqual(old["needs"]["token"], reviewed["needs"]["token"])
 
     def test_public_native_worker_failure_retains_owner_and_requires_exact_retry(self):
-        self.env['FAKE_NATIVE_FAILURE'] = '1'
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
-            start_options=('--figma-file', 'https://www.figma.com/design/FILEA'), env=self.env, timeout=120)
+        self.env["FAKE_NATIVE_FAILURE"] = "1"
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=OPTIONS,
+            start_options=("--figma-file", "https://www.figma.com/design/FILEA"),
+            env=self.env,
+            timeout=120,
+        )
         view = run.status()
-        self.assertEqual('PAUSED_JOB_FAILURE', view['status'], view)
-        self.assertEqual('collect_design', view['next_stage'])
-        self.assertIn('Design inventory: provider exited 3', view['stop_reason'])
-        self.assertEqual('retry_job', view['needs']['kind'])
-        self.assertFalse(view['done'])
-        self.assertFalse((self.workspace / 'greet.py').exists())
-        self.path, self.body = inventory_bundle(self.root / 'native-retry')
-        self.body['files'] = self.body['files'][:1]
-        self.body['cases'] = self.body['cases'][:2]
+        self.assertEqual("PAUSED_JOB_FAILURE", view["status"], view)
+        self.assertEqual("collect_design", view["next_stage"])
+        self.assertIn("Design inventory: provider exited 3", view["stop_reason"])
+        self.assertEqual("retry_job", view["needs"]["kind"])
+        self.assertFalse(view["done"])
+        self.assertFalse((self.workspace / "greet.py").exists())
+        self.path, self.body = inventory_bundle(self.root / "native-retry")
+        self.body["files"] = self.body["files"][:1]
+        self.body["cases"] = self.body["cases"][:2]
         self.scope_inventory_to_fixture_task()
-        saved = json.loads(run._invoke('status', '--status').stdout)['settings']
-        run.env.pop('FAKE_NATIVE_FAILURE')
-        run.env['FAKE_NATIVE_MANIFEST'] = str(self.path)
-        recovered = run.retry_job(view['needs']['job_retry_token'])
-        self.assertEqual('approve_plan', recovered['needs']['kind'], recovered)
-        current = json.loads(run._invoke('status', '--status').stdout)['settings']
-        self.assertEqual(saved['roles'], current['roles'])
-        self.assertEqual(saved['limits'], current['limits'])
+        saved = json.loads(run._invoke("status", "--status").stdout)["settings"]
+        run.env.pop("FAKE_NATIVE_FAILURE")
+        run.env["FAKE_NATIVE_MANIFEST"] = str(self.path)
+        recovered = run.retry_job(view["needs"]["job_retry_token"])
+        self.assertEqual("approve_plan", recovered["needs"]["kind"], recovered)
+        current = json.loads(run._invoke("status", "--status").stdout)["settings"]
+        self.assertEqual(saved["roles"], current["roles"])
+        self.assertEqual(saved["limits"], current["limits"])
 
     def test_reference_revision_preserves_old_versions_and_requires_new_plan_review(self):
-        self.path,self.body=inventory_bundle(self.root/'old-version')
+        self.path, self.body = inventory_bundle(self.root / "old-version")
         self.scope_inventory_to_fixture_task()
-        run=self.start()
-        old=run.status()
-        run.approve_plan(old['needs']['token'])
-        completed=run.advance_until_input()
-        self.assertTrue(completed['done'],completed)
-        replacement=self.root/'new-version'
-        shutil.copytree(self.path.parent,replacement)
-        body=copy.deepcopy(self.body)
-        (replacement/'changed-context.txt').write_text('Updated source screen constraint')
-        body['cases'][-1]['artifacts']['design_context']={'path':'changed-context.txt','sha256':util.file_hash(replacement/'changed-context.txt')}
-        path=replacement/'manifest-v2.json';path.write_text(json.dumps(body))
-        original=manifest.load(self.path); current=manifest.load(path)
-        self.assertEqual([body['cases'][-1]['id']],design_identity.delta(original,current)['changed'])
-        with self.assertRaisesRegex(taskrun.TaskRunError,'exact inspected design hash'):
-            run.revise_design(path,'wrong','Updated one source frame')
-        proposed=run.revise_design(path,old['design']['manifest_hash'],'Updated one source frame')
-        self.assertFalse(proposed['done'])
-        self.assertEqual('PAUSED_DESIGN_INPUT_CHANGED',proposed['status'])
-        self.assertEqual([body['cases'][-1]['id']],proposed['design']['not_passing'])
-        self.assertEqual(2,len(proposed['design']['reusable_case_results']))
-        history=proposed['design']['reference_changes'][-1]
-        self.assertEqual(old['design']['manifest_hash'],history['previous_hash'])
-        reattached=taskrun.TaskRun(self.workspace,run.run_dir,options=OPTIONS,env=self.env,timeout=120)
-        reviewed=reattached.resume_paused()
-        self.assertEqual('approve_plan',reviewed['needs']['kind'],reviewed)
-        self.assertNotEqual(old['needs']['token'],reviewed['needs']['token'])
-        self.assertIn(body['cases'][-1]['id'],reattached.show_goal())
-        self.assertEqual(history,reviewed['design']['reference_changes'][-1])
-        reattached.approve_plan(reviewed['needs']['token'])
-        finished=reattached.advance_until_input()
-        self.assertTrue(finished['done'],finished)
-        self.assertEqual(current['manifest_hash'],finished['design']['manifest_hash'])
+        run = self.start()
+        old = run.status()
+        run.approve_plan(old["needs"]["token"])
+        completed = run.advance_until_input()
+        self.assertTrue(completed["done"], completed)
+        replacement = self.root / "new-version"
+        shutil.copytree(self.path.parent, replacement)
+        body = copy.deepcopy(self.body)
+        (replacement / "changed-context.txt").write_text("Updated source screen constraint")
+        body["cases"][-1]["artifacts"]["design_context"] = {
+            "path": "changed-context.txt",
+            "sha256": util.file_hash(replacement / "changed-context.txt"),
+        }
+        path = replacement / "manifest-v2.json"
+        path.write_text(json.dumps(body))
+        original = manifest.load(self.path)
+        current = manifest.load(path)
+        self.assertEqual([body["cases"][-1]["id"]], design_identity.delta(original, current)["changed"])
+        with self.assertRaisesRegex(taskrun.TaskRunError, "exact inspected design hash"):
+            run.revise_design(path, "wrong", "Updated one source frame")
+        proposed = run.revise_design(path, old["design"]["manifest_hash"], "Updated one source frame")
+        self.assertFalse(proposed["done"])
+        self.assertEqual("PAUSED_DESIGN_INPUT_CHANGED", proposed["status"])
+        self.assertEqual([body["cases"][-1]["id"]], proposed["design"]["not_passing"])
+        self.assertEqual(2, len(proposed["design"]["reusable_case_results"]))
+        history = proposed["design"]["reference_changes"][-1]
+        self.assertEqual(old["design"]["manifest_hash"], history["previous_hash"])
+        reattached = taskrun.TaskRun(self.workspace, run.run_dir, options=OPTIONS, env=self.env, timeout=120)
+        reviewed = reattached.resume_paused()
+        self.assertEqual("approve_plan", reviewed["needs"]["kind"], reviewed)
+        self.assertNotEqual(old["needs"]["token"], reviewed["needs"]["token"])
+        self.assertIn(body["cases"][-1]["id"], reattached.show_goal())
+        self.assertEqual(history, reviewed["design"]["reference_changes"][-1])
+        reattached.approve_plan(reviewed["needs"]["token"])
+        finished = reattached.advance_until_input()
+        self.assertTrue(finished["done"], finished)
+        self.assertEqual(current["manifest_hash"], finished["design"]["manifest_hash"])
 
     def test_reference_revision_never_replaces_an_operational_pause(self):
         # A revision restarts plan review in place of the pause, and resuming it launched the plan
@@ -1108,35 +1613,41 @@ class DesignManifestCliTests(unittest.TestCase):
         import autocode as runner
         import autocode_resolver_runtime as resolver_runtime
         import autocode_support as support
-        self.path, self.body = inventory_bundle(self.root / 'paused-version')
+
+        self.path, self.body = inventory_bundle(self.root / "paused-version")
         self.scope_inventory_to_fixture_task()
         run = self.start()
         old = run.status()
-        run.approve_plan(old['needs']['token'])
-        state_path = run.run_dir / 'state.json'
+        run.approve_plan(old["needs"]["token"])
+        state_path = run.run_dir / "state.json"
         state = json.loads(state_path.read_text())
-        state.update(status='PAUSED_RATE_LIMIT', stop_reason='Provider rate limit fixture stop')
+        state.update(status="PAUSED_RATE_LIMIT", stop_reason="Provider rate limit fixture stop")
         with patch.dict(os.environ, self.env):
-            self.assertTrue(resolver_runtime.record_operational_exhaustion(
-                runner, state, run.run_dir, support.Paused(state['status'], state['stop_reason'])))
+            self.assertTrue(
+                resolver_runtime.record_operational_exhaustion(
+                    runner, state, run.run_dir, support.Paused(state["status"], state["stop_reason"])
+                )
+            )
             runner.write_json(state_path, state)
         paused = run.status()
-        self.assertEqual('WAITING_FOR_USER', paused['status'], paused)
-        prompts = (self.root / 'prompts.jsonl').read_text()
-        replacement = self.root / 'paused-replacement'
+        self.assertEqual("WAITING_FOR_USER", paused["status"], paused)
+        prompts = (self.root / "prompts.jsonl").read_text()
+        replacement = self.root / "paused-replacement"
         shutil.copytree(self.path.parent, replacement)
         body = copy.deepcopy(self.body)
-        (replacement / 'changed-context.txt').write_text('Updated source screen constraint')
-        body['cases'][-1]['artifacts']['design_context'] = {
-            'path': 'changed-context.txt', 'sha256': util.file_hash(replacement / 'changed-context.txt')}
-        candidate = replacement / 'manifest-v2.json'
+        (replacement / "changed-context.txt").write_text("Updated source screen constraint")
+        body["cases"][-1]["artifacts"]["design_context"] = {
+            "path": "changed-context.txt",
+            "sha256": util.file_hash(replacement / "changed-context.txt"),
+        }
+        candidate = replacement / "manifest-v2.json"
         candidate.write_text(json.dumps(body))
-        with self.assertRaisesRegex(taskrun.TaskRunError, 'does not acknowledge PAUSED_RATE_LIMIT'):
-            run.revise_design(candidate, old['design']['manifest_hash'], 'Updated one source frame')
+        with self.assertRaisesRegex(taskrun.TaskRunError, "does not acknowledge PAUSED_RATE_LIMIT"):
+            run.revise_design(candidate, old["design"]["manifest_hash"], "Updated one source frame")
         held = run.resume_paused()
-        self.assertEqual(old['design']['manifest_hash'], held['design']['manifest_hash'])
-        self.assertEqual('WAITING_FOR_USER', held['status'], held)
-        self.assertEqual(prompts, (self.root / 'prompts.jsonl').read_text(), 'no provider may launch past the pause')
+        self.assertEqual(old["design"]["manifest_hash"], held["design"]["manifest_hash"])
+        self.assertEqual("WAITING_FOR_USER", held["status"], held)
+        self.assertEqual(prompts, (self.root / "prompts.jsonl").read_text(), "no provider may launch past the pause")
 
     def test_invalid_manifest_is_refused_before_any_provider_call_or_run_allocation(self):
         self.body["cases"].pop()
@@ -1147,12 +1658,12 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertFalse((self.workspace / ".autocode").exists())
 
     def test_stale_a_cannot_earn_acceptance_for_b_even_when_fresh_b_is_available(self):
-        self.env['FAKE_DESIGN_STALE_CAPTURE'] = '1'
+        self.env["FAKE_DESIGN_STALE_CAPTURE"] = "1"
         run = self.start()
-        run.approve_plan(run.status()['needs']['token'])
+        run.approve_plan(run.status()["needs"]["token"])
         view = run.advance_until_input()
-        self.assertFalse(view['done'], view)
-        self.assertIn('Stale implementation capture', json.dumps(view))
+        self.assertFalse(view["done"], view)
+        self.assertIn("Stale implementation capture", json.dumps(view))
 
 
 if __name__ == "__main__":

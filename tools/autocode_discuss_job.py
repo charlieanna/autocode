@@ -19,6 +19,7 @@ content and the runner writes it. The runner then:
 Pure module: prompt, schema, transition, rendering; the unit passes in the function
 that runs probes. Imports nothing from the runner. State key written: ``answer``.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -42,14 +43,17 @@ NOTE_SUFFIXES = (".json", ".md", ".txt")
 MAX_QUESTIONS = 3
 TEXT = {"type": "string"}
 EVIDENCE = {
-    "type": "object", "additionalProperties": False, "required": ["claim", "source", "example", "probe"],
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["claim", "source", "example", "probe"],
     # example: the concrete case a probe checks ("Given ..., when ..., then ..."); probe: a shell
     # command, run from the repository root, that exits 0 exactly when the claim holds. Both "" when
     # the claim is shown by its source alone.
     "properties": {"claim": TEXT, "source": TEXT, "example": TEXT, "probe": TEXT},
 }
 SCHEMA = {
-    "type": "object", "additionalProperties": False,
+    "type": "object",
+    "additionalProperties": False,
     "required": ["answer", "evidence", "questions", "note_path", "note_content"],
     "properties": {
         "answer": TEXT,
@@ -60,7 +64,8 @@ SCHEMA = {
     },
 }
 
-PROMPT = """You are the Analyst: an engineer asked a question about this codebase. You answer it with evidence.
+PROMPT = (
+    """You are the Analyst: an engineer asked a question about this codebase. You answer it with evidence.
 You do not change the code, and nothing gets built.
 
 The request may be a question ("why does the code do X", "what would break if we removed Y") or a
@@ -68,7 +73,9 @@ tradeoff ("should we use A or B"). Either way:
 
 1. Find the facts in the repository before anything else: the code, its configuration and deployment
    files, its docs and tests. Deciding facts are often in a different file from the one the question
-   names (how the service is deployed, a limit in a docstring, who calls a function). """ + stage_access.scratch_rule(STAGE) + """
+   names (how the service is deployed, a limit in a docstring, who calls a function). """
+    + stage_access.scratch_rule(STAGE)
+    + """
    Otherwise never write into the workspace: the runner compares it before and after and rejects an
    answer that changed anything.
 2. answer: the answer in plain words. For a tradeoff, give a recommendation AND its consequences, and
@@ -90,17 +97,26 @@ tradeoff ("should we use A or B"). Either way:
 
 Return JSON only, matching the schema the runner gives you.
 """
+)
 
 
 def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
-    return {"stage": STAGE, "task": state["task"], "workspace": state.get("workspace"),
-            "execution_engine": engine, "workspace_inventory": inventory or {},
-            # Present because every provider reads them; nothing is planned yet.
-            "goal_contract": None, "current_task": None, "saved_answers": {}}
+    return {
+        "stage": STAGE,
+        "task": state["task"],
+        "workspace": state.get("workspace"),
+        "execution_engine": engine,
+        "workspace_inventory": inventory or {},
+        # Present because every provider reads them; nothing is planned yet.
+        "goal_contract": None,
+        "current_task": None,
+        "saved_answers": {},
+    }
 
 
-def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
-           engine: str | None = None) -> tuple[str, dict]:
+def prompt(
+    state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000, engine: str | None = None
+) -> tuple[str, dict]:
     text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
@@ -116,7 +132,8 @@ def check(value: dict, changed_files, workspace) -> None:
     stray = sorted(str(path) for path in (changed_files or []) if str(path) != note)
     if stray:
         raise stray_writes.StrayWrites(
-            "A discussion must not change the repository; this attempt changed: " + ", ".join(stray), stray)
+            "A discussion must not change the repository; this attempt changed: " + ", ".join(stray), stray
+        )
     if not value["answer"].strip():
         raise ValueError("The answer is empty")
     if not value["evidence"]:
@@ -155,10 +172,17 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
         if note.endswith(".json"):
             content = json.dumps(json.loads(content), indent=2) + "\n"
         target.write_text(content)
-    state["answer"] = {"answer": value["answer"], "evidence": value["evidence"], "questions": value["questions"],
-                       "note_path": note, "output": record.get("output"), "probes": shown}
-    state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                 completed_at=dt.datetime.now(dt.UTC).isoformat())
+    state["answer"] = {
+        "answer": value["answer"],
+        "evidence": value["evidence"],
+        "questions": value["questions"],
+        "note_path": note,
+        "output": record.get("output"),
+        "probes": shown,
+    }
+    state.update(
+        status="TASK_COMPLETE", phase="COMPLETE", next_stage=None, completed_at=dt.datetime.now(dt.UTC).isoformat()
+    )
 
 
 def owns(state: dict) -> bool:
@@ -169,9 +193,11 @@ def render(state: dict) -> str:
     found = state.get("answer") or {}
     lines = ["ANSWER — nothing was changed", "", found.get("answer", ""), "", "Evidence:"]
     probed = {row["claim"] for row in found.get("probes") or []}
-    lines += [f"  - {row['claim']} ({row['source']})" + ("; shown by running: " + row["probe"]
-                                                        if row["claim"] in probed else "")
-              for row in found.get("evidence") or []]
+    lines += [
+        f"  - {row['claim']} ({row['source']})"
+        + ("; shown by running: " + row["probe"] if row["claim"] in probed else "")
+        for row in found.get("evidence") or []
+    ]
     lines += ["Question for you: " + question for question in found.get("questions") or []]
     if found.get("note_path"):
         lines.append("Note written: " + str(Path(state.get("workspace", "")) / found["note_path"]))

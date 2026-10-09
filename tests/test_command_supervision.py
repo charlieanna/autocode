@@ -1,4 +1,5 @@
 """Public verification-command execution under normal and interrupted ownership."""
+
 import json
 import os
 import shlex
@@ -26,12 +27,15 @@ class CommandSupervisionTests(unittest.TestCase):
         return "exec " + shlex.join([sys.executable, "-u", "-c", source])
 
     def test_real_nonzero_exit_preserves_identity_environment_and_failure_evidence(self):
-        command = self.command("import json,os,sys; print(json.dumps({'pid':os.getpid(),"
-                               "'parent':os.getppid(),'session':os.getsid(0),'cwd':os.getcwd(),"
-                               "'secret':os.getenv('OPENAI_API_KEY'),'ci':os.getenv('CI')})); "
-                               "print('stderr reached',file=sys.stderr); sys.exit(7)")
-        result = verify.run_command(command, self.root, self.root / "normal.log",
-                                    env={**os.environ, "OPENAI_API_KEY": "fixture-secret"})
+        command = self.command(
+            "import json,os,sys; print(json.dumps({'pid':os.getpid(),"
+            "'parent':os.getppid(),'session':os.getsid(0),'cwd':os.getcwd(),"
+            "'secret':os.getenv('OPENAI_API_KEY'),'ci':os.getenv('CI')})); "
+            "print('stderr reached',file=sys.stderr); sys.exit(7)"
+        )
+        result = verify.run_command(
+            command, self.root, self.root / "normal.log", env={**os.environ, "OPENAI_API_KEY": "fixture-secret"}
+        )
         actual = json.loads(Path(result["output"]).read_text().splitlines()[0])
         self.assertEqual(7, result["exit_code"])
         self.assertFalse(result["timed_out"])
@@ -58,15 +62,18 @@ class CommandSupervisionTests(unittest.TestCase):
         legacy = b"retained legacy command evidence\n"
         latest.write_bytes(legacy)
         admitted = []
+
         def checkpoint(command, output, metadata):
             admitted.append((command, Path(output), metadata))
+
         first = verify.run_command(
-            self.command("import sys; print('first stdout'); "
-                         "print('first stderr',file=sys.stderr); sys.exit(7)"),
-            self.root, latest, checkpoint=checkpoint)
+            self.command("import sys; print('first stdout'); print('first stderr',file=sys.stderr); sys.exit(7)"),
+            self.root,
+            latest,
+            checkpoint=checkpoint,
+        )
         self.assertEqual(legacy, latest.read_bytes())
-        second = verify.run_command(self.command("pass"), self.root, latest,
-                                    checkpoint=checkpoint)
+        second = verify.run_command(self.command("pass"), self.root, latest, checkpoint=checkpoint)
         self.assertEqual(7, first["exit_code"])
         self.assertEqual(0, second["exit_code"])
         self.assertNotEqual(first["output"], second["output"])
@@ -87,14 +94,17 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertEqual([first["supervision"], second["supervision"]], [row[2] for row in admitted])
 
     def test_original_deadline_overrides_collected_zero_and_complete_passing_output(self):
-        command = self.command("print('test_claim (__main__.Claim.test_claim) ... ok\\n\\nRan 1 test in 0.001s\\n\\nOK',flush=True)")
+        command = self.command(
+            "print('test_claim (__main__.Claim.test_claim) ... ok\\n\\nRan 1 test in 0.001s\\n\\nOK',flush=True)"
+        )
         # Drive the caller's original budget past its deadline only after the
         # actual child reports its zero exit. The independent keeper's clock
         # and launch/wait bounds stay real and unchanged.
         clock = iter((0, 0, 0, 901, 902))
         with patch.object(commands, "time", SimpleNamespace(monotonic=lambda: next(clock))):
-            result = verify.run_suite(verify.Framework("unittest", command), command, self.root,
-                                      self.root, "late-zero", timeout=900)
+            result = verify.run_suite(
+                verify.Framework("unittest", command), command, self.root, self.root, "late-zero", timeout=900
+            )
         final = receipts.load(result["supervision"])
         self.assertIn(final["cause"], ("provider_stopped", "controller_finished"))
         self.assertEqual("stopped", final["phase"])
@@ -112,9 +122,11 @@ class CommandSupervisionTests(unittest.TestCase):
         marker = self.root / "must-not-run"
         metadata = []
         command = self.command(f"from pathlib import Path; Path({str(marker)!r}).touch()")
+
         def checkpoint(_command, _output, value):
             metadata.append(value)
             raise OSError("admission persistence failed")
+
         with self.assertRaisesRegex(OSError, "admission persistence failed"):
             verify.run_command(command, self.root, self.root / "admission.log", checkpoint=checkpoint)
         self.assertFalse(marker.exists())

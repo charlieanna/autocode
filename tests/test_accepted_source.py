@@ -3,6 +3,7 @@
 Offline: a captured recovery packet, and the goal fixture's CLI with a fake provider.
 No model is called. The approved contract, task, budget, proof and evidence stay.
 """
+
 import copy
 import json
 import tempfile
@@ -31,29 +32,65 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.source = self.root / "app.py"
         self.source.write_text("def answer():\n    return 2\n")
         self.events = self.run / "validator.jsonl"
-        self.events.write_text(json.dumps({"type": "item.completed", "item": {
-            "type": "command_execution", "id": "check", "command": "python -m unittest test_app", "exit_code": 1,
-            "aggregated_output": "AssertionError: 2 != 3\nRan 1 test in 0.002s\nFAILED"}}) + "\n")
+        self.events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "command_execution",
+                        "id": "check",
+                        "command": "python -m unittest test_app",
+                        "exit_code": 1,
+                        "aggregated_output": "AssertionError: 2 != 3\nRan 1 test in 0.002s\nFAILED",
+                    },
+                }
+            )
+            + "\n"
+        )
         self.output = self.run / "review.json"
         self.output.write_text('{"status":"REWORK"}')
         self.validator = self.run / "validator.json"
         self.validator.write_text('{"verdict":"FAIL"}')
-        self.state = {"workspace": str(self.root), "run_dir": str(self.run),
+        self.state = {
+            "workspace": str(self.root),
+            "run_dir": str(self.run),
             "settings": {"roles": {"terra": {"model_pinned": True}}},
-            "goal_contract": {"task_id": "approved-job", "hash": "h", "revision": 1, "body": {
-                "acceptance_criteria": [{"id": "C1", "criterion": "Return 3"}]}},
-            "current_task": {"id": "T1", "kind": "implement", "milestone_id": "M1",
-                             "acceptance_criteria": ["C1"], "affected_paths": ["app.py"]},
+            "goal_contract": {
+                "task_id": "approved-job",
+                "hash": "h",
+                "revision": 1,
+                "body": {"acceptance_criteria": [{"id": "C1", "criterion": "Return 3"}]},
+            },
+            "current_task": {
+                "id": "T1",
+                "kind": "implement",
+                "milestone_id": "M1",
+                "acceptance_criteria": ["C1"],
+                "affected_paths": ["app.py"],
+            },
             "stages": [{"stage": "sol", "output": str(self.validator), "events": str(self.events)}],
-            "validation": {"task_id": "T1", "output": str(self.validator), "verdict": "FAIL", "checks": [{
-                "command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}]}}
+            "validation": {
+                "task_id": "T1",
+                "output": str(self.validator),
+                "verdict": "FAIL",
+                "checks": [{"command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}],
+            },
+        }
         self.record = {"stage": "astra_review", "output": str(self.output), "source_revision": "s1"}
-        self.request = {"contract_hash": "h", "task_id": "T1", "source_revision": "s1",
-                        "source_output": str(self.output),
-                        "evidence_hashes": {str(self.output): util.file_hash(self.output),
-                                            str(self.events): util.file_hash(self.events)}}
+        self.request = {
+            "contract_hash": "h",
+            "task_id": "T1",
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": {
+                str(self.output): util.file_hash(self.output),
+                str(self.events): util.file_hash(self.events),
+            },
+        }
         self.state["resolution_request"] = self.request
-        self.snapshot = patch.object(util, "snapshot", return_value={"revision": "s1", "files": {"app.py": "hash"}, "head": "h"})
+        self.snapshot = patch.object(
+            util, "snapshot", return_value={"revision": "s1", "files": {"app.py": "hash"}, "head": "h"}
+        )
         self.snapshot.start()
         self.addCleanup(self.snapshot.stop)
         recovery.prepare_resolution(self.state, {"summary": "Wrong answer"}, self.record)
@@ -63,7 +100,9 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.pointer = copy.deepcopy(self.request["recovery_packet"])
 
     def accept(self, revision="s2"):
-        with patch.object(accepted.source_scope, "snapshot", return_value={"revision": revision, "files": {}, "head": "h"}):
+        with patch.object(
+            accepted.source_scope, "snapshot", return_value={"revision": revision, "files": {}, "head": "h"}
+        ):
             return accepted.accept_reviewed_source(self.state, self.root)
 
     def test_the_edit_becomes_the_diagnosis_source_and_the_packet_stays_on_disk(self):
@@ -82,10 +121,17 @@ class AcceptReviewedSourceTests(unittest.TestCase):
         self.assertEqual(contract, self.state["goal_contract"])
         self.assertEqual(settings, self.state["settings"])
         self.assertEqual(proof, self.state["regression_proof"])
-        self.assertEqual(COMMAND_VIEW, run_view.needs({
-            **self.state, "status": "PAUSED_STALE_HANDOFF",
-            "stop_reason": "Repair diagnosis needs the current reviewed source and task",
-            "resolution_request": {"source_revision": "s1"}})["action"])
+        self.assertEqual(
+            COMMAND_VIEW,
+            run_view.needs(
+                {
+                    **self.state,
+                    "status": "PAUSED_STALE_HANDOFF",
+                    "stop_reason": "Repair diagnosis needs the current reviewed source and task",
+                    "resolution_request": {"source_revision": "s1"},
+                }
+            )["action"],
+        )
 
     def test_a_settings_change_is_refused_and_the_request_stays_bound(self):
         before = copy.deepcopy(self.state)
@@ -130,8 +176,9 @@ COMMAND_VIEW = "--resume-paused --accept-source-edit"
 
 
 class AcceptSourceEditCliTests(unittest.TestCase):
-    setUp, draft, approve, decision, invoke = (getattr(test_goals.GoalTests, name) for name in (
-        "setUp", "draft", "approve", "decision", "invoke"))
+    setUp, draft, approve, decision, invoke = (
+        getattr(test_goals.GoalTests, name) for name in ("setUp", "draft", "approve", "decision", "invoke")
+    )
 
     def queue_repair(self):
         self.approve()
@@ -139,8 +186,11 @@ class AcceptSourceEditCliTests(unittest.TestCase):
         # same defaults a new run already has; capturing before that looks like
         # a settings change.
         support.atomic_json(self.run / "state.json", self.state)
-        args, _ = cli_args.parse(None, ["--workspace", str(self.root), "--run-dir", str(self.run), "--no-chat"],
-                                 runner.opencode.DEFAULT_MODELS)
+        args, _ = cli_args.parse(
+            None,
+            ["--workspace", str(self.root), "--run-dir", str(self.run), "--no-chat"],
+            runner.opencode.DEFAULT_MODELS,
+        )
         self.state["settings"] = runner.configure(args, self.state)
         runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
         value = self.decision("REWORK")
@@ -204,6 +254,7 @@ class AcceptSourceEditCliTests(unittest.TestCase):
         self.queue_repair()
         path = self.root / "greet.py"
         path.write_text(path.read_text() + "\n# edited\n")
+
         def refuse(**kwargs):
             raise AssertionError("must not launch")
 

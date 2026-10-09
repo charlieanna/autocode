@@ -1,5 +1,6 @@
 """The discuss workflow's Analyst: answer from the repository with evidence, change nothing,
 and write only the note the request asks for."""
+
 import json
 import tempfile
 import unittest
@@ -22,21 +23,38 @@ def workspace_with(*files):
 
 
 def state_for(workspace, task="Should the metadata cache stay in-process or move to a shared file cache?"):
-    return {"version": 3, "task": task, "workspace": str(workspace), "status": "RUNNING", "stages": [],
-            "workflow": {"kind": "discuss", "then": "requirements_gather"},
-            "settings": {"joint_planning": True, "roles": {
-                "requirements": {"model": "r"}, "glm": {"model": "g"}, "plan_reviewer": {"model": "p"},
+    return {
+        "version": 3,
+        "task": task,
+        "workspace": str(workspace),
+        "status": "RUNNING",
+        "stages": [],
+        "workflow": {"kind": "discuss", "then": "requirements_gather"},
+        "settings": {
+            "joint_planning": True,
+            "roles": {
+                "requirements": {"model": "r"},
+                "glm": {"model": "g"},
+                "plan_reviewer": {"model": "p"},
                 "astra": {"model": "a", "engine": "codex", "reasoning_effort": "high"},
-                "terra": {"model": "t"}, "sol": {"model": "s"}}}}
+                "terra": {"model": "t"},
+                "sol": {"model": "s"},
+            },
+        },
+    }
 
 
 def report(**overrides):
-    value = {"answer": "Move to a shared cache: four workers refill separately against a 60/hour limit.",
-             "evidence": [{"claim": "4 gunicorn workers share nothing", "source": "deploy/gunicorn.conf.py:3"},
-                          {"claim": "upstream allows 60 requests/hour", "source": "app/metadata.py"}],
-             "questions": ["How many hosts run the service?"],
-             "note_path": "docs/decisions/metadata-cache.json",
-             "note_content": json.dumps({"recommendation": "shared-file"})}
+    value = {
+        "answer": "Move to a shared cache: four workers refill separately against a 60/hour limit.",
+        "evidence": [
+            {"claim": "4 gunicorn workers share nothing", "source": "deploy/gunicorn.conf.py:3"},
+            {"claim": "upstream allows 60 requests/hour", "source": "app/metadata.py"},
+        ],
+        "questions": ["How many hosts run the service?"],
+        "note_path": "docs/decisions/metadata-cache.json",
+        "note_content": json.dumps({"recommendation": "shared-file"}),
+    }
     value.update(overrides)
     return value
 
@@ -57,8 +75,10 @@ class PrepareTests(unittest.TestCase):
         state = state_for(workspace)
         request = autoresolver.prepare(state, discuss_job.STAGE, "/run/state.json", None)
         self.assertEqual(("astra", "analyst", True), (request.role, request.route_role, request.allow_write))
-        self.assertEqual(("p", "medium"), (state["settings"]["roles"]["analyst"]["model"],
-                                           state["settings"]["roles"]["analyst"]["reasoning_effort"]))
+        self.assertEqual(
+            ("p", "medium"),
+            (state["settings"]["roles"]["analyst"]["model"], state["settings"]["roles"]["analyst"]["reasoning_effort"]),
+        )
         self.assertEqual("high", state["settings"]["roles"]["astra"]["reasoning_effort"])
         without = state_for(workspace)
         del without["settings"]["roles"]["plan_reviewer"]
@@ -68,8 +88,13 @@ class PrepareTests(unittest.TestCase):
         self.assertIn("metadata cache", request.prompt)
 
     def test_capped_route_lowers_only_efforts_above_the_cap(self):
-        for given, expected in (("max", "medium"), ("high", "medium"), ("medium", "medium"),
-                                ("low", "low"), (None, "medium")):
+        for given, expected in (
+            ("max", "medium"),
+            ("high", "medium"),
+            ("medium", "medium"),
+            ("low", "low"),
+            (None, "medium"),
+        ):
             with self.subTest(given=given):
                 self.assertEqual(expected, common.capped_route({"reasoning_effort": given})["reasoning_effort"])
 
@@ -78,14 +103,17 @@ class ApplyTests(unittest.TestCase):
     def apply(self, value, changed=()):
         workspace = workspace_with("deploy/gunicorn.conf.py", "app/metadata.py")
         state = state_for(workspace)
-        autoresolver.apply_job(discuss_job.STAGE, state, value, {"changed_files": list(changed), "output": "o"},
-                               workspace)
+        autoresolver.apply_job(
+            discuss_job.STAGE, state, value, {"changed_files": list(changed), "output": "o"}, workspace
+        )
         return state, workspace
 
     def test_an_answer_with_a_requested_note_writes_it_and_completes(self):
         state, workspace = self.apply(report())
-        self.assertEqual({"recommendation": "shared-file"},
-                         json.loads((workspace / "docs/decisions/metadata-cache.json").read_text()))
+        self.assertEqual(
+            {"recommendation": "shared-file"},
+            json.loads((workspace / "docs/decisions/metadata-cache.json").read_text()),
+        )
         view = run_view.view(state)
         self.assertTrue(view["done"])
         self.assertEqual("discuss", view["workflow"])
@@ -136,27 +164,46 @@ class ProbeTests(unittest.TestCase):
 
     def apply(self, evidence):
         import subprocess
+
         root = Path(tempfile.mkdtemp(prefix="discuss-probe-"))
         (root / "app").mkdir()
         (root / "app" / "metadata.py").write_text("TTL = 3600\nLIMIT_PER_HOUR = 60\n")
-        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.test",
-                                                      "commit", "-qm", "seed"]):
+        for args in (
+            ["init", "-q"],
+            ["add", "-A"],
+            ["-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed"],
+        ):
             subprocess.run(["git", *args], cwd=root, check=True)
         state = state_for(root)
-        autoresolver.apply_job(discuss_job.STAGE, state, report(evidence=evidence, note_path="", note_content=""),
-                               {"changed_files": [], "output": str(root / "o.json")}, root)
+        autoresolver.apply_job(
+            discuss_job.STAGE,
+            state,
+            report(evidence=evidence, note_path="", note_content=""),
+            {"changed_files": [], "output": str(root / "o.json")},
+            root,
+        )
         return state, root
 
     def claim(self, probe, example="Given app/metadata.py; when LIMIT_PER_HOUR is read; then it is 60"):
-        return {"claim": "upstream allows 60 requests/hour", "source": "app/metadata.py", "example": example,
-                "probe": probe}
+        return {
+            "claim": "upstream allows 60 requests/hour",
+            "source": "app/metadata.py",
+            "example": example,
+            "probe": probe,
+        }
 
     def test_a_claim_whose_probe_exits_0_is_recorded_as_shown(self):
         probe = "python3 -c 'from app.metadata import LIMIT_PER_HOUR; assert LIMIT_PER_HOUR == 60'"
-        state, _ = self.apply([self.claim(probe), {"claim": "cache lives in-process", "source": "app/metadata.py",
-                                                   "example": "", "probe": ""}])
-        self.assertEqual([("upstream allows 60 requests/hour", 0)],
-                         [(row["claim"], row["exit_code"]) for row in state["answer"]["probes"]])
+        state, _ = self.apply(
+            [
+                self.claim(probe),
+                {"claim": "cache lives in-process", "source": "app/metadata.py", "example": "", "probe": ""},
+            ]
+        )
+        self.assertEqual(
+            [("upstream allows 60 requests/hour", 0)],
+            [(row["claim"], row["exit_code"]) for row in state["answer"]["probes"]],
+        )
         self.assertIn("shown by running: " + probe, discuss_job.render(state))
 
     def test_a_claim_whose_probe_fails_rejects_the_answer(self):

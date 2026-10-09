@@ -1,4 +1,5 @@
 """Credentials must not leave the run directory in an export (#712)."""
+
 from __future__ import annotations
 
 import sys
@@ -25,7 +26,7 @@ class RedactionTests(unittest.TestCase):
         for sample in samples:
             with self.subTest(sample=sample):
                 out = util.redact(sample)
-                self.assertNotIn(sample.split()[-1] if ' ' in sample else sample, out)
+                self.assertNotIn(sample.split()[-1] if " " in sample else sample, out)
                 self.assertIn("[REDACTED]", out)
 
     def test_plain_text_is_untouched(self):

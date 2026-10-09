@@ -19,6 +19,8 @@ class Notifier:
             return False
         self.send(event)
         with self.db:
-            self.db.execute("INSERT INTO notifications_sent (event_id) VALUES (?) ON CONFLICT (event_id) DO NOTHING",
-                            (event.event_id,))
+            self.db.execute(
+                "INSERT INTO notifications_sent (event_id) VALUES (?) ON CONFLICT (event_id) DO NOTHING",
+                (event.event_id,),
+            )
         return True

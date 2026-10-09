@@ -1,4 +1,5 @@
 """Accounting oracles: exact quantities, negative controls, no model spending."""
+
 import json
 import tempfile
 import unittest
@@ -13,37 +14,82 @@ import autocode_usage as usage
 
 
 def finish(identity="p1", *, session="session", **changes):
-    row = {"type": "step_finish", "sessionID": session, "timestamp": 5000,
-           "part": {"id": identity, "sessionID": session, "cost": 0.3,
-                    "tokens": {"input": 10, "output": 4, "reasoning": 6, "cache": {"read": 20, "write": 3}}}}
+    row = {
+        "type": "step_finish",
+        "sessionID": session,
+        "timestamp": 5000,
+        "part": {
+            "id": identity,
+            "sessionID": session,
+            "cost": 0.3,
+            "tokens": {"input": 10, "output": 4, "reasoning": 6, "cache": {"read": 20, "write": 3}},
+        },
+    }
     row["part"]["tokens"].update(changes)
     return row
 
 
 def attempt(name="terra", identity="one", *, start=0, end=10, **extra):
     rows = [{"type": "step_start", "sessionID": "session", "timestamp": 1000}, finish(identity)]
-    return {"stage": name, "role": name, "output": f"/owned/run/iterations/001/{identity}.json",
-            "iteration": 1, "started_at": start, "finished_at": end, "duration_seconds": end - start,
-            "model": "unpriced-model", "task_id": "T1", "exit_code": 0,
-            "metrics": {"request_context": {"accounting": requests.accounting(rows)}}, **extra}
+    return {
+        "stage": name,
+        "role": name,
+        "output": f"/owned/run/iterations/001/{identity}.json",
+        "iteration": 1,
+        "started_at": start,
+        "finished_at": end,
+        "duration_seconds": end - start,
+        "model": "unpriced-model",
+        "task_id": "T1",
+        "exit_code": 0,
+        "metrics": {"request_context": {"accounting": requests.accounting(rows)}},
+        **extra,
+    }
 
 
 def design_state():
-    cases = [{"id": f"case{n}", "file_key": "File", "node_id": f"{n}:1", "state": "default",
-              "viewport": {"width": 320, "height": 240, "device_scale_factor": 1}} for n in (1, 2)]
-    return {"status": "TASK_COMPLETE", "settings": {"design_manifest": {
-        "manifest_hash": "manifest1", "body": {"files": [{"key": "File", "nodes": ["1:1", "2:1"]}], "cases": cases}}},
-        "validation": {"verdict": "PASS", "source_revision": "source1", "design_manifest_hash": "manifest1",
-                       "design_results": [{"id": "case1", "status": "PASS", "criterion_ids": ["C1"]},
-                                          {"id": "case2", "status": "FAIL", "criterion_ids": ["C2"]}]}}
+    cases = [
+        {
+            "id": f"case{n}",
+            "file_key": "File",
+            "node_id": f"{n}:1",
+            "state": "default",
+            "viewport": {"width": 320, "height": 240, "device_scale_factor": 1},
+        }
+        for n in (1, 2)
+    ]
+    return {
+        "status": "TASK_COMPLETE",
+        "settings": {
+            "design_manifest": {
+                "manifest_hash": "manifest1",
+                "body": {"files": [{"key": "File", "nodes": ["1:1", "2:1"]}], "cases": cases},
+            }
+        },
+        "validation": {
+            "verdict": "PASS",
+            "source_revision": "source1",
+            "design_manifest_hash": "manifest1",
+            "design_results": [
+                {"id": "case1", "status": "PASS", "criterion_ids": ["C1"]},
+                {"id": "case2", "status": "FAIL", "criterion_ids": ["C2"]},
+            ],
+        },
+    }
 
 
 class NativeAccountingTests(unittest.TestCase):
     def test_cache_and_reasoning_are_inclusive_once_with_raw_components_retained(self):
         measured = usage.accounting({"stages": [attempt()]})
-        expected = {"input_tokens": 33, "cached_input_tokens": 20, "cache_write_tokens": 3,
-                    "fresh_input_tokens": 10, "output_tokens": 10, "reasoning_output_tokens": 6,
-                    "visible_output_tokens": 4}
+        expected = {
+            "input_tokens": 33,
+            "cached_input_tokens": 20,
+            "cache_write_tokens": 3,
+            "fresh_input_tokens": 10,
+            "output_tokens": 10,
+            "reasoning_output_tokens": 6,
+            "visible_output_tokens": 4,
+        }
         self.assertEqual(expected, {key: value["value"] for key, value in measured["tokens"].items()})
         self.assertEqual(1, measured["provider_requests"]["value"])
         self.assertEqual(0.3, measured["cost"]["reported_usd"]["value"])
@@ -95,8 +141,10 @@ class NativeAccountingTests(unittest.TestCase):
     def test_interleaved_sessions_keep_independent_pending_requests_and_intervals(self):
         first, second = finish(session="s1"), finish("p2", session="s2")
         first["timestamp"], second["timestamp"] = 3000, 4000
-        starts = [{"type": "step_start", "sessionID": "s1", "timestamp": 1000, "part": {"id": "start1"}},
-                  {"type": "step_start", "sessionID": "s2", "timestamp": 2000, "part": {"id": "start2"}}]
+        starts = [
+            {"type": "step_start", "sessionID": "s1", "timestamp": 1000, "part": {"id": "start1"}},
+            {"type": "step_start", "sessionID": "s2", "timestamp": 2000, "part": {"id": "start2"}},
+        ]
         partial = requests.accounting([*starts, first])
         self.assertFalse(partial["complete"])
         self.assertTrue(partial["unfinished_request"])
@@ -104,8 +152,10 @@ class NativeAccountingTests(unittest.TestCase):
         self.assertEqual(1000, partial["requests"][0]["started_at_ms"])
         complete = requests.accounting([*starts, second, first])
         self.assertTrue(complete["complete"])
-        self.assertEqual({"s1": (1000, 3000), "s2": (2000, 4000)}, {
-            row["identity"][0]: (row["started_at_ms"], row["finished_at_ms"]) for row in complete["requests"]})
+        self.assertEqual(
+            {"s1": (1000, 3000), "s2": (2000, 4000)},
+            {row["identity"][0]: (row["started_at_ms"], row["finished_at_ms"]) for row in complete["requests"]},
+        )
 
     def test_exact_start_replay_is_idempotent_but_unidentified_starts_remain_unresolved(self):
         start = {"type": "step_start", "sessionID": "session", "timestamp": 1000, "part": {"id": "start"}}
@@ -114,8 +164,9 @@ class NativeAccountingTests(unittest.TestCase):
         unknown = requests.accounting([{"type": "step_start", "timestamp": 1}, start, finish()])
         self.assertFalse(unknown["complete"])
         self.assertTrue(unknown["unfinished_request"])
-        repeated_unknown = requests.accounting([{"type": "step_start", "sessionID": "session"},
-            {"type": "step_start", "sessionID": "session"}, finish()])
+        repeated_unknown = requests.accounting(
+            [{"type": "step_start", "sessionID": "session"}, {"type": "step_start", "sessionID": "session"}, finish()]
+        )
         self.assertFalse(repeated_unknown["complete"])
         self.assertEqual(1, repeated_unknown["unfinished_requests"])
 
@@ -172,9 +223,11 @@ class NativeAccountingTests(unittest.TestCase):
             self.assertEqual(38, usage.accounting({"stages": [record]})["tokens"]["input_tokens"]["known"])
 
     def test_failed_interrupted_and_report_repair_attempts_all_count(self):
-        records = [attempt(identity="fail", exit_code=1, rejected=True),
-                   attempt("sol_report_repair", "repair", start=10, end=20, report_only=True),
-                   attempt("sol", "interrupt", start=20, end=25, interrupted=True)]
+        records = [
+            attempt(identity="fail", exit_code=1, rejected=True),
+            attempt("sol_report_repair", "repair", start=10, end=20, report_only=True),
+            attempt("sol", "interrupt", start=20, end=25, interrupted=True),
+        ]
         measured = usage.accounting({"stages": records})
         self.assertEqual(3, measured["attempt_count"])
         self.assertEqual(99, measured["tokens"]["input_tokens"]["value"])
@@ -254,8 +307,13 @@ class OutcomeTests(unittest.TestCase):
                 self.assertEqual(33 if expected else None, view["efficiency"]["unit_metrics"]["input_tokens"]["value"])
 
     def test_criteria_need_completion_not_hidden_machine_claims(self):
-        state = {"status": "RUNNING", "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
-                 "last_decision": {"acceptance_criteria": [{"id": "C1", "status": "verified"}, {"id": "C2", "status": "unverified"}]}}
+        state = {
+            "status": "RUNNING",
+            "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
+            "last_decision": {
+                "acceptance_criteria": [{"id": "C1", "status": "verified"}, {"id": "C2", "status": "unverified"}]
+            },
+        }
         result = efficiency.summary(state)
         self.assertEqual(0, result["criteria"]["accepted"])
         state["status"] = "TASK_COMPLETE"
@@ -266,8 +324,9 @@ class OutcomeTests(unittest.TestCase):
     def test_visual_mapped_criteria_do_not_inherit_green_completion_acceptance(self):
         state = design_state()
         state["acceptance_criteria"] = [{"id": "C1"}, {"id": "C2"}, {"id": "functional"}]
-        state["last_decision"] = {"acceptance_criteria": [{"id": identity, "status": "verified"}
-                                                         for identity in ("C1", "C2", "functional")]}
+        state["last_decision"] = {
+            "acceptance_criteria": [{"id": identity, "status": "verified"} for identity in ("C1", "C2", "functional")]
+        }
         result = efficiency.summary(state, completion_current=True)
         self.assertEqual([None, False, True], [row["accepted"] for row in result["criteria"]["rows"]])
         self.assertIsNone(result["criteria"]["accepted"])
@@ -283,17 +342,25 @@ class OutcomeTests(unittest.TestCase):
 
 class CurrentCompletionTests(unittest.TestCase):
     def state(self, run="/root", *, status="TASK_COMPLETE", identity="current"):
-        return {"run_dir": run, "status": status, "stages": [attempt(identity=identity)],
-                "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
-                "last_decision": {"acceptance_criteria": [{"id": "C1", "status": "verified"},
-                                                          {"id": "C2", "status": "PASS"}]}}
+        return {
+            "run_dir": run,
+            "status": status,
+            "stages": [attempt(identity=identity)],
+            "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}],
+            "last_decision": {
+                "acceptance_criteria": [{"id": "C1", "status": "verified"}, {"id": "C2", "status": "PASS"}]
+            },
+        }
 
     def test_saved_completion_without_trusted_fresh_check_is_unknown_not_accepted(self):
         state = self.state()
         state["completion_current"] = True  # Saved/model-owned data is not the trusted caller argument.
         original = deepcopy(state)
         for arguments in ({}, {"completion_current": None}, {"completion_current": 1}, {"completion_current": "True"}):
-            with self.subTest(arguments=arguments), mock.patch.object(Path, "open", side_effect=AssertionError("view must not run a proof check")):
+            with (
+                self.subTest(arguments=arguments),
+                mock.patch.object(Path, "open", side_effect=AssertionError("view must not run a proof check")),
+            ):
                 view = run_view.view(state, **arguments)
                 result = view["efficiency"]
                 self.assertTrue(view["done"])
@@ -366,7 +433,10 @@ class CurrentCompletionTests(unittest.TestCase):
     def test_aggregate_mixed_current_proof_retains_all_usage_but_not_a_partial_denominator(self):
         states = [self.state(f"/root{n}", identity=str(n)) for n in range(4)]
         states[3]["status"] = "RUNNING"
-        views = [run_view.view(state, completion_current=current) for state, current in zip(states, (True, False, None, True), strict=False)]
+        views = [
+            run_view.view(state, completion_current=current)
+            for state, current in zip(states, (True, False, None, True), strict=False)
+        ]
         result = efficiency.aggregate(views)
         self.assertEqual(3, result["completed_tasks"])
         self.assertEqual({"verified": 1, "not_verified": 2, "unknown": 1}, result["current_completion_counts"])
@@ -400,10 +470,15 @@ class CurrentCompletionTests(unittest.TestCase):
         self.assertIsNone(stale["unit_metrics"]["reported_usd"]["value"])
 
     def test_worker_completion_never_supplies_missing_root_acceptance_or_missing_usage(self):
-        parent_state = {"run_dir": "/parent", "status": "TASK_COMPLETE", "orchestration_batch": {
-            "workers": [{"run_dir": "/worker", "milestone_id": "M1", "status": "RUNNING"}]}}
+        parent_state = {
+            "run_dir": "/parent",
+            "status": "TASK_COMPLETE",
+            "orchestration_batch": {"workers": [{"run_dir": "/worker", "milestone_id": "M1", "status": "RUNNING"}]},
+        }
         parent = run_view.view(parent_state)
-        worker = run_view.view({**self.state("/worker", identity="worker"), "parent_run": "/parent"}, completion_current=True)
+        worker = run_view.view(
+            {**self.state("/worker", identity="worker"), "parent_run": "/parent"}, completion_current=True
+        )
         other = run_view.view(self.state("/other", identity="other"), completion_current=True)
         result = efficiency.aggregate([parent, worker, other])
         self.assertEqual((2, 1), (result["completed_tasks"], result["worker_views"]))
@@ -424,15 +499,22 @@ class CurrentCompletionTests(unittest.TestCase):
 
 class InjectedVisualProjectionTests(unittest.TestCase):
     """Consumer-contract fixtures, not image inspection or acceptance authority."""
+
     def state(self, run="/visual", *, two_frames=False):
         state = design_state()
         if not two_frames:
             state["settings"]["design_manifest"]["body"]["cases"][1].update(node_id="1:1", state="hover")
             state["settings"]["design_manifest"]["body"]["files"][0]["nodes"] = ["1:1"]
-        state.update(run_dir=run, created_at="1970-01-01T00:00:00+00:00",
-                     acceptance_criteria=[{"id": cid} for cid in ("C1", "C2", "shared-visual", "functional")],
-                     last_decision={"acceptance_criteria": [{"id": cid, "status": "verified"}
-                         for cid in ("C1", "C2", "shared-visual", "functional")]})
+        state.update(
+            run_dir=run,
+            created_at="1970-01-01T00:00:00+00:00",
+            acceptance_criteria=[{"id": cid} for cid in ("C1", "C2", "shared-visual", "functional")],
+            last_decision={
+                "acceptance_criteria": [
+                    {"id": cid, "status": "verified"} for cid in ("C1", "C2", "shared-visual", "functional")
+                ]
+            },
+        )
         failed = attempt(identity=run.strip("/") + "-failed", start=0, end=6, exit_code=1, rejected=True)
         review = attempt("sol", run.strip("/") + "-review", start=8, end=20)
         request = review["metrics"]["request_context"]["accounting"]["requests"][0]
@@ -441,14 +523,28 @@ class InjectedVisualProjectionTests(unittest.TestCase):
         return state
 
     def projection(self, state, verdicts=("PASS", "PASS")):
-        return {"cases": [{"id": case["id"], "file_key": case["file_key"], "node_id": case["node_id"],
-                           "criterion_ids": [f"C{index + 1}", "shared-visual"], "verdict": verdict,
-                           "current_accepted": {"PASS": True, "FAIL": False, "NOT_VERIFIED": None}[verdict],
-                           "accepted_at": "1970-01-01T00:00:20+00:00" if verdict == "PASS" else None,
-                           "historical_accepted_at": "1970-01-01T00:00:10+00:00"}
-                          for index, (case, verdict) in enumerate(zip(state["settings"]["design_manifest"]["body"]["cases"], verdicts, strict=False))],
-                # These deliberately misleading precomputed values must be ignored.
-                "current_all_accepted": True, "accepted_cases": 999, "accepted_frames": 999, "coverage_complete": True}
+        return {
+            "cases": [
+                {
+                    "id": case["id"],
+                    "file_key": case["file_key"],
+                    "node_id": case["node_id"],
+                    "criterion_ids": [f"C{index + 1}", "shared-visual"],
+                    "verdict": verdict,
+                    "current_accepted": {"PASS": True, "FAIL": False, "NOT_VERIFIED": None}[verdict],
+                    "accepted_at": "1970-01-01T00:00:20+00:00" if verdict == "PASS" else None,
+                    "historical_accepted_at": "1970-01-01T00:00:10+00:00",
+                }
+                for index, (case, verdict) in enumerate(
+                    zip(state["settings"]["design_manifest"]["body"]["cases"], verdicts, strict=False)
+                )
+            ],
+            # These deliberately misleading precomputed values must be ignored.
+            "current_all_accepted": True,
+            "accepted_cases": 999,
+            "accepted_frames": 999,
+            "coverage_complete": True,
+        }
 
     def measure(self, state, projection, *, current=True):
         return efficiency.summary(state, now=40, completion_current=current, visual_acceptance=projection)
@@ -508,12 +604,24 @@ class InjectedVisualProjectionTests(unittest.TestCase):
     def test_invalid_projection_inventory_decisions_and_mappings_fail_closed(self):
         state = self.state()
         valid = self.projection(state)
-        variants = [None, {**valid, "cases": valid["cases"][:1]}, {**valid, "cases": valid["cases"] * 2},
-                    {**valid, "cases": [*valid["cases"], None]}]
-        for change in ({"id": "foreign"}, {"file_key": "foreign"}, {"node_id": "wrong-frame"},
-                       {"state": "wrong-state"}, {"viewport": {"width": 999}}, {"criterion_ids": ["unknown-cid"]},
-                       {"criterion_ids": []}, {"current_accepted": 1}, {"current_accepted": False},
-                       {"verdict": "UNKNOWN"}):
+        variants = [
+            None,
+            {**valid, "cases": valid["cases"][:1]},
+            {**valid, "cases": valid["cases"] * 2},
+            {**valid, "cases": [*valid["cases"], None]},
+        ]
+        for change in (
+            {"id": "foreign"},
+            {"file_key": "foreign"},
+            {"node_id": "wrong-frame"},
+            {"state": "wrong-state"},
+            {"viewport": {"width": 999}},
+            {"criterion_ids": ["unknown-cid"]},
+            {"criterion_ids": []},
+            {"current_accepted": 1},
+            {"current_accepted": False},
+            {"verdict": "UNKNOWN"},
+        ):
             variant = deepcopy(valid)
             variant["cases"][0].update(change)
             variants.append(variant)
@@ -580,7 +688,9 @@ class InjectedVisualProjectionTests(unittest.TestCase):
     def test_first_current_time_and_native_cutoff_are_separate_from_history_and_later_cost(self):
         state = self.state()
         later = attempt("astra_resolve", "later-failed", start=25, end=30, exit_code=1)
-        later["metrics"]["request_context"]["accounting"]["requests"][0].update(started_at_ms=26000, finished_at_ms=29000)
+        later["metrics"]["request_context"]["accounting"]["requests"][0].update(
+            started_at_ms=26000, finished_at_ms=29000
+        )
         state["stages"].append(later)
         result = self.measure(state, self.projection(state))
         first = result["visual"]["first_independently_accepted_screen"]
@@ -634,8 +744,9 @@ class InjectedVisualProjectionTests(unittest.TestCase):
                 self.assertIsNone(result["unit_metrics"]["per_accepted_state"]["input_tokens"]["value"])
                 self.assertIsNone(result["unit_metrics"]["per_accepted_frame"]["reported_usd"]["value"])
                 self.assertIsNone(result["visual"]["first_independently_accepted_screen"]["usage"])
-                combined = efficiency.aggregate([run_view.view(state, completion_current=True,
-                                                                 visual_acceptance=self.projection(state))])
+                combined = efficiency.aggregate(
+                    [run_view.view(state, completion_current=True, visual_acceptance=self.projection(state))]
+                )
                 self.assertEqual(1, combined["verified_deliveries"])
                 self.assertIsNone(combined["unit_metrics"]["reported_usd"]["value"])
                 self.assertIsNone(combined["unit_metrics"]["input_tokens"]["value"])
@@ -676,14 +787,35 @@ class InjectedVisualProjectionTests(unittest.TestCase):
 
 class TimingAndProvenanceTests(unittest.TestCase):
     def replay(self, action):
-        schedule = {"action": action, "reason": "new_obligation" if action == "execute" else "same_obligation_complete_proof",
-                    "receipt": "/owned/receipt.json", "receipt_sha256": "sha", "identity": "obligation",
-                    "attempt_id": "runner1", "started_at": 20, "finished_at": 25}
+        schedule = {
+            "action": action,
+            "reason": "new_obligation" if action == "execute" else "same_obligation_complete_proof",
+            "receipt": "/owned/receipt.json",
+            "receipt_sha256": "sha",
+            "identity": "obligation",
+            "attempt_id": "runner1",
+            "started_at": 20,
+            "finished_at": 25,
+        }
         if action == "reuse":
-            schedule.update(started_at=30, finished_at=31, original_started_at=20, original_finished_at=25,
-                            original_reason="new_obligation")
-        return {"checks": [{"command": "tests", "exit_code": 0, "timed_out": False,
-                            "results": {"passed": ["T1"]}, "scheduling": schedule}]}
+            schedule.update(
+                started_at=30,
+                finished_at=31,
+                original_started_at=20,
+                original_finished_at=25,
+                original_reason="new_obligation",
+            )
+        return {
+            "checks": [
+                {
+                    "command": "tests",
+                    "exit_code": 0,
+                    "timed_out": False,
+                    "results": {"passed": ["T1"]},
+                    "scheduling": schedule,
+                }
+            ]
+        }
 
     def test_replay_observer_imports_original_crash_execution_once_without_reusing_elapsed_time(self):
         uninterrupted, restarted = {}, {}
@@ -703,8 +835,15 @@ class TimingAndProvenanceTests(unittest.TestCase):
         state = {"stages": [attempt(start=0, end=10), attempt(identity="two", start=20, end=30)]}
         before = efficiency.summary(state)
         self.assertIn("waiting", before["attribution"]["uninstrumented_categories"])
-        efficiency.record_observation(state, event_id="operator-wait", kind="activity", category="waiting",
-                                      started_at=10, finished_at=20, provenance={"reason": "user approval"})
+        efficiency.record_observation(
+            state,
+            event_id="operator-wait",
+            kind="activity",
+            category="waiting",
+            started_at=10,
+            finished_at=20,
+            provenance={"reason": "user approval"},
+        )
         after = efficiency.summary(state)
         self.assertEqual(30, after["time"]["wall_union_seconds"])
         self.assertEqual(20, after["time"]["summed_execution_seconds"])
@@ -745,8 +884,15 @@ class TimingAndProvenanceTests(unittest.TestCase):
 
     def test_observations_idempotent_conflicts_visible_and_decisions_not_timed_as_work(self):
         state = {}
-        args = dict(event_id="event1", kind="reuse", category="functional_proof", reason="duplicate_no_new_information",
-                    provenance={"receipt": "r"}, started_at=0, finished_at=100)
+        args = dict(
+            event_id="event1",
+            kind="reuse",
+            category="functional_proof",
+            reason="duplicate_no_new_information",
+            provenance={"receipt": "r"},
+            started_at=0,
+            finished_at=100,
+        )
         self.assertTrue(efficiency.record_observation(state, **args))
         self.assertTrue(efficiency.record_observation(state, **args))
         result = efficiency.summary(state)
@@ -760,8 +906,14 @@ class TimingAndProvenanceTests(unittest.TestCase):
     def test_every_repeat_reason_is_kept_and_independent_checks_are_not_waste(self):
         state = {}
         for reason in efficiency.REASONS:
-            efficiency.record_observation(state, event_id=reason, kind="repeat", category="functional_proof",
-                                          reason=reason, provenance={"source": "pinned"})
+            efficiency.record_observation(
+                state,
+                event_id=reason,
+                kind="repeat",
+                category="functional_proof",
+                reason=reason,
+                provenance={"source": "pinned"},
+            )
         efficiency.record_observation(state, event_id="suppressed", kind="suppressed", category="diagnosis")
         result = efficiency.summary(state)
         self.assertEqual(6, result["repeats"]["observed"])
@@ -772,17 +924,29 @@ class TimingAndProvenanceTests(unittest.TestCase):
     def test_stage_categories_and_visual_observation_usage_are_disjoint(self):
         names = ["astra_discovery", "terra", "sol", "task_preflight", "astra_resolve", "sol_report_repair"]
         state = {"stages": [attempt(name, str(n), start=n * 10, end=(n + 1) * 10) for n, name in enumerate(names)]}
-        efficiency.record_observation(state, event_id="inspection", kind="activity", category="visual_capture_review",
-                                      attempt_id="001/2", provenance={"actual_activity": "image review, not acceptance"})
+        efficiency.record_observation(
+            state,
+            event_id="inspection",
+            kind="activity",
+            category="visual_capture_review",
+            attempt_id="001/2",
+            provenance={"actual_activity": "image review, not acceptance"},
+        )
         result = efficiency.summary(state)
         self.assertEqual(1, result["by_category"]["visual_capture_review"]["attempts"])
         self.assertEqual(0, result["by_category"]["functional_proof"]["attempts"])
         self.assertEqual(198, sum(row["tokens"]["input_tokens"]["known"] for row in result["by_category"].values()))
 
     def test_repair_attempts_join_finding_assignments_not_duplicate_observations(self):
-        state = {"stages": [attempt(identity="repair1"), attempt(identity="repair2")],
-                 "findings_ledger": [{"id": "F1", "status": "open", "assigned_history": [{"task_id": "T1"}, {"task_id": "T1"}]}]}
-        efficiency.record_observation(state, event_id="repair", kind="repeat", category="build", attempt_id="001/repair1", finding_ids=["F1"])
+        state = {
+            "stages": [attempt(identity="repair1"), attempt(identity="repair2")],
+            "findings_ledger": [
+                {"id": "F1", "status": "open", "assigned_history": [{"task_id": "T1"}, {"task_id": "T1"}]}
+            ],
+        }
+        efficiency.record_observation(
+            state, event_id="repair", kind="repeat", category="build", attempt_id="001/repair1", finding_ids=["F1"]
+        )
         self.assertEqual(2, efficiency.summary(state)["repair_attempts_per_finding"][0]["repair_attempts"])
 
     def test_public_view_is_additive_and_deeply_detached_from_state(self):
@@ -809,9 +973,17 @@ class TimingAndProvenanceTests(unittest.TestCase):
 
 class ObservationConflictTests(unittest.TestCase):
     def record(self, state, **changes):
-        return efficiency.record_observation(state, **{
-            "event_id": "runner-proof", "kind": "activity", "category": "functional_proof",
-            "started_at": 0, "finished_at": 10, **changes})
+        return efficiency.record_observation(
+            state,
+            **{
+                "event_id": "runner-proof",
+                "kind": "activity",
+                "category": "functional_proof",
+                "started_at": 0,
+                "finished_at": 10,
+                **changes,
+            },
+        )
 
     def test_exact_observation_replay_keeps_measured_time_and_one_immutable_record(self):
         state = {"status": "TASK_COMPLETE"}
@@ -826,8 +998,13 @@ class ObservationConflictTests(unittest.TestCase):
         self.assertEqual(0, result["time"]["missing_intervals"])
 
     def test_activity_start_end_category_or_kind_conflict_makes_affected_time_unknown(self):
-        for changes in ({"started_at": 1}, {"finished_at": 20}, {"category": "diagnosis"},
-                        {"kind": "repeat"}, {"kind": "reuse"}):
+        for changes in (
+            {"started_at": 1},
+            {"finished_at": 20},
+            {"category": "diagnosis"},
+            {"kind": "repeat"},
+            {"kind": "reuse"},
+        ):
             with self.subTest(changes=changes):
                 state = {"status": "TASK_COMPLETE"}
                 self.record(state)
@@ -914,8 +1091,9 @@ class ObservationConflictTests(unittest.TestCase):
     def test_legacy_marker_missing_conflicting_kind_cannot_claim_no_execution(self):
         state = {"status": "TASK_COMPLETE"}
         self.record(state, kind="reuse")
-        state["efficiency_observations"].append({"event_id": "runner-proof", "kind": "conflict",
-                                                "reason": "Conflicting observation replay"})
+        state["efficiency_observations"].append(
+            {"event_id": "runner-proof", "kind": "conflict", "reason": "Conflicting observation replay"}
+        )
         result = efficiency.summary(state, completion_current=True)
         self.assertIsNone(result["time"]["wall_union_seconds"])
         self.assertIsNone(result["time"]["summed_execution_seconds"])
@@ -929,8 +1107,10 @@ class ObservationConflictTests(unittest.TestCase):
                 self.record(state)
                 with self.assertWarns(RuntimeWarning):
                     self.record(state, finished_at=20)
-                known = run_view.view({"run_dir": "/known", "status": "TASK_COMPLETE", "stages": [attempt(start=30, end=40)]},
-                                      completion_current=True)
+                known = run_view.view(
+                    {"run_dir": "/known", "status": "TASK_COMPLETE", "stages": [attempt(start=30, end=40)]},
+                    completion_current=True,
+                )
                 combined = efficiency.aggregate([run_view.view(state, completion_current=True), known])
                 expected_deliveries = 2 if status == "TASK_COMPLETE" else 1
                 self.assertEqual(expected_deliveries, combined["verified_deliveries"])
@@ -942,13 +1122,22 @@ class ObservationConflictTests(unittest.TestCase):
                 self.assertTrue(combined["usage"]["complete"])
                 self.assertIsNone(combined["by_category"]["functional_proof"]["summed_execution_seconds"])
                 self.assertTrue(any("Conflicting observation" in issue for issue in combined["issues"]))
-                state["orchestration_batch"] = {"workers": [{"run_dir": "/worker", "milestone_id": "M1", "status": "RUNNING"}]}
+                state["orchestration_batch"] = {
+                    "workers": [{"run_dir": "/worker", "milestone_id": "M1", "status": "RUNNING"}]
+                }
                 parent = run_view.view(state, completion_current=True)
                 incomplete = efficiency.aggregate([parent, known])
                 self.assertIsNone(incomplete["time"]["wall_union_seconds"])
                 self.assertFalse(incomplete["usage"]["complete"])
-                worker = run_view.view({"run_dir": "/worker", "parent_run": "/conflicted", "status": "TASK_COMPLETE",
-                                        "stages": [attempt(identity="worker", start=40, end=50)]}, completion_current=True)
+                worker = run_view.view(
+                    {
+                        "run_dir": "/worker",
+                        "parent_run": "/conflicted",
+                        "status": "TASK_COMPLETE",
+                        "stages": [attempt(identity="worker", start=40, end=50)],
+                    },
+                    completion_current=True,
+                )
                 resolved = efficiency.aggregate([parent, known, worker])
                 self.assertEqual(expected_deliveries, resolved["verified_deliveries"])
                 self.assertEqual(66, resolved["usage"]["tokens"]["input_tokens"]["value"])
@@ -959,10 +1148,27 @@ class ObservationConflictTests(unittest.TestCase):
 
     def test_replay_observer_conflicting_original_time_cannot_be_laundered_by_reuse(self):
         state = {"status": "TASK_COMPLETE"}
-        replay = {"checks": [{"command": "tests", "exit_code": 0, "scheduling": {
-            "action": "reuse", "reason": "same_obligation_complete_proof", "original_reason": "new_obligation",
-            "receipt": "/receipt", "receipt_sha256": "sha", "identity": "proof", "attempt_id": "runner",
-            "started_at": 30, "finished_at": 31, "original_started_at": 0, "original_finished_at": 10}}]}
+        replay = {
+            "checks": [
+                {
+                    "command": "tests",
+                    "exit_code": 0,
+                    "scheduling": {
+                        "action": "reuse",
+                        "reason": "same_obligation_complete_proof",
+                        "original_reason": "new_obligation",
+                        "receipt": "/receipt",
+                        "receipt_sha256": "sha",
+                        "identity": "proof",
+                        "attempt_id": "runner",
+                        "started_at": 30,
+                        "finished_at": 31,
+                        "original_started_at": 0,
+                        "original_finished_at": 10,
+                    },
+                }
+            ]
+        }
         efficiency.observe_replay(state, replay, attempt_id="validator")
         altered = deepcopy(replay)
         altered["checks"][0]["scheduling"]["original_finished_at"] = 20
@@ -979,8 +1185,11 @@ class ObservationConflictTests(unittest.TestCase):
 
 class PublicAggregationTests(unittest.TestCase):
     def test_legacy_public_view_missing_accounting_is_unknown_not_free(self):
-        legacy = {"status": "TASK_COMPLETE", "done": True, "usage": {
-            "stages": 3, "tokens": {"input_tokens": 1000}, "cost_usd": {"reported": 0.5}}}
+        legacy = {
+            "status": "TASK_COMPLETE",
+            "done": True,
+            "usage": {"stages": 3, "tokens": {"input_tokens": 1000}, "cost_usd": {"reported": 0.5}},
+        }
         result = efficiency.aggregate([legacy])
         self.assertFalse(result["usage"]["complete"])
         self.assertIsNone(result["usage"]["tokens"]["input_tokens"]["value"])
@@ -990,10 +1199,14 @@ class PublicAggregationTests(unittest.TestCase):
 
     def test_parent_import_and_worker_attempt_are_charged_once(self):
         record = attempt()
-        parent = run_view.view({"run_dir": "/parent", "status": "TASK_COMPLETE", "stages": [{**record, "worker_attempt": "b:M:1"}]},
-                               completion_current=True)
-        worker = run_view.view({"run_dir": "/worker", "parent_run": "/parent", "status": "TASK_COMPLETE", "stages": [record]},
-                               completion_current=True)
+        parent = run_view.view(
+            {"run_dir": "/parent", "status": "TASK_COMPLETE", "stages": [{**record, "worker_attempt": "b:M:1"}]},
+            completion_current=True,
+        )
+        worker = run_view.view(
+            {"run_dir": "/worker", "parent_run": "/parent", "status": "TASK_COMPLETE", "stages": [record]},
+            completion_current=True,
+        )
         result = efficiency.aggregate([parent, worker, parent])
         self.assertEqual((1, 1, 1), (result["runs"], result["worker_views"], result["completed_tasks"]))
         self.assertEqual(1, result["usage"]["attempt_count"])
@@ -1002,22 +1215,30 @@ class PublicAggregationTests(unittest.TestCase):
     def test_final_import_supersedes_active_snapshot_without_double_charge(self):
         record = attempt()
         parent = run_view.view({"run_dir": "/parent", "status": "RUNNING", "stages": [record]})
-        worker = run_view.view({"run_dir": "/worker", "parent_run": "/parent", "status": "RUNNING", "active_stage": record})
+        worker = run_view.view(
+            {"run_dir": "/worker", "parent_run": "/parent", "status": "RUNNING", "active_stage": record}
+        )
         result = efficiency.aggregate([worker, parent])
         self.assertEqual(1, result["usage"]["attempt_count"])
         self.assertEqual(0, result["usage"]["active_attempts"])
         self.assertEqual(33, result["usage"]["tokens"]["input_tokens"]["value"])
 
     def test_parent_alone_does_not_claim_active_worker_usage_is_complete(self):
-        result = usage.accounting({"stages": [attempt()], "orchestration_batch": {
-            "workers": [{"milestone_id": "M1", "status": "RUNNING"}]}})
+        result = usage.accounting(
+            {"stages": [attempt()], "orchestration_batch": {"workers": [{"milestone_id": "M1", "status": "RUNNING"}]}}
+        )
         self.assertEqual(["M1"], result["parallel_workers_pending"])
         self.assertIsNone(result["tokens"]["input_tokens"]["value"])
         self.assertFalse(result["complete"])
 
     def test_aggregate_cannot_restore_false_completeness_by_dropping_worker_warning(self):
-        parent = run_view.view({"run_dir": "/parent", "stages": [attempt()], "orchestration_batch": {
-            "workers": [{"milestone_id": "M1", "run_dir": "/worker", "status": "RUNNING"}]}})
+        parent = run_view.view(
+            {
+                "run_dir": "/parent",
+                "stages": [attempt()],
+                "orchestration_batch": {"workers": [{"milestone_id": "M1", "run_dir": "/worker", "status": "RUNNING"}]},
+            }
+        )
         result = efficiency.aggregate([parent])
         self.assertFalse(result["usage"]["complete"])
         self.assertIsNone(result["usage"]["tokens"]["input_tokens"]["value"])
@@ -1028,8 +1249,12 @@ class PublicAggregationTests(unittest.TestCase):
         self.assertEqual([], complete["missing_worker_views"])
 
     def test_all_failed_runs_remain_in_campaign_cost_and_outcome_denominator(self):
-        views = [run_view.view({"run_dir": f"/run{n}", "status": status, "stages": [attempt(identity=str(n))]}, completion_current=True)
-                 for n, status in enumerate(("TASK_COMPLETE", "PAUSED_BUDGET", "PAUSED_NO_PROGRESS"))]
+        views = [
+            run_view.view(
+                {"run_dir": f"/run{n}", "status": status, "stages": [attempt(identity=str(n))]}, completion_current=True
+            )
+            for n, status in enumerate(("TASK_COMPLETE", "PAUSED_BUDGET", "PAUSED_NO_PROGRESS"))
+        ]
         result = efficiency.aggregate(views)
         self.assertEqual(3, result["runs"])
         self.assertEqual(1, result["completed_tasks"])

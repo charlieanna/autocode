@@ -4,6 +4,7 @@ The runtime lives in tools/ and is imported by its top-level module names
 (``import autocode``), so this package puts tools/ on sys.path before any
 test module loads. Run the gate with ``python3 tools/run_suite.py``.
 """
+
 import os
 import shutil
 import sys
@@ -27,7 +28,9 @@ for _p in (str(ROOT), str(TOOLS)):
 # pushes into (git starts its receive-pack without GIT_CONFIG_COUNT).
 GIT_TEST_CONFIG = {"maintenance.auto": "false", "gc.auto": "0"}
 _count = int(os.environ.get("GIT_CONFIG_COUNT") or 0)
-_inherited = dict((os.environ.get(f"GIT_CONFIG_KEY_{i}"), os.environ.get(f"GIT_CONFIG_VALUE_{i}")) for i in range(_count))
+_inherited = dict(
+    (os.environ.get(f"GIT_CONFIG_KEY_{i}"), os.environ.get(f"GIT_CONFIG_VALUE_{i}")) for i in range(_count)
+)
 for _key, _value in GIT_TEST_CONFIG.items():
     if _inherited.get(_key) != _value:  # the last entry for a key wins, as in git
         os.environ[f"GIT_CONFIG_KEY_{_count}"] = _key

@@ -3,6 +3,7 @@
 This module runs inside the fake provider process. It changes only that
 provider's report/stream and its own bookkeeping, never AutoCode's state.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -11,12 +12,20 @@ import shlex
 import sys
 from pathlib import Path
 
-FAULTS = frozenset({
-    "investigator_iteration", "investigator_run_root", "investigator_missing_citation",
-    "investigator_uncited_input", "truncated_once", "truncated_repeated",
-    "completion_denial", "builder_permission_corrected", "builder_permission_repeated",
-    "builder_permission_distinct",
-})
+FAULTS = frozenset(
+    {
+        "investigator_iteration",
+        "investigator_run_root",
+        "investigator_missing_citation",
+        "investigator_uncited_input",
+        "truncated_once",
+        "truncated_repeated",
+        "completion_denial",
+        "builder_permission_corrected",
+        "builder_permission_repeated",
+        "builder_permission_distinct",
+    }
+)
 MISSING_REF = "README.md.adversarial-missing"
 
 
@@ -85,15 +94,27 @@ def install(fake, configuration: dict, trace) -> None:
             "diagnosis": f"The Planner cites {MISSING_REF}, which does not exist.",
             "cause": "stage_output",
             "guidance": "Remove the nonexistent code_refs entry and cite only existing repository files.",
-            "recommendation": "retry", "user_question": "", "evidence_refs": refs,
+            "recommendation": "retry",
+            "user_question": "",
+            "evidence_refs": refs,
             "example": f"The saved planner report cites {MISSING_REF}; checking that nonexistent path rejects it.",
-            "probe": shlex.join([sys.executable, "-c", "; ".join(checks)]), "untestable": "",
+            "probe": shlex.join([sys.executable, "-c", "; ".join(checks)]),
+            "untestable": "",
         }
         saved_report.write_text(json.dumps(report))
-        mark("investigator_probe", evidence_refs=refs, probe=report["probe"],
-             cited_files=[{"path": ref, "exists": Path(ref).is_file(),
-                           "sha256": hashlib.sha256(Path(ref).read_bytes()).hexdigest()
-                           if Path(ref).is_file() else None} for ref in refs])
+        mark(
+            "investigator_probe",
+            evidence_refs=refs,
+            probe=report["probe"],
+            cited_files=[
+                {
+                    "path": ref,
+                    "exists": Path(ref).is_file(),
+                    "sha256": hashlib.sha256(Path(ref).read_bytes()).hexdigest() if Path(ref).is_file() else None,
+                }
+                for ref in refs
+            ],
+        )
         return report
 
     def report_for(stage: str, data: dict) -> dict:
@@ -106,30 +127,40 @@ def install(fake, configuration: dict, trace) -> None:
             partial = Path("greet.py")
             if counts[stage] == 1:
                 partial.write_text("# retained partial implementation\n")
-            mark("builder_permission_handoff", recovery=data.get("recovery_context"),
-                 artifact_policy=data.get("builder_artifact_policy"),
-                 partial=partial.read_text() if partial.exists() else None)
+            mark(
+                "builder_permission_handoff",
+                recovery=data.get("recovery_context"),
+                artifact_policy=data.get("builder_artifact_policy"),
+                partial=partial.read_text() if partial.exists() else None,
+            )
             if counts[stage] == 1 or attack in ("builder_permission_repeated", "builder_permission_distinct"):
                 mark("builder_permission_denied", invocation=counts[stage])
                 # A distinct denied path per invocation makes each denial a new
                 # incident, so only the permission ceiling can bound this loop.
-                path = (f"/tmp/diagnostic-{counts[stage]}/*" if attack == "builder_permission_distinct"
-                        else "/tmp/diagnostic/*")
+                path = (
+                    f"/tmp/diagnostic-{counts[stage]}/*"
+                    if attack == "builder_permission_distinct"
+                    else "/tmp/diagnostic/*"
+                )
                 print(f"permission requested: external_directory ({path}); auto-rejecting", flush=True)
                 raise SystemExit(0)
             recovery = data.get("recovery_context") or {}
             directory = Path(recovery.get("diagnostic_directory", "missing-recovery-directory"))
             if not directory.is_dir() or not directory.resolve().is_relative_to(Path.cwd().resolve()):
                 raise RuntimeError("recovery did not provision a workspace-contained diagnostic directory")
-            policy = data.get('builder_artifact_policy') or {}
-            if not directory.is_relative_to(Path(policy.get('evidence_directory', 'missing-artifact-directory'))):
-                raise RuntimeError('recovery scratch path contradicts the Builder artifact policy')
+            policy = data.get("builder_artifact_policy") or {}
+            if not directory.is_relative_to(Path(policy.get("evidence_directory", "missing-artifact-directory"))):
+                raise RuntimeError("recovery scratch path contradicts the Builder artifact policy")
             if partial.read_text() != "# retained partial implementation\n":
                 raise RuntimeError("partial work was lost before the corrected diagnostic")
             receipt = directory / "diagnostic.txt"
             receipt.write_text("corrected diagnostic executed\n")
-            mark("builder_permission_corrected", directory=str(directory), receipt=str(receipt),
-                 denied_operation=recovery.get("denied_operation"))
+            mark(
+                "builder_permission_corrected",
+                directory=str(directory),
+                receipt=str(receipt),
+                denied_operation=recovery.get("denied_operation"),
+            )
         if attack.startswith("investigator_"):
             if stage == "investigate_stuck":
                 return investigator(data)
@@ -141,15 +172,21 @@ def install(fake, configuration: dict, trace) -> None:
                 else:
                     mark("guided_planner_retry", code_refs=report.get("code_refs"))
                 return report
-        if (attack in ("truncated_once", "truncated_repeated") and stage == "astra_discovery"
-                and (attack == "truncated_repeated" or counts[stage] == 1)):
+        if (
+            attack in ("truncated_once", "truncated_repeated")
+            and stage == "astra_discovery"
+            and (attack == "truncated_repeated" or counts[stage] == 1)
+        ):
             pending_truncation = True
         if attack == "completion_denial" and stage == "astra_review":
             validation = data.get("validation") or {}
-            mark("completion_handoff", validation_verdict=validation.get("verdict"),
-                 source_revision=data.get("source_revision"),
-                 validation_revision=validation.get("source_revision"),
-                 repair=repair)
+            mark(
+                "completion_handoff",
+                validation_verdict=validation.get("verdict"),
+                source_revision=data.get("source_revision"),
+                validation_revision=validation.get("source_revision"),
+                repair=repair,
+            )
             if counts[stage] == 1:
                 if validation.get("verdict") != "PASS":
                     raise RuntimeError("completion denial was not injected after accepted validation")

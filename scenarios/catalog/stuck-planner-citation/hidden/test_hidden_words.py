@@ -1,4 +1,5 @@
 """A word is a non-empty token between runs of whitespace."""
+
 import unittest
 
 from tally.words import count_words, top_words

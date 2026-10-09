@@ -1,4 +1,5 @@
 """Ground report repairs in saved context without rewriting execution history."""
+
 from __future__ import annotations
 
 import copy
@@ -52,20 +53,25 @@ def clarification_context(state: dict, stage: str) -> dict:
     question_ids = {row.get("id") for row in questions if isinstance(row, dict)}
     if investigation:
         question_ids.update(investigation.get("all_question_ids") or investigation.get("question_ids") or [])
-        question_ids.update(row.get("id") for row in investigation.get("questions", [])
-                            if isinstance(row, dict))
+        question_ids.update(row.get("id") for row in investigation.get("questions", []) if isinstance(row, dict))
     answers = state.get("answers") or {}
     feedback = state.get("brief_feedback") or []
     reports = (state.get("planning") or {}).get("reports") or {}
-    predecessors = (("astra_discovery", "astra_challenge", "glm_revise") if stage == "astra_finalize"
-                    else ("astra_discovery", "astra_challenge") if stage == "glm_revise" else ())
+    predecessors = (
+        ("astra_discovery", "astra_challenge", "glm_revise")
+        if stage == "astra_finalize"
+        else ("astra_discovery", "astra_challenge")
+        if stage == "glm_revise"
+        else ()
+    )
     return {
         "planning_exchange": {name: copy.deepcopy(reports[name]) for name in predecessors if name in reports},
         "requirements_handoff": handoff,
         "investigation_request": copy.deepcopy(investigation),
         "clarification_episode": copy.deepcopy(state.get("clarification_episode")),
         "previous_requirements": ((handoff or {}).get("report") or {}).get("requirements", [])
-        if stage == "requirements_gather" else None,
+        if stage == "requirements_gather"
+        else None,
         "required_source_quotes": {
             row["id"]: row["source_quote"]
             for row in ((handoff or {}).get("report") or {}).get("requirements", [])
@@ -74,7 +80,8 @@ def clarification_context(state: dict, stage: str) -> dict:
         "saved_answers": {key: copy.deepcopy(answers[key]) for key in question_ids if key in answers},
         "saved_feedback": [
             {key: event[key] for key in ("id", "actor", "text") if key in event}
-            for event in feedback if isinstance(event, dict)
+            for event in feedback
+            if isinstance(event, dict)
         ],
     }
 

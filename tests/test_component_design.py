@@ -2,6 +2,7 @@
 
 Only provider answers are scripted; no Figma access or live model calls.
 """
+
 import hashlib
 import json
 import os
@@ -26,8 +27,7 @@ def accepted_ui_run(directory, *, brief=BRIEF):
         "requirements_draft": "Alpha navigation and message-card layout.\n",
         "plan_reviewer": {"status": "PASS", "evidence": ["Reviewed alpha layout"]},
         "brief": brief,
-        "plan_finalizer": {"status": "ACCEPT", "evidence": ["Accepted alpha requirements"],
-                           "required_changes": []},
+        "plan_finalizer": {"status": "ACCEPT", "evidence": ["Accepted alpha requirements"], "required_changes": []},
         "builder": {"status": "COMPLETE", "figma_file": URL, "evidence": ["Node 1:2"]},
         "validator": {"status": "PASS", "figma_file": URL, "evidence": ["Compared Node 1:2"]},
         "decision_owner": {"status": "ACCEPT", "figma_file": URL, "evidence": ["Accepted Node 1:2"]},
@@ -38,8 +38,9 @@ def accepted_ui_run(directory, *, brief=BRIEF):
         path.write_text(value if isinstance(value, str) else json.dumps(value))
         refs[role] = {"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
     (directory / "state.json").write_text(json.dumps({"status": "COMPLETE"}))
-    (directory / "handoff.json").write_text(json.dumps(
-        {"version": 2, "task": "Design alpha", "figma_file": URL, "artifacts": refs}))
+    (directory / "handoff.json").write_text(
+        json.dumps({"version": 2, "task": "Design alpha", "figma_file": URL, "artifacts": refs})
+    )
     return directory
 
 
@@ -63,8 +64,7 @@ class ComponentDesignTests(unittest.TestCase):
         self.ui_run = accepted_ui_run(self.directory / "accepted-alpha")
 
     def load(self, **design):
-        (self.directory / "components.json").write_text(json.dumps(
-            [{**fixture.component("alpha"), **design}]))
+        (self.directory / "components.json").write_text(json.dumps([{**fixture.component("alpha"), **design}]))
         return mc.Architecture.load(self.directory)
 
     def test_direct_reference_and_null_fields(self):
@@ -78,11 +78,17 @@ class ComponentDesignTests(unittest.TestCase):
         self.assertTrue(design.fingerprint())
 
     def test_invalid_inputs_are_refused_at_architecture_load(self):
-        for row in ({"figma_file": "https://example.com/design/Alpha123"},
-                    {"figma_file": "https://www.figma.com/file/Alpha123/Alpha"},
-                    {"figma_file": URL, "ui_run": "accepted-alpha"},
-                    {"figma_file": ""}, {"figma_file": " "}, {"figma_file": 1},
-                    {"ui_run": ""}, {"ui_run": " "}, {"ui_run": False}):
+        for row in (
+            {"figma_file": "https://example.com/design/Alpha123"},
+            {"figma_file": "https://www.figma.com/file/Alpha123/Alpha"},
+            {"figma_file": URL, "ui_run": "accepted-alpha"},
+            {"figma_file": ""},
+            {"figma_file": " "},
+            {"figma_file": 1},
+            {"ui_run": ""},
+            {"ui_run": " "},
+            {"ui_run": False},
+        ):
             with self.subTest(row=row), self.assertRaises(mc.ArchitectureError):
                 self.load(**row)
 
@@ -126,8 +132,7 @@ class ComponentDesignTests(unittest.TestCase):
 
     def test_design_cannot_silently_override_a_different_engine(self):
         architecture = self.load(ui_run="accepted-alpha")
-        for options in (("--engine", "opencode"), ("--engine=gocode",),
-                        ("--engine", "codex", "--engine", "opencode")):
+        for options in (("--engine", "opencode"), ("--engine=gocode",), ("--engine", "codex", "--engine", "opencode")):
             with self.subTest(options=options), self.assertRaisesRegex(mc.ArchitectureError, "engine codex"):
                 mc.MultiComponentBuild(self.root, architecture, options=options)
         self.assertFalse((self.root / ".autocode-components").exists())
@@ -135,6 +140,7 @@ class ComponentDesignTests(unittest.TestCase):
 
 class ComponentDesignCliTests(unittest.TestCase):
     """Composition reuses fixture setup without inheriting its unrelated tests."""
+
     write_manifest = fixture.BuildAndIntegrateTests.write_manifest
     run_cli = fixture.CliTests.run_cli
     component_branches = fixture.CliTests.component_branches
@@ -142,20 +148,28 @@ class ComponentDesignCliTests(unittest.TestCase):
     def setUp(self):
         fixture.BuildAndIntegrateTests.setUp(self)
         from tests.figma_inventory_fixtures import install_inventory_hook, native_bundle
-        manifest_path = native_bundle(self.root / 'native-source', 'Alpha123', 'components/alpha/message.txt')
-        install_inventory_hook(self.root / 'bin' / 'codex', asset="spec['file']")
-        self.env.update(FAKE_NATIVE_MANIFEST=str(manifest_path),
-                        FAKE_CAPTURE_REPO=str(Path(__file__).resolve().parents[1]),
-                        FAKE_DESIGN_PROMPTS=str(self.root / 'inventory-prompts.jsonl'))
+
+        manifest_path = native_bundle(self.root / "native-source", "Alpha123", "components/alpha/message.txt")
+        install_inventory_hook(self.root / "bin" / "codex", asset="spec['file']")
+        self.env.update(
+            FAKE_NATIVE_MANIFEST=str(manifest_path),
+            FAKE_CAPTURE_REPO=str(Path(__file__).resolve().parents[1]),
+            FAKE_DESIGN_PROMPTS=str(self.root / "inventory-prompts.jsonl"),
+        )
         self.env["CODEX_HOME"] = str(self.root / "codex-config")
         self.ui_run = accepted_ui_run(self.root / "accepted-alpha")
         self.observations = self.root / "observations"
         self.directory = self.repo / "architecture"
         self.directory.mkdir()
         (self.directory / "contracts").mkdir()
-        (self.directory / "components.json").write_text(json.dumps(
-            [{**fixture.component("alpha"), "ui_run": os.path.relpath(self.ui_run, self.directory)},
-             fixture.component("beta")]))
+        (self.directory / "components.json").write_text(
+            json.dumps(
+                [
+                    {**fixture.component("alpha"), "ui_run": os.path.relpath(self.ui_run, self.directory)},
+                    fixture.component("beta"),
+                ]
+            )
+        )
         fixture.git(self.repo, "add", "-A")
         fixture.git(self.repo, "commit", "-q", "-m", "architecture")
         self.write_manifest()
@@ -165,8 +179,9 @@ class ComponentDesignCliTests(unittest.TestCase):
         self.manifest.write_text(json.dumps(manifest))
 
     def cli(self, *args):
-        return self.run_cli("architecture", "--workspace", str(self.repo),
-                            "--options", " ".join(fixture.FIXTURE_OPTIONS), *args)
+        return self.run_cli(
+            "architecture", "--workspace", str(self.repo), "--options", " ".join(fixture.FIXTURE_OPTIONS), *args
+        )
 
     def test_accepted_design_is_scoped_and_survives_cli_resume_and_integration(self):
         first = self.cli()
@@ -188,16 +203,15 @@ class ComponentDesignCliTests(unittest.TestCase):
             self.assertEqual(stopped["components"][cid]["run_dir"], info["run_dir"])
         self.assertEqual(branches, self.component_branches())
         self.assertEqual(["alpha", "beta"], completed["integration"]["integrated"])
-        self.assertIsNone(completed['components']['alpha']['view']['efficiency']['visual']['accepted_frames'])
-        self.assertIsNone(completed['components']['alpha']['view']['efficiency']['visual']['accepted_states'])
+        self.assertIsNone(completed["components"]["alpha"]["view"]["efficiency"]["visual"]["accepted_frames"])
+        self.assertIsNone(completed["components"]["alpha"]["view"]["efficiency"]["visual"]["accepted_states"])
         for cid in ("alpha", "beta"):
             path = self.repo / "integration" / "components" / cid / "message.txt"
             self.assertEqual(f"from {cid}\n", path.read_text())
         self.assertFalse((self.repo / "components").exists())
         observations = [json.loads(path.read_text()) for path in self.observations.glob("*.json")]
         alpha = [item for item in observations if item["component_id"] == "alpha"]
-        self.assertTrue({"requirements_gather", "astra_discovery", "terra", "sol"}
-                        <= {item["stage"] for item in alpha})
+        self.assertTrue({"requirements_gather", "astra_discovery", "terra", "sol"} <= {item["stage"] for item in alpha})
         for item in observations:
             if item["component_id"] == "alpha":
                 self.assertIn(URL, item["prompt"], item["stage"])
@@ -256,9 +270,13 @@ elif '--run-dir' not in args:
     (run / 'state.json').write_text('{}')
 """)
             options = ("--engine", "codex")
-            run = taskrun.TaskRun.start(root, "Implement alpha", options=options,
+            run = taskrun.TaskRun.start(
+                root,
+                "Implement alpha",
+                options=options,
                 start_options=("--test-root", "components/alpha/", "--ui-run", "accepted-alpha"),
-                command=(sys.executable, str(command)))
+                command=(sys.executable, str(command)),
+            )
             self.assertEqual(options, run.options)
             self.assertTrue(run.advance()["done"])
             calls = [json.loads(line) for line in log.read_text().splitlines()]

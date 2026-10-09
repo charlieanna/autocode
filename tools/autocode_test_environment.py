@@ -5,6 +5,7 @@ Git checkout is an explicit dependency source; unrelated parent directories are
 never searched. Keep the venv path (not the resolved interpreter symlink), since
 Python uses it to find that environment's site-packages.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,7 +27,10 @@ def dependency_roots(project):
     try:
         result = subprocess.run(
             ["git", "-C", str(project), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True, text=True, timeout=10)
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     except (OSError, subprocess.TimeoutExpired):
         return roots
     common = Path(result.stdout.strip())
@@ -65,7 +69,7 @@ def python_for_test_command(project, command):
     if invocation is None:
         return None
     candidate = Path(invocation.python)
-    if not candidate.is_absolute() and '/' not in invocation.python:
+    if not candidate.is_absolute() and "/" not in invocation.python:
         return None
     candidate = Path(os.path.abspath(Path(project) / candidate))
     if candidate.is_file() and os.access(candidate, os.X_OK):

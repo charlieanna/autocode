@@ -1,4 +1,5 @@
 """Short, controlled subprocess regressions for browser catalogue supervision."""
+
 import json
 import os
 import signal
@@ -20,9 +21,15 @@ class BrowserSuiteProcessTests(unittest.TestCase):
         for code in (0, 7):
             with self.subTest(code=code):
                 result = runner.run(
-                    [sys.executable, "-c",
-                     f"import sys; print('stdout'); print('stderr', file=sys.stderr); sys.exit({code})"],
-                    cwd=Path.cwd(), env=os.environ.copy(), timeout=15)
+                    [
+                        sys.executable,
+                        "-c",
+                        f"import sys; print('stdout'); print('stderr', file=sys.stderr); sys.exit({code})",
+                    ],
+                    cwd=Path.cwd(),
+                    env=os.environ.copy(),
+                    timeout=15,
+                )
                 self.assertEqual(code, result.returncode)
                 self.assertEqual("stdout\n", result.stdout)
                 self.assertEqual("stderr\n", result.stderr)
@@ -32,8 +39,7 @@ class BrowserSuiteProcessTests(unittest.TestCase):
 
     def test_setup_failure_keeps_command_and_reason(self):
         with self.assertRaises(FileNotFoundError) as raised:
-            runner.run(["/nonexistent/autocode-fixture"], cwd=Path.cwd(),
-                       env=os.environ.copy(), timeout=420)
+            runner.run(["/nonexistent/autocode-fixture"], cwd=Path.cwd(), env=os.environ.copy(), timeout=420)
         receipt = raised.exception.receipt
         self.assertEqual("setup_error", receipt["reason"])
         self.assertEqual(420, receipt["timeout_seconds"])
@@ -60,8 +66,8 @@ Path('ready.tmp').rename('ready.json')
 signal.pause()
 """)
             unrelated = subprocess.Popen(
-                [sys.executable, "-c", "import signal; signal.pause()"],
-                start_new_session=True)
+                [sys.executable, "-c", "import signal; signal.pause()"], start_new_session=True
+            )
             timers, fired, saved = [], [], []
             real_timer = threading.Timer
             real_sample = processes.ProcessTree.sample
@@ -90,11 +96,12 @@ signal.pause()
 
             expected = KeyboardInterrupt if interrupt else subprocess.TimeoutExpired
             try:
-                with patch.object(threading, "Timer", timer), \
-                     patch.object(processes.ProcessTree, "sample", sample), \
-                     self.assertRaises(expected) as raised:
-                    runner.run([sys.executable, str(script)], cwd=root,
-                               env=os.environ.copy(), timeout=15)
+                with (
+                    patch.object(threading, "Timer", timer),
+                    patch.object(processes.ProcessTree, "sample", sample),
+                    self.assertRaises(expected) as raised,
+                ):
+                    runner.run([sys.executable, str(script)], cwd=root, env=os.environ.copy(), timeout=15)
                 self.assertEqual([True], fired, "fixture tree was never observed")
                 receipt = raised.exception.receipt
                 self.assertEqual("interrupted" if interrupt else "timeout", receipt["reason"])
@@ -125,20 +132,27 @@ signal.pause()
 
     def test_catalogue_records_timeout_before_propagating_and_does_not_cache_it(self):
         from tests import test_catalogue_t12 as catalogue
+
         error = subprocess.TimeoutExpired(["node", "fixture"], 900)
-        error.receipt = {"reason": "timeout", "stdout": "partial", "stderr": "diagnostic",
-                         "command": error.cmd, "timeout_seconds": 900,
-                         "cleanup": {"checked": True, "live_pids": []}}
+        error.receipt = {
+            "reason": "timeout",
+            "stdout": "partial",
+            "stderr": "diagnostic",
+            "command": error.cmd,
+            "timeout_seconds": 900,
+            "cleanup": {"checked": True, "live_pids": []},
+        }
         case = catalogue.DashboardCase()
         case.bundle = Mock()
-        with patch.object(catalogue.shutil, "which", return_value="/available"), \
-             patch.object(catalogue, "_SUITE_CACHE", {}), \
-             patch.object(catalogue.browser_suite_process, "run", side_effect=error) as invoke:
+        with (
+            patch.object(catalogue.shutil, "which", return_value="/available"),
+            patch.object(catalogue, "_SUITE_CACHE", {}),
+            patch.object(catalogue.browser_suite_process, "run", side_effect=error) as invoke,
+        ):
             with self.assertRaises(subprocess.TimeoutExpired):
                 case.browser("a11y")
             self.assertEqual({}, catalogue._SUITE_CACHE)
-        case.bundle.log.assert_called_once_with(
-            "dashboard_suite", suite="a11y", kind="browser", **error.receipt)
+        case.bundle.log.assert_called_once_with("dashboard_suite", suite="a11y", kind="browser", **error.receipt)
         self.assertEqual(900, invoke.call_args.kwargs["timeout"])
 
 

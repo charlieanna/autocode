@@ -1,4 +1,5 @@
 """Guard import cycles and shared-helper dependency isolation. See AGENTS.md."""
+
 import ast
 import tempfile
 import unittest
@@ -18,10 +19,16 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 # out of the two live-trial pairs, which freed all four. The milestone scope (autocode_milestone_scope)
 # moved out of autocode_milestones, which freed milestones and the findings ledger.
 # Taking a module out of the cycles is progress (remove it here); adding one fails.
-TANGLED = frozenset({
-    "autocode_goal_lifecycle", "autocode_planning", "autocode_stage_context", "autocode_workflow",
-    "units.autoplanner", "units.common",
-})
+TANGLED = frozenset(
+    {
+        "autocode_goal_lifecycle",
+        "autocode_planning",
+        "autocode_stage_context",
+        "autocode_workflow",
+        "units.autoplanner",
+        "units.common",
+    }
+)
 
 # Line counts on 2026-09-28, after merging master at 24617cc and moving subcommand dispatch out of
 # autocode.py. Lower these when a module shrinks.
@@ -31,7 +38,8 @@ TANGLED = frozenset({
 # 2026-10-06: the closed-terminal output wrappers moved to autocode_detached_output (#454).
 # 2026-10-09: joint transport checks moved to autocode_joint_transport (#799).
 # 2026-10-09: ruff import sorting expanded compact semicolon imports to individual lines (#803).
-MAX_LINES = {"autocode.py": 1600, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
+# 2026-10-09: ruff format pass expanded compact one-liners into multi-line style (~30% line growth).
+MAX_LINES = {"autocode.py": 2050, "autocode_goals.py": 1680, "autocode_support.py": 620, "autopilot.py": 1660}
 
 
 def source_modules() -> dict[str, Path]:
@@ -45,8 +53,13 @@ def source_modules() -> dict[str, Path]:
 def script_entry(node: ast.stmt) -> bool:
     """`if __name__ == "__main__":`, which runs only when the file is executed as a program."""
     test = node.test if isinstance(node, ast.If) else None
-    return (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name) and test.left.id == "__name__"
-            and len(test.comparators) == 1 and getattr(test.comparators[0], "value", None) == "__main__")
+    return (
+        isinstance(test, ast.Compare)
+        and isinstance(test.left, ast.Name)
+        and test.left.id == "__name__"
+        and len(test.comparators) == 1
+        and getattr(test.comparators[0], "value", None) == "__main__"
+    )
 
 
 def import_graph() -> dict[str, set[str]]:
@@ -67,7 +80,7 @@ def import_graph() -> dict[str, set[str]]:
             if isinstance(node, ast.Import):
                 candidates = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
-                base = package[:len(package) - node.level + 1] if node.level else []
+                base = package[: len(package) - node.level + 1] if node.level else []
                 module = ".".join(base + ([node.module.removeprefix("autocode_cli.")] if node.module else []))
                 candidates = [module] + [f"{module}.{alias.name}".lstrip(".") for alias in node.names]
             else:
@@ -96,31 +109,47 @@ class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            paths = ("controller.py", "units/planner.py", "contest.py", "test_fixture.py",
-                     "units/test_fixture.py", "units/tests/fixture.py", "__pycache__/cached.py")
+            paths = (
+                "controller.py",
+                "units/planner.py",
+                "contest.py",
+                "test_fixture.py",
+                "units/test_fixture.py",
+                "units/tests/fixture.py",
+                "__pycache__/cached.py",
+            )
             for name in paths:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("")
-            self.assertEqual({"controller.py", "units/planner.py", "contest.py"},
-                             {str(path.relative_to(root)).replace("\\", "/") for path in python_sources(root)})
+            self.assertEqual(
+                {"controller.py", "units/planner.py", "contest.py"},
+                {str(path.relative_to(root)).replace("\\", "/") for path in python_sources(root)},
+            )
 
     def test_no_module_joins_an_import_cycle(self):
         tangled = modules_in_cycles(import_graph())
-        self.assertFalse(tangled - TANGLED, "these modules now import, directly or indirectly, a module that imports "
-                         f"them back; depend on lower-level modules instead: {sorted(tangled - TANGLED)}")
+        self.assertFalse(
+            tangled - TANGLED,
+            "these modules now import, directly or indirectly, a module that imports "
+            f"them back; depend on lower-level modules instead: {sorted(tangled - TANGLED)}",
+        )
 
     def test_a_module_that_left_the_cycles_is_taken_off_the_list(self):
         left = TANGLED - modules_in_cycles(import_graph())
-        self.assertFalse(left, f"progress: these modules are no longer in an import cycle; remove them from TANGLED: "
-                         f"{sorted(left)}")
+        self.assertFalse(
+            left, f"progress: these modules are no longer in an import cycle; remove them from TANGLED: {sorted(left)}"
+        )
 
     def test_largest_modules_do_not_grow(self):
         for name, limit in MAX_LINES.items():
             with self.subTest(module=name):
                 lines = len((TOOLS / name).read_text().splitlines())
-                self.assertLessEqual(lines, limit, f"{name} grew to {lines} lines (limit {limit}); "
-                                     "move behavior into a lower-level module instead")
+                self.assertLessEqual(
+                    lines,
+                    limit,
+                    f"{name} grew to {lines} lines (limit {limit}); move behavior into a lower-level module instead",
+                )
 
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.

@@ -15,6 +15,7 @@ regular expressions, programs or executable code. Canonical manifests can live
 inside the existing hashed contract. Caller-authenticated replacements authorize
 one exact old observation hash -> new hash/source hash, never a blanket change.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,98 +28,113 @@ VERSION = 2
 MAX_STEPS = 8
 MAX_ARGUMENTS = 32
 MAX_ARGUMENT_BYTES = 4096
-_SOURCE_KINDS = frozenset({'task', 'conversation_user', 'user_answer', 'user_feedback',
-                           'user_intervention', 'user_cli_edit'})
-_SPAN = re.compile(r'`([^`\r\n]+)`')
-_FENCE = re.compile(r'```.*?(?:```|$)', re.S)
-_OUTPUT = re.compile(r'\b(?:prints?|outputs?)\b[^`]*?\b(?:as|in the format)\s*`([^`\r\n]+)`', re.I)
-_PER_LINE = re.compile(r'\bone per line\b', re.I)
-_EXIT_ZERO = re.compile(r'\bexits?\s+0\b(?!\.\d)', re.I)
-_PLACEHOLDER = re.compile(r'[A-Z][A-Z_]*\Z')
-_FORMAT_TOKEN = re.compile(r'\[[A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+\]|(?<![\w.])[A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+(?![\w.])|(?<![\w.])[A-Z][A-Z_]*(?![\w.])')
-_HEX = re.compile(r'[0-9a-f]{64}\Z')
-_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]*\Z')
+_SOURCE_KINDS = frozenset(
+    {"task", "conversation_user", "user_answer", "user_feedback", "user_intervention", "user_cli_edit"}
+)
+_SPAN = re.compile(r"`([^`\r\n]+)`")
+_FENCE = re.compile(r"```.*?(?:```|$)", re.S)
+_OUTPUT = re.compile(r"\b(?:prints?|outputs?)\b[^`]*?\b(?:as|in the format)\s*`([^`\r\n]+)`", re.I)
+_PER_LINE = re.compile(r"\bone per line\b", re.I)
+_EXIT_ZERO = re.compile(r"\bexits?\s+0\b(?!\.\d)", re.I)
+_PLACEHOLDER = re.compile(r"[A-Z][A-Z_]*\Z")
+_FORMAT_TOKEN = re.compile(
+    r"\[[A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+\]|(?<![\w.])[A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)+(?![\w.])|(?<![\w.])[A-Z][A-Z_]*(?![\w.])"
+)
+_HEX = re.compile(r"[0-9a-f]{64}\Z")
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]*\Z")
 
 
 def _object(properties):
-    return {'type': 'object', 'additionalProperties': False, 'required': list(properties),
-            'properties': properties}
+    return {"type": "object", "additionalProperties": False, "required": list(properties), "properties": properties}
 
 
-_STRING = {'type': 'string'}
-_BINDING = _object({
-    'placeholder': _STRING, 'step': {'type': 'integer', 'minimum': 0},
-    'argument': {'type': 'integer', 'minimum': 0}})
+_STRING = {"type": "string"}
+_BINDING = _object(
+    {"placeholder": _STRING, "step": {"type": "integer", "minimum": 0}, "argument": {"type": "integer", "minimum": 0}}
+)
 # expect/absent are optional (#644): a listing's exact items, or items that must
 # be gone. Omitting them keeps a VERSION 1 proposal's sealed hash unchanged.
-PROPOSAL_REQUIRED = ('declaration_id', 'criterion_ids', 'steps', 'observe_step', 'bindings')
-PROPOSAL_OPTIONAL = ('expect', 'absent')
+PROPOSAL_REQUIRED = ("declaration_id", "criterion_ids", "steps", "observe_step", "bindings")
+PROPOSAL_OPTIONAL = ("expect", "absent")
 PROPOSAL_SCHEMA = {
-    'type': 'object', 'additionalProperties': False,
-    'required': list(PROPOSAL_REQUIRED),
-    'properties': {
-        'declaration_id': _STRING,
-        'criterion_ids': {'type': 'array', 'minItems': 1, 'items': _STRING, 'uniqueItems': True},
-        'steps': {'type': 'array', 'minItems': 1, 'maxItems': MAX_STEPS,
-                  'items': _object({'argv': {'type': 'array', 'minItems': 1,
-                                           'maxItems': MAX_ARGUMENTS, 'items': _STRING}})},
-        'observe_step': {'type': 'integer', 'minimum': 0},
-        'bindings': {'type': 'array', 'items': _BINDING},
-        'expect': {'type': 'array', 'items': _BINDING},
-        'absent': {'type': 'array', 'items': _BINDING},
+    "type": "object",
+    "additionalProperties": False,
+    "required": list(PROPOSAL_REQUIRED),
+    "properties": {
+        "declaration_id": _STRING,
+        "criterion_ids": {"type": "array", "minItems": 1, "items": _STRING, "uniqueItems": True},
+        "steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": MAX_STEPS,
+            "items": _object({"argv": {"type": "array", "minItems": 1, "maxItems": MAX_ARGUMENTS, "items": _STRING}}),
+        },
+        "observe_step": {"type": "integer", "minimum": 0},
+        "bindings": {"type": "array", "items": _BINDING},
+        "expect": {"type": "array", "items": _BINDING},
+        "absent": {"type": "array", "items": _BINDING},
     },
 }
-PROPOSALS_SCHEMA = {'type': 'array', 'items': PROPOSAL_SCHEMA}
+PROPOSALS_SCHEMA = {"type": "array", "items": PROPOSAL_SCHEMA}
 # These are trusted authorization records supplied by the caller, never fields
 # accepted from a Planner/Builder observation proposal.
-REPLACEMENT_SCHEMA = _object({
-    'previous_hash': _STRING, 'replacement_hash': _STRING, 'replacement_source_sha256': _STRING})
+REPLACEMENT_SCHEMA = _object(
+    {"previous_hash": _STRING, "replacement_hash": _STRING, "replacement_source_sha256": _STRING}
+)
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
-                                    ensure_ascii=False).encode('utf-8')).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 def _exact(value, keys, label):
     if not isinstance(value, dict) or set(value) != set(keys):
-        raise ValueError(f'{label} needs exactly {sorted(keys)}')
+        raise ValueError(f"{label} needs exactly {sorted(keys)}")
 
 
 def _string(value, label):
-    if not isinstance(value, str) or not value or '\0' in value:
-        raise ValueError(f'{label} must be a nonempty NUL-free string')
+    if not isinstance(value, str) or not value or "\0" in value:
+        raise ValueError(f"{label} must be a nonempty NUL-free string")
     return value
 
 
 def _index(value, size, label):
     if type(value) is not int or not 0 <= value < size:
-        raise ValueError(f'{label} is outside its declared list')
+        raise ValueError(f"{label} is outside its declared list")
     return value
 
 
 def _program(value):
-    _string(value, 'CLI program')
+    _string(value, "CLI program")
     path = PurePosixPath(value)
-    if (not re.fullmatch(r'[A-Za-z0-9_./-]+\.py', value) or path.is_absolute()
-            or any(part in ('', '.', '..') for part in value.split('/'))):
-        raise ValueError('CLI program must be a repository-relative Python script without traversal')
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_./-]+\.py", value)
+        or path.is_absolute()
+        or any(part in ("", ".", "..") for part in value.split("/"))
+    ):
+        raise ValueError("CLI program must be a repository-relative Python script without traversal")
     return value
 
 
 def _source_records(sources):
     if not isinstance(sources, list):
-        raise ValueError('Trusted human sources must be a list')
+        raise ValueError("Trusted human sources must be a list")
     result, ids = [], set()
     for source in sources:
-        _exact(source, ('id', 'kind', 'text'), 'Trusted human source')
-        ident = _string(source['id'], 'Source ID')
-        if (not _ID.fullmatch(ident) or ident in ids or not isinstance(source['kind'], str)
-                or source['kind'] not in _SOURCE_KINDS):
-            raise ValueError('Sources need unique stable IDs and a supported human-source kind')
-        text = _string(source['text'], 'Source text')
+        _exact(source, ("id", "kind", "text"), "Trusted human source")
+        ident = _string(source["id"], "Source ID")
+        if (
+            not _ID.fullmatch(ident)
+            or ident in ids
+            or not isinstance(source["kind"], str)
+            or source["kind"] not in _SOURCE_KINDS
+        ):
+            raise ValueError("Sources need unique stable IDs and a supported human-source kind")
+        text = _string(source["text"], "Source text")
         ids.add(ident)
-        result.append({**source, 'sha256': hashlib.sha256(text.encode('utf-8')).hexdigest()})
+        result.append({**source, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()})
     return result  # Caller-authenticated human chronology determines inheritance.
 
 
@@ -127,9 +143,9 @@ def _clause_end(text, start):
     # clause. Preserve offsets even when a quoted format itself has punctuation.
     quoted = False
     for pos in range(start, len(text)):
-        if text[pos] == '`':
+        if text[pos] == "`":
             quoted = not quoted
-        elif not quoted and text[pos] in ';\r\n':
+        elif not quoted and text[pos] in ";\r\n":
             return pos
     return len(text)
 
@@ -137,9 +153,9 @@ def _clause_end(text, start):
 def _clause_start(text, end):
     quoted, start = False, 0
     for pos in range(end):
-        if text[pos] == '`':
+        if text[pos] == "`":
             quoted = not quoted
-        elif not quoted and text[pos] in ';\r\n':
+        elif not quoted and text[pos] in ";\r\n":
             start = pos + 1
     return start
 
@@ -150,7 +166,7 @@ def _invocation(text):
     # script names may use quotes/escapes inside the token too.
     lexer = shlex.shlex(text, posix=True)
     lexer.whitespace_split = True
-    lexer.commenters = ''
+    lexer.commenters = ""
     try:
         program = next(lexer, None)
     except ValueError as error:
@@ -158,25 +174,25 @@ def _invocation(text):
         # when its unfinished spelling still names a Python entrypoint, while
         # ordinary prose such as can't or Jo"e remains outside this grammar.
         head = text.split(maxsplit=1)
-        unfinished = re.sub(r"""['"\\]""", '', head[0]) if head else ''
+        unfinished = re.sub(r"""['"\\]""", "", head[0]) if head else ""
         quoted_program = re.match(r"""^\s*['"][^'"]*\.py(?=['"\s]|$)""", text)
-        if unfinished.endswith('.py') or quoted_program:
-            raise ValueError('Source CLI invocation has invalid quoting') from error
+        if unfinished.endswith(".py") or quoted_program:
+            raise ValueError("Source CLI invocation has invalid quoting") from error
         return None
-    if program is None or not program.endswith('.py'):
+    if program is None or not program.endswith(".py"):
         return None
     try:
         words = shlex.split(text)
     except ValueError as error:
-        raise ValueError('Source CLI invocation has invalid quoting') from error
+        raise ValueError("Source CLI invocation has invalid quoting") from error
     if len(words) < 2:
         return None
-    return {'program': _program(words[0]), 'argv': words[1:]}
+    return {"program": _program(words[0]), "argv": words[1:]}
 
 
 def _compiler_version(version):
     if type(version) is not int or version not in (1, VERSION):
-        raise ValueError('Unsupported acceptance manifest')
+        raise ValueError("Unsupported acceptance manifest")
     return version
 
 
@@ -194,62 +210,71 @@ def inventory(sources, *, version=VERSION):
     _compiler_version(version)
     result, earlier_commands = [], {}
     for source in _source_records(sources):
-        text = source['text']
-        scanned = _FENCE.sub(lambda match: re.sub(r'[^\r\n]', ' ', match.group()), text)
+        text = source["text"]
+        scanned = _FENCE.sub(lambda match: re.sub(r"[^\r\n]", " ", match.group()), text)
         invocations = []
-        command_spans = [(span, invocation) for span in _SPAN.finditer(scanned)
-                         if (invocation := _invocation(span[1])) is not None]
+        command_spans = [
+            (span, invocation) for span in _SPAN.finditer(scanned) if (invocation := _invocation(span[1])) is not None
+        ]
         for index, (span, invocation) in enumerate(command_spans):
             end = _clause_end(scanned, span.end())
             if version >= 2 and index + 1 < len(command_spans):
                 # Even an unsuccessful next invocation owns its own description.
                 # Inline output/data spans do not terminate the current command.
                 end = min(end, command_spans[index + 1][0].start())
-            tail = scanned[span.end():end]
+            tail = scanned[span.end() : end]
             # Successful setup invocations are source declarations too; output
             # expectations may not invent an undeclared command or exit code.
-            plain_tail = _SPAN.sub(lambda match: ' ' * len(match.group()), tail)
+            plain_tail = _SPAN.sub(lambda match: " " * len(match.group()), tail)
             if not _EXIT_ZERO.search(plain_tail):
                 continue
-            invocations.append({**invocation, 'span': [span.start(), end], 'tail': tail,
-                                'tail_start': span.end()})
+            invocations.append({**invocation, "span": [span.start(), end], "tail": tail, "tail_start": span.end()})
         for invocation in invocations:
-            output = _OUTPUT.search(invocation['tail'])
-            if output is None or not _PER_LINE.search(invocation['tail'][output.end():]):
+            output = _OUTPUT.search(invocation["tail"])
+            if output is None or not _PER_LINE.search(invocation["tail"][output.end() :]):
                 continue
             # Deliberately bounded declarative syntax. Descriptions of existing
             # broken output must not silently become the expected target.
-            prefix = scanned[_clause_start(scanned, invocation['span'][0]):invocation['span'][0]]
-            context = prefix + invocation['tail'][:output.start()]
-            if re.search(r'\b(?:currently|broken|incorrectly|used to|must not|should not)\b', context, re.I):
+            prefix = scanned[_clause_start(scanned, invocation["span"][0]) : invocation["span"][0]]
+            context = prefix + invocation["tail"][: output.start()]
+            if re.search(r"\b(?:currently|broken|incorrectly|used to|must not|should not)\b", context, re.I):
                 continue
             literal = output[1]
-            literal_start = invocation['tail_start'] + output.start(1)
-            commands = [{key: row[key] for key in ('argv',)} for row in invocations
-                        if row['program'] == invocation['program']]
-            commands = sorted(earlier_commands.get(invocation['program'], set())
-                              | {tuple(row['argv']) for row in commands})
-            declaration = {'source_id': source['id'], 'source_kind': source['kind'],
-                           'source_sha256': source['sha256'], 'span': invocation['span'],
-                           'quote': text[slice(*invocation['span'])],
-                           'literal': literal, 'literal_span': [literal_start, literal_start + len(literal)],
-                           'literal_sha256': hashlib.sha256(literal.encode('utf-8')).hexdigest(),
-                           'program': invocation['program'], 'observe_argv': invocation['argv'],
-                           'commands': [list(words) for words in commands]}
-            declaration['id'] = 'brief-' + digest(declaration)[:24]
+            literal_start = invocation["tail_start"] + output.start(1)
+            commands = [
+                {key: row[key] for key in ("argv",)} for row in invocations if row["program"] == invocation["program"]
+            ]
+            commands = sorted(
+                earlier_commands.get(invocation["program"], set()) | {tuple(row["argv"]) for row in commands}
+            )
+            declaration = {
+                "source_id": source["id"],
+                "source_kind": source["kind"],
+                "source_sha256": source["sha256"],
+                "span": invocation["span"],
+                "quote": text[slice(*invocation["span"])],
+                "literal": literal,
+                "literal_span": [literal_start, literal_start + len(literal)],
+                "literal_sha256": hashlib.sha256(literal.encode("utf-8")).hexdigest(),
+                "program": invocation["program"],
+                "observe_argv": invocation["argv"],
+                "commands": [list(words) for words in commands],
+            }
+            declaration["id"] = "brief-" + digest(declaration)[:24]
             result.append(declaration)
         for invocation in invocations:
-            earlier_commands.setdefault(invocation['program'], set()).add(tuple(invocation['argv']))
-    return sorted(result, key=lambda row: (row['source_id'], row['span'][0], row['id']))
+            earlier_commands.setdefault(invocation["program"], set()).add(tuple(invocation["argv"]))
+    return sorted(result, key=lambda row: (row["source_id"], row["span"][0], row["id"]))
 
 
 def _match_argv(arguments, pattern):
     return len(arguments) == len(pattern) and all(
         _PLACEHOLDER.fullmatch(expected) or actual == expected
-        for actual, expected in zip(arguments, pattern, strict=False))
+        for actual, expected in zip(arguments, pattern, strict=False)
+    )
 
 
-_INTERPRETER = re.compile(r'python(?:\d+(?:\.\d+)*)?|py\Z')
+_INTERPRETER = re.compile(r"python(?:\d+(?:\.\d+)*)?|py\Z")
 
 
 def _strip_launcher(arguments, program):
@@ -273,63 +298,70 @@ def _strip_launcher(arguments, program):
 
 
 def _variables(declaration):
-    return {word for command in declaration['commands'] for word in command if _PLACEHOLDER.fullmatch(word)}
+    return {word for command in declaration["commands"] for word in command if _PLACEHOLDER.fullmatch(word)}
 
 
 def _render(literal, placeholder):
     """Literal bytes and finite alternatives exact; placeholder(name) renders the rest."""
     pieces, previous = [], 0
     for token in _FORMAT_TOKEN.finditer(literal):
-        pieces.append(re.escape(literal[previous:token.start()]))
+        pieces.append(re.escape(literal[previous : token.start()]))
         name = token.group()
-        if name.startswith('['):
-            pieces.append(r'\[(?:' + '|'.join(re.escape(option) for option in name[1:-1].split('|')) + r')\]')
-        elif '|' in name:
-            pieces.append('(?:' + '|'.join(re.escape(option) for option in name.split('|')) + ')')
+        if name.startswith("["):
+            pieces.append(r"\[(?:" + "|".join(re.escape(option) for option in name[1:-1].split("|")) + r")\]")
+        elif "|" in name:
+            pieces.append("(?:" + "|".join(re.escape(option) for option in name.split("|")) + ")")
         else:
             pieces.append(placeholder(name))
         previous = token.end()
     pieces.append(re.escape(literal[previous:]))
-    return ''.join(pieces)
+    return "".join(pieces)
 
 
 def _format_pattern(declaration, steps, bindings):
     variables, used = _variables(declaration), set()
 
     def placeholder(name):
-        if name not in variables and name != 'ID':
+        if name not in variables and name != "ID":
             return re.escape(name)  # e.g. SUCCESS is literal, not a wildcard
-        if name == 'ID':
+        if name == "ID":
             bound = bindings.get(name)
             # The listing's IDs are the program's; the format is ID TEXT […].
             # Keep the exact bound ID only when it has whitespace and cannot be
             # one opaque token. ID stability is an oracle check, not this format.
-            if bound is not None and any(character.isspace() for character in steps[bound['step']]['argv'][bound['argument']]):
+            if bound is not None and any(
+                character.isspace() for character in steps[bound["step"]]["argv"][bound["argument"]]
+            ):
                 used.add(name)
-                return re.escape(steps[bound['step']]['argv'][bound['argument']])
-            return r'[^\s]+'  # opaque source-declared ID; never invent ID1
+                return re.escape(steps[bound["step"]]["argv"][bound["argument"]])
+            return r"[^\s]+"  # opaque source-declared ID; never invent ID1
         if name in bindings:
             binding = bindings[name]
             used.add(name)
-            return re.escape(steps[binding['step']]['argv'][binding['argument']])
-        raise ValueError(f'Output placeholder {name} must be tied to an invocation argument')
+            return re.escape(steps[binding["step"]]["argv"][binding["argument"]])
+        raise ValueError(f"Output placeholder {name} must be tied to an invocation argument")
 
-    pattern = _render(declaration['literal'], placeholder)
-    if used != {name for name in bindings if name != 'ID' or any(character.isspace() for character in steps[bindings[name]['step']]['argv'][bindings[name]['argument']])}:
-        raise ValueError('Placeholder bindings must occur in the source-derived output template')
+    pattern = _render(declaration["literal"], placeholder)
+    if used != {
+        name
+        for name in bindings
+        if name != "ID"
+        or any(character.isspace() for character in steps[bindings[name]["step"]]["argv"][bindings[name]["argument"]])
+    }:
+        raise ValueError("Placeholder bindings must occur in the source-derived output template")
     return pattern
 
 
 def _supplied(observation):
     """placeholder -> values the observation's steps supplied up to the listing."""
-    declaration, proposal = observation['declaration'], observation['proposal']
+    declaration, proposal = observation["declaration"], observation["proposal"]
     variables, supplied = _variables(declaration), {}
-    for step in proposal['steps'][:proposal['observe_step'] + 1]:
+    for step in proposal["steps"][: proposal["observe_step"] + 1]:
         # bind() already required exactly one source-declared match per step.
-        command = next((pattern for pattern in declaration['commands'] if _match_argv(step['argv'], pattern)), None)
+        command = next((pattern for pattern in declaration["commands"] if _match_argv(step["argv"], pattern)), None)
         if command is None:
-            raise ValueError('Invocation must uniquely match a source-declared successful CLI command')
-        for word, value in zip(command, step['argv'], strict=False):
+            raise ValueError("Invocation must uniquely match a source-declared successful CLI command")
+        for word, value in zip(command, step["argv"], strict=False):
             if word in variables:
                 supplied.setdefault(word, set()).add(value)
     return declaration, supplied
@@ -347,14 +379,14 @@ def line_pattern(observation):
     declaration, supplied = _supplied(observation)
 
     def placeholder(name):
-        if name == 'ID':
-            return r'[^\s]+'
+        if name == "ID":
+            return r"[^\s]+"
         if name not in _variables(declaration):
             return re.escape(name)
         values = sorted(supplied.get(name, ()))
-        return '(?:' + '|'.join(re.escape(value) for value in values) + ')' if values else '(?!)'
+        return "(?:" + "|".join(re.escape(value) for value in values) + ")" if values else "(?!)"
 
-    return _render(declaration['literal'], placeholder)
+    return _render(declaration["literal"], placeholder)
 
 
 def required_values(observation):
@@ -366,23 +398,22 @@ def required_values(observation):
     are never required. IDs are the program's; their stability is an oracle check.
     """
     _, supplied = _supplied(observation)
-    proposal = observation['proposal']
-    if proposal.get('expect') is not None:
-        return sorted({_bound_value(observation, row) for row in proposal['expect']})
-    gone = {_bound_value(observation, row) for row in proposal.get('absent') or ()}
-    return sorted({value for name, values in supplied.items() if name != 'ID'
-                   for value in values if value not in gone})
+    proposal = observation["proposal"]
+    if proposal.get("expect") is not None:
+        return sorted({_bound_value(observation, row) for row in proposal["expect"]})
+    gone = {_bound_value(observation, row) for row in proposal.get("absent") or ()}
+    return sorted({value for name, values in supplied.items() if name != "ID" for value in values if value not in gone})
 
 
 def absent_values(observation):
     """Values the Plan Reviewer named that must not appear (#644)."""
-    proposal = observation['proposal']
-    return sorted({_bound_value(observation, row) for row in proposal.get('absent') or ()})
+    proposal = observation["proposal"]
+    return sorted({_bound_value(observation, row) for row in proposal.get("absent") or ()})
 
 
 def _bound_value(observation, binding):
-    steps = observation['proposal']['steps']
-    return steps[binding['step']]['argv'][binding['argument']]
+    steps = observation["proposal"]["steps"]
+    return steps[binding["step"]]["argv"][binding["argument"]]
 
 
 def output_reason(output, pattern, line, required=(), absent=(), exact=False):
@@ -397,39 +428,46 @@ def output_reason(output, pattern, line, required=(), absent=(), exact=False):
     The item alone is always a valid listing, as before the per-line rule. No other
     normalization. _RUNNER repeats this rule inside the clean replay.
     """
-    crlf = output.endswith(b'\r\n') or (not output.endswith(b'\n') and b'\r\n' in output)
-    body = output[:-2] if output.endswith(b'\r\n') else output[:-1] if output.endswith(b'\n') else output
+    crlf = output.endswith(b"\r\n") or (not output.endswith(b"\n") and b"\r\n" in output)
+    body = output[:-2] if output.endswith(b"\r\n") else output[:-1] if output.endswith(b"\n") else output
     try:
-        text = body.decode('utf-8')
+        text = body.decode("utf-8")
     except UnicodeDecodeError:
-        return 'CLI output is not UTF-8 text in this bounded slice'
-    rows = text.split('\r\n' if crlf else '\n')
+        return "CLI output is not UTF-8 text in this bounded slice"
+    rows = text.split("\r\n" if crlf else "\n")
     items = [re.fullmatch(pattern, row) is not None for row in rows]
-    if any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items, strict=False)):
-        return 'CLI output differs from the original brief format'
+    if any(
+        "\r" in row or "\n" in row or not (item or re.fullmatch(line, row))
+        for row, item in zip(rows, items, strict=False)
+    ):
+        return "CLI output differs from the original brief format"
     # The bound item alone is always a listing; once the observation names its
     # items (#644), those names are the authority instead of that one item.
     if not any(items) and not required:
-        return 'CLI output differs from the original brief format'
-    ids = [row.split(' ', 1)[0] for row, item in zip(rows, items, strict=False) if item or re.fullmatch(line, row)]
+        return "CLI output differs from the original brief format"
+    ids = [row.split(" ", 1)[0] for row, item in zip(rows, items, strict=False) if item or re.fullmatch(line, row)]
     if len(set(ids)) != len(ids):
-        return 'CLI listing repeats an ID'
-    if any(ident in ('ID', 'TEXT') for ident in ids):
-        return 'CLI listing uses a placeholder name as an ID'
+        return "CLI listing repeats an ID"
+    if any(ident in ("ID", "TEXT") for ident in ids):
+        return "CLI listing uses a placeholder name as an ID"
     for value in absent or ():
-        needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
-        if any((item or re.fullmatch(line, row)) and needle.search(row)
-               for row, item in zip(rows, items, strict=False)):
-            return 'CLI output still lists an item the observation removed'
+        needle = re.compile(r"(?<!\S)" + re.escape(value) + r"(?!\S)")
+        if any(
+            (item or re.fullmatch(line, row)) and needle.search(row) for row, item in zip(rows, items, strict=False)
+        ):
+            return "CLI output still lists an item the observation removed"
     for value in required or ():
-        needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
-        hits = sum(1 for row, item in zip(rows, items, strict=False)
-                   if (item or re.fullmatch(line, row)) and needle.search(row))
+        needle = re.compile(r"(?<!\S)" + re.escape(value) + r"(?!\S)")
+        hits = sum(
+            1
+            for row, item in zip(rows, items, strict=False)
+            if (item or re.fullmatch(line, row)) and needle.search(row)
+        )
         if hits == 0:
-            return 'CLI output omits an item the observation introduced'
+            return "CLI output omits an item the observation introduced"
         if exact and hits != 1:
-            return 'CLI listing does not show each expected item exactly once'
-    return ''
+            return "CLI listing does not show each expected item exactly once"
+    return ""
 
 
 def normalized_proposal(declaration, proposal):
@@ -443,99 +481,103 @@ def normalized_proposal(declaration, proposal):
     """
     keys = set(proposal) if isinstance(proposal, dict) else set()
     if not set(PROPOSAL_REQUIRED) <= keys or keys - set(PROPOSAL_REQUIRED) - set(PROPOSAL_OPTIONAL):
-        raise ValueError(f'Observation proposal needs exactly {sorted(PROPOSAL_REQUIRED)} '
-                         f'(optional {sorted(PROPOSAL_OPTIONAL)})')
-    criteria = proposal['criterion_ids']
-    if (not isinstance(criteria, list) or not criteria or any(not isinstance(cid, str) or not _ID.fullmatch(cid) for cid in criteria)
-            or len(set(criteria)) != len(criteria)):
-        raise ValueError('Criterion IDs must be unique nonempty IDs')
-    steps = proposal['steps']
+        raise ValueError(
+            f"Observation proposal needs exactly {sorted(PROPOSAL_REQUIRED)} (optional {sorted(PROPOSAL_OPTIONAL)})"
+        )
+    criteria = proposal["criterion_ids"]
+    if (
+        not isinstance(criteria, list)
+        or not criteria
+        or any(not isinstance(cid, str) or not _ID.fullmatch(cid) for cid in criteria)
+        or len(set(criteria)) != len(criteria)
+    ):
+        raise ValueError("Criterion IDs must be unique nonempty IDs")
+    steps = proposal["steps"]
     if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
-        raise ValueError(f'Observation needs 1..{MAX_STEPS} invocation steps')
+        raise ValueError(f"Observation needs 1..{MAX_STEPS} invocation steps")
     patterns = []
     normalized_steps, offsets = [], []
     for step in steps:
-        _exact(step, ('argv',), 'Invocation step')
-        arguments = step['argv']
+        _exact(step, ("argv",), "Invocation step")
+        arguments = step["argv"]
         if not isinstance(arguments, list) or not 1 <= len(arguments) <= MAX_ARGUMENTS:
-            raise ValueError('Invocation argv must be a bounded nonempty list')
+            raise ValueError("Invocation argv must be a bounded nonempty list")
         for argument in arguments:
-            _string(argument, 'Invocation argument')
-            if len(argument.encode('utf-8')) > MAX_ARGUMENT_BYTES:
-                raise ValueError('Invocation argument exceeds the bounded CLI slice')
-        arguments, offset = _strip_launcher(arguments, declaration['program'])
+            _string(argument, "Invocation argument")
+            if len(argument.encode("utf-8")) > MAX_ARGUMENT_BYTES:
+                raise ValueError("Invocation argument exceeds the bounded CLI slice")
+        arguments, offset = _strip_launcher(arguments, declaration["program"])
         if not 1 <= len(arguments) <= MAX_ARGUMENTS:
-            raise ValueError('Invocation argv must be a bounded nonempty list')
-        matches = [pattern for pattern in declaration['commands'] if _match_argv(arguments, pattern)]
+            raise ValueError("Invocation argv must be a bounded nonempty list")
+        matches = [pattern for pattern in declaration["commands"] if _match_argv(arguments, pattern)]
         if len(matches) != 1:
-            raise ValueError('Invocation must uniquely match a source-declared successful CLI command')
+            raise ValueError("Invocation must uniquely match a source-declared successful CLI command")
         patterns.append(matches[0])
-        normalized_steps.append({'argv': arguments})
+        normalized_steps.append({"argv": arguments})
         offsets.append(offset)
     steps = normalized_steps
-    observe = _index(proposal['observe_step'], len(steps), 'Observed step')
-    if not _match_argv(steps[observe]['argv'], declaration['observe_argv']):
-        raise ValueError('Observed step must invoke the source-declared output command')
-    raw_bindings = proposal['bindings']
+    observe = _index(proposal["observe_step"], len(steps), "Observed step")
+    if not _match_argv(steps[observe]["argv"], declaration["observe_argv"]):
+        raise ValueError("Observed step must invoke the source-declared output command")
+    raw_bindings = proposal["bindings"]
     if not isinstance(raw_bindings, list):
-        raise ValueError('Placeholder bindings must be a list')
+        raise ValueError("Placeholder bindings must be a list")
     bindings, seen_steps = {}, set()
     normalized_bindings = []
     for binding in raw_bindings:
-        _exact(binding, ('placeholder', 'step', 'argument'), 'Placeholder binding')
-        name = _string(binding['placeholder'], 'Placeholder')
-        step = _index(binding['step'], len(steps), 'Binding step')
-        argument = binding['argument']
+        _exact(binding, ("placeholder", "step", "argument"), "Placeholder binding")
+        name = _string(binding["placeholder"], "Placeholder")
+        step = _index(binding["step"], len(steps), "Binding step")
+        argument = binding["argument"]
         if type(argument) is not int:
-            raise ValueError('Binding argument must be an index into the invocation argv')
+            raise ValueError("Binding argument must be an index into the invocation argv")
         argument -= offsets[step]
-        argument = _index(argument, len(steps[step]['argv']), 'Binding argument')
-        if (step > observe or patterns[step][argument] != name
-                or not _PLACEHOLDER.fullmatch(name)):
-            raise ValueError('A binding must uniquely name the corresponding source argument placeholder')
+        argument = _index(argument, len(steps[step]["argv"]), "Binding argument")
+        if step > observe or patterns[step][argument] != name or not _PLACEHOLDER.fullmatch(name):
+            raise ValueError("A binding must uniquely name the corresponding source argument placeholder")
         # One argument slot per step; the same placeholder may be supplied by
         # several invocations (TEXT on every add). The bound item uses the first.
         if (step, argument) in seen_steps:
-            raise ValueError('A binding must uniquely name the corresponding source argument placeholder')
+            raise ValueError("A binding must uniquely name the corresponding source argument placeholder")
         seen_steps.add((step, argument))
-        row = {'placeholder': name, 'step': step, 'argument': argument}
+        row = {"placeholder": name, "step": step, "argument": argument}
         normalized_bindings.append(row)
         bindings.setdefault(name, row)
     normalized = json.loads(json.dumps(proposal))
-    normalized['steps'] = steps
-    normalized['bindings'] = normalized_bindings
-    for field, label in (('expect', 'Expected listing item'), ('absent', 'Absent listing item')):
+    normalized["steps"] = steps
+    normalized["bindings"] = normalized_bindings
+    for field, label in (("expect", "Expected listing item"), ("absent", "Absent listing item")):
         if field not in proposal:
             continue
         rows = proposal[field]
         if not isinstance(rows, list):
-            raise ValueError(f'{label} bindings must be a list')
+            raise ValueError(f"{label} bindings must be a list")
         out, seen = [], set()
         for binding in rows:
-            _exact(binding, ('placeholder', 'step', 'argument'), label)
-            name = _string(binding['placeholder'], 'Placeholder')
-            step = _index(binding['step'], len(steps), f'{label} step')
-            argument = binding['argument']
+            _exact(binding, ("placeholder", "step", "argument"), label)
+            name = _string(binding["placeholder"], "Placeholder")
+            step = _index(binding["step"], len(steps), f"{label} step")
+            argument = binding["argument"]
             if type(argument) is not int:
-                raise ValueError(f'{label} argument must be an index into the invocation argv')
+                raise ValueError(f"{label} argument must be an index into the invocation argv")
             argument -= offsets[step]
-            argument = _index(argument, len(steps[step]['argv']), f'{label} argument')
+            argument = _index(argument, len(steps[step]["argv"]), f"{label} argument")
             if step > observe or patterns[step][argument] != name or not _PLACEHOLDER.fullmatch(name):
-                raise ValueError(f'{label} must uniquely name the corresponding source argument placeholder')
+                raise ValueError(f"{label} must uniquely name the corresponding source argument placeholder")
             if (step, argument) in seen:
-                raise ValueError(f'{label} bindings must be unique')
+                raise ValueError(f"{label} bindings must be unique")
             seen.add((step, argument))
-            out.append({'placeholder': name, 'step': step, 'argument': argument})
+            out.append({"placeholder": name, "step": step, "argument": argument})
         normalized[field] = out
     return normalized, patterns, bindings
 
 
 def _bind_one(declaration, proposal):
     normalized, patterns, bindings = normalized_proposal(declaration, proposal)
-    steps = normalized['steps']
+    steps = normalized["steps"]
     pattern = _format_pattern(declaration, steps, bindings)
-    observation = {'declaration': declaration, 'proposal': normalized, 'pattern': pattern}
-    observation['hash'] = digest(observation)
+    observation = {"declaration": declaration, "proposal": normalized, "pattern": pattern}
+    observation["hash"] = digest(observation)
     return observation
 
 
@@ -548,48 +590,55 @@ def bind(sources, proposals, *, inactive=(), version=VERSION):
     """
     full_inventory = inventory(sources, version=version)
     if not isinstance(inactive, (list, tuple)) or any(not isinstance(ident, str) for ident in inactive):
-        raise ValueError('Inactive declaration IDs must be caller-authenticated IDs')
-    if len(set(inactive)) != len(inactive) or not set(inactive) <= {row['id'] for row in full_inventory}:
-        raise ValueError('Inactive declarations must be known and unique')
-    declared = [row for row in full_inventory if row['id'] not in inactive]
+        raise ValueError("Inactive declaration IDs must be caller-authenticated IDs")
+    if len(set(inactive)) != len(inactive) or not set(inactive) <= {row["id"] for row in full_inventory}:
+        raise ValueError("Inactive declarations must be known and unique")
+    declared = [row for row in full_inventory if row["id"] not in inactive]
     if not isinstance(proposals, list):
-        raise ValueError('Observation proposals must be a list')
-    by_id = {row['id']: row for row in declared}
+        raise ValueError("Observation proposals must be a list")
+    by_id = {row["id"]: row for row in declared}
     proposed = {}
     for proposal in proposals:
         keys = set(proposal) if isinstance(proposal, dict) else set()
         if not set(PROPOSAL_REQUIRED) <= keys or keys - set(PROPOSAL_REQUIRED) - set(PROPOSAL_OPTIONAL):
-            raise ValueError('Observation declarations must be known and unique')
-        ident = proposal['declaration_id']
+            raise ValueError("Observation declarations must be known and unique")
+        ident = proposal["declaration_id"]
         if not isinstance(ident, str) or ident not in by_id or ident in proposed:
-            raise ValueError('Observation declarations must be known and unique')
+            raise ValueError("Observation declarations must be known and unique")
         proposed[ident] = proposal
     if set(proposed) != set(by_id):
-        raise ValueError('Every supported original-brief declaration needs an observation')
-    manifest = {'version': version, 'inventory_hash': digest(full_inventory),
-                'inactive_declaration_ids': sorted(inactive),
-                'observations': [_bind_one(row, proposed[row['id']]) for row in declared]}
-    manifest['hash'] = digest(manifest)
+        raise ValueError("Every supported original-brief declaration needs an observation")
+    manifest = {
+        "version": version,
+        "inventory_hash": digest(full_inventory),
+        "inactive_declaration_ids": sorted(inactive),
+        "observations": [_bind_one(row, proposed[row["id"]]) for row in declared],
+    }
+    manifest["hash"] = digest(manifest)
     return manifest
 
 
 def verify(sources, manifest, *, inactive=()):
     """Recompute canonical source/expectation bindings; trust no persisted regex or hash."""
-    _exact(manifest, ('version', 'inventory_hash', 'inactive_declaration_ids', 'observations', 'hash'), 'Acceptance manifest')
-    _compiler_version(manifest['version'])
-    if not isinstance(manifest['observations'], list):
-        raise ValueError('Unsupported acceptance manifest')
+    _exact(
+        manifest,
+        ("version", "inventory_hash", "inactive_declaration_ids", "observations", "hash"),
+        "Acceptance manifest",
+    )
+    _compiler_version(manifest["version"])
+    if not isinstance(manifest["observations"], list):
+        raise ValueError("Unsupported acceptance manifest")
     proposals = []
-    for row in manifest['observations']:
-        _exact(row, ('declaration', 'proposal', 'pattern', 'hash'), 'Canonical observation')
-        proposals.append(row['proposal'])
-    canonical = bind(sources, proposals, inactive=inactive, version=manifest['version'])
+    for row in manifest["observations"]:
+        _exact(row, ("declaration", "proposal", "pattern", "hash"), "Canonical observation")
+        proposals.append(row["proposal"])
+    canonical = bind(sources, proposals, inactive=inactive, version=manifest["version"])
     if manifest != canonical:
-        raise ValueError('Original-brief source or canonical observation binding changed')
+        raise ValueError("Original-brief source or canonical observation binding changed")
     return canonical
 
 
-_RUNNER = r'''import base64,json,pathlib,re,subprocess,sys,tempfile
+_RUNNER = r"""import base64,json,pathlib,re,subprocess,sys,tempfile
 case=json.loads(sys.argv[1])
 root=pathlib.Path.cwd().resolve()
 entry=root.joinpath(*case['program'].split('/'))
@@ -648,47 +697,60 @@ with tempfile.TemporaryDirectory(prefix='.brief-acceptance-',dir=root) as workin
                             break
 print(json.dumps({'verdict':'FAIL' if reason else 'PASS','observation_hash':case['hash'],'steps':rows,'reason':reason},sort_keys=True))
 sys.exit(1 if reason else 0)
-'''
+"""
 
 
-def commands(sources, manifest, *, inactive=(), python='python3', timeout=15):
+def commands(sources, manifest, *, inactive=(), python="python3", timeout=15):
     """Runner-owned commands only; caller provides its qualified Python and timeout."""
     canonical = verify(sources, manifest, inactive=inactive)
-    _string(python, 'Qualified Python')
-    if (not re.fullmatch(r'python(?:\d+(?:\.\d+)*)?', PurePosixPath(python).name)
-            or any(character in python for character in '\r\n\0') or '..' in PurePosixPath(python).parts):
-        raise ValueError('Caller must supply a qualified Python interpreter path')
+    _string(python, "Qualified Python")
+    if (
+        not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", PurePosixPath(python).name)
+        or any(character in python for character in "\r\n\0")
+        or ".." in PurePosixPath(python).parts
+    ):
+        raise ValueError("Caller must supply a qualified Python interpreter path")
     if type(timeout) not in (int, float) or not 0 < timeout <= 900:
-        raise ValueError('CLI step timeout must be bounded by the caller existing replay limit')
+        raise ValueError("CLI step timeout must be bounded by the caller existing replay limit")
     result = []
-    for observation in canonical['observations']:
-        payload = {'program': observation['declaration']['program'],
-                   'steps': observation['proposal']['steps'],
-                   'observe_step': observation['proposal']['observe_step'],
-                   'pattern': observation['pattern'], 'line_pattern': line_pattern(observation),
-                   'required': required_values(observation),
-                   'absent': absent_values(observation),
-                   'exact': observation['proposal'].get('expect') is not None,
-                   'hash': observation['hash'], 'timeout': timeout}
-        result.append(shlex.join([python, '-I', '-c', _RUNNER, json.dumps(payload, sort_keys=True, ensure_ascii=False)]))
+    for observation in canonical["observations"]:
+        payload = {
+            "program": observation["declaration"]["program"],
+            "steps": observation["proposal"]["steps"],
+            "observe_step": observation["proposal"]["observe_step"],
+            "pattern": observation["pattern"],
+            "line_pattern": line_pattern(observation),
+            "required": required_values(observation),
+            "absent": absent_values(observation),
+            "exact": observation["proposal"].get("expect") is not None,
+            "hash": observation["hash"],
+            "timeout": timeout,
+        }
+        result.append(
+            shlex.join([python, "-I", "-c", _RUNNER, json.dumps(payload, sort_keys=True, ensure_ascii=False)])
+        )
     return result
 
 
 def _manifest_observations(manifest):
-    _exact(manifest, ('version', 'inventory_hash', 'inactive_declaration_ids', 'observations', 'hash'), 'Acceptance manifest')
-    _compiler_version(manifest['version'])
-    if not isinstance(manifest['observations'], list):
-        raise ValueError('Unsupported acceptance manifest')
-    body = {key: value for key, value in manifest.items() if key != 'hash'}
-    if manifest['hash'] != digest(body):
-        raise ValueError('Acceptance manifest hash changed')
+    _exact(
+        manifest,
+        ("version", "inventory_hash", "inactive_declaration_ids", "observations", "hash"),
+        "Acceptance manifest",
+    )
+    _compiler_version(manifest["version"])
+    if not isinstance(manifest["observations"], list):
+        raise ValueError("Unsupported acceptance manifest")
+    body = {key: value for key, value in manifest.items() if key != "hash"}
+    if manifest["hash"] != digest(body):
+        raise ValueError("Acceptance manifest hash changed")
     result = {}
-    for observation in manifest['observations']:
-        _exact(observation, ('declaration', 'proposal', 'pattern', 'hash'), 'Canonical observation')
-        body = {key: value for key, value in observation.items() if key != 'hash'}
-        if observation['hash'] != digest(body) or observation['hash'] in result:
-            raise ValueError('Observation hash changed or repeated')
-        result[observation['hash']] = observation
+    for observation in manifest["observations"]:
+        _exact(observation, ("declaration", "proposal", "pattern", "hash"), "Canonical observation")
+        body = {key: value for key, value in observation.items() if key != "hash"}
+        if observation["hash"] != digest(body) or observation["hash"] in result:
+            raise ValueError("Observation hash changed or repeated")
+        result[observation["hash"]] = observation
     return result
 
 
@@ -701,20 +763,20 @@ def preserve(previous, proposed, *, replacements=()):
     New independent observations may be added, never used to erase old proof.
     """
     before, after = _manifest_observations(previous), _manifest_observations(proposed)
-    if previous['version'] != proposed['version']:
-        raise ValueError('An accepted brief compiler version cannot change within a run')
+    if previous["version"] != proposed["version"]:
+        raise ValueError("An accepted brief compiler version cannot change within a run")
     authorized, used_new = {}, set()
     for replacement in replacements:
-        _exact(replacement, REPLACEMENT_SCHEMA['required'], 'Authenticated replacement')
+        _exact(replacement, REPLACEMENT_SCHEMA["required"], "Authenticated replacement")
         if any(not isinstance(value, str) or not _HEX.fullmatch(value) for value in replacement.values()):
-            raise ValueError('Authenticated replacement needs exact SHA256 identities')
-        old, new = replacement['previous_hash'], replacement['replacement_hash']
+            raise ValueError("Authenticated replacement needs exact SHA256 identities")
+        old, new = replacement["previous_hash"], replacement["replacement_hash"]
         if old in authorized or new in used_new or old not in before or old in after or new not in after:
-            raise ValueError('Replacement must identify one actual old-to-new observation change')
-        if after[new]['declaration']['source_sha256'] != replacement['replacement_source_sha256']:
-            raise ValueError('Replacement source content hash does not match the new observation')
+            raise ValueError("Replacement must identify one actual old-to-new observation change")
+        if after[new]["declaration"]["source_sha256"] != replacement["replacement_source_sha256"]:
+            raise ValueError("Replacement source content hash does not match the new observation")
         authorized[old] = new
         used_new.add(new)
     if set(before) - set(after) != set(authorized):
-        raise ValueError('An accepted original-brief observation changed without an exact authenticated replacement')
+        raise ValueError("An accepted original-brief observation changed without an exact authenticated replacement")
     return proposed

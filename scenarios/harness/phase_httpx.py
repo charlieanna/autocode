@@ -6,6 +6,7 @@ local; genuine default transports must satisfy the existing loopback policy.
 This context changes only its calling process, never a model-provider parent.
 HTTPX is a project dependency, not an AutoCode runtime dependency.
 """
+
 from contextlib import contextmanager
 
 from .phase_env import guard

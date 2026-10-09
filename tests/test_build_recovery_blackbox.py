@@ -1,4 +1,5 @@
 """Additional execution-boundary scenarios with real externally crashed processes."""
+
 import contextlib
 import json
 import os
@@ -26,445 +27,539 @@ class RecoveryBlackbox(unittest.TestCase):
     candidate = bb.BuildBlackbox.candidate
 
     def fault(self, kind):
-        hooks = self.root / 'hooks'
+        hooks = self.root / "hooks"
         hooks.mkdir()
-        shutil.copy2(self.source / 'build_audit_fault_hooks.py', hooks / 'sitecustomize.py')
-        self.env.update(PYTHONPATH=str(hooks), BUILD_AUDIT_CONTROLLER_FAULT=kind,
-                        BUILD_AUDIT_FAULT_ROOT=str(self.root))
+        shutil.copy2(self.source / "build_audit_fault_hooks.py", hooks / "sitecustomize.py")
+        self.env.update(PYTHONPATH=str(hooks), BUILD_AUDIT_CONTROLLER_FAULT=kind, BUILD_AUDIT_FAULT_ROOT=str(self.root))
 
     def await_results(self, count):
         deadline = time.monotonic() + 35
         while time.monotonic() < deadline:
-            found = list(self.project.glob('.autocode/builders/*/*/.autocode/runs/*/result.json'))
+            found = list(self.project.glob(".autocode/builders/*/*/.autocode/runs/*/result.json"))
             if len(found) >= count:
                 return found
-            time.sleep(.05)
-        self.fail(f'Only {len(found)} worker results appeared; expected {count}')
+            time.sleep(0.05)
+        self.fail(f"Only {len(found)} worker results appeared; expected {count}")
 
     def test_08_live_orphan_worker_blocks_second_writer(self):
-        self.seed(); self.env['BUILD_AUDIT_FAULT'] = 'hold'; self.fault('after_worker')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        self.seed()
+        self.env["BUILD_AUDIT_FAULT"] = "hold"
+        self.fault("after_worker")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
         try:
             deadline = time.monotonic() + 20
             while not self.events() and time.monotonic() < deadline:
-                time.sleep(.05)
+                time.sleep(0.05)
             self.assertEqual(1, len(self.events()))
-            self.build(2, extra=['--resume-paused', '--retry-builder', 'M1'])
-            self.assertEqual(1, len(self.events()), 'Duplicate writer was launched')
+            self.build(2, extra=["--resume-paused", "--retry-builder", "M1"])
+            self.assertEqual(1, len(self.events()), "Duplicate writer was launched")
         finally:
-            (self.root / 'release').touch()
+            (self.root / "release").touch()
             self.await_results(1)
 
     def test_08_actual_timeout_then_controller_crash_keeps_live_writer_exclusive(self):
-        spec = bb.plan([([], 'Create output.txt containing done', ['output.txt'])],
-                       {'M1': {'output.txt': 'done'}},
-                       {'M1': "from pathlib import Path; assert Path('output.txt').read_text()=='done'"},
-                       'Verify timeout is not proof of termination')
+        spec = bb.plan(
+            [([], "Create output.txt containing done", ["output.txt"])],
+            {"M1": {"output.txt": "done"}},
+            {"M1": "from pathlib import Path; assert Path('output.txt').read_text()=='done'"},
+            "Verify timeout is not proof of termination",
+        )
         self.seed(spec)
         # Reach the Builder through the public checkpoint before applying its one-second limit.
-        self.build(2, extra=['--pause-after-stage'])
+        self.build(2, extra=["--pause-after-stage"])
         self.assertEqual([], self.events())
         hooks = timeout_fault.prepare(self.root, self.source)
-        env = dict(self.env, PYTHONPATH=str(hooks), BUILD_AUDIT_FAULT='hold_timeout',
-                   BUILD_AUDIT_TIMEOUT_ROOT=str(self.root))
-        controller = subprocess.Popen(self.command('autocode_build', ['--run-dir', str(self.run),
-            '--no-chat', '--resume-paused', '--max-stage-seconds', '1']), cwd=self.root, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        env = dict(
+            self.env, PYTHONPATH=str(hooks), BUILD_AUDIT_FAULT="hold_timeout", BUILD_AUDIT_TIMEOUT_ROOT=str(self.root)
+        )
+        controller = subprocess.Popen(
+            self.command(
+                "autocode_build",
+                ["--run-dir", str(self.run), "--no-chat", "--resume-paused", "--max-stage-seconds", "1"],
+            ),
+            cwd=self.root,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         owned = []
         try:
             deadline = time.monotonic() + 35
-            ready = [self.root / name for name in ('provider-ready', 'controller-deadline-ready')]
+            ready = [self.root / name for name in ("provider-ready", "controller-deadline-ready")]
             while not all(path.exists() for path in ready) and time.monotonic() < deadline:
-                self.assertIsNone(controller.poll(), 'Controller exited before the Builder timeout barrier')
-                time.sleep(.01)
-            self.assertTrue(all(path.exists() for path in ready), 'Held Builder and actual watchdog did not start')
+                self.assertIsNone(controller.poll(), "Controller exited before the Builder timeout barrier")
+                time.sleep(0.01)
+            self.assertTrue(all(path.exists() for path in ready), "Held Builder and actual watchdog did not start")
             starts = self.events()
             self.assertEqual(1, len(starts))
-            self.assertEqual('M1', starts[0]['milestone'])
-            self.assertEqual(starts[0]['pid'], int(ready[0].read_text()))
+            self.assertEqual("M1", starts[0]["milestone"])
+            self.assertEqual(starts[0]["pid"], int(ready[0].read_text()))
             self.assertEqual(controller.pid, int(ready[1].read_text()))
             # Advance the real deadline callbacks only after the correct provider is held.
             timeout_fault.advance(self.root, 2)
-            publications = [self.root / name for name in ('controller-timeout.json', 'keeper-timeout.json')]
+            publications = [self.root / name for name in ("controller-timeout.json", "keeper-timeout.json")]
             while not all(path.exists() for path in publications) and time.monotonic() < deadline:
-                time.sleep(.01)
-            self.assertTrue(all(path.exists() for path in publications), 'Actual timeout was not durably published')
+                time.sleep(0.01)
+            self.assertTrue(all(path.exists() for path in publications), "Actual timeout was not durably published")
             timeout, receipt = [json.loads(path.read_text()) for path in publications]
-            self.assertEqual(('terra', 'stage'), (timeout['stage'], timeout['activity']['timeout_kind']))
-            self.assertEqual(('stopping', 'stage_deadline'), (receipt['phase'], receipt['cause']))
-            metadata = timeout['supervision']
+            self.assertEqual(("terra", "stage"), (timeout["stage"], timeout["activity"]["timeout_kind"]))
+            self.assertEqual(("stopping", "stage_deadline"), (receipt["phase"], receipt["cause"]))
+            metadata = timeout["supervision"]
             self.assertEqual(metadata, {key: receipt[key] for key in metadata})
-            self.assertEqual(controller.pid, metadata['owner']['pid'])
-            self.assertEqual(starts[0]['pid'], metadata['provider']['pid'])
-            owned = [metadata['keeper'], metadata['provider']]
+            self.assertEqual(controller.pid, metadata["owner"]["pid"])
+            self.assertEqual(starts[0]["pid"], metadata["provider"]["pid"])
+            owned = [metadata["keeper"], metadata["provider"]]
             self.assertTrue(all(bb._alive(row) for row in owned))
             # A stopped keeper explicitly models unavailable cleanup; normal keepers kill timed-out writers.
-            os.kill(owned[0]['pid'], signal.SIGSTOP)
+            os.kill(owned[0]["pid"], signal.SIGSTOP)
             controller.kill()
             stdout, stderr = controller.communicate(timeout=5)
-            (self.root / 'timeout-controller.log').write_text(stdout + stderr)
+            (self.root / "timeout-controller.log").write_text(stdout + stderr)
             self.assertEqual(-signal.SIGKILL, controller.returncode)
             self.assertTrue(bb._alive(owned[1]))
-            os.kill(owned[1]['pid'], signal.SIGCONT)
-            self.build(2, extra=['--resume-paused'])
-            self.assertTrue(bb._alive(owned[1]), 'The held writer disappeared before exclusivity was checked')
-            self.assertEqual(starts, self.events(), 'A second writer started while the timed-out provider remained alive')
-            status = self.invoke('autocode', ['--run-dir', str(self.run), '--status'])
+            os.kill(owned[1]["pid"], signal.SIGCONT)
+            self.build(2, extra=["--resume-paused"])
+            self.assertTrue(bb._alive(owned[1]), "The held writer disappeared before exclusivity was checked")
+            self.assertEqual(
+                starts, self.events(), "A second writer started while the timed-out provider remained alive"
+            )
+            status = self.invoke("autocode", ["--run-dir", str(self.run), "--status"])
             public = json.loads(status.stdout)
-            view = public['view']
+            view = public["view"]
             # The live attempt stays RUNNING; liveness identifies its interrupted controller.
-            self.assertEqual('RUNNING', view['status'])
-            self.assertEqual({'checked': True, 'alive': False}, view['liveness']['owner'])
-            self.assertEqual({'checked': True, 'alive': True}, view['liveness']['keeper'])
-            self.assertEqual(('interrupted', 'stage_deadline'), (view['liveness']['kind'], view['liveness']['reason']))
-            self.assertFalse(view['done'])
-            self.assertTrue(view['liveness']['provider']['alive'])
-            self.assertNotIn('autocode', public['unit_handoffs'])
+            self.assertEqual("RUNNING", view["status"])
+            self.assertEqual({"checked": True, "alive": False}, view["liveness"]["owner"])
+            self.assertEqual({"checked": True, "alive": True}, view["liveness"]["keeper"])
+            self.assertEqual(("interrupted", "stage_deadline"), (view["liveness"]["kind"], view["liveness"]["reason"]))
+            self.assertFalse(view["done"])
+            self.assertTrue(view["liveness"]["provider"]["alive"])
+            self.assertNotIn("autocode", public["unit_handoffs"])
         finally:
             # Release the provider and both cleanup threads, including failures before marker collection.
-            (self.root / 'release').touch()
-            (self.root / 'cleanup-release').touch()
+            (self.root / "release").touch()
+            (self.root / "cleanup-release").touch()
             for row in bb.supervised_processes(self.root):
                 if bb._alive(row):
                     with contextlib.suppress(ProcessLookupError):
-                        os.kill(row['pid'], signal.SIGCONT)  # cleanup only; disappearance never satisfies a test assertion
+                        os.kill(
+                            row["pid"], signal.SIGCONT
+                        )  # cleanup only; disappearance never satisfies a test assertion
             if controller.poll() is None:
                 controller.kill()
                 controller.communicate(timeout=5)
             bb.await_supervised_exit(self.root)
+
     def test_10_crash_before_spawn_recovery_launches_once(self):
-        self.seed(); self.fault('before_worker')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        self.seed()
+        self.fault("before_worker")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
         self.assertEqual([], self.events())
-        self.build(extra=['--resume-paused'])
+        self.build(extra=["--resume-paused"])
         self.candidate()
         self.assertEqual(3, len(self.events()))
 
     def test_11_crash_after_spawn_before_pid_checkpoint(self):
-        self.seed(); self.fault('after_worker')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        self.seed()
+        self.fault("after_worker")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
         self.await_results(1)
-        self.build(extra=['--resume-paused']); self.candidate()
+        self.build(extra=["--resume-paused"])
+        self.candidate()
         self.assertEqual(3, len(self.events()))
-        self.assertEqual(1, sum(e['milestone'] == 'M1' for e in self.events()))
+        self.assertEqual(1, sum(e["milestone"] == "M1" for e in self.events()))
 
     def test_12_crash_after_patch_application_is_not_reapplied(self):
-        self.seed(); self.fault('after_integration')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
-        before = {p: (self.project / p).read_bytes() for paths in self.spec['payloads'].values() for p in paths}
-        self.build(extra=['--resume-paused']); self.candidate()
+        self.seed()
+        self.fault("after_integration")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
+        before = {p: (self.project / p).read_bytes() for paths in self.spec["payloads"].values() for p in paths}
+        self.build(extra=["--resume-paused"])
+        self.candidate()
         self.assertEqual(3, len(self.events()))
         self.assertEqual(before, {p: (self.project / p).read_bytes() for p in before})
 
     def test_14_conflict_during_integration_preserves_both_sides(self):
-        self.seed(); self.fault('integration_conflict'); self.build(2)
-        self.assertEqual('USER_CONFLICT = True\n', (self.project / 'server/health.py').read_text())
+        self.seed()
+        self.fault("integration_conflict")
+        self.build(2)
+        self.assertEqual("USER_CONFLICT = True\n", (self.project / "server/health.py").read_text())
         self.assertEqual(3, len(self.events()))
-        self.assertTrue(list(self.project.glob('.autocode/builders/*/*/server/health.py')))
-        self.assertNotIn('autocode', self.state()['unit_handoffs'])
+        self.assertTrue(list(self.project.glob(".autocode/builders/*/*/server/health.py")))
+        self.assertNotIn("autocode", self.state()["unit_handoffs"])
 
     def parent_edit_preserved(self, name):
         self.seed()
-        self.fault('parent_edit_before_collection')
-        self.env['BUILD_AUDIT_PARENT_EDIT'] = name
+        self.fault("parent_edit_before_collection")
+        self.env["BUILD_AUDIT_PARENT_EDIT"] = name
         self.build(2)
-        self.assertTrue((self.root / 'fault-parent_edit_before_collection').is_file(),
-                        (self.root / f'cli-{self.counter}.json').read_text())
-        self.assertEqual('User-authored content must survive\n', (self.project / name).read_text())
-        self.assertTrue(list(self.project.glob('.autocode/builders/*/*/server/health.py')))
-        self.assertNotIn('autocode', self.state().get('unit_handoffs', {}))
+        self.assertTrue(
+            (self.root / "fault-parent_edit_before_collection").is_file(),
+            (self.root / f"cli-{self.counter}.json").read_text(),
+        )
+        self.assertEqual("User-authored content must survive\n", (self.project / name).read_text())
+        self.assertTrue(list(self.project.glob(".autocode/builders/*/*/server/health.py")))
+        self.assertNotIn("autocode", self.state().get("unit_handoffs", {}))
         before = self.events()
-        self.build(2, extra=['--resume-paused'])
-        self.assertEqual(before, self.events(), 'Drift recovery must not replay successful Builders')
-        self.assertEqual('User-authored content must survive\n', (self.project / name).read_text())
-        backup = self.root / 'user-preserved.txt'
+        self.build(2, extra=["--resume-paused"])
+        self.assertEqual(before, self.events(), "Drift recovery must not replay successful Builders")
+        self.assertEqual("User-authored content must survive\n", (self.project / name).read_text())
+        backup = self.root / "user-preserved.txt"
         (self.project / name).rename(backup)  # The operator, not the runner, reconciles the parent edit.
-        self.build(extra=['--resume-paused'])
+        self.build(extra=["--resume-paused"])
         self.candidate()
         self.assertEqual(before, self.events())
-        self.assertEqual('User-authored content must survive\n', backup.read_text())
+        self.assertEqual("User-authored content must survive\n", backup.read_text())
 
     def test_new_user_file_at_builder_output_path_is_preserved(self):
-        self.parent_edit_preserved('server/health.py')
+        self.parent_edit_preserved("server/health.py")
 
     def test_new_user_file_under_builder_owned_directory_is_preserved(self):
-        self.parent_edit_preserved('server/user-notes.txt')
+        self.parent_edit_preserved("server/user-notes.txt")
 
     def deferred_retirement_crash(self, fault):
         spec = bb.independent()
-        spec['contract']['milestones'][2]['depends_on'] = ['M1', 'M2']
-        strong = builder_policy.DEFAULTS['strong_model']
+        spec["contract"]["milestones"][2]["depends_on"] = ["M1", "M2"]
+        strong = builder_policy.DEFAULTS["strong_model"]
         self.seed(spec, checker=strong)
-        self.env.update(BUILD_AUDIT_FAULT='escalate_success', BUILD_AUDIT_FAULT_MILESTONES='M1,M2')
+        self.env.update(BUILD_AUDIT_FAULT="escalate_success", BUILD_AUDIT_FAULT_MILESTONES="M1,M2")
         self.fault(fault)
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
         before = self.events()
-        self.assertEqual(['gpt-6-luna'] * 4, [event['model'] for event in before])
-        self.assertNotIn('autocode', self.state().get('unit_handoffs', {}))
+        self.assertEqual(["gpt-6-luna"] * 4, [event["model"] for event in before])
+        self.assertNotIn("autocode", self.state().get("unit_handoffs", {}))
         return before
 
     def deferred_retirement_recovery(self, fault):
         before = self.deferred_retirement_crash(fault)
-        strong = 'gpt-6-sol'
-        self.build(extra=['--resume-paused'])
+        strong = "gpt-6-sol"
+        self.build(extra=["--resume-paused"])
         self.candidate()
-        self.assertEqual(before, self.events()[:len(before)])
-        self.assertEqual(['gpt-6-luna', 'gpt-6-luna', strong],
-                         [event['model'] for event in self.events() if event['milestone'] == 'M1'])
-        self.assertEqual(['gpt-6-luna'] * 2,
-                         [event['model'] for event in self.events() if event['milestone'] == 'M2'])
-        history = self.state()['orchestration_history']
+        self.assertEqual(before, self.events()[: len(before)])
+        self.assertEqual(
+            ["gpt-6-luna", "gpt-6-luna", strong],
+            [event["model"] for event in self.events() if event["milestone"] == "M1"],
+        )
+        self.assertEqual(["gpt-6-luna"] * 2, [event["model"] for event in self.events() if event["milestone"] == "M2"])
+        history = self.state()["orchestration_history"]
         self.assertEqual(1, len(history))
-        for row in history[0]['workers']:
-            self.assertTrue((Path(row['run_dir']) / 'state.json').is_file())
-            self.assertFalse((Path(row['workspace']) / '.git').exists())
+        for row in history[0]["workers"]:
+            self.assertTrue((Path(row["run_dir"]) / "state.json").is_file())
+            self.assertFalse((Path(row["workspace"]) / ".git").exists())
         after = self.events()
         self.build()
         self.assertEqual(after, self.events())
-        self.assertEqual(history, self.state()['orchestration_history'])
-        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        self.assertEqual(history, self.state()["orchestration_history"])
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
         self.build()
         self.candidate()
-        for milestone in ('M1', 'M2'):
-            self.assertEqual(['gpt-6-luna', 'gpt-6-luna', strong],
-                             [event['model'] for event in self.events() if event['milestone'] == milestone])
+        for milestone in ("M1", "M2"):
+            self.assertEqual(
+                ["gpt-6-luna", "gpt-6-luna", strong],
+                [event["model"] for event in self.events() if event["milestone"] == milestone],
+            )
 
     def test_all_deferred_batch_resumes_during_worktree_retirement(self):
-        self.deferred_retirement_recovery('during_retirement')
+        self.deferred_retirement_recovery("during_retirement")
 
     def test_all_deferred_batch_resumes_after_worktree_retirement(self):
-        self.deferred_retirement_recovery('after_retirement')
+        self.deferred_retirement_recovery("after_retirement")
 
     def test_deferred_retirement_preserves_parent_edits_on_resume(self):
-        before = self.deferred_retirement_crash('during_retirement')
-        edit = self.project / 'user.txt'
-        edit.write_text('Keep the parent edit\n')
-        self.build(2, extra=['--resume-paused'])
-        self.assertEqual('Keep the parent edit\n', edit.read_text())
+        before = self.deferred_retirement_crash("during_retirement")
+        edit = self.project / "user.txt"
+        edit.write_text("Keep the parent edit\n")
+        self.build(2, extra=["--resume-paused"])
+        self.assertEqual("Keep the parent edit\n", edit.read_text())
         self.assertEqual(before, self.events())
-        edit.rename(self.root / 'preserved-parent-edit.txt')
-        self.build(extra=['--resume-paused'])
+        edit.rename(self.root / "preserved-parent-edit.txt")
+        self.build(extra=["--resume-paused"])
         self.candidate()
 
     def test_deferred_retirement_preserves_surviving_checkout_edits(self):
-        before = self.deferred_retirement_crash('during_retirement')
-        row = next(row for row in self.state()['orchestration_batch']['workers']
-                   if (Path(row['workspace']) / '.git').exists())
-        edit = Path(row['workspace']) / 'user.txt'
-        edit.write_text('Keep the worker edit\n')
-        self.build(2, extra=['--resume-paused'])
-        self.assertEqual('Keep the worker edit\n', edit.read_text())
+        before = self.deferred_retirement_crash("during_retirement")
+        row = next(
+            row for row in self.state()["orchestration_batch"]["workers"] if (Path(row["workspace"]) / ".git").exists()
+        )
+        edit = Path(row["workspace"]) / "user.txt"
+        edit.write_text("Keep the worker edit\n")
+        self.build(2, extra=["--resume-paused"])
+        self.assertEqual("Keep the worker edit\n", edit.read_text())
         self.assertEqual(before, self.events())
-        edit.rename(self.root / 'preserved-worker-edit.txt')
-        self.build(extra=['--resume-paused'])
+        edit.rename(self.root / "preserved-worker-edit.txt")
+        self.build(extra=["--resume-paused"])
         self.candidate()
 
     def test_revised_plan_preserves_edits_then_supersedes_deferred_batch(self):
-        before = self.deferred_retirement_crash('during_retirement')
-        old = self.state()['orchestration_batch']
-        row = next(row for row in old['workers'] if (Path(row['workspace']) / '.git').exists())
-        edit = Path(row['workspace']) / 'user.txt'
-        edit.write_text('Keep the worker edit across plan replacement\n')
-        revised = dict(self.spec['contract'])
-        revised['constraints'] = [*revised['constraints'], 'Keep the health response compatible']
-        path = self.root / 'revision-two.json'
+        before = self.deferred_retirement_crash("during_retirement")
+        old = self.state()["orchestration_batch"]
+        row = next(row for row in old["workers"] if (Path(row["workspace"]) / ".git").exists())
+        edit = Path(row["workspace"]) / "user.txt"
+        edit.write_text("Keep the worker edit across plan replacement\n")
+        revised = dict(self.spec["contract"])
+        revised["constraints"] = [*revised["constraints"], "Keep the health response compatible"]
+        path = self.root / "revision-two.json"
         path.write_text(json.dumps(revised))
-        self.env.pop('BUILD_AUDIT_FAULT')
-        self.env.pop('BUILD_AUDIT_FAULT_MILESTONES')
-        self.invoke('autoplanner', ['--run-dir', str(self.run), '--edit-goal', str(path), '--no-chat'])
-        self.invoke('autoplanner', ['--run-dir', str(self.run), '--approve-goal', self.state()['displayed_goal'], '--no-chat'])
-        self.original_contract = self.state()['goal_contract']
+        self.env.pop("BUILD_AUDIT_FAULT")
+        self.env.pop("BUILD_AUDIT_FAULT_MILESTONES")
+        self.invoke("autoplanner", ["--run-dir", str(self.run), "--edit-goal", str(path), "--no-chat"])
+        self.invoke(
+            "autoplanner", ["--run-dir", str(self.run), "--approve-goal", self.state()["displayed_goal"], "--no-chat"]
+        )
+        self.original_contract = self.state()["goal_contract"]
         self.build(2)
-        self.assertEqual('Keep the worker edit across plan replacement\n', edit.read_text())
+        self.assertEqual("Keep the worker edit across plan replacement\n", edit.read_text())
         self.assertEqual(before, self.events())
-        edit.rename(self.root / 'preserved-worker-edit.txt')
-        self.build(extra=['--resume-paused'])
+        edit.rename(self.root / "preserved-worker-edit.txt")
+        self.build(extra=["--resume-paused"])
         self.candidate()
-        self.assertEqual(['SUPERSEDED', 'INTEGRATED'], [batch['status'] for batch in self.state()['orchestration_history']])
-        self.assertEqual(['gpt-6-luna'] * 2, [event['model'] for event in self.events()[len(before):]])
-        for row in old['workers']:
-            self.assertTrue((Path(row['run_dir']) / 'state.json').is_file())
+        self.assertEqual(
+            ["SUPERSEDED", "INTEGRATED"], [batch["status"] for batch in self.state()["orchestration_history"]]
+        )
+        self.assertEqual(["gpt-6-luna"] * 2, [event["model"] for event in self.events()[len(before) :]])
+        for row in old["workers"]:
+            self.assertTrue((Path(row["run_dir"]) / "state.json").is_file())
 
     def test_integrated_batch_resumes_during_worktree_retirement(self):
         self.seed()
-        self.fault('during_retirement')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        self.fault("during_retirement")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
         before = self.events()
-        self.build(extra=['--resume-paused'])
+        self.build(extra=["--resume-paused"])
         self.candidate()
         self.assertEqual(before, self.events())
-        for row in self.state()['orchestration_history'][0]['workers']:
-            self.assertTrue((Path(row['run_dir']) / 'state.json').is_file())
+        for row in self.state()["orchestration_history"][0]["workers"]:
+            self.assertTrue((Path(row["run_dir"]) / "state.json").is_file())
 
     def test_17_behavioral_drift_five_retries_fails_three_retry_contract(self):
-        spec = bb.plan([([], 'Set MAX_RETRIES to exactly 3', ['retry.py'])],
-                       {'M1': {'retry.py': 'MAX_RETRIES = 5\n'}},
-                       {'M1': 'from retry import MAX_RETRIES; assert MAX_RETRIES == 3'},
-                       'Configure a strict maximum of three retries')
-        self.seed(spec); self.build(); self.candidate()
-        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
-        self.assertEqual('FAIL', self.state()['validation']['verdict'])
-        self.assertNotEqual('TASK_COMPLETE', self.state()['status'])
-        self.assertEqual(self.original_contract, self.state()['goal_contract'])
+        spec = bb.plan(
+            [([], "Set MAX_RETRIES to exactly 3", ["retry.py"])],
+            {"M1": {"retry.py": "MAX_RETRIES = 5\n"}},
+            {"M1": "from retry import MAX_RETRIES; assert MAX_RETRIES == 3"},
+            "Configure a strict maximum of three retries",
+        )
+        self.seed(spec)
+        self.build()
+        self.candidate()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        self.assertEqual("FAIL", self.state()["validation"]["verdict"])
+        self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
+        self.assertEqual(self.original_contract, self.state()["goal_contract"])
 
     def test_30_duplicate_durable_result_consumed_once_after_crash(self):
-        self.seed(); self.fault('after_integration')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
-        for p in self.project.glob('.autocode/builders/*/*/.autocode/runs/*/result.json'):
+        self.seed()
+        self.fault("after_integration")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
+        for p in self.project.glob(".autocode/builders/*/*/.autocode/runs/*/result.json"):
             p.write_bytes(p.read_bytes())  # Same delivery repeated; no edited identities.
-        self.build(extra=['--resume-paused']); self.candidate()
-        first = self.state()['orchestration_history']
+        self.build(extra=["--resume-paused"])
+        self.candidate()
+        first = self.state()["orchestration_history"]
         self.build()
-        self.assertEqual(first, self.state()['orchestration_history'])
-        attempts = [r['worker_attempt'] for r in self.state()['stages'] if r.get('worker_attempt')]
+        self.assertEqual(first, self.state()["orchestration_history"])
+        attempts = [r["worker_attempt"] for r in self.state()["stages"] if r.get("worker_attempt")]
         self.assertEqual(len(attempts), len(set(attempts)))
 
     def test_31_late_failed_attempt_result_cannot_replace_integrated_retry(self):
-        self.seed(); self.env['BUILD_AUDIT_FAULT'] = 'crash'; self.build(2)
-        worker = next(w for w in self.state()['orchestration_batch']['workers'] if w['milestone_id'] == 'M1')
-        receipt = Path(worker['run_dir']) / 'result.json'
+        self.seed()
+        self.env["BUILD_AUDIT_FAULT"] = "crash"
+        self.build(2)
+        worker = next(w for w in self.state()["orchestration_batch"]["workers"] if w["milestone_id"] == "M1")
+        receipt = Path(worker["run_dir"]) / "result.json"
         old_receipt = receipt.read_bytes()
-        self.env.pop('BUILD_AUDIT_FAULT')
-        self.build(extra=['--resume-paused', '--retry-builder', 'M1'])
+        self.env.pop("BUILD_AUDIT_FAULT")
+        self.build(extra=["--resume-paused", "--retry-builder", "M1"])
         candidate = self.candidate()
-        source = (self.project / 'server/health.py').read_bytes()
+        source = (self.project / "server/health.py").read_bytes()
         receipt.write_bytes(old_receipt)
         self.build()
         self.assertEqual(candidate, self.candidate())
-        self.assertEqual(source, (self.project / 'server/health.py').read_bytes())
+        self.assertEqual(source, (self.project / "server/health.py").read_bytes())
         self.assertEqual(4, len(self.events()))
 
     def test_19_permission_denial_preserved_on_next_handoff(self):
-        spec = bb.plan([([], 'Write the assigned health function only if permitted', ['server/health.py'])],
-                       {'M1': {'server/health.py': "def health(): return {'status':'ok'}\n"}},
-                       {'M1': "from server.health import health; assert health()['status']=='ok'"},
-                       'Implement a scoped health function')
-        self.seed(spec); self.env['BUILD_AUDIT_FAULT'] = 'permission'; self.build()
-        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'], 2)
+        spec = bb.plan(
+            [([], "Write the assigned health function only if permitted", ["server/health.py"])],
+            {"M1": {"server/health.py": "def health(): return {'status':'ok'}\n"}},
+            {"M1": "from server.health import health; assert health()['status']=='ok'"},
+            "Implement a scoped health function",
+        )
+        self.seed(spec)
+        self.env["BUILD_AUDIT_FAULT"] = "permission"
+        self.build()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"], 2)
         state = self.state()
-        self.assertEqual('WAITING_FOR_USER', state['status'])
-        qid = state['pending_questions'][0]['id']
-        token = state['resolver_human_request']['request_token']  # answers name the published request
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--answer', qid + '=No. Do not access any external account.',
-                                       '--resolver-token', token, '--no-chat'])
-        self.assertIn('No. Do not access', json.dumps(self.state()['answers']))
-        self.assertEqual(self.original_contract, self.state()['goal_contract'])
-        self.assertFalse((self.project / 'server/health.py').exists())
-        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'], 2)
-        self.assertFalse((self.project / 'server/health.py').exists())
-        self.assertEqual([], self.state().get('pending_questions', []), 'Repeated request asked the user again')
+        self.assertEqual("WAITING_FOR_USER", state["status"])
+        qid = state["pending_questions"][0]["id"]
+        token = state["resolver_human_request"]["request_token"]  # answers name the published request
+        self.invoke(
+            "autocode_build",
+            [
+                "--run-dir",
+                str(self.run),
+                "--answer",
+                qid + "=No. Do not access any external account.",
+                "--resolver-token",
+                token,
+                "--no-chat",
+            ],
+        )
+        self.assertIn("No. Do not access", json.dumps(self.state()["answers"]))
+        self.assertEqual(self.original_contract, self.state()["goal_contract"])
+        self.assertFalse((self.project / "server/health.py").exists())
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"], 2)
+        self.assertFalse((self.project / "server/health.py").exists())
+        self.assertEqual([], self.state().get("pending_questions", []), "Repeated request asked the user again")
 
     def test_32_plan_cannot_mutate_active_workers_and_revision_invalidates_old_approval(self):
-        self.seed(); self.env['BUILD_AUDIT_FAULT'] = 'hold'
-        revised = dict(self.spec['contract'])
-        revised['constraints'] = [*revised['constraints'], 'Revision two: keep existing health response']
-        path = self.root / 'revision-two.json'
+        self.seed()
+        self.env["BUILD_AUDIT_FAULT"] = "hold"
+        revised = dict(self.spec["contract"])
+        revised["constraints"] = [*revised["constraints"], "Revision two: keep existing health response"]
+        path = self.root / "revision-two.json"
         path.write_text(json.dumps(revised))
-        process = subprocess.Popen(self.command('autocode_build', ['--run-dir', str(self.run), '--no-chat']),
-            cwd=self.root, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(
+            self.command("autocode_build", ["--run-dir", str(self.run), "--no-chat"]),
+            cwd=self.root,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         try:
-            deadline=time.monotonic()+20
-            while not self.events() and time.monotonic()<deadline:
-                time.sleep(.02)
+            deadline = time.monotonic() + 20
+            while not self.events() and time.monotonic() < deadline:
+                time.sleep(0.02)
             self.assertTrue(self.events())
-            self.invoke('autoplanner', ['--run-dir', str(self.run), '--edit-goal', str(path), '--no-chat'], 2)
-            self.assertEqual(self.original_contract, self.state()['goal_contract'])
+            self.invoke("autoplanner", ["--run-dir", str(self.run), "--edit-goal", str(path), "--no-chat"], 2)
+            self.assertEqual(self.original_contract, self.state()["goal_contract"])
         finally:
-            (self.root/'release').touch()
-            stdout,stderr=process.communicate(timeout=40)
-            (self.root/'active-revision.log').write_text(stdout+stderr)
-        self.assertEqual(0,process.returncode,stdout+stderr)
-        self.invoke('autoplanner', ['--run-dir', str(self.run), '--edit-goal', str(path), '--no-chat'])
-        state=self.state()
-        self.assertNotEqual(self.original_contract['hash'],state['goal_contract']['hash'])
-        self.assertNotEqual('approved',state['goal_contract']['approval_status'])
-        self.invoke('autocode_build', ['--run-dir',str(self.run),'--no-chat'], 2)
-        self.assertEqual(3,len(self.events()))
+            (self.root / "release").touch()
+            stdout, stderr = process.communicate(timeout=40)
+            (self.root / "active-revision.log").write_text(stdout + stderr)
+        self.assertEqual(0, process.returncode, stdout + stderr)
+        self.invoke("autoplanner", ["--run-dir", str(self.run), "--edit-goal", str(path), "--no-chat"])
+        state = self.state()
+        self.assertNotEqual(self.original_contract["hash"], state["goal_contract"]["hash"])
+        self.assertNotEqual("approved", state["goal_contract"]["approval_status"])
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 2)
+        self.assertEqual(3, len(self.events()))
 
     def test_prelaunch_recovery_rejects_unrecorded_workspace_edits(self):
-        self.seed(); self.fault('before_worker')
-        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
-        worker=self.state()['orchestration_batch']['workers'][0]
-        (Path(worker['workspace'])/'unrecorded.txt').write_text('Keep this unexplained work')
-        self.build(2,extra=['--resume-paused'])
-        self.assertEqual('Keep this unexplained work',(Path(worker['workspace'])/'unrecorded.txt').read_text())
-        self.assertFalse(any(e['milestone']=='M1' for e in self.events()))
+        self.seed()
+        self.fault("before_worker")
+        self.invoke("autocode_build", ["--run-dir", str(self.run), "--no-chat"], 97)
+        worker = self.state()["orchestration_batch"]["workers"][0]
+        (Path(worker["workspace"]) / "unrecorded.txt").write_text("Keep this unexplained work")
+        self.build(2, extra=["--resume-paused"])
+        self.assertEqual("Keep this unexplained work", (Path(worker["workspace"]) / "unrecorded.txt").read_text())
+        self.assertFalse(any(e["milestone"] == "M1" for e in self.events()))
 
     def checkpoint_spec(self):
-        files={f'screens/s{i}.txt': f'state {i}\n' for i in range(21)}
-        c1="from pathlib import Path; assert all(Path(f'screens/s{i}.txt').read_text()==f'state {i}\\n' for i in range(21))"
-        c2="from pathlib import Path; assert Path('screens/regression.txt').read_text()=='PASS\\n'"
-        spec=bb.plan([([], 'Implement 21 screen-state fixtures, then pass the regression checkpoint', ['screens/'])],
-            {'M1':files},{'M1':c1+'; '+c2},'Implement and checkpoint a 21-state dashboard fixture')
-        spec['contract']['acceptance_criteria'][0]['criterion']='All 21 state artifacts match the baseline'
-        spec['contract']['acceptance_criteria'].append(dict(id='C2',criterion='Final regression marker passes',verification_method=c2,human_review=False))
-        spec['contract']['milestones'][0]['acceptance_criteria'].append('C2')
-        spec['criterion_checks']={'C1':c1,'C2':c2}
-        spec['checkpoint_files']=list(files)
+        files = {f"screens/s{i}.txt": f"state {i}\n" for i in range(21)}
+        c1 = "from pathlib import Path; assert all(Path(f'screens/s{i}.txt').read_text()==f'state {i}\\n' for i in range(21))"
+        c2 = "from pathlib import Path; assert Path('screens/regression.txt').read_text()=='PASS\\n'"
+        spec = bb.plan(
+            [([], "Implement 21 screen-state fixtures, then pass the regression checkpoint", ["screens/"])],
+            {"M1": files},
+            {"M1": c1 + "; " + c2},
+            "Implement and checkpoint a 21-state dashboard fixture",
+        )
+        spec["contract"]["acceptance_criteria"][0]["criterion"] = "All 21 state artifacts match the baseline"
+        spec["contract"]["acceptance_criteria"].append(
+            dict(id="C2", criterion="Final regression marker passes", verification_method=c2, human_review=False)
+        )
+        spec["contract"]["milestones"][0]["acceptance_criteria"].append("C2")
+        spec["criterion_checks"] = {"C1": c1, "C2": c2}
+        spec["checkpoint_files"] = list(files)
         return spec
 
     def test_23_long_build_exposes_durable_progress_before_it_finishes(self):
-        self.seed(self.checkpoint_spec()); self.env['BUILD_AUDIT_FAULT']='checkpoints'
-        process=subprocess.Popen(self.command('autocode_build',['--run-dir',str(self.run),'--no-chat']),
-            cwd=self.root,env=self.env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        self.seed(self.checkpoint_spec())
+        self.env["BUILD_AUDIT_FAULT"] = "checkpoints"
+        process = subprocess.Popen(
+            self.command("autocode_build", ["--run-dir", str(self.run), "--no-chat"]),
+            cwd=self.root,
+            env=self.env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         try:
-            deadline=time.monotonic()+25
-            while not self.events('checkpoints_saved') and time.monotonic()<deadline:
-                time.sleep(.02)
-            self.assertEqual(21,len(self.events('checkpoint')))
-            self.assertIsNone(process.poll(),'Progress was only available after completion')
-            deadline=time.monotonic()+5
-            while time.monotonic()<deadline:
-                checkpoints=self.state().get('execution_checkpoints',{})
-                if any(r.get('completed_tools',0)>=21 for r in checkpoints.get('rows',[])):
+            deadline = time.monotonic() + 25
+            while not self.events("checkpoints_saved") and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertEqual(21, len(self.events("checkpoint")))
+            self.assertIsNone(process.poll(), "Progress was only available after completion")
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                checkpoints = self.state().get("execution_checkpoints", {})
+                if any(r.get("completed_tools", 0) >= 21 for r in checkpoints.get("rows", [])):
                     break
-                time.sleep(.05)
-            self.assertEqual('running',checkpoints['rows'][0]['status'])
-            self.assertGreaterEqual(checkpoints['rows'][1]['completed_tools'],21)
-            self.assertTrue(all(r['status']=='not_verified' for r in checkpoints['rows'] if r['id'].startswith('criterion:')))
-            status=self.invoke('autocode_build',['--run-dir',str(self.run),'--status'])
-            self.assertIn('terra',status.stdout)
-            event_files=list(self.run.glob('iterations/*/builder-*.jsonl'))+list(self.run.glob('iterations/*/terra-*.jsonl'))
+                time.sleep(0.05)
+            self.assertEqual("running", checkpoints["rows"][0]["status"])
+            self.assertGreaterEqual(checkpoints["rows"][1]["completed_tools"], 21)
+            self.assertTrue(
+                all(r["status"] == "not_verified" for r in checkpoints["rows"] if r["id"].startswith("criterion:"))
+            )
+            status = self.invoke("autocode_build", ["--run-dir", str(self.run), "--status"])
+            self.assertIn("terra", status.stdout)
+            event_files = list(self.run.glob("iterations/*/builder-*.jsonl")) + list(
+                self.run.glob("iterations/*/terra-*.jsonl")
+            )
             self.assertTrue(event_files)
-            self.assertEqual(21,sum('checkpoint-screens/' in line for p in event_files for line in p.read_text().splitlines()))
-            self.assertEqual(21,len(list((self.project/'screens').glob('s*.txt'))))
+            self.assertEqual(
+                21, sum("checkpoint-screens/" in line for p in event_files for line in p.read_text().splitlines())
+            )
+            self.assertEqual(21, len(list((self.project / "screens").glob("s*.txt"))))
         finally:
-            (self.root/'release').touch()
-            stdout,stderr=process.communicate(timeout=30)
-            (self.root/'checkpoint-cli.log').write_text(stdout+stderr)
-        self.assertEqual(0,process.returncode,stdout+stderr)
+            (self.root / "release").touch()
+            stdout, stderr = process.communicate(timeout=30)
+            (self.root / "checkpoint-cli.log").write_text(stdout + stderr)
+        self.assertEqual(0, process.returncode, stdout + stderr)
         self.candidate()
 
     def correct_failed_checkpoint(self, regression=False):
-        spec=self.checkpoint_spec(); self.seed(spec); self.build()
-        baseline={p:p.stat().st_mtime_ns for p in (self.project/'screens').glob('s*.txt')}
-        self.invoke('autoreview',['--run-dir',str(self.run),'--no-chat'])
-        initial=self.state()['validation']
-        self.assertEqual({'C1':'PASS','C2':'NOT_VERIFIED'},{r['id']:r['status'] for r in initial['criterion_results']})
-        self.invoke('autoresolver',['--run-dir',str(self.run),'--no-chat'])
-        spec['payloads']['M1']={'screens/regression.txt':'PASS\n'}
-        if regression:
-            spec['payloads']['M1']['screens/s0.txt']='BROKEN\n'
-        (self.root/'plan.json').write_text(json.dumps(spec))
+        spec = self.checkpoint_spec()
+        self.seed(spec)
         self.build()
-        self.invoke('autoreview',['--run-dir',str(self.run),'--no-chat','--pause-after-stage'],2)
-        self.assertEqual(2,len(self.events()))
+        baseline = {p: p.stat().st_mtime_ns for p in (self.project / "screens").glob("s*.txt")}
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat"])
+        initial = self.state()["validation"]
+        self.assertEqual(
+            {"C1": "PASS", "C2": "NOT_VERIFIED"}, {r["id"]: r["status"] for r in initial["criterion_results"]}
+        )
+        self.invoke("autoresolver", ["--run-dir", str(self.run), "--no-chat"])
+        spec["payloads"]["M1"] = {"screens/regression.txt": "PASS\n"}
+        if regression:
+            spec["payloads"]["M1"]["screens/s0.txt"] = "BROKEN\n"
+        (self.root / "plan.json").write_text(json.dumps(spec))
+        self.build()
+        self.invoke("autoreview", ["--run-dir", str(self.run), "--no-chat", "--pause-after-stage"], 2)
+        self.assertEqual(2, len(self.events()))
         if not regression:
-            self.assertEqual(baseline,{p:p.stat().st_mtime_ns for p in baseline})
-        self.assertTrue(any(v['validation']['source_revision']==initial['source_revision'] for v in self.state()['validation_archive']))
-        return self.state()['validation']
+            self.assertEqual(baseline, {p: p.stat().st_mtime_ns for p in baseline})
+        self.assertTrue(
+            any(
+                v["validation"]["source_revision"] == initial["source_revision"]
+                for v in self.state()["validation_archive"]
+            )
+        )
+        return self.state()["validation"]
 
     def test_24_failed_later_checkpoint_retains_prior_work_and_evidence(self):
-        final=self.correct_failed_checkpoint()
-        self.assertEqual('PASS',final['verdict'])
-        self.assertNotEqual('TASK_COMPLETE',self.state()['status'])
+        final = self.correct_failed_checkpoint()
+        self.assertEqual("PASS", final["verdict"])
+        self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
 
     def test_25_regression_of_previously_passing_criterion_is_not_hidden(self):
-        final=self.correct_failed_checkpoint(regression=True)
-        self.assertEqual('FAIL',final['verdict'])
-        self.assertEqual({'C1':'NOT_VERIFIED','C2':'PASS'},{r['id']:r['status'] for r in final['criterion_results']})
-        self.assertNotEqual('TASK_COMPLETE',self.state()['status'])
+        final = self.correct_failed_checkpoint(regression=True)
+        self.assertEqual("FAIL", final["verdict"])
+        self.assertEqual(
+            {"C1": "NOT_VERIFIED", "C2": "PASS"}, {r["id"]: r["status"] for r in final["criterion_results"]}
+        )
+        self.assertNotEqual("TASK_COMPLETE", self.state()["status"])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

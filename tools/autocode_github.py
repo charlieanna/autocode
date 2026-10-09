@@ -4,6 +4,7 @@ Standard library only, and imports nothing from AutoCode. The token comes from
 GITHUB_TOKEN or GH_TOKEN; reading a public issue works without one. Set
 AUTOCODE_GITHUB_API for GitHub Enterprise (https://HOST/api/v3).
 """
+
 from __future__ import annotations
 
 import json
@@ -96,23 +97,30 @@ class Client:
             # Ask for the last page that holds the newest comments.
             per_page = min(max_comments, 100)
             page = max(1, -(-int(issue["comments"]) // per_page))
-            comments = self._call("GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments"
-                                         f"?per_page={per_page}&page={page}")
+            comments = self._call(
+                "GET", f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments?per_page={per_page}&page={page}"
+            )
         return {**issue, "comments_list": comments[-max_comments:] if max_comments else []}
 
-    def open_pull_request(self, owner: str, repo: str, *, head: str, base: str, title: str, body: str,
-                          draft: bool = True) -> dict:
+    def open_pull_request(
+        self, owner: str, repo: str, *, head: str, base: str, title: str, body: str, draft: bool = True
+    ) -> dict:
         if not self.token:
             raise GitHubError("opening a pull request needs GITHUB_TOKEN or GH_TOKEN")
         # Credentials must not leave the run (#712). The raw report in the run
         # directory is untouched; only this export is redacted.
-        return self._call("POST", f"/repos/{owner}/{repo}/pulls",
-                          {"head": head, "base": base, "title": title,
-                           "body": util.redact(body), "draft": draft})
+        return self._call(
+            "POST",
+            f"/repos/{owner}/{repo}/pulls",
+            {"head": head, "base": base, "title": title, "body": util.redact(body), "draft": draft},
+        )
 
     def _call(self, method: str, path: str, payload: dict | None = None):
-        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
-                   "User-Agent": "autocode-issue"}
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "autocode-issue",
+        }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         body = None
@@ -122,7 +130,10 @@ class Client:
         status, data = self.transport(method, self.api + path, headers, body)
         if not 200 <= status < 300:
             message = data.get("message") if isinstance(data, dict) else None
-            detail = "; ".join(str(e.get("message", e)) for e in data.get("errors", [])) if isinstance(data, dict) else ""
-            raise GitHubError(f"{method} {path} returned {status}: {message or 'no message'}"
-                              + (f" ({detail})" if detail else ""))
+            detail = (
+                "; ".join(str(e.get("message", e)) for e in data.get("errors", [])) if isinstance(data, dict) else ""
+            )
+            raise GitHubError(
+                f"{method} {path} returned {status}: {message or 'no message'}" + (f" ({detail})" if detail else "")
+            )
         return data

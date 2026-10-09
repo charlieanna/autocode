@@ -4,6 +4,7 @@ Accepted UI runs use the same public handoff validator as single-task builds.
 Their content participates in the architecture's saved-build identity; a bare
 Figma URL is a reference, without a claim that a design run accepted it.
 """
+
 from __future__ import annotations
 
 import hashlib

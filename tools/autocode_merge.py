@@ -7,6 +7,7 @@ stale, it refuses and names the re-validate step, as resume does.
 
 Lower layer only: Git and ``autocode_worktrees``; never ``autocode``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,14 +53,21 @@ def merge(project: Path, tree: Path, *, into: str | None = None) -> tuple[bool, 
     except ValueError as error:
         return False, str(error)
     if delivered == base_commit:
-        return False, "nothing delivered on this branch yet; the run must reach TASK_COMPLETE and commit its source first"
-    if base_commit and target_tip != base_commit and _git(project, "merge-base", "--is-ancestor",
-                                                         base_commit, target_tip, check=False) == "":
+        return (
+            False,
+            "nothing delivered on this branch yet; the run must reach TASK_COMPLETE and commit its source first",
+        )
+    if (
+        base_commit
+        and target_tip != base_commit
+        and _git(project, "merge-base", "--is-ancestor", base_commit, target_tip, check=False) == ""
+    ):
         # The base moved past the run's start: the completion proof may be stale.
         return False, (
             f"the base branch {target} moved after this run started "
             f"({base_commit[:12]} -> {target_tip[:12]}); re-validate on the current source "
-            f"before merging (as --resume-paused does), then merge again")
+            f"before merging (as --resume-paused does), then merge again"
+        )
     if _git(project, "merge-base", "--is-ancestor", target_tip, delivered, check=False) == "":
         # Fast-forward: the delivered branch contains the base tip.
         try:
@@ -79,13 +87,18 @@ def merge(project: Path, tree: Path, *, into: str | None = None) -> tuple[bool, 
 def cli(argv) -> int:
     parser = argparse.ArgumentParser(
         prog="autocode merge",
-        description="Merge a delivered task worktree's branch into the branch the run started from.")
-    parser.add_argument("--workspace", type=Path, default=Path.cwd(),
-                        help="The project (or one of its task worktrees)")
-    parser.add_argument("--into", default=None,
-                        help="Branch to merge into (default: the base branch the run started from)")
-    parser.add_argument("worktree", nargs="?", default=None,
-                        help="The task worktree to merge (default: the only one under .autocode/worktrees)")
+        description="Merge a delivered task worktree's branch into the branch the run started from.",
+    )
+    parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="The project (or one of its task worktrees)")
+    parser.add_argument(
+        "--into", default=None, help="Branch to merge into (default: the base branch the run started from)"
+    )
+    parser.add_argument(
+        "worktree",
+        nargs="?",
+        default=None,
+        help="The task worktree to merge (default: the only one under .autocode/worktrees)",
+    )
     args = parser.parse_args(argv)
     try:
         project = Path(_git(args.workspace, "rev-parse", "--show-toplevel")).resolve()
@@ -96,8 +109,11 @@ def cli(argv) -> int:
             tree = Path(args.worktree).resolve()
         else:
             parent = project / ".autocode" / "worktrees"
-            trees = sorted(p for p in worktrees._registered(project)
-                           if p.parent == parent and worktrees._task_branch(p, legacy=True))
+            trees = sorted(
+                p
+                for p in worktrees._registered(project)
+                if p.parent == parent and worktrees._task_branch(p, legacy=True)
+            )
             if len(trees) != 1:
                 parser.error("name the worktree to merge; there is not exactly one task worktree")
             tree = trees[0]

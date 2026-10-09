@@ -1,4 +1,5 @@
 """The invoice the customer receives."""
+
 from dataclasses import dataclass
 
 from billing.cart import line_subtotal

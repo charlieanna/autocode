@@ -24,6 +24,7 @@ writes a prep report naming the verified copy root and starts the run with the
 brief passed unchanged; it never answers a question, approves a plan or
 completes anything on the user's behalf.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -43,26 +44,37 @@ except ImportError:  # executed as a script, with tools/ on sys.path
     import autocode_taskrun as taskrun
     import autocode_verify as verify
 
-MODEL_FLAGS = ("--astra-model", "--terra-model", "--sol-model", "--completion-model",
-               "--glm-model", "--plan-reviewer-model", "--single-model")
+MODEL_FLAGS = (
+    "--astra-model",
+    "--terra-model",
+    "--sol-model",
+    "--completion-model",
+    "--glm-model",
+    "--plan-reviewer-model",
+    "--single-model",
+)
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         prog="autocode_pilot_prep",
-        description="Verify declared public inputs, build the verification copy, then start the run.")
+        description="Verify declared public inputs, build the verification copy, then start the run.",
+    )
     parser.add_argument("--workspace", required=True, help="the Git workspace the run will work in")
-    parser.add_argument("--manifest", required=True,
-                        help="declared-input manifest: path, type, mode, size, sha256 per input")
+    parser.add_argument(
+        "--manifest", required=True, help="declared-input manifest: path, type, mode, size, sha256 per input"
+    )
     parser.add_argument("--brief", required=True, help="task brief file, passed unchanged to the run")
     parser.add_argument("--report", required=True, help="where to write the prep report JSON")
     parser.add_argument("--engine", help="engine option forwarded whenever the run starts or advances")
-    parser.add_argument("--joint-planning", action="store_true",
-                        help="planning option forwarded whenever the run starts or advances")
+    parser.add_argument(
+        "--joint-planning", action="store_true", help="planning option forwarded whenever the run starts or advances"
+    )
     for flag in MODEL_FLAGS:
         parser.add_argument(flag, help="model option forwarded whenever the run starts or advances")
-    parser.add_argument("--timeout", type=float, default=300.0,
-                        help="per-invocation CLI timeout for the task run (seconds)")
+    parser.add_argument(
+        "--timeout", type=float, default=300.0, help="per-invocation CLI timeout for the task run (seconds)"
+    )
     return parser.parse_args(argv)
 
 
@@ -96,14 +108,11 @@ def main(argv=None) -> int:
     invocation = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
     destination = workspace / ".autocode" / "prep" / invocation / "source"
     try:
-        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
-                              capture_output=True, text=True)
+        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"], capture_output=True, text=True)
         if head.returncode:
-            return _fail([f"{args.workspace} is not a Git repository with a HEAD commit: "
-                          f"{head.stderr.strip()}"])
+            return _fail([f"{args.workspace} is not a Git repository with a HEAD commit: {head.stderr.strip()}"])
         head = head.stdout.strip()
-        copy_root = verify.make_tree(workspace, head, destination, workspace,
-                                     verify.changed_files(workspace, head))
+        copy_root = verify.make_tree(workspace, head, destination, workspace, verify.changed_files(workspace, head))
         result = input_preflight.preflight(args.manifest, workspace, copy_root)
     except (RuntimeError, OSError, ValueError) as error:
         return _fail([f"preparation failed while building or checking the verification copy: {error}"])
@@ -114,16 +123,21 @@ def main(argv=None) -> int:
     except taskrun.TaskRunError as error:
         print(f"the task run failed to start after preparation: {error}", file=sys.stderr)
         return 1
-    report = {"workspace": str(workspace), "manifest": str(Path(args.manifest)),
-              "brief": str(Path(args.brief)), "copy_root": str(copy_root), "head": head,
-              "inputs": result["ok"], "run_dir": str(run.run_dir)}
+    report = {
+        "workspace": str(workspace),
+        "manifest": str(Path(args.manifest)),
+        "brief": str(Path(args.brief)),
+        "copy_root": str(copy_root),
+        "head": head,
+        "inputs": result["ok"],
+        "run_dir": str(run.run_dir),
+    }
     try:
         report_path = Path(args.report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, indent=2) + "\n")
     except OSError as error:
-        print(f"the run started at {run.run_dir} but the prep report could not be written: {error}",
-              file=sys.stderr)
+        print(f"the run started at {run.run_dir} but the prep report could not be written: {error}", file=sys.stderr)
         return 1
     print(f"verified {len(result['ok'])} declared input(s) in {copy_root}; run started at {run.run_dir}")
     return 0

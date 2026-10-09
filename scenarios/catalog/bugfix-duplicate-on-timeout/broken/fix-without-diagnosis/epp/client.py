@@ -1,4 +1,5 @@
 """Renew a domain, retrying on timeouts without ever renewing twice."""
+
 import uuid
 
 from .registry import Timeout

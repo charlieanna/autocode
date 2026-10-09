@@ -5,6 +5,7 @@ accepted ignored deliverable must invalidate later completion and recovery.
 No Builder report, current-task suggestion, or ambient workspace file grants
 additional source scope.
 """
+
 try:
     from . import autocode_contract_identity as contracts
     from . import autocode_source_snapshot as source
@@ -20,9 +21,9 @@ def paths(state):
         authorized = False
     if not authorized:
         return []
-    body = state['goal_contract']['body']
-    rows = [*body.get('milestones', []), body.get('initial_task') or {}]
-    selected = [path for row in rows for path in row.get('affected_paths', [])]
+    body = state["goal_contract"]["body"]
+    rows = [*body.get("milestones", []), body.get("initial_task") or {}]
+    selected = [path for row in rows for path in row.get("affected_paths", [])]
     return source.literal_paths(selected)
 
 

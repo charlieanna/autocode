@@ -1,4 +1,5 @@
 """The plan-review allowance is spent by reviews that return a report, not by attempts that fail."""
+
 import unittest
 
 import autocode_support as s
@@ -6,8 +7,11 @@ from units import autoplanner as planning
 
 
 def new_state(limit=2):
-    return {"settings": {"planning_review_call_limit": limit}, "stages": [],
-            "planning": {"astra_calls": 0, "reports": {}, "final_token": None}}
+    return {
+        "settings": {"planning_review_call_limit": limit},
+        "stages": [],
+        "planning": {"astra_calls": 0, "reports": {}, "final_token": None},
+    }
 
 
 def attempt(state, stage, **outcome):

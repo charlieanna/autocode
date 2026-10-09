@@ -11,6 +11,7 @@ status view from autocode_run_view. See docs/task-run.md.
     if view["needs"]["kind"] == "approve_plan":
         view = run.approve_plan(view["needs"]["token"])
 """
+
 from __future__ import annotations
 
 import json
@@ -42,8 +43,7 @@ class TaskRunError(RuntimeError):
     ``run_dir`` is the run a failed ``start`` created, when it created exactly one.
     """
 
-    def __init__(self, message: str, process: subprocess.CompletedProcess | None = None,
-                 run_dir: Path | None = None):
+    def __init__(self, message: str, process: subprocess.CompletedProcess | None = None, run_dir: Path | None = None):
         super().__init__(message)
         self.process = process
         self.run_dir = run_dir
@@ -64,8 +64,9 @@ class TaskRun:
     last_advance: subprocess.CompletedProcess | None = field(default=None, compare=False, repr=False)
 
     @classmethod
-    def start(cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None,
-              cwd=None) -> TaskRun:
+    def start(
+        cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None, cwd=None
+    ) -> TaskRun:
         """Create a run that works directly in ``workspace`` and advance it to its first stop.
 
         The caller owns the workspace (for example a worktree it created), so
@@ -77,8 +78,16 @@ class TaskRun:
         before = set(_runs(workspace))
         run = cls(workspace, Path(), tuple(command), tuple(options), env, timeout, _path(cwd))
         try:
-            proc = run._invoke("start", brief, "--in-place", "--no-chat", *run.options, *start_options,
-                               advancing=True, with_run_dir=False)
+            proc = run._invoke(
+                "start",
+                brief,
+                "--in-place",
+                "--no-chat",
+                *run.options,
+                *start_options,
+                advancing=True,
+                with_run_dir=False,
+            )
         except TaskRunError as error:
             created = set(_runs(workspace)) - before
             if len(created) == 1:  # the start saved its run before it failed
@@ -94,8 +103,9 @@ class TaskRun:
         return run
 
     @classmethod
-    def attach(cls, workspace, *, options=(), command=AUTOCODE, env=None, timeout=None, cwd=None,
-               exclude=()) -> TaskRun | None:
+    def attach(
+        cls, workspace, *, options=(), command=AUTOCODE, env=None, timeout=None, cwd=None, exclude=()
+    ) -> TaskRun | None:
         """Reattach to the one run in ``workspace``, or None if it has none yet.
 
         For a caller that lost its record of ``run_dir``, for example because it
@@ -124,8 +134,15 @@ class TaskRun:
 
     def revise_design(self, manifest: Path, expected_hash: str, reason: str) -> dict:
         """Propose a stopped run's design input correction; never approve or dispatch."""
-        self._act("revise design", "--revise-figma-manifest", str(manifest),
-                  "--expected-design-hash", expected_hash, "--design-change-reason", reason)
+        self._act(
+            "revise design",
+            "--revise-figma-manifest",
+            str(manifest),
+            "--expected-design-hash",
+            expected_hash,
+            "--design-change-reason",
+            reason,
+        )
         return self.status()
 
     def show_goal(self) -> str:
@@ -161,21 +178,36 @@ class TaskRun:
 
     def retry_job(self, token: str) -> dict:
         """Retry exactly the inspected failed workflow job, retaining route and limits."""
-        self._invoke('retry job', '--resume-paused', '--retry-failed-stage', '--job-retry-token', token,
-                     '--no-chat', *self.options, advancing=True)
+        self._invoke(
+            "retry job",
+            "--resume-paused",
+            "--retry-failed-stage",
+            "--job-retry-token",
+            token,
+            "--no-chat",
+            *self.options,
+            advancing=True,
+        )
         return self.status()
 
     def recover_job_report(self, token: str) -> dict:
         """Adopt an inspected owner-lost Investigator report; never launch a model."""
-        self._invoke('recover job report', '--recover-job-report', token, *self.options)
+        self._invoke("recover job report", "--recover-job-report", token, *self.options)
         return self.status()
 
     def grant_recovery(self, amount: int) -> dict:
         """Grant exactly N new recoveries after the operator resolves the pause cause."""
         if type(amount) is not int or amount < 1:
-            raise ValueError('recovery allowance must be a positive integer')
-        self._invoke('grant recovery', '--resume-paused', '--grant-recovery', str(amount),
-                     '--no-chat', *self.options, advancing=True)
+            raise ValueError("recovery allowance must be a positive integer")
+        self._invoke(
+            "grant recovery",
+            "--resume-paused",
+            "--grant-recovery",
+            str(amount),
+            "--no-chat",
+            *self.options,
+            advancing=True,
+        )
         return self.status()
 
     def compare_checkpoint(self, checkpoint_id: str) -> dict:
@@ -184,33 +216,55 @@ class TaskRun:
 
     def restore_checkpoint(self, checkpoint_id: str, expected_token: str, request_id: str) -> TaskRun:
         """Create a paused continuation on a new branch; keep this run untouched."""
-        result = json.loads(self._invoke("restore checkpoint", "checkpoint", "--restore", checkpoint_id,
-            "--expected-token", expected_token, "--request-id", request_id).stdout)
-        return TaskRun(Path(result["workspace"]), Path(result["run_dir"]), self.command,
-                       self.options, self.env, self.timeout, self.cwd)
+        result = json.loads(
+            self._invoke(
+                "restore checkpoint",
+                "checkpoint",
+                "--restore",
+                checkpoint_id,
+                "--expected-token",
+                expected_token,
+                "--request-id",
+                request_id,
+            ).stdout
+        )
+        return TaskRun(
+            Path(result["workspace"]),
+            Path(result["run_dir"]),
+            self.command,
+            self.options,
+            self.env,
+            self.timeout,
+            self.cwd,
+        )
 
     def accept_transport_change(self) -> dict:
         """Explicitly accept a validated OpenCode transport change and continue."""
-        self._invoke("accept transport change", "--resume-paused", "--accept-transport-change",
-                     "--no-chat", *self.options, advancing=True)
+        self._invoke(
+            "accept transport change",
+            "--resume-paused",
+            "--accept-transport-change",
+            "--no-chat",
+            *self.options,
+            advancing=True,
+        )
         return self.status()
 
     def accept_source_edit(self) -> dict:
         """Hand a paused repair the source edited while it was stopped, and continue."""
-        self._invoke("accept source edit", "--resume-paused", "--accept-source-edit",
-                     "--no-chat", *self.options, advancing=True)
+        self._invoke(
+            "accept source edit", "--resume-paused", "--accept-source-edit", "--no-chat", *self.options, advancing=True
+        )
         return self.status()
 
     def retry_report(self, attempt_id: str) -> dict:
         """Request one fresh report for the exact inspected rejected attempt."""
-        self._invoke("retry report", "--resume-paused", "--retry-report", attempt_id,
-                     "--no-chat", advancing=True)
+        self._invoke("retry report", "--resume-paused", "--retry-report", attempt_id, "--no-chat", advancing=True)
         return self.status()
 
     def retry_failed_stage(self) -> dict:
         """Authorize one inspected retry of a repeated failed stage."""
-        self._invoke("retry failed stage", "--resume-paused", "--retry-failed-stage",
-                     "--no-chat", advancing=True)
+        self._invoke("retry failed stage", "--resume-paused", "--retry-failed-stage", "--no-chat", advancing=True)
         return self.status()
 
     def bind_dependency(self, specification: Path) -> dict:
@@ -231,16 +285,21 @@ class TaskRun:
             need = self.status()["needs"] or {}
             listed = [question["id"] for question in need.get("questions") or ()]
             if need.get("kind") != "answer" or question_id not in listed:
-                raise TaskRunError(f"the run is not waiting for an answer to {question_id} "
-                                   f"(needs {need.get('kind')}, questions {listed})")
+                raise TaskRunError(
+                    f"the run is not waiting for an answer to {question_id} "
+                    f"(needs {need.get('kind')}, questions {listed})"
+                )
             resolver_token = need.get("resolver_token")
             if not resolver_token:
-                raise TaskRunError(f"no current AutoResolver request carries {question_id}; "
-                                   "advance the run to publish one, then answer")
+                raise TaskRunError(
+                    f"no current AutoResolver request carries {question_id}; "
+                    "advance the run to publish one, then answer"
+                )
         return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
 
-    def assign_model(self, role: str, model: str, *, resolver_token: str | None = None,
-                     job_retry_token: str | None = None) -> dict:
+    def assign_model(
+        self, role: str, model: str, *, resolver_token: str | None = None, job_retry_token: str | None = None
+    ) -> dict:
         """Name the model a role stopped on quota or a refusal continues on (``needs.route``), then resume_paused().
 
         The same answer as ``answer(f"route-{role}", model)``: AutoCode refuses a model the launch
@@ -269,9 +328,17 @@ class TaskRun:
 
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
         """Send corrective information to the published AutoResolver request."""
-        return self._act("resolver response", "--resolver-request", request_id,
-                         "--resolver-token", request_token, "--resolver-response",
-                         "provide_information", "--resolver-message", text)
+        return self._act(
+            "resolver response",
+            "--resolver-request",
+            request_id,
+            "--resolver-token",
+            request_token,
+            "--resolver-response",
+            "provide_information",
+            "--resolver-message",
+            text,
+        )
 
     def approve_plan(self, token: str) -> dict:
         return self._act("approve plan", "--approve-goal", token)
@@ -301,8 +368,9 @@ class TaskRun:
             if advancing:
                 proc = run_captured(cmd, timeout=self.timeout, env=environment, **where)
             else:
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout,
-                                      env=environment, **where)
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=self.timeout, env=environment, **where
+                )
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
         except ProcessError as error:
@@ -316,7 +384,9 @@ class TaskRun:
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
         rejected_input = proc.returncode == 2 and any(
             line.startswith(("Input rejected:", "autocode:"))
-            for message in (proc.stdout, proc.stderr) for line in message.splitlines())
+            for message in (proc.stdout, proc.stderr)
+            for line in message.splitlines()
+        )
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:
             detail = (proc.stderr or proc.stdout).strip()[-800:]

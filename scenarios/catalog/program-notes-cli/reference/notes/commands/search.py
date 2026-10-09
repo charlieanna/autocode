@@ -1,4 +1,5 @@
 """search WORDS: the notes whose text contains WORDS, ignoring case."""
+
 import sys
 
 from notes import store

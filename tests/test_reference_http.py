@@ -1,4 +1,5 @@
 """Program reference and oracle HTTP must not depend on host DNS or proxies."""
+
 import json
 import os
 import socket
@@ -24,23 +25,25 @@ class ReferenceHttpTests(unittest.TestCase):
         hooks.mkdir()
         self.log = self.root / "http-guard.jsonl"
         (hooks / "sitecustomize.py").write_text(
-            'import json, os, socket, sys, urllib.request\n'
-            'def forbidden(*args, **kwargs):\n'
+            "import json, os, socket, sys, urllib.request\n"
+            "def forbidden(*args, **kwargs):\n"
             '    raise AssertionError("DNS/proxy lookup in loopback fixture")\n'
-            'socket.getfqdn = forbidden\n'
-            'urllib.request.getproxies = forbidden\n'
-            'urllib.request.proxy_bypass = forbidden\n'
+            "socket.getfqdn = forbidden\n"
+            "urllib.request.getproxies = forbidden\n"
+            "urllib.request.proxy_bypass = forbidden\n"
             'with open(os.environ["HTTP_GUARD_LOG"], "a") as log:\n'
             '    log.write(json.dumps({"pid": os.getpid(), "script": sys.argv[0]}) + "\\n")\n'
         )
-        environment = patch.dict(os.environ, {
-            "PYTHONPATH": str(hooks) + os.pathsep + os.environ.get("PYTHONPATH", ""),
-            "HTTP_GUARD_LOG": str(self.log),
-        })
+        environment = patch.dict(
+            os.environ,
+            {
+                "PYTHONPATH": str(hooks) + os.pathsep + os.environ.get("PYTHONPATH", ""),
+                "HTTP_GUARD_LOG": str(self.log),
+            },
+        )
         environment.start()
         self.addCleanup(environment.stop)
-        for module, name in ((socket, "getfqdn"), (urllib.request, "getproxies"),
-                             (urllib.request, "proxy_bypass")):
+        for module, name in ((socket, "getfqdn"), (urllib.request, "getproxies"), (urllib.request, "proxy_bypass")):
             guard = patch.object(module, name, side_effect=AssertionError("DNS/proxy lookup in oracle"))
             guard.start()
             self.addCleanup(guard.stop)
@@ -49,20 +52,32 @@ class ReferenceHttpTests(unittest.TestCase):
         result = scenarios.program01_oracle(self.project)
         self.assertEqual(scenarios.PASS, result.status, result.summary)
         scripts = {json.loads(line)["script"] for line in self.log.read_text().splitlines()}
-        self.assertTrue({"scripts/run_local.py", "services/catalog/server.py", "services/cart/server.py",
-                         "services/checkout/server.py", "gateway/server.py"} <= scripts, scripts)
+        self.assertTrue(
+            {
+                "scripts/run_local.py",
+                "services/catalog/server.py",
+                "services/cart/server.py",
+                "services/checkout/server.py",
+                "gateway/server.py",
+            }
+            <= scripts,
+            scripts,
+        )
         self.assertTrue(any(row["name"] == "e2e.passes_with_tests" for row in result.checks))
 
     def test_broken_checkout_still_fails_with_dns_and_proxy_lookup_forbidden(self):
         checkout = references.CHECKOUT_SERVER.replace(
             'sum(line["quantity"] * line["price_cents"] for line in lines)',
-            'sum(line["price_cents"] for line in lines)').replace(
-            'call("DELETE", f"{CONFIG[\'cart\']}/carts/{cart_id}")', 'pass')
+            'sum(line["price_cents"] for line in lines)',
+        ).replace('call("DELETE", f"{CONFIG[\'cart\']}/carts/{cart_id}")', "pass")
         self.assertNotEqual(references.CHECKOUT_SERVER, checkout)
-        references.write({
-            "services/checkout/server.py": checkout,
-            "tests/test_e2e.py": "import unittest\nclass Test(unittest.TestCase):\n    def test_green(self): pass\n",
-        }, self.project)
+        references.write(
+            {
+                "services/checkout/server.py": checkout,
+                "tests/test_e2e.py": "import unittest\nclass Test(unittest.TestCase):\n    def test_green(self): pass\n",
+            },
+            self.project,
+        )
         result = scenarios.program01_oracle(self.project)
         self.assertEqual(scenarios.FAIL, result.status)
         failed = {row["name"] for row in result.failed}
@@ -72,8 +87,12 @@ class ReferenceHttpTests(unittest.TestCase):
 
     def test_reference_journey_with_reused_ephemeral_port(self):
         # Closing a port-0 socket allows the OS to select that port again.
-        with socket.socket() as catalog, socket.socket() as cart, \
-                socket.socket() as checkout, socket.socket() as gateway:
+        with (
+            socket.socket() as catalog,
+            socket.socket() as cart,
+            socket.socket() as checkout,
+            socket.socket() as gateway,
+        ):
             sockets = (catalog, cart, checkout, gateway)
             for sock in sockets:
                 sock.bind(("127.0.0.1", 0))
@@ -83,25 +102,31 @@ class ReferenceHttpTests(unittest.TestCase):
         self.assertEqual(scenarios.PASS, result.status, result.summary)
 
     def test_e2e_startup_failure_reaps_children_and_closes_output_pipes(self):
-        references.write({"services/catalog/server.py": 'raise RuntimeError("catalog startup failed")\n'},
-                         self.project)
+        references.write({"services/catalog/server.py": 'raise RuntimeError("catalog startup failed")\n'}, self.project)
         code, out, err = scenarios._run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_e2e.py"],
-            cwd=self.project, timeout=30)
+            cwd=self.project,
+            timeout=30,
+        )
         # unittest exits 5 on newer Python when setUpClass fails before any
         # test runs; older releases use the ordinary failure exit code 1.
         self.assertIn(code, (1, 5), out + err)
         self.assertIn("catalog did not start", err)
-        children = [json.loads(line) for line in self.log.read_text().splitlines()
-                    if json.loads(line)["script"].endswith("server.py")]
+        children = [
+            json.loads(line)
+            for line in self.log.read_text().splitlines()
+            if json.loads(line)["script"].endswith("server.py")
+        ]
         self.assertEqual(4, len(children))
         for child in children:
             with self.assertRaises(ProcessLookupError, msg=str(child)):
                 os.kill(child["pid"], 0)
 
     def test_repeated_duplicate_ports_refuse_before_launch(self):
-        with patch.object(scenarios, "_free_port", return_value=12345) as allocate, \
-                patch.object(scenarios.subprocess, "Popen") as launch:
+        with (
+            patch.object(scenarios, "_free_port", return_value=12345) as allocate,
+            patch.object(scenarios.subprocess, "Popen") as launch,
+        ):
             with self.assertRaisesRegex(RuntimeError, "distinct local service ports"):
                 scenarios._Services(self.project)
         self.assertEqual(33, allocate.call_count)

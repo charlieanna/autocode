@@ -1,4 +1,5 @@
 """OpenCode defaults and safe migration of existing mixed-CLI checkpoints."""
+
 import copy
 import json
 import os
@@ -39,21 +40,39 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.run = Path(temp.name)
         self.identity = {"engine": "opencode", "identity_version": 2, "version": "1.18.31"}
         self.state = {
-            "status": "PAUSED_REQUESTED", "next_stage": "sol", "iteration": 12,
+            "status": "PAUSED_REQUESTED",
+            "next_stage": "sol",
+            "iteration": 12,
             "goal_contract": {"hash": "approved-contract", "approval_status": "approved"},
             "implementation": {"evidence_refs": ["saved-report.json"], "source_revision": "unchanged"},
-            "planning": {"astra_calls": 2}, "milestone_progress": {"M1": {"accepted": True}},
+            "planning": {"astra_calls": 2},
+            "milestone_progress": {"M1": {"accepted": True}},
             "stages": [{"engine": "codex", "role": "astra", "session_id": "old-astra"}],
             "sessions": {"astra": "old-astra", "sol": "old-sol", "terra": "ses_terra", "glm": "ses_glm"},
-            "settings": {"engine": "opencode", "joint_planning": True,
+            "settings": {
+                "engine": "opencode",
+                "joint_planning": True,
                 "transport_identity": self.identity,
                 "transport_identities": {"opencode": self.identity, "codex": {"auth_mode": "ChatGPT"}},
                 "limits": {"iteration_ceiling": None, "stage_timeout_seconds": 0},
                 "roles": {
-                    "astra": {"engine": "codex", "provider": "openai", "model": "gpt-6-astra", "reasoning_effort": "high"},
-                    "sol": {"engine": "codex", "provider": "openai", "model": "gpt-5.6-sol", "reasoning_effort": "high"},
+                    "astra": {
+                        "engine": "codex",
+                        "provider": "openai",
+                        "model": "gpt-6-astra",
+                        "reasoning_effort": "high",
+                    },
+                    "sol": {
+                        "engine": "codex",
+                        "provider": "openai",
+                        "model": "gpt-5.6-sol",
+                        "reasoning_effort": "high",
+                    },
                     "terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"}}}}
+                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                },
+            },
+        }
         support.atomic_json(self.run / "state.json", self.state)
         for name in ("check_models", "check_subscription_routes"):
             p = patch.object(oc, name)
@@ -66,13 +85,18 @@ class OpenCodeRoutingTests(unittest.TestCase):
     def test_new_defaults_and_bare_aliases_never_read_codex_login(self):
         for overrides, expected_sol in (
             ({}, "openai/gpt-6-sol"),
-            ({"astra_model": "openai/gpt-6-astra",
-              "sol_model": "openai/gpt-6-astra"},
-             "openai/gpt-6-astra"),
+            ({"astra_model": "openai/gpt-6-astra", "sol_model": "openai/gpt-6-astra"}, "openai/gpt-6-astra"),
         ):
             args = test_planning.PlanningTests.configure_args(self, **overrides)
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
-                settings = autocode_configure.configure(args, {"workspace": str(self.run), "iteration": 0}, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
+                settings = autocode_configure.configure(
+                    args,
+                    {"workspace": str(self.run), "iteration": 0},
+                    planning=planning,
+                    milestones=milestones,
+                    autopilot=autopilot,
+                    opencode=runner.opencode,
+                )
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
             self.assertEqual("openai/gpt-6-astra", settings["roles"]["astra"]["model"])
             self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
@@ -80,8 +104,27 @@ class OpenCodeRoutingTests(unittest.TestCase):
 
     def test_migration_preserves_approved_work_and_archives_only_codex_sessions(self):
         before = copy.deepcopy(self.state)
-        self.assertTrue(autocode_configure.migrate_opencode_roles(self.state, self.run, self.run, planning=planning, opencode=runner.opencode, write_json=runner.write_json, now=runner.now))
-        for key in ("status", "next_stage", "iteration", "goal_contract", "implementation", "planning", "milestone_progress", "stages"):
+        self.assertTrue(
+            autocode_configure.migrate_opencode_roles(
+                self.state,
+                self.run,
+                self.run,
+                planning=planning,
+                opencode=runner.opencode,
+                write_json=runner.write_json,
+                now=runner.now,
+            )
+        )
+        for key in (
+            "status",
+            "next_stage",
+            "iteration",
+            "goal_contract",
+            "implementation",
+            "planning",
+            "milestone_progress",
+            "stages",
+        ):
             self.assertEqual(before[key], self.state[key], key)
         self.assertEqual(before["settings"]["limits"], self.state["settings"]["limits"])
         self.assertEqual({"terra": "ses_terra", "glm": "ses_glm"}, self.state["sessions"])
@@ -92,7 +135,17 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.assertEqual(before, json.loads(backup.read_text()))
         self.assertEqual(self.state, json.loads((self.run / "state.json").read_text()))
         saved = (self.run / "state.json").read_bytes()
-        self.assertFalse(autocode_configure.migrate_opencode_roles(self.state, self.run, self.run, planning=planning, opencode=runner.opencode, write_json=runner.write_json, now=runner.now))
+        self.assertFalse(
+            autocode_configure.migrate_opencode_roles(
+                self.state,
+                self.run,
+                self.run,
+                planning=planning,
+                opencode=runner.opencode,
+                write_json=runner.write_json,
+                now=runner.now,
+            )
+        )
         self.assertEqual(saved, (self.run / "state.json").read_bytes())
 
     def test_unresolved_stages_cannot_change_routes_or_sessions(self):
@@ -101,7 +154,15 @@ class OpenCodeRoutingTests(unittest.TestCase):
             state[key] = {"saved": True}
             before = copy.deepcopy(state)
             with self.subTest(key=key), self.assertRaises(support.Paused):
-                autocode_configure.migrate_opencode_roles(state, self.run, self.run, planning=planning, opencode=runner.opencode, write_json=runner.write_json, now=runner.now)
+                autocode_configure.migrate_opencode_roles(
+                    state,
+                    self.run,
+                    self.run,
+                    planning=planning,
+                    opencode=runner.opencode,
+                    write_json=runner.write_json,
+                    now=runner.now,
+                )
             self.assertEqual(before, state)
         self.assertEqual([], list(self.run.glob("state.pre-opencode-*")))
 
@@ -110,7 +171,15 @@ class OpenCodeRoutingTests(unittest.TestCase):
         original = (self.run / "state.json").read_bytes()
         for name in ("check_models", "check_subscription_routes"):
             with patch.object(oc, name, side_effect=RuntimeError("unavailable")), self.assertRaises(RuntimeError):
-                autocode_configure.migrate_opencode_roles(self.state, self.run, self.run, planning=planning, opencode=runner.opencode, write_json=runner.write_json, now=runner.now)
+                autocode_configure.migrate_opencode_roles(
+                    self.state,
+                    self.run,
+                    self.run,
+                    planning=planning,
+                    opencode=runner.opencode,
+                    write_json=runner.write_json,
+                    now=runner.now,
+                )
             self.assertEqual(before, self.state)
             self.assertEqual(original, (self.run / "state.json").read_bytes())
         self.assertEqual([], list(self.run.glob("state.pre-opencode-*")))
@@ -118,26 +187,58 @@ class OpenCodeRoutingTests(unittest.TestCase):
     def test_custom_provider_is_not_guessed_and_configuration_drift_is_preserved(self):
         self.state["settings"]["roles"]["astra"]["provider"] = "custom"
         with self.assertRaises(support.Paused):
-            autocode_configure.migrate_opencode_roles(self.state, self.run, self.run, planning=planning, opencode=runner.opencode, write_json=runner.write_json, now=runner.now)
+            autocode_configure.migrate_opencode_roles(
+                self.state,
+                self.run,
+                self.run,
+                planning=planning,
+                opencode=runner.opencode,
+                write_json=runner.write_json,
+                now=runner.now,
+            )
         self.state["settings"]["roles"]["astra"]["provider"] = "openai"
         before = copy.deepcopy(self.state)
-        with patch.object(oc, "local_settings", return_value={**self.identity, "version": "changed"}), self.assertRaises(support.Paused):
-            autocode_configure.migrate_opencode_roles(self.state, self.run, self.run, planning=planning, opencode=runner.opencode, write_json=runner.write_json, now=runner.now)
+        with (
+            patch.object(oc, "local_settings", return_value={**self.identity, "version": "changed"}),
+            self.assertRaises(support.Paused),
+        ):
+            autocode_configure.migrate_opencode_roles(
+                self.state,
+                self.run,
+                self.run,
+                planning=planning,
+                opencode=runner.opencode,
+                write_json=runner.write_json,
+                now=runner.now,
+            )
         self.assertEqual(before, self.state)
 
     def test_explicit_transport_acceptance_uses_validated_current_identity_only_at_clean_pause(self):
         current = {**self.identity, "version": "1.18.32", "config_hashes": {"mimo-token-plan": "current"}}
         self.state["status"] = "PAUSED_TRANSPORT_CHANGED"
         self.state["workspace"] = str(self.run)
-        args = test_planning.PlanningTests.configure_args(
-            self, resume_paused=True, accept_transport_change=True)
+        args = test_planning.PlanningTests.configure_args(self, resume_paused=True, accept_transport_change=True)
         with patch.object(oc, "local_settings", return_value=current):
-            settings = autocode_configure.configure(args, self.state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
+            settings = autocode_configure.configure(
+                args,
+                self.state,
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+                opencode=runner.opencode,
+            )
         self.assertEqual(current, settings["transport_identity"])
         self.assertEqual(current, settings["transport_identities"]["opencode"])
         self.state["status"] = "RUNNING"
         with self.assertRaisesRegex(ValueError, "paused for a transport change"):
-            autocode_configure.configure(args, self.state, planning=planning, milestones=milestones, autopilot=autopilot, opencode=runner.opencode)
+            autocode_configure.configure(
+                args,
+                self.state,
+                planning=planning,
+                milestones=milestones,
+                autopilot=autopilot,
+                opencode=runner.opencode,
+            )
 
 
 class OpenCodeMigrationFlow(unittest.TestCase):
@@ -171,7 +272,7 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         self.assertTrue(Path(migrated["configuration_changes"][-1]["backup"]).is_file())
         for _ in range(3):
             checked = self.saved()[1]
-            if any(row["stage"] == "sol" for row in checked["stages"][len(state["stages"]):]):
+            if any(row["stage"] == "sol" for row in checked["stages"][len(state["stages"]) :]):
                 break
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         checked = self.saved()[1]

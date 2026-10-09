@@ -1,4 +1,5 @@
 """The nightly supplier feed."""
+
 from shop.cache import invalidate_everywhere
 
 

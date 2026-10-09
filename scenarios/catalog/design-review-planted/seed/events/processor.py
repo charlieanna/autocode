@@ -5,16 +5,17 @@ create, or a delete before a transfer completes, corrupts the domain's state.
 The current queue is a Postgres table read by a single consumer, so order is
 trivially preserved; anything that replaces it must keep this property.
 """
+
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class RegistryEvent:
-    event_id: str      # unique per event, assigned by the gateway
-    registry: str      # "denic", "verisign", ...
+    event_id: str  # unique per event, assigned by the gateway
+    registry: str  # "denic", "verisign", ...
     domain: str
-    kind: str          # create | renew | transfer | delete
-    seq: int           # per-domain sequence number, assigned by the registry
+    kind: str  # create | renew | transfer | delete
+    seq: int  # per-domain sequence number, assigned by the registry
 
 
 class DomainStateError(Exception):
@@ -32,6 +33,6 @@ class Processor:
         if event.seq != expected:
             raise DomainStateError(f"{event.domain}: got seq {event.seq}, expected {expected}")
         if event.kind == "renew":
-            self.billing.charge(event.domain, event.event_id)   # charges once per call
+            self.billing.charge(event.domain, event.event_id)  # charges once per call
         self.notifier.notify(event)
         self.last_seq[event.domain] = event.seq

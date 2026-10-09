@@ -6,6 +6,7 @@ traceback stays eligible for ordinary proof/reviewer checks. This deliberately
 recognizes only explicit missing mock targets and test-origin import errors.
 It does not claim to classify every possible test framework or helper.
 """
+
 from __future__ import annotations
 
 import re
@@ -32,7 +33,7 @@ def failure_details(output):
     for index, header in enumerate(headers):
         end = headers[index + 1].start() if index + 1 < len(headers) else len(output)
         footer = UNITTEST_FOOTER.search(output, header.end(), end)
-        yield (*header.groups(), output[header.end():footer.start() if footer else end])
+        yield (*header.groups(), output[header.end() : footer.start() if footer else end])
 
 
 def setup_error(traceback, tree, is_test_path):
@@ -73,7 +74,10 @@ def setup_error(traceback, tree, is_test_path):
 
 def proof_note(errors):
     """Describe exactly which named failures are excluded from bug-fix proof."""
-    return ("Not counted as bug reproduction: " + "; ".join(f"{test}: {reason}" for test, reason in sorted(errors.items()))
-            + ". These failures occur while preparing the test, before application code runs. "
-            "Exercise the existing public API and assert the application's behavior. "
-            "If that requires a new hook, request a separately approved instrumentation-only base patch.")
+    return (
+        "Not counted as bug reproduction: "
+        + "; ".join(f"{test}: {reason}" for test, reason in sorted(errors.items()))
+        + ". These failures occur while preparing the test, before application code runs. "
+        "Exercise the existing public API and assert the application's behavior. "
+        "If that requires a new hook, request a separately approved instrumentation-only base patch."
+    )

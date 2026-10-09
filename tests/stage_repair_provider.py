@@ -6,6 +6,7 @@ model the observed mistakes only while the real prompt lacks the corrective
 field placement or file/probe mapping. This proves controller behavior and
 handoff contents, not that a live model will follow the instructions.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -25,8 +26,10 @@ def initial_task(contract):
     """A coherent first task for the existing greeting fixture contract."""
     milestone = contract["milestones"][0]
     return {
-        "objective": "Implement greeting CLI", "affected_paths": ["greet.py"],
-        "kind": "implement", "milestone_id": milestone["id"],
+        "objective": "Implement greeting CLI",
+        "affected_paths": ["greet.py"],
+        "kind": "implement",
+        "milestone_id": milestone["id"],
         "requirements": ["Greet names; reject empty/whitespace input"],
         "acceptance_criteria": milestone["acceptance_criteria"],
         "validation_plan": ["Execute valid, empty and whitespace input"],
@@ -35,11 +38,21 @@ def initial_task(contract):
 
 def finalizer_report(contract):
     value = {
-        "contract": copy.deepcopy(contract), "summary": "Ready for approval",
-        "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [],
-        "obligation_decisions": [], "decisions": [{"concern_id": "P1",
-            "decision": "Reject whitespace", "rationale": "Consistent invalid-input contract",
-            "acceptance_test": "Whitespace input exits 2", "resolved": True}],
+        "contract": copy.deepcopy(contract),
+        "summary": "Ready for approval",
+        "contract_changes": [],
+        "requirement_trace": [],
+        "conflict_resolutions": [],
+        "obligation_decisions": [],
+        "decisions": [
+            {
+                "concern_id": "P1",
+                "decision": "Reject whitespace",
+                "rationale": "Consistent invalid-input contract",
+                "acceptance_test": "Whitespace input exits 2",
+                "resolved": True,
+            }
+        ],
     }
     value["contract"]["initial_task"] = initial_task(contract)
     return value
@@ -59,9 +72,11 @@ def repair_finalizer(prompt, value):
 
 
 def probe_command(path):
-    script = ("import json; from pathlib import Path; "
-              f"p = Path({path!r}); r = json.loads(p.read_text()); "
-              "assert r['decisions'] == []; print('diagnosed missing concern decisions')")
+    script = (
+        "import json; from pathlib import Path; "
+        f"p = Path({path!r}); r = json.loads(p.read_text()); "
+        "assert r['decisions'] == []; print('diagnosed missing concern decisions')"
+    )
     return shlex.join([sys.executable, "-c", script])
 
 
@@ -69,8 +84,11 @@ def investigator_report(source):
     source = Path(source)
     return {
         "diagnosis": "The final report omitted the saved concern decisions.",
-        "cause": "stage_output", "guidance": "Return every saved concern ID once in decisions.",
-        "recommendation": "retry", "user_question": "", "evidence_refs": [str(source)],
+        "cause": "stage_output",
+        "guidance": "Return every saved concern ID once in decisions.",
+        "recommendation": "retry",
+        "user_question": "",
+        "evidence_refs": [str(source)],
         "example": "Given an empty decisions array, the runner rejected missing concern P1.",
         # The live report guessed an archive-prefixed scratch name. The actual
         # scratch contract copies an archived file under its unchanged basename.
@@ -156,8 +174,13 @@ def main():
             value = repair_finalizer(prompt, data["rejected_report"]["content"])
         else:
             value["contract"].pop("initial_task")
-        row["initial_task_path"] = ("contract.initial_task" if "initial_task" in value["contract"]
-                                    else "initial_task" if "initial_task" in value else "missing")
+        row["initial_task_path"] = (
+            "contract.initial_task"
+            if "initial_task" in value["contract"]
+            else "initial_task"
+            if "initial_task" in value
+            else "missing"
+        )
     elif case == "oversized" and not repair and stage in ("astra_discovery", "astra_challenge", "glm_revise"):
         value["summary"] += " " + "x" * OVERSIZED_REPORT_PADDING
     elif stage == "astra_finalize" and case == "oversized":
@@ -172,26 +195,42 @@ def main():
     elif stage == "investigate_stuck" and case == "investigator":
         request = (data.get("investigation_context") or {}).get("stuck") if repair else data.get("stuck")
         if request:
-            row.update(stuck_status=request["status"],
-                       stuck_identity=request["stage"] + ":" + request["status"])
+            row.update(stuck_status=request["status"], stuck_identity=request["stage"] + ":" + request["status"])
         if repair:
             value = repair_investigator(prompt, data, data["rejected_report"]["content"])
         else:
-            source = next(item["output"] for item in reversed(data["recent_stages"])
-                          if item["stage"].startswith("astra_finalize") and item.get("rejected"))
+            source = next(
+                item["output"]
+                for item in reversed(data["recent_stages"])
+                if item["stage"].startswith("astra_finalize") and item.get("rejected")
+            )
             value = investigator_report(source)
             # The event is a real, independently observed read, but the job's
             # evidence field still requires file paths rather than its event ID.
-            command = shlex.join([sys.executable, "-c",
-                                  f"from pathlib import Path; print(Path({source!r}).read_text())"])
+            command = shlex.join(
+                [sys.executable, "-c", f"from pathlib import Path; print(Path({source!r}).read_text())"]
+            )
             read = subprocess.run(shlex.split(command), text=True, capture_output=True)
-            event_rows.insert(-1, {"type": "item.completed", "item": {
-                "id": "diagnostic-read", "type": "command_execution", "command": command,
-                "exit_code": read.returncode, "aggregated_output": read.stdout + read.stderr}})
+            event_rows.insert(
+                -1,
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "diagnostic-read",
+                        "type": "command_execution",
+                        "command": command,
+                        "exit_code": read.returncode,
+                        "aggregated_output": read.stdout + read.stderr,
+                    },
+                },
+            )
             if read.returncode:
                 raise RuntimeError("Offline diagnostic read failed")
-        row.update(evidence_refs=value["evidence_refs"], probe=value["probe"],
-                   has_scratch_map=bool((data.get("investigation_context") or {}).get("evidence_files")))
+        row.update(
+            evidence_refs=value["evidence_refs"],
+            probe=value["probe"],
+            has_scratch_map=bool((data.get("investigation_context") or {}).get("evidence_files")),
+        )
     output.write_text(json.dumps(value))
     append_trace(row)
     for event in event_rows:

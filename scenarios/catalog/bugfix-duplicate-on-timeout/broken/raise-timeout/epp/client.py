@@ -1,4 +1,5 @@
 """Renew a domain, retrying on timeouts with a longer deadline so replies are not lost."""
+
 import uuid
 
 from .registry import Timeout

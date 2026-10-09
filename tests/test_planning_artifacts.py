@@ -29,13 +29,26 @@ def requirements():
 
 def plan_body(*, second_dependency=None):
     value = body()
-    value["initial_task"] = {"objective": "Deliver greeting", "affected_paths": ["greet.py"],
-                             "kind": "implement", "milestone_id": "M1", "requirements": ["Deliver CLI"],
-                             "acceptance_criteria": ["C1"], "validation_plan": ["Run tests"]}
+    value["initial_task"] = {
+        "objective": "Deliver greeting",
+        "affected_paths": ["greet.py"],
+        "kind": "implement",
+        "milestone_id": "M1",
+        "requirements": ["Deliver CLI"],
+        "acceptance_criteria": ["C1"],
+        "validation_plan": ["Run tests"],
+    }
     value["milestones"][0]["affected_paths"] = ["greet.py"]
     if second_dependency is not None:
-        value["milestones"].append({"id": "M2", "objective": "Document greeting", "acceptance_criteria": ["C1"],
-                                    "depends_on": second_dependency, "affected_paths": ["README.md"]})
+        value["milestones"].append(
+            {
+                "id": "M2",
+                "objective": "Document greeting",
+                "acceptance_criteria": ["C1"],
+                "depends_on": second_dependency,
+                "affected_paths": ["README.md"],
+            }
+        )
     return value
 
 
@@ -47,13 +60,27 @@ class PlanningArtifactTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         self.run = self.root / "run"
         self.run.mkdir()
-        self.state = {"task_id": "task", "task": "Task", "workspace": str(self.root), "answers": {},
-                      "user_events": [], "acceptance_criteria": [], "settings": {"joint_planning": True,
-                      "planning_flow": "v2", "roles": {
-                          "requirements": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                          "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                          "plan_reviewer": {"engine": "opencode", "model": planning.PINNED_REVIEWER_MODEL,
-                                              "model_pinned": True}}}}
+        self.state = {
+            "task_id": "task",
+            "task": "Task",
+            "workspace": str(self.root),
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "settings": {
+                "joint_planning": True,
+                "planning_flow": "v2",
+                "roles": {
+                    "requirements": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "plan_reviewer": {
+                        "engine": "opencode",
+                        "model": planning.PINNED_REVIEWER_MODEL,
+                        "model_pinned": True,
+                    },
+                },
+            },
+        }
 
     def apply(self, stage, value):
         autopilot.apply_planning(self.state, stage, value, {"output": f"{stage}.json"}, run_dir=self.run)
@@ -64,31 +91,58 @@ class PlanningArtifactTests(unittest.TestCase):
         self.apply("plan", {"contract": plan_body(), "summary": "Plan ready"})
 
     def review(self):
-        self.apply("plan_review", {"summary": "Need explicit test", "concerns": [{
-            "id": "C1", "concern": "Test evidence is incomplete", "evidence_refs": ["tools/test_goals.py"],
-            "requested_change": "Add a regression", "acceptance_test": "Focused suite passes", "blocking": True}]})
+        self.apply(
+            "plan_review",
+            {
+                "summary": "Need explicit test",
+                "concerns": [
+                    {
+                        "id": "C1",
+                        "concern": "Test evidence is incomplete",
+                        "evidence_refs": ["tools/test_goals.py"],
+                        "requested_change": "Add a regression",
+                        "acceptance_test": "Focused suite passes",
+                        "blocking": True,
+                    }
+                ],
+            },
+        )
 
     def revise(self, *, second_dependency=None):
-        self.apply("plan_revise", {"contract": plan_body(second_dependency=second_dependency), "summary": "Revision ready",
-                                    "responses": [{"concern_id": "C1", "response": "Added regression",
-                                                   "evidence_refs": ["tools/test_planning_artifacts.py"],
-                                                   "change": "Added persistence coverage",
-                                                   "acceptance_test": "Focused suite passes"}]})
+        self.apply(
+            "plan_revise",
+            {
+                "contract": plan_body(second_dependency=second_dependency),
+                "summary": "Revision ready",
+                "responses": [
+                    {
+                        "concern_id": "C1",
+                        "response": "Added regression",
+                        "evidence_refs": ["tools/test_planning_artifacts.py"],
+                        "change": "Added persistence coverage",
+                        "acceptance_test": "Focused suite passes",
+                    }
+                ],
+            },
+        )
 
     def test_v2_requests_explain_progressive_fields_only_for_contract_writers(self):
         self.initialize_plan()
         self.review()
         self.revise()
-        self.state["requirements_handoff"] = {"report": {"requirements": [
-            {"id": "R1", "text": "Keep the greeting", "source_quote": "greeting"}]}}
-        self.assertEqual([{"requirement_id": "R1", "requirement": "Keep the greeting",
-                           "source_quote": "greeting"}],
-                         planning.trace_rows(self.state, "astra_discovery"))
+        self.state["requirements_handoff"] = {
+            "report": {"requirements": [{"id": "R1", "text": "Keep the greeting", "source_quote": "greeting"}]}
+        }
+        self.assertEqual(
+            [{"requirement_id": "R1", "requirement": "Keep the greeting", "source_quote": "greeting"}],
+            planning.trace_rows(self.state, "astra_discovery"),
+        )
         writers = {"plan", "plan_revise", "plan_finalize"}
         for stage in ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize"):
             with self.subTest(stage=stage):
-                request = planning.prepare(copy.deepcopy(self.state), stage,
-                                           self.run / "state.json", self.run / "schemas")
+                request = planning.prepare(
+                    copy.deepcopy(self.state), stage, self.run / "state.json", self.run / "schemas"
+                )
                 instructions = request.prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
                 fields = request.schema["properties"]
                 self.assertFalse(request.allow_write)
@@ -106,9 +160,14 @@ class PlanningArtifactTests(unittest.TestCase):
 
     def test_repairs_use_only_rules_supported_by_the_saved_contract_schema(self):
         writers = ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize")
-        field_sets = ((), ("contract",), ("progressive_proposal",),
-                      ("contract", "progressive_proposal"), ("contract", "responses"),
-                      ("contract", "progressive_proposal", "responses"))
+        field_sets = (
+            (),
+            ("contract",),
+            ("progressive_proposal",),
+            ("contract", "progressive_proposal"),
+            ("contract", "responses"),
+            ("contract", "progressive_proposal", "responses"),
+        )
         for stage in (*writers, "requirements", "requirements_gather", "plan_review"):
             for names in field_sets:
                 with self.subTest(stage=stage, fields=names):
@@ -119,12 +178,11 @@ class PlanningArtifactTests(unittest.TestCase):
                         self.assertEqual("", rules)
                     else:
                         self.assertIn(planning.REVISION_CONFLICT_RULE, rules)
-                        self.assertEqual("progressive_proposal" in names,
-                                         "its empty form (version 0" in rules)
-                        self.assertEqual("progressive_proposal" in names,
-                                         "must not also appear in outstanding_criteria" in rules)
-                        self.assertEqual("responses" in names,
-                                         planning.RESPONSE_EVIDENCE_RULE in rules)
+                        self.assertEqual("progressive_proposal" in names, "its empty form (version 0" in rules)
+                        self.assertEqual(
+                            "progressive_proposal" in names, "must not also appear in outstanding_criteria" in rules
+                        )
+                        self.assertEqual("responses" in names, planning.RESPONSE_EVIDENCE_RULE in rules)
                         self.assertNotIn("REQUIREMENT TRACE:", rules)
                     self.assertEqual(original, schema)
 
@@ -132,13 +190,35 @@ class PlanningArtifactTests(unittest.TestCase):
         self.initialize_plan()
         self.review()
         self.revise(second_dependency=[])
-        self.apply("plan_finalize", {"contract": plan_body(second_dependency=["M1"]), "summary": "Final plan",
-                                      "decisions": [{"concern_id": "C1", "decision": "accepted", "rationale": "Regression added",
-                                                     "acceptance_test": "Focused suite passes", "resolved": True}]})
-        expected = {"requirements": "requirements-1.json", "plan": "plan-1.json", "plan_review": "review-1.json",
-                    "plan_revise": "revision-1.json", "plan_finalize": "final-plan-1.json"}
-        predecessors = {"plan": "requirements", "plan_review": "plan", "plan_revise": "plan_review",
-                        "plan_finalize": "plan_revise"}
+        self.apply(
+            "plan_finalize",
+            {
+                "contract": plan_body(second_dependency=["M1"]),
+                "summary": "Final plan",
+                "decisions": [
+                    {
+                        "concern_id": "C1",
+                        "decision": "accepted",
+                        "rationale": "Regression added",
+                        "acceptance_test": "Focused suite passes",
+                        "resolved": True,
+                    }
+                ],
+            },
+        )
+        expected = {
+            "requirements": "requirements-1.json",
+            "plan": "plan-1.json",
+            "plan_review": "review-1.json",
+            "plan_revise": "revision-1.json",
+            "plan_finalize": "final-plan-1.json",
+        }
+        predecessors = {
+            "plan": "requirements",
+            "plan_review": "plan",
+            "plan_revise": "plan_review",
+            "plan_finalize": "plan_revise",
+        }
         for stage, filename in expected.items():
             with self.subTest(stage=stage):
                 entry = self.state["planning_artifacts"][stage]
@@ -158,22 +238,33 @@ class PlanningArtifactTests(unittest.TestCase):
                 else:
                     self.assertEqual("", delta["input_path"])
                     self.assertEqual("", delta["input_sha256"])
-        final_delta = json.loads((self.run / self.state["planning_artifacts"]["plan_finalize"]["delta"]["path"]).read_text())
+        final_delta = json.loads(
+            (self.run / self.state["planning_artifacts"]["plan_finalize"]["delta"]["path"]).read_text()
+        )
         self.assertIn({"from": "M2", "to": "M1", "change": "added"}, final_delta["graph_edge_diffs"])
 
     def test_final_outputs_are_sealed_consumable_and_invalidated_without_launching(self):
         self.initialize_plan()
         self.review()
         self.revise(second_dependency=[])
-        decision = {"concern_id": "C1", "decision": "accepted", "rationale": "Regression added",
-                    "acceptance_test": "Focused suite passes", "resolved": True}
-        self.apply("plan_finalize", {"contract": plan_body(second_dependency=["M1"]), "summary": "Final plan",
-                                      "decisions": [decision]})
+        decision = {
+            "concern_id": "C1",
+            "decision": "accepted",
+            "rationale": "Regression added",
+            "acceptance_test": "Focused suite passes",
+            "resolved": True,
+        }
+        self.apply(
+            "plan_finalize",
+            {"contract": plan_body(second_dependency=["M1"]), "summary": "Final plan", "decisions": [decision]},
+        )
         final = self.state["planning_final"]
         self.assertEqual(self.state["planning"]["final_token"], final["final_token"])
-        for kind, relative in (("artifact", "planning/final-plan.json"),
-                               ("delta", "planning/final-plan.delta.json"),
-                               ("graph", "planning/graph.json")):
+        for kind, relative in (
+            ("artifact", "planning/final-plan.json"),
+            ("delta", "planning/final-plan.delta.json"),
+            ("graph", "planning/graph.json"),
+        ):
             self.assertEqual(relative, final[kind]["path"])
             self.assertEqual(final[kind]["sha256"], support.file_hash(self.run / relative))
         payload = json.loads((self.run / "planning/graph.json").read_text())
@@ -195,8 +286,9 @@ class PlanningArtifactTests(unittest.TestCase):
         self.assertEqual(final["final_token"], pending_feedback["planning_final_archive"][-1]["final_token"])
 
         self.state["iteration"] = 1
-        self.state["stages"] = [{"stage": "plan_finalize", "output": "plan_finalize.json",
-                                  "source_revision": "fixture", "rejected": False}]
+        self.state["stages"] = [
+            {"stage": "plan_finalize", "output": "plan_finalize.json", "source_revision": "fixture", "rejected": False}
+        ]
         with patch.object(support, "snapshot", return_value={"revision": "fixture"}):
             self.assertEqual("escalate", lifecycle.human.evaluate(self.state))
             lifecycle.present(self.state)
@@ -237,11 +329,17 @@ class PlanningArtifactTests(unittest.TestCase):
     def test_artifact_transaction_rolls_back_files_when_state_persistence_fails(self):
         support.atomic_json(self.run / "state.json", self.state)
         candidate = copy.deepcopy(self.state)
-        autopilot.apply_planning(candidate, "requirements", {"requirements": requirements(), "summary": "ready"},
-                       {"stage": "requirements", "output": "requirements.json"}, run_dir=self.run)
+        autopilot.apply_planning(
+            candidate,
+            "requirements",
+            {"requirements": requirements(), "summary": "ready"},
+            {"stage": "requirements", "output": "requirements.json"},
+            run_dir=self.run,
+        )
         with self.assertRaisesRegex(OSError, "state persistence failed"):
-            artifacts.commit_pending(candidate, self.run,
-                                     lambda _candidate: (_ for _ in ()).throw(OSError("state persistence failed")))
+            artifacts.commit_pending(
+                candidate, self.run, lambda _candidate: (_ for _ in ()).throw(OSError("state persistence failed"))
+            )
         persisted = support.read(self.run / "state.json")
         self.assertFalse((self.run / "planning" / "requirements-1.json").exists())
         self.assertEqual([], artifacts.reconcile_orphans(persisted, self.run))
@@ -252,13 +350,17 @@ class PlanningArtifactTests(unittest.TestCase):
         self.initialize_plan()
         self.review()
         before_state = json.dumps(self.state, sort_keys=True)
-        before_paths = {str(path.relative_to(self.run)): hashlib.sha256(path.read_bytes()).hexdigest()
-                        for path in self.run.glob("planning/*.json")}
+        before_paths = {
+            str(path.relative_to(self.run)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in self.run.glob("planning/*.json")
+        }
         invalid = {"contract": plan_body(), "summary": "Incomplete", "responses": []}
         with self.assertRaisesRegex(ValueError, "Every plan-review concern"):
             runner.apply_result(self.state, "plan_revise", invalid, {"output": "revision.json"}, self.root, self.run)
-        after_paths = {str(path.relative_to(self.run)): hashlib.sha256(path.read_bytes()).hexdigest()
-                       for path in self.run.glob("planning/*.json")}
+        after_paths = {
+            str(path.relative_to(self.run)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in self.run.glob("planning/*.json")
+        }
         self.assertEqual(before_state, json.dumps(self.state, sort_keys=True))
         self.assertEqual(before_paths, after_paths)
 
@@ -267,12 +369,28 @@ class PlanningArtifactTests(unittest.TestCase):
         self.initialize_plan()
         self.review()
         self.revise()
-        self.apply("plan_finalize", {"contract": plan_body(), "summary": "Final plan",
-                                      "decisions": [{"concern_id": "C1", "decision": "accepted",
-                                                     "rationale": "Regression added",
-                                                     "acceptance_test": "Focused suite passes", "resolved": True}]})
-        predecessors = {"plan": "requirements", "plan_review": "plan", "plan_revise": "plan_review",
-                        "plan_finalize": "plan_revise"}
+        self.apply(
+            "plan_finalize",
+            {
+                "contract": plan_body(),
+                "summary": "Final plan",
+                "decisions": [
+                    {
+                        "concern_id": "C1",
+                        "decision": "accepted",
+                        "rationale": "Regression added",
+                        "acceptance_test": "Focused suite passes",
+                        "resolved": True,
+                    }
+                ],
+            },
+        )
+        predecessors = {
+            "plan": "requirements",
+            "plan_review": "plan",
+            "plan_revise": "plan_review",
+            "plan_finalize": "plan_revise",
+        }
         for stage, previous_stage in predecessors.items():
             with self.subTest(stage=stage):
                 prompt, _ = planning.context(self.state, stage, self.run / "state.json")
@@ -289,13 +407,17 @@ class PlanningArtifactTests(unittest.TestCase):
         lifecycle.install_draft(candidate, edited, origin="user_cli_edit")
         artifacts.prepare_user_cli_edit(candidate, run_dir=self.run)
         artifacts.commit_pending(candidate, self.run, lambda value: support.atomic_json(self.run / "state.json", value))
-        self.state.clear(); self.state.update(candidate)
+        self.state.clear()
+        self.state.update(candidate)
         entry = self.state["planning_artifacts"]["plan"]
         delta = json.loads((self.run / entry["delta"]["path"]).read_text())
         self.assertEqual(original["sha256"], delta["input_sha256"])
         self.assertEqual("plan_review", self.state["next_stage"])
         self.assertFalse(self.state["planning"]["derived_graph"]["automatic_execution"])
-        self.assertEqual(entry["artifact"]["path"], artifacts.verify_predecessor(self.state, "plan_review", self.run)["artifact"]["path"])
+        self.assertEqual(
+            entry["artifact"]["path"],
+            artifacts.verify_predecessor(self.state, "plan_review", self.run)["artifact"]["path"],
+        )
 
         (self.run / entry["artifact"]["path"]).unlink()
         before_state = json.dumps(self.state, sort_keys=True)
@@ -305,16 +427,17 @@ class PlanningArtifactTests(unittest.TestCase):
             lifecycle.install_draft(candidate, edited, origin="user_cli_edit")
             artifacts.prepare_user_cli_edit(candidate, run_dir=self.run)
         self.assertEqual(before_state, json.dumps(self.state, sort_keys=True))
-        self.assertEqual(before_files, {str(path.relative_to(self.run)): path.read_bytes()
-                                        for path in self.run.glob("planning/*.json")})
+        self.assertEqual(
+            before_files,
+            {str(path.relative_to(self.run)): path.read_bytes() for path in self.run.glob("planning/*.json")},
+        )
 
     def test_v2_edit_goal_state_failure_leaves_state_and_planning_files_byte_identical(self):
         self.initialize_plan()
         support.atomic_json(self.run / "state.json", self.state)
         before_state = copy.deepcopy(self.state)
         before_state_file = (self.run / "state.json").read_bytes()
-        before_files = {str(path.relative_to(self.run)): path.read_bytes()
-                        for path in self.run.glob("planning/*.json")}
+        before_files = {str(path.relative_to(self.run)): path.read_bytes() for path in self.run.glob("planning/*.json")}
         candidate = copy.deepcopy(self.state)
         edited = plan_body()
         edited["required_behaviors"].append("Document the command")
@@ -322,10 +445,13 @@ class PlanningArtifactTests(unittest.TestCase):
         artifacts.prepare_user_cli_edit(candidate, run_dir=self.run)
 
         with self.assertRaisesRegex(OSError, "state persistence failed"):
-            artifacts.commit_pending(candidate, self.run,
-                                     lambda _candidate: (_ for _ in ()).throw(OSError("state persistence failed")))
+            artifacts.commit_pending(
+                candidate, self.run, lambda _candidate: (_ for _ in ()).throw(OSError("state persistence failed"))
+            )
 
         self.assertEqual(before_state, self.state)
         self.assertEqual(before_state_file, (self.run / "state.json").read_bytes())
-        self.assertEqual(before_files, {str(path.relative_to(self.run)): path.read_bytes()
-                                        for path in self.run.glob("planning/*.json")})
+        self.assertEqual(
+            before_files,
+            {str(path.relative_to(self.run)): path.read_bytes() for path in self.run.glob("planning/*.json")},
+        )

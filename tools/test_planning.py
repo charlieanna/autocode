@@ -1,4 +1,5 @@
 """Joint planning gates, billing routes, bounded calls, and OpenCode handoffs."""
+
 import copy
 import json
 import os
@@ -36,9 +37,15 @@ class PlanningTests(unittest.TestCase):
         missing["milestones"][1].pop("depends_on")
         with self.assertRaisesRegex(ValueError, "Every milestone"):
             goals.validate_body(state, missing)
-        initial = {"objective": "Build component", "affected_paths": ["greet.py"], "kind": "implement",
-                   "milestone_id": "M2", "requirements": ["Real flow"], "acceptance_criteria": ["C1"],
-                   "validation_plan": ["Run the CLI"]}
+        initial = {
+            "objective": "Build component",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M2",
+            "requirements": ["Real flow"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run the CLI"],
+        }
         blocked = {**copy.deepcopy(draft), "initial_task": initial}
         with self.assertRaisesRegex(ValueError, "initial_task milestone M2 has unmet prerequisites"):
             goals.validate_body(state, blocked)
@@ -47,13 +54,20 @@ class PlanningTests(unittest.TestCase):
         bare = body()
         bare["milestones"][0].pop("depends_on")
         with self.assertRaisesRegex(ValueError, "declare depends_on"):
-            planning.apply(state, "astra_discovery", {"contract": bare, "summary": "draft",
-                           "code_refs": [], "alternatives": [], "uncertainties": []}, {"output": "draft.json"})
+            planning.apply(
+                state,
+                "astra_discovery",
+                {"contract": bare, "summary": "draft", "code_refs": [], "alternatives": [], "uncertainties": []},
+                {"output": "draft.json"},
+            )
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
         args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
-        settings = {"engine": "opencode", "roles": {r: {} for r in ("astra", "terra", "sol")},
-                    "transport_identity": {"engine": "opencode"}}
+        settings = {
+            "engine": "opencode",
+            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "transport_identity": {"engine": "opencode"},
+        }
         runner.configure_joint(settings, args, fresh=True)
         state = {"settings": settings}
         self.assertEqual("cursor-acp/claude-opus-5-5-high", settings["roles"]["plan_reviewer"]["model"])
@@ -65,9 +79,16 @@ class PlanningTests(unittest.TestCase):
         self.assertIn("claimed independent milestone", planning.PROMPTS["astra_challenge"])
         self.assertIn("depends_on", planning.PROMPTS["glm_revise"])
         self.assertIn("dependencies are complete and acyclic", planning.PROMPTS["astra_finalize"])
-        command, environment, _ = oc.launch("plan_reviewer", Path("/tmp/fixture"), Path("/tmp/run"),
-                                            None, settings["roles"]["plan_reviewer"]["model"],
-                                            None, False, planning=True)
+        command, environment, _ = oc.launch(
+            "plan_reviewer",
+            Path("/tmp/fixture"),
+            Path("/tmp/run"),
+            None,
+            settings["roles"]["plan_reviewer"]["model"],
+            None,
+            False,
+            planning=True,
+        )
         self.assertEqual("cursor-acp/claude-opus-5-5-high", command[command.index("--model") + 1])
         agent = command[command.index("--agent") + 1]
         permissions = json.loads(environment["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]
@@ -75,17 +96,20 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("deny", permissions["bash"])
 
     def test_joint_context_distinguishes_conversation_context_from_saved_feedback(self):
-        state=self.state();state['workspace']='/fixture'
-        state['task']='Conversation reference: demo. You: Kubernetes with re-teaching.'
-        prompt,_=planning.context(state,'astra_discovery',Path('/fixture/state.json'))
-        self.assertIn('basis=original_request with answer_id=""',prompt)
-        self.assertIn('Conversation IDs and message labels are not saved feedback IDs',prompt)
-        self.assertIn('Your suggestions and model-written drafts are basis=agent_proposed',prompt)
-        self.assertIn('milestones[].acceptance_criteria must contain ONLY those existing ID strings',prompt)
-        contract=copy.deepcopy(state['goal_contract']['body'])
-        contract['accepted_assumptions'].append({'text':'Kubernetes','basis':'user_feedback','answer_id':'conversation-demo'})
-        with self.assertRaisesRegex(ValueError,'actual saved feedback event'):
-            goals.validate_body(state,contract)
+        state = self.state()
+        state["workspace"] = "/fixture"
+        state["task"] = "Conversation reference: demo. You: Kubernetes with re-teaching."
+        prompt, _ = planning.context(state, "astra_discovery", Path("/fixture/state.json"))
+        self.assertIn('basis=original_request with answer_id=""', prompt)
+        self.assertIn("Conversation IDs and message labels are not saved feedback IDs", prompt)
+        self.assertIn("Your suggestions and model-written drafts are basis=agent_proposed", prompt)
+        self.assertIn("milestones[].acceptance_criteria must contain ONLY those existing ID strings", prompt)
+        contract = copy.deepcopy(state["goal_contract"]["body"])
+        contract["accepted_assumptions"].append(
+            {"text": "Kubernetes", "basis": "user_feedback", "answer_id": "conversation-demo"}
+        )
+        with self.assertRaisesRegex(ValueError, "actual saved feedback event"):
+            goals.validate_body(state, contract)
 
     def state(self):
         state = {"version": 2, "task": "Greeting", "settings": {"joint_planning": True}, "acceptance_criteria": []}
@@ -120,9 +144,19 @@ class PlanningTests(unittest.TestCase):
 
     def test_all_concerns_need_responses_and_final_decisions(self):
         state = self.state()
-        challenge = {"summary": "Inspect retry semantics", "concerns": [{"id": "P1", "concern": "Retry duplicates state",
-            "evidence_refs": ["api.py:10"], "requested_change": "Deduplicate submission IDs",
-            "acceptance_test": "Retry does not update state twice", "blocking": True}]}
+        challenge = {
+            "summary": "Inspect retry semantics",
+            "concerns": [
+                {
+                    "id": "P1",
+                    "concern": "Retry duplicates state",
+                    "evidence_refs": ["api.py:10"],
+                    "requested_change": "Deduplicate submission IDs",
+                    "acceptance_test": "Retry does not update state twice",
+                    "blocking": True,
+                }
+            ],
+        }
         record = {"output": "challenge.json"}
         planning.apply(state, "astra_challenge", challenge, record)
         original = copy.deepcopy(state)
@@ -131,19 +165,44 @@ class PlanningTests(unittest.TestCase):
             runner.apply_result(state, "glm_revise", revision, record, None, None)
         self.assertEqual(original, state)
         final_body = body()
-        final_body["initial_task"] = {"objective": "Build CLI", "affected_paths": ["greet.py"], "kind": "implement",
-            "milestone_id": "M1", "requirements": ["Greet"], "acceptance_criteria": ["C1"], "validation_plan": ["Run tests"]}
-        final = {"contract": final_body, "summary": "Still blocked", "decisions": [{"concern_id": "P1",
-            "decision": "Ask user", "rationale": "Unknown requirement", "acceptance_test": "Retry test", "resolved": False}]}
+        final_body["initial_task"] = {
+            "objective": "Build CLI",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Greet"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["Run tests"],
+        }
+        final = {
+            "contract": final_body,
+            "summary": "Still blocked",
+            "decisions": [
+                {
+                    "concern_id": "P1",
+                    "decision": "Ask user",
+                    "rationale": "Unknown requirement",
+                    "acceptance_test": "Retry test",
+                    "resolved": False,
+                }
+            ],
+        }
         with self.assertRaisesRegex(ValueError, "blocking questions"):
             runner.apply_result(state, "astra_finalize", final, record, None, None)
         self.assertEqual(original, state)
 
     def test_planner_permissions_deny_shell_custom_tools_and_delegation(self):
-        with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": json.dumps({
-                "agent": {"autocode_glm": {"permission": {"custom_writer": "allow", "bash": "allow"}}}})}):
-            command, env, config = oc.launch("glm", Path("/workspace"), Path("/run"), None,
-                                            "zai-coding-plan/glm-5.3", None, False, planning=True)
+        with patch.dict(
+            os.environ,
+            {
+                "OPENCODE_CONFIG_CONTENT": json.dumps(
+                    {"agent": {"autocode_glm": {"permission": {"custom_writer": "allow", "bash": "allow"}}}}
+                )
+            },
+        ):
+            command, env, config = oc.launch(
+                "glm", Path("/workspace"), Path("/run"), None, "zai-coding-plan/glm-5.3", None, False, planning=True
+            )
         agent = command[command.index("--agent") + 1]
         self.assertNotEqual("autocode_glm", agent)
         policy = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]
@@ -155,20 +214,30 @@ class PlanningTests(unittest.TestCase):
     def test_subscription_guard_refuses_api_routes(self):
         good = {"auth_mode": "ChatGPT", "model_provider": None}
         runner.check_subscription(good)
-        for bad in ({"auth_mode": "unknown"}, {"model_provider": "external"}, {"environment_auth_present": True},
-                    {"environment_base_url_present": True}, {"openai_base_url": "https://other.test"}):
+        for bad in (
+            {"auth_mode": "unknown"},
+            {"model_provider": "external"},
+            {"environment_auth_present": True},
+            {"environment_base_url_present": True},
+            {"openai_base_url": "https://other.test"},
+        ):
             with self.subTest(bad=bad), self.assertRaises(support.Paused) as error:
                 runner.check_subscription({**good, **bad})
             self.assertEqual("PAUSED_BILLING_ROUTE", error.exception.status)
 
     def test_sol_defaults_to_opencode_and_saved_model_choices_are_preserved(self):
         args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
-        settings = {"engine": "opencode", "roles": {r: {} for r in ("astra", "terra", "sol")},
-                    "transport_identity": {"engine": "opencode"}}
+        settings = {
+            "engine": "opencode",
+            "roles": {r: {} for r in ("astra", "terra", "sol")},
+            "transport_identity": {"engine": "opencode"},
+        }
         with patch.object(support, "local_settings", side_effect=AssertionError("No Codex login required")):
             runner.configure_joint(settings, args, fresh=True)
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol",
-                          "reasoning_effort": "high"}, settings["roles"]["sol"])
+        self.assertEqual(
+            {"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol", "reasoning_effort": "high"},
+            settings["roles"]["sol"],
+        )
         settings["roles"]["sol"] = {"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"}
         saved = copy.deepcopy(settings)
         runner.configure_joint(settings, args, fresh=False)
@@ -178,14 +247,31 @@ class PlanningTests(unittest.TestCase):
             runner.configure_joint(settings, args, fresh=False)
 
     def configure_args(self, **overrides):
-        args = SimpleNamespace(engine=None, joint_planning=False, glm_model=None, astra_model=None,
-                               terra_model=None, sol_model=None, astra_provider=None, terra_provider=None,
-                               sol_provider=None, reasoning_effort=None, astra_reasoning_effort=None,
-                               terra_reasoning_effort=None, sol_reasoning_effort=None, headroom=None,
-                               context_soft_tokens=None, rotate_after_input_tokens=None,
-                               legacy_iteration_ceiling=None, max_iterations=None, max_seconds=None,
-                               max_stage_seconds=None, max_reported_tokens=None, no_progress_limit=None,
-                               unlimited_iterations=False)
+        args = SimpleNamespace(
+            engine=None,
+            joint_planning=False,
+            glm_model=None,
+            astra_model=None,
+            terra_model=None,
+            sol_model=None,
+            astra_provider=None,
+            terra_provider=None,
+            sol_provider=None,
+            reasoning_effort=None,
+            astra_reasoning_effort=None,
+            terra_reasoning_effort=None,
+            sol_reasoning_effort=None,
+            headroom=None,
+            context_soft_tokens=None,
+            rotate_after_input_tokens=None,
+            legacy_iteration_ceiling=None,
+            max_iterations=None,
+            max_seconds=None,
+            max_stage_seconds=None,
+            max_reported_tokens=None,
+            no_progress_limit=None,
+            unlimited_iterations=False,
+        )
         for key, value in overrides.items():
             setattr(args, key, value)
         return args
@@ -193,25 +279,32 @@ class PlanningTests(unittest.TestCase):
     def test_new_run_uses_joint_planning_without_the_flag(self):
         # Removing implicit joint for a flagless OpenCode new run must fail this test.
         state = {"workspace": "/tmp/fixture", "iteration": 0}
-        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
-             patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
+        with (
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
+        ):
             settings = runner.configure(self.configure_args(), state)
         self.assertTrue(settings["joint_planning"])
         self.assertEqual("opencode", settings["engine"])
         self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
         self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
-                         {key: settings["roles"]["astra"][key] for key in ("engine", "provider", "model")})
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
-                         {key: settings["roles"]["sol"][key] for key in ("engine", "provider", "model")})
-        self.assertEqual({'astra': 'high', 'terra': 'medium', 'sol': 'high', 'completion': 'medium'},
-                         {role: settings['roles'][role]['reasoning_effort']
-                          for role in ('astra', 'terra', 'sol', 'completion')})
-        routed = {'settings': settings}
-        self.assertEqual('plan_reviewer', planning.route_for(routed, 'astra_finalize'))
-        self.assertEqual('completion', planning.route_for(routed, 'astra_review'))
-        self.assertEqual('completion', planning.route_for(routed, 'astra_checkpoint'))
+        self.assertEqual(
+            {"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
+            {key: settings["roles"]["astra"][key] for key in ("engine", "provider", "model")},
+        )
+        self.assertEqual(
+            {"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
+            {key: settings["roles"]["sol"][key] for key in ("engine", "provider", "model")},
+        )
+        self.assertEqual(
+            {"astra": "high", "terra": "medium", "sol": "high", "completion": "medium"},
+            {role: settings["roles"][role]["reasoning_effort"] for role in ("astra", "terra", "sol", "completion")},
+        )
+        routed = {"settings": settings}
+        self.assertEqual("plan_reviewer", planning.route_for(routed, "astra_finalize"))
+        self.assertEqual("completion", planning.route_for(routed, "astra_review"))
+        self.assertEqual("completion", planning.route_for(routed, "astra_checkpoint"))
 
     def test_codex_engine_stays_single_cli_and_saved_non_joint_runs_do_not_switch(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
@@ -223,9 +316,18 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("astra", planning.role_for({"settings": settings}, "astra_discovery"))
         with self.assertRaisesRegex(ValueError, "omit --engine codex"):
             runner.configure(self.configure_args(engine="codex", joint_planning=True), state)
-        saved = {"settings": {"engine": "opencode", "joint_planning": False, "roles": {
-            "astra": {"model": "openai/gpt-6-astra"}, "terra": {"model": "openai/gpt-5.6-terra"},
-            "sol": {"model": "zai-coding-plan/glm-5.3"}}}, "sessions": {"astra": "saved"}}
+        saved = {
+            "settings": {
+                "engine": "opencode",
+                "joint_planning": False,
+                "roles": {
+                    "astra": {"model": "openai/gpt-6-astra"},
+                    "terra": {"model": "openai/gpt-5.6-terra"},
+                    "sol": {"model": "zai-coding-plan/glm-5.3"},
+                },
+            },
+            "sessions": {"astra": "saved"},
+        }
         kept = runner.configure(self.configure_args(), saved)
         self.assertFalse(kept.get("joint_planning"))
         self.assertEqual("openai/gpt-5.6-terra", kept["roles"]["terra"]["model"])
@@ -234,12 +336,23 @@ class PlanningTests(unittest.TestCase):
 
     def test_new_openai_terra_keeps_opencode_and_existing_discovery_routes(self):
         for effort in (None, "high"):
-            with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
-                 patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
-                settings = runner.configure(self.configure_args(terra_model="openai/gpt-5.6-terra",
-                    terra_reasoning_effort=effort), {"workspace": "/tmp/fixture", "iteration": 0})
-            self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-terra",
-                              "reasoning_effort": effort or 'medium'}, settings["roles"]["terra"])
+            with (
+                patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+                patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
+            ):
+                settings = runner.configure(
+                    self.configure_args(terra_model="openai/gpt-5.6-terra", terra_reasoning_effort=effort),
+                    {"workspace": "/tmp/fixture", "iteration": 0},
+                )
+            self.assertEqual(
+                {
+                    "engine": "opencode",
+                    "provider": None,
+                    "model": "openai/gpt-5.6-terra",
+                    "reasoning_effort": effort or "medium",
+                },
+                settings["roles"]["terra"],
+            )
             self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
             self.assertEqual("opencode", planning.engine_for(settings, "glm"))
             self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
@@ -253,8 +366,10 @@ class PlanningTests(unittest.TestCase):
             self.assertEqual(before, state)
 
     def test_existing_glm_terra_cannot_be_silently_rerouted(self):
-        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
-             patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
+        with (
+            patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}),
+            patch.object(oc, "local_settings", return_value={"engine": "opencode"}),
+        ):
             settings = runner.configure(self.configure_args(), {"workspace": "/tmp/fixture", "iteration": 28})
         state = {"settings": settings, "sessions": {"terra": "opencode-existing-session"}}
         before = copy.deepcopy(state)
@@ -275,8 +390,11 @@ class JointFlow(unittest.TestCase):
         bin_dir = self.root / "fixture-bin"
         shutil.copy2(Path(__file__).with_name("fake_opencode.py"), bin_dir / "opencode")
         (bin_dir / "opencode").chmod(0o755)
-        self.env.update(AUTOCODE_FIXTURE_MODE=mode, CODEX_HOME=str(self.root / "codex-config"),
-                        XDG_CONFIG_HOME=str(self.root / "config"))
+        self.env.update(
+            AUTOCODE_FIXTURE_MODE=mode,
+            CODEX_HOME=str(self.root / "codex-config"),
+            XDG_CONFIG_HOME=str(self.root / "config"),
+        )
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG_CONTENT"):
             self.env.pop(key, None)
 
@@ -286,8 +404,8 @@ class JointFlow(unittest.TestCase):
         run, state = self.saved()
         if report_repair is not None:
             # Explicitly exercise compatibility with saved no-recovery runs.
-            state['settings']['report_repair'] = {'max_attempts': report_repair}
-            (run/'state.json').write_text(json.dumps(state))
+            state["settings"]["report_repair"] = {"max_attempts": report_repair}
+            (run / "state.json").write_text(json.dumps(state))
         self.assertEqual("glm", state["stages"][0]["role"])
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
@@ -352,15 +470,23 @@ class JointFlow(unittest.TestCase):
 
     def test_openai_terra_executes_and_resumes_through_opencode_after_joint_planning(self):
         self.prepare("rework")
-        self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "openai/gpt-5.6-terra",
-                     "--terra-reasoning-effort", "high"], 2)
+        self.launch(
+            [
+                "Build a greeting tool",
+                "--no-chat",
+                "--terra-model",
+                "openai/gpt-5.6-terra",
+                "--terra-reasoning-effort",
+                "high",
+            ],
+            2,
+        )
         run, state = self.saved()
         args = ["--run-dir", str(run)]
         self.launch([*args, "--answer", "Q1=CLI"], 0)
         self.launch([*args, "--no-chat"], 2)
         state = self.saved()[1]
-        self.assertEqual(["opencode"] * 5,
-                         [stage["engine"] for stage in state["stages"]])
+        self.assertEqual(["opencode"] * 5, [stage["engine"] for stage in state["stages"]])
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
@@ -384,12 +510,12 @@ class JointFlow(unittest.TestCase):
 
     def test_openai_api_connection_pauses_before_any_provider_stage(self):
         self.prepare()
-        self.env['AUTOCODE_FIXTURE_OPENAI_AUTH'] = 'api'
+        self.env["AUTOCODE_FIXTURE_OPENAI_AUTH"] = "api"
         self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "openai/gpt-5.6-terra"], 2)
         state = self.saved()[1]
-        self.assertEqual('PAUSED_BILLING_ROUTE', state['status'])
-        self.assertEqual([], state['stages'])
-        self.assertNotIn('active_stage', state)
+        self.assertEqual("PAUSED_BILLING_ROUTE", state["status"])
+        self.assertEqual([], state["stages"])
+        self.assertNotIn("active_stage", state)
 
     def test_unresolved_final_returns_to_user_without_approval_or_extra_calls(self):
         run, state = self.draft("planning-blocked")

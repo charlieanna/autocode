@@ -19,6 +19,7 @@ produced at an unchanged source revision.
 This module imports nothing from AutoCode: it operates on ledger rows and the
 plain run-state dict in place.
 """
+
 from __future__ import annotations
 
 
@@ -29,9 +30,11 @@ def _norm_text(text) -> str:
 
 def cause_key(row) -> tuple:
     """(evidence path, failure signature, normalized finding text): a row's root cause."""
-    return (str(row.get("evidence") or "").strip(),
-            str(row.get("failure_signature") or "").strip().casefold(),
-            _norm_text(row.get("finding") or ""))
+    return (
+        str(row.get("evidence") or "").strip(),
+        str(row.get("failure_signature") or "").strip().casefold(),
+        _norm_text(row.get("finding") or ""),
+    )
 
 
 def same_cause(left, right) -> bool:
@@ -67,13 +70,22 @@ def inherit_resolution(rows, resolved_id, *, resolved_in, evidence, at):
     key, parts = cause_key(source), split_parts(rows)
     closed = []
     for row in rows:
-        if (row is source or row.get("status") != "open" or not row.get("blocking", True)
-                or cause_key(row) != key or row.get("id") in parts):
+        if (
+            row is source
+            or row.get("status") != "open"
+            or not row.get("blocking", True)
+            or cause_key(row) != key
+            or row.get("id") in parts
+        ):
             continue
-        row.update(status="resolved", resolved_at=at, resolved_in=resolved_in,
-                   resolution_evidence=f"Same root cause as {resolved_id}: inherited from "
-                                       f"{resolved_id}'s resolution ({evidence})",
-                   inherited_from=resolved_id)
+        row.update(
+            status="resolved",
+            resolved_at=at,
+            resolved_in=resolved_in,
+            resolution_evidence=f"Same root cause as {resolved_id}: inherited from "
+            f"{resolved_id}'s resolution ({evidence})",
+            inherited_from=resolved_id,
+        )
         row.pop("pending_resolution", None)
         row.pop("not_rechecked_in", None)
         closed.append(row["id"])

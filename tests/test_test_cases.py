@@ -4,6 +4,7 @@ The approved one-milestone plan marks a criterion ``verification_method: "test: 
 the runner's proof then requires that test to pass with the change and not without it.
 See autocode_test_cases and docs/workflow.md.
 """
+
 import json
 import sys
 import tempfile
@@ -18,29 +19,62 @@ import autocode_verify as verify
 
 from tests.test_verify import Project
 
-EXAMPLE = {"id": "C2", "criterion": "Given calc.sub; when sub(5, 3) runs; then it returns 2",
-           "verification_method": "test: test_c2_subtracts", "human_review": False}
-ORDINARY = {"id": "C1", "criterion": "The README documents sub", "verification_method": "Read README.md",
-            "human_review": False}
-SEED = {"calc.py": "def add(a, b):\n    return a + b\n",
-        "test_calc.py": "import unittest\nfrom calc import add\n\n\nclass CalcTests(unittest.TestCase):\n"
-                        "    def test_add(self):\n        self.assertEqual(3, add(1, 2))\n"}
-FEATURE = {"calc.py": SEED["calc.py"] + "\n\ndef sub(a, b):\n    return a - b\n",
-           "test_calc.py": SEED["test_calc.py"].replace("from calc import add", "from calc import add, sub")
-           + "\n    def test_c2_subtracts(self):\n        self.assertEqual(2, sub(5, 3))\n"}
+EXAMPLE = {
+    "id": "C2",
+    "criterion": "Given calc.sub; when sub(5, 3) runs; then it returns 2",
+    "verification_method": "test: test_c2_subtracts",
+    "human_review": False,
+}
+ORDINARY = {
+    "id": "C1",
+    "criterion": "The README documents sub",
+    "verification_method": "Read README.md",
+    "human_review": False,
+}
+SEED = {
+    "calc.py": "def add(a, b):\n    return a + b\n",
+    "test_calc.py": "import unittest\nfrom calc import add\n\n\nclass CalcTests(unittest.TestCase):\n"
+    "    def test_add(self):\n        self.assertEqual(3, add(1, 2))\n",
+}
+FEATURE = {
+    "calc.py": SEED["calc.py"] + "\n\ndef sub(a, b):\n    return a - b\n",
+    "test_calc.py": SEED["test_calc.py"].replace("from calc import add", "from calc import add, sub")
+    + "\n    def test_c2_subtracts(self):\n        self.assertEqual(2, sub(5, 3))\n",
+}
 
 
 def feature_state(project, criteria, milestones=1):
-    return {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
-            "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": criteria,
-                                       "milestones": [{"id": f"M{n}"} for n in range(1, milestones + 1)]}}}
+    return {
+        "base_commit": project.base,
+        "settings": {},
+        "iteration": 1,
+        "stages": [],
+        "history": [],
+        "goal_contract": {
+            "body": {
+                "task_kind": "build",
+                "acceptance_criteria": criteria,
+                "milestones": [{"id": f"M{n}"} for n in range(1, milestones + 1)],
+            }
+        },
+    }
 
 
 class ContractCasesTests(unittest.TestCase):
     def test_annotated_go_name_binds_only_the_declared_actual_test(self):
-        state = {"goal_contract": {"body": {"acceptance_criteria": [{
-            "id": "AC1", "criterion": "golden behavior", "verification_method":
-            "test: test_c1_golden_vectors — Go test TestC1GoldenVectors in policy_test.go"}]}}}
+        state = {
+            "goal_contract": {
+                "body": {
+                    "acceptance_criteria": [
+                        {
+                            "id": "AC1",
+                            "criterion": "golden behavior",
+                            "verification_method": "test: test_c1_golden_vectors — Go test TestC1GoldenVectors in policy_test.go",
+                        }
+                    ]
+                }
+            }
+        }
         cases = test_cases.contract_cases(state)
         actual = "policy::TestC1GoldenVectors"
         names = [actual, "policy::TestC10GoldenVectors", "policy::TestC1GoldenVectorsExtra"]
@@ -48,12 +82,22 @@ class ContractCasesTests(unittest.TestCase):
         self.assertEqual({"AC1": []}, test_cases.match_cases(cases, names, framework="pytest"))
         for passing, expected in (([actual], "PASS"), (names[1:], "FAIL"), ([], "FAIL")):
             with self.subTest(passing=passing):
-                proof = {"framework": {"name": "go"}, "verdict": "PASS", "failures": [],
-                         "unverified": [], "fail_to_pass": passing}
+                proof = {
+                    "framework": {"name": "go"},
+                    "verdict": "PASS",
+                    "failures": [],
+                    "unverified": [],
+                    "fail_to_pass": passing,
+                }
                 regression.check_cases(proof, cases)
                 self.assertEqual(expected, proof["verdict"])
-        proof = {"framework": {"name": "go"}, "verdict": "PASS", "failures": [],
-                 "unverified": [], "fail_to_pass": [actual]}
+        proof = {
+            "framework": {"name": "go"},
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": [actual],
+        }
         regression.check_cases(proof, cases, refused={actual: "assertion does not test the behavior"})
         self.assertEqual("FAIL", proof["verdict"])
         self.assertIn("assertion does not test the behavior", " ".join(proof["failures"]))
@@ -61,14 +105,22 @@ class ContractCasesTests(unittest.TestCase):
     def test_native_go_declaration_and_python_case_sensitive_name_are_preserved(self):
         self.assertEqual("TestC1GoldenVectors", test_cases.declared_test_name("TestC1GoldenVectors"))
         self.assertEqual("test_C1_vectors", test_cases.declared_test_name("test_C1_vectors — explanation"))
-        self.assertEqual({"AC1": []}, test_cases.match_cases(
-            [{"id": "AC1", "test_name": "test_C1_vectors"}], ["test_c1_vectors"], framework="pytest"))
+        self.assertEqual(
+            {"AC1": []},
+            test_cases.match_cases(
+                [{"id": "AC1", "test_name": "test_C1_vectors"}], ["test_c1_vectors"], framework="pytest"
+            ),
+        )
         self.assertIsNone(test_cases.declared_test_name("test_c1_<what it checks>"))
 
     def test_approved_test_name_can_prove_two_criteria_with_one_focused_test(self):
         criteria = [
             {"id": "AC1", "criterion": "add returns five", "verification_method": "test: test_adds_two_integers"},
-            {"id": "AC2", "criterion": "the focused suite passes", "verification_method": "test: test_adds_two_integers"},
+            {
+                "id": "AC2",
+                "criterion": "the focused suite passes",
+                "verification_method": "test: test_adds_two_integers",
+            },
         ]
         state = {"goal_contract": {"body": {"acceptance_criteria": criteria}}}
         cases = test_cases.contract_cases(state)
@@ -78,27 +130,46 @@ class ContractCasesTests(unittest.TestCase):
         regression.check_cases(proof, cases)
         self.assertEqual("PASS", proof["verdict"])
         self.assertEqual([], proof["failures"])
-        self.assertEqual({"AC1": [], "AC2": []},
-                         test_cases.match_cases(cases, ["test_add.TestAdd.test_adds_two_integers_extra"]))
+        self.assertEqual(
+            {"AC1": [], "AC2": []}, test_cases.match_cases(cases, ["test_add.TestAdd.test_adds_two_integers_extra"])
+        )
         missing = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": []}
         regression.check_cases(missing, cases)
         self.assertEqual("FAIL", missing["verdict"])
         self.assertTrue(all("test_adds_two_integers" in failure for failure in missing["failures"]))
 
     def test_only_criteria_marked_test_are_cases(self):
-        state = {"goal_contract": {"body": {"milestones": [{"id": "M1"}], "acceptance_criteria": [
-            ORDINARY, EXAMPLE, {**EXAMPLE, "id": "C3", "verification_method": "  TEST: test_c3_x"}]}}}
-        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
-                          {"id": "C3", "text": EXAMPLE["criterion"], "test_name": "test_c3_x"}],
-                         test_cases.contract_cases(state))
+        state = {
+            "goal_contract": {
+                "body": {
+                    "milestones": [{"id": "M1"}],
+                    "acceptance_criteria": [
+                        ORDINARY,
+                        EXAMPLE,
+                        {**EXAMPLE, "id": "C3", "verification_method": "  TEST: test_c3_x"},
+                    ],
+                }
+            }
+        }
+        self.assertEqual(
+            [
+                {"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
+                {"id": "C3", "text": EXAMPLE["criterion"], "test_name": "test_c3_x"},
+            ],
+            test_cases.contract_cases(state),
+        )
         self.assertEqual("C2: " + EXAMPLE["criterion"], test_cases.case_text(test_cases.contract_cases(state)[0]))
 
     def test_a_guard_criterion_is_a_preserve_case(self):
         guard = {**EXAMPLE, "id": "C4", "verification_method": "guard: test_c4_adds_still"}
         state = {"goal_contract": {"body": {"milestones": [{"id": "M1"}], "acceptance_criteria": [EXAMPLE, guard]}}}
-        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
-                          {"id": "C4", "text": EXAMPLE["criterion"], "test_name": "test_c4_adds_still", "kind": "preserve"}],
-                         test_cases.contract_cases(state))
+        self.assertEqual(
+            [
+                {"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
+                {"id": "C4", "text": EXAMPLE["criterion"], "test_name": "test_c4_adds_still", "kind": "preserve"},
+            ],
+            test_cases.contract_cases(state),
+        )
         self.assertIn('"guard:"', test_cases.builder_note(state))
 
     def test_an_approved_revision_may_switch_test_and_guard_but_keeps_the_same_proof(self):
@@ -107,15 +178,22 @@ class ContractCasesTests(unittest.TestCase):
         import autocode_goals as goals
 
         def revise(method, text=EXAMPLE["criterion"]):
-            state = {"goal_contract": {"body": {"acceptance_criteria": [EXAMPLE]}, "approval_status": "approved"},
-                     "answers": {}, "user_events": [], "brief_feedback": []}
+            state = {
+                "goal_contract": {"body": {"acceptance_criteria": [EXAMPLE]}, "approval_status": "approved"},
+                "answers": {},
+                "user_events": [],
+                "brief_feedback": [],
+            }
             body = {"acceptance_criteria": [{**EXAMPLE, "criterion": text, "verification_method": method}]}
             goals.revision_guard(state, body, [], "glm_revise")
 
         revise("guard: test_c2_subtracts")
         revise("  GUARD:  test_c2_subtracts")
-        for method, text in (("guard: test_c2_other", EXAMPLE["criterion"]), ("Validator reads calc.py", EXAMPLE["criterion"]),
-                             ("guard: test_c2_subtracts", "Given calc.sub; when sub(5, 3) runs; then it returns 3")):
+        for method, text in (
+            ("guard: test_c2_other", EXAMPLE["criterion"]),
+            ("Validator reads calc.py", EXAMPLE["criterion"]),
+            ("guard: test_c2_subtracts", "Given calc.sub; when sub(5, 3) runs; then it returns 3"),
+        ):
             with self.subTest(method=method, text=text), self.assertRaisesRegex(ValueError, "without a user-backed"):
                 revise(method, text)
 
@@ -128,6 +206,7 @@ class ContractCasesTests(unittest.TestCase):
         def note(kind, criteria=(EXAMPLE,)):
             body = {"task_kind": kind, "milestones": [{"id": "M1"}], "acceptance_criteria": list(criteria)}
             return " ".join(test_cases.builder_note({"goal_contract": {"body": body}}).split())
+
         for criteria in ((EXAMPLE,), ()):
             with self.subTest(criteria=criteria):
                 fix = note("bugfix", criteria)
@@ -154,15 +233,22 @@ class ContractCasesTests(unittest.TestCase):
 def planned(current, accepted=(), batch=None, hash_="h1"):
     """A three-milestone plan: M1 has C1 (test), M2 has C2 (test) and C4 (ordinary), M3 has C3 (test);
     C5 (test) belongs to no milestone."""
-    criteria = [{"id": cid, "criterion": f"example {cid}", "verification_method": f"test: test_{cid.lower()}_x"}
-                for cid in ("C1", "C2", "C3", "C5")] + [dict(ORDINARY, id="C4")]
-    milestones = [{"id": "M1", "acceptance_criteria": ["C1"]}, {"id": "M2", "acceptance_criteria": ["C2", "C4"]},
-                  {"id": "M3", "acceptance_criteria": ["C3"]}]
+    criteria = [
+        {"id": cid, "criterion": f"example {cid}", "verification_method": f"test: test_{cid.lower()}_x"}
+        for cid in ("C1", "C2", "C3", "C5")
+    ] + [dict(ORDINARY, id="C4")]
+    milestones = [
+        {"id": "M1", "acceptance_criteria": ["C1"]},
+        {"id": "M2", "acceptance_criteria": ["C2", "C4"]},
+        {"id": "M3", "acceptance_criteria": ["C3"]},
+    ]
     progress = {f"{hash_}:{mid}": {"id": mid, "accepted": True, "contract_hash": hash_} for mid in accepted}
     task = {"milestone_ids": list(batch)} if batch else {"milestone_id": current}
-    return {"goal_contract": {"hash": "h1", "body": {"milestones": milestones, "acceptance_criteria": criteria}},
-            "current_task": task, "milestone_progress": progress}
-
+    return {
+        "goal_contract": {"hash": "h1", "body": {"milestones": milestones, "acceptance_criteria": criteria}},
+        "current_task": task,
+        "milestone_progress": progress,
+    }
 
     def suite_checked(self, case, suite_passing, failing=()):
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
@@ -173,13 +259,18 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
         passing = ["tests/test_calc.py::test_c4_adds[1-2-3]"]
         proof = self.suite_checked(self.GUARDED, passing, ["tests/test_calc.py::test_c4_adds[1-1-3]"])
         self.assertEqual("FAIL", proof["verdict"])
-        self.assertIn("has a test named after it that fails: tests/test_calc.py::test_c4_adds[1-1-3]", proof["failures"][0])
+        self.assertIn(
+            "has a test named after it that fails: tests/test_calc.py::test_c4_adds[1-1-3]", proof["failures"][0]
+        )
         go = self.suite_checked(self.GUARDED, ["calc::TestC4Adds/one"], ["calc::TestC4Adds/two"])
         self.assertEqual("FAIL", go["verdict"])
-        mixin = self.suite_checked(self.GUARDED, ["tests.test_calc.Plain.test_c4_adds"], ["tests.test_calc.Fast.test_c4_adds"])
+        mixin = self.suite_checked(
+            self.GUARDED, ["tests.test_calc.Plain.test_c4_adds"], ["tests.test_calc.Fast.test_c4_adds"]
+        )
         self.assertEqual("FAIL", mixin["verdict"])
-        elsewhere = self.suite_checked(self.GUARDED, ["tests.test_calc.Plain.test_c4_adds"],
-                                       ["tests.test_other.Fast.test_c4_adds"])
+        elsewhere = self.suite_checked(
+            self.GUARDED, ["tests.test_calc.Plain.test_c4_adds"], ["tests.test_other.Fast.test_c4_adds"]
+        )
         self.assertEqual("PASS", elsewhere["verdict"], elsewhere["failures"])
         for failing in (["tests/test_other.py::test_c4_adds"], ["tests/test_calc.py::test_c4_adds_more[x]"]):
             with self.subTest(failing=failing):
@@ -194,7 +285,9 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual({"T4": []}, proof["case_tests"])
         proof = self.suite_checked(self.GUARDED, ["tests/test_calc.py::test_c4_adds"])
-        self.assertEqual(("PASS", {"C4": ["tests/test_calc.py::test_c4_adds"]}), (proof["verdict"], proof["case_tests"]))
+        self.assertEqual(
+            ("PASS", {"C4": ["tests/test_calc.py::test_c4_adds"]}), (proof["verdict"], proof["case_tests"])
+        )
         # A guard run that did not finish leaves a guard naming its test unproven, not refuted.
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
         regression.check_cases(proof, [self.GUARDED], incomplete=True)
@@ -209,10 +302,16 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
         folder = Path(tempfile.mkdtemp(prefix="untouched-"))
         (folder / "test_changed.py").write_text("def test_c4_adds():\n    pass\n")
         (folder / "checks.py").write_text("class Mixin:\n    def test_c5_mixed(self):\n        pass\n")
-        ids = ["test_changed.test_c4_adds", "tests.test_guard.Guard.test_c5_mixed",
-               "tests/test_other.py::test_c4_adds_more", "pkg::TestC4Adds/one"]
-        self.assertEqual(ids[2:], regression.untouched(ids, [folder / "test_changed.py", folder / "checks.py",
-                                                             folder / "missing.py"]))
+        ids = [
+            "test_changed.test_c4_adds",
+            "tests.test_guard.Guard.test_c5_mixed",
+            "tests/test_other.py::test_c4_adds_more",
+            "pkg::TestC4Adds/one",
+        ]
+        self.assertEqual(
+            ids[2:],
+            regression.untouched(ids, [folder / "test_changed.py", folder / "checks.py", folder / "missing.py"]),
+        )
 
 
 class MilestoneScopeTests(unittest.TestCase):
@@ -247,33 +346,48 @@ class MilestoneScopeTests(unittest.TestCase):
     def test_a_proof_for_a_smaller_scope_is_not_reused(self):
         state = planned("M2", accepted=["M1"])
         state["regression_proof"] = {"verdict": "PASS", "source_revision": "rev", "case_scope": ["C1"]}
-        with patch.object(regression.util, "snapshot", return_value={"revision": "rev"}), \
-                patch.object(regression, "base_commit", return_value=None):
+        with (
+            patch.object(regression.util, "snapshot", return_value={"revision": "rev"}),
+            patch.object(regression, "base_commit", return_value=None),
+        ):
             proof = regression.prove(state, Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp()))
         self.assertEqual(["C1", "C2"], proof["case_scope"])
 
 
 class TwoMilestoneProofTests(unittest.TestCase):
     """Real repositories: M1 delivers sub (C1), M2 delivers mul (C2)."""
-    MUL = {"calc.py": FEATURE["calc.py"] + "\n\ndef mul(a, b):\n    return a * b\n",
-           "test_calc.py": FEATURE["test_calc.py"].replace("test_c2_subtracts", "test_c1_subtracts")
-           .replace("from calc import add, sub", "from calc import add, sub, mul")
-           + "\n    def test_c2_multiplies(self):\n        self.assertEqual(6, mul(2, 3))\n"}
+
+    MUL = {
+        "calc.py": FEATURE["calc.py"] + "\n\ndef mul(a, b):\n    return a * b\n",
+        "test_calc.py": FEATURE["test_calc.py"]
+        .replace("test_c2_subtracts", "test_c1_subtracts")
+        .replace("from calc import add, sub", "from calc import add, sub, mul")
+        + "\n    def test_c2_multiplies(self):\n        self.assertEqual(6, mul(2, 3))\n",
+    }
 
     def prove(self, files, current, accepted=()):
         project = Project(SEED)
         self.addCleanup(project.close)
         project.write(files)
-        criteria = [{**EXAMPLE, "id": "C1", "verification_method": "test: test_c1_subtracts"},
-                    {**EXAMPLE, "id": "C2", "criterion": "Given calc.mul; when mul(2, 3) runs; then it returns 6",
-                     "verification_method": "test: test_c2_multiplies"}]
+        criteria = [
+            {**EXAMPLE, "id": "C1", "verification_method": "test: test_c1_subtracts"},
+            {
+                **EXAMPLE,
+                "id": "C2",
+                "criterion": "Given calc.mul; when mul(2, 3) runs; then it returns 6",
+                "verification_method": "test: test_c2_multiplies",
+            },
+        ]
         state = feature_state(project, criteria, milestones=2)
         state["goal_contract"]["hash"] = "h"
-        state["goal_contract"]["body"]["milestones"] = [{"id": "M1", "acceptance_criteria": ["C1"]},
-                                                        {"id": "M2", "acceptance_criteria": ["C2"]}]
+        state["goal_contract"]["body"]["milestones"] = [
+            {"id": "M1", "acceptance_criteria": ["C1"]},
+            {"id": "M2", "acceptance_criteria": ["C2"]},
+        ]
         state["current_task"] = {"milestone_id": current}
-        state["milestone_progress"] = {f"h:{mid}": {"id": mid, "accepted": True, "contract_hash": "h"}
-                                       for mid in accepted}
+        state["milestone_progress"] = {
+            f"h:{mid}": {"id": mid, "accepted": True, "contract_hash": "h"} for mid in accepted
+        }
         return regression.prove(state, project.root, Path(tempfile.mkdtemp(prefix="milestone-proof-")))
 
     def test_the_first_milestone_is_proven_without_the_second(self):
@@ -285,8 +399,10 @@ class TwoMilestoneProofTests(unittest.TestCase):
     def test_the_second_milestone_proves_both(self):
         proof = self.prove(self.MUL, "M2", accepted=["M1"])
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
-        self.assertEqual({"C1": ["test_calc.CalcTests.test_c1_subtracts"],
-                          "C2": ["test_calc.CalcTests.test_c2_multiplies"]}, proof["case_tests"])
+        self.assertEqual(
+            {"C1": ["test_calc.CalcTests.test_c1_subtracts"], "C2": ["test_calc.CalcTests.test_c2_multiplies"]},
+            proof["case_tests"],
+        )
 
     def test_losing_an_accepted_milestones_test_fails_the_later_checkpoint(self):
         without_c1 = {**self.MUL, "test_calc.py": self.MUL["test_calc.py"].replace("test_c1_subtracts", "test_sub")}
@@ -333,8 +449,12 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual(["C2"], artifact["case_scope"])
 
     def test_an_example_without_its_test_fails_the_proof_and_is_named(self):
-        missing = {**EXAMPLE, "id": "C3", "criterion": "Given calc.mul; when mul(2, 3) runs; then it returns 6",
-                   "verification_method": "test: test_c3_multiplies"}
+        missing = {
+            **EXAMPLE,
+            "id": "C3",
+            "criterion": "Given calc.mul; when mul(2, 3) runs; then it returns 6",
+            "verification_method": "test: test_c3_multiplies",
+        }
         proof = self.prove([EXAMPLE, missing])
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual([], proof["case_tests"]["C3"])
@@ -345,31 +465,55 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual([], artifact["case_tests"]["C3"])
         self.assertEqual(["C2", "C3"], artifact["case_scope"])
 
-
     # Live review-then-fix plans (2026-09-29) could only mark "a timeout before execution is still
     # retried" as test:, which the change never broke; the proof refused it or the plan asked the user.
-    GUARD = {"id": "C4", "criterion": "Given calc.add; when add(1, 2) runs; then it still returns 3",
-             "verification_method": "guard: test_c4_add_still_works", "human_review": False}
+    GUARD = {
+        "id": "C4",
+        "criterion": "Given calc.add; when add(1, 2) runs; then it still returns 3",
+        "verification_method": "guard: test_c4_add_still_works",
+        "human_review": False,
+    }
     GUARD_TEST = "\n    def test_c4_add_still_works(self):\n        self.assertEqual(3, add(1, 2))\n"
     OWN_FILE = "import unittest\nfrom calc import add\n\n\nclass GuardTests(unittest.TestCase):" + GUARD_TEST
 
     def test_a_parenthetical_go_name_is_the_test_the_proof_matches(self):
-        method = ("test: TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices "
-                  "(go test ./rule/preflight/ -run TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices)")
-        state = {"goal_contract": {"body": {"acceptance_criteria": [
-            {"id": "AC1", "criterion": "external nameservers relay", "verification_method": method}]}}}
+        method = (
+            "test: TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices "
+            "(go test ./rule/preflight/ -run TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices)"
+        )
+        state = {
+            "goal_contract": {
+                "body": {
+                    "acceptance_criteria": [
+                        {"id": "AC1", "criterion": "external nameservers relay", "verification_method": method}
+                    ]
+                }
+            }
+        }
         cases = test_cases.contract_cases(state)
         self.assertEqual("TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices", cases[0]["test_name"])
         self.assertNotIn("kind", cases[0])
-        hyphenated = ("test: TestAgentDomainStartPendingModDelayPreFlightImpl/"
-                      "Run_-_creates_missing_internal_zone_and_stages_status_4 "
-                      "(go test ./rule/preflight/ -run 'TestAgentDomainStartPendingModDelayPreFlightImpl/"
-                      "Run_-_creates_missing_internal_zone_and_stages_status_4' -v)")
-        named = test_cases.contract_cases({"goal_contract": {"body": {"acceptance_criteria": [
-            {"id": "AC3", "criterion": "creates the zone", "verification_method": hyphenated}]}}})
+        hyphenated = (
+            "test: TestAgentDomainStartPendingModDelayPreFlightImpl/"
+            "Run_-_creates_missing_internal_zone_and_stages_status_4 "
+            "(go test ./rule/preflight/ -run 'TestAgentDomainStartPendingModDelayPreFlightImpl/"
+            "Run_-_creates_missing_internal_zone_and_stages_status_4' -v)"
+        )
+        named = test_cases.contract_cases(
+            {
+                "goal_contract": {
+                    "body": {
+                        "acceptance_criteria": [
+                            {"id": "AC3", "criterion": "creates the zone", "verification_method": hyphenated}
+                        ]
+                    }
+                }
+            }
+        )
         self.assertEqual(
             "TestAgentDomainStartPendingModDelayPreFlightImpl/Run_-_creates_missing_internal_zone_and_stages_status_4",
-            named[0]["test_name"])
+            named[0]["test_name"],
+        )
 
     def test_guard_only_coverage_passes_when_only_the_test_file_changes(self):
         proof = self.prove([self.GUARD], {"test_guard.py": self.OWN_FILE})
@@ -379,6 +523,7 @@ class FeatureProofTests(unittest.TestCase):
     def test_a_granted_test_only_exception_proves_coverage_marked_as_test(self):
         import autocode_contract_identity as identity
         import autocode_util as util
+
         project = Project(SEED)
         self.addCleanup(project.close)
         project.write({"test_guard.py": self.OWN_FILE})
@@ -387,10 +532,13 @@ class FeatureProofTests(unittest.TestCase):
         contract = state["goal_contract"]
         contract.update(task_id="t", revision=2)
         contract["hash"] = util.digest({"task_id": "t", "revision": 2, "body": contract["body"]})
-        state["answers"] = {"q": {
-            "kind": "permission_answer", "contract_token": identity.token(contract),
-            "text": "Grant a scoped test-only regression-proof exception for this goal.",
-        }}
+        state["answers"] = {
+            "q": {
+                "kind": "permission_answer",
+                "contract_token": identity.token(contract),
+                "text": "Grant a scoped test-only regression-proof exception for this goal.",
+            }
+        }
         proof = regression.prove(state, project.root, Path(tempfile.mkdtemp(prefix="coverage-exception-")))
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
@@ -402,7 +550,9 @@ class FeatureProofTests(unittest.TestCase):
 
     def test_a_guard_that_could_not_run_before_counts_with_a_note(self):
         # Its file imports sub, which the change adds, so on the original code the file does not import.
-        proof = self.prove([EXAMPLE, self.GUARD], {**FEATURE, "test_calc.py": FEATURE["test_calc.py"] + self.GUARD_TEST})
+        proof = self.prove(
+            [EXAMPLE, self.GUARD], {**FEATURE, "test_calc.py": FEATURE["test_calc.py"] + self.GUARD_TEST}
+        )
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_calc.CalcTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
         self.assertTrue(any("not shown to have passed before" in note for note in proof["notes"]), proof["notes"])
@@ -410,17 +560,22 @@ class FeatureProofTests(unittest.TestCase):
 
     def test_a_guard_whose_test_ran_and_failed_before_the_change_is_mis_tagged(self):
         new_behavior = {**self.GUARD, "id": "C5", "verification_method": "guard: test_c5_sub_exists"}
-        test = ("import unittest\nimport calc\n\n\nclass MoreTests(unittest.TestCase):\n"
-                "    def test_c5_sub_exists(self):\n        self.assertEqual(2, calc.sub(5, 3))\n")
+        test = (
+            "import unittest\nimport calc\n\n\nclass MoreTests(unittest.TestCase):\n"
+            "    def test_c5_sub_exists(self):\n        self.assertEqual(2, calc.sub(5, 3))\n"
+        )
         proof = self.prove([EXAMPLE, new_behavior], {**FEATURE, "test_more.py": test})
         self.assertEqual("FAIL", proof["verdict"])
-        self.assertTrue(any("fails on the original code" in failure for failure in proof["failures"]), proof["failures"])
+        self.assertTrue(
+            any("fails on the original code" in failure for failure in proof["failures"]), proof["failures"]
+        )
 
     def prove_unchanged(self, criteria, seed):
         project = Project(seed)
         self.addCleanup(project.close)
-        return regression.prove(feature_state(project, criteria), project.root,
-                                Path(tempfile.mkdtemp(prefix="unchanged-proof-")))
+        return regression.prove(
+            feature_state(project, criteria), project.root, Path(tempfile.mkdtemp(prefix="unchanged-proof-"))
+        )
 
     # A program re-checks a merged workstream after an accepted interface change: its files already
     # conform, so its validation-only plan marks every criterion guard: and changes nothing. A live
@@ -438,8 +593,10 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove_unchanged([self.GUARD], SEED)
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual({"C4": []}, proof["case_tests"])
-        self.assertTrue(any("C4" in failure and "test_c4_add_still_works" in failure
-                            for failure in proof["failures"]), proof["failures"])
+        self.assertTrue(
+            any("C4" in failure and "test_c4_add_still_works" in failure for failure in proof["failures"]),
+            proof["failures"],
+        )
         self.assertFalse(any("No change" in failure for failure in proof["failures"]), proof["failures"])
 
     def test_an_unchanged_source_fails_a_guard_whose_test_fails(self):
@@ -447,8 +604,10 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": broken})
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual({"C4": []}, proof["case_tests"])
-        self.assertTrue(any("passes both with the change and on the original code" in failure
-                            for failure in proof["failures"]), proof["failures"])
+        self.assertTrue(
+            any("passes both with the change and on the original code" in failure for failure in proof["failures"]),
+            proof["failures"],
+        )
 
     def test_an_ignored_test_file_cannot_prove_a_guard(self):
         project = Project(SEED)
@@ -462,8 +621,10 @@ class FeatureProofTests(unittest.TestCase):
         proof = regression.prove(state, project.root, run_dir)
         self.assertEqual("FAIL", proof["verdict"])
         self.assertTrue(any("the whole suite was not consulted" in failure for failure in proof["failures"]))
-        self.assertTrue(any("Ignored test files" in reason and "test_guard.py" in reason
-                            for reason in proof["unverified"]), proof["unverified"])
+        self.assertTrue(
+            any("Ignored test files" in reason and "test_guard.py" in reason for reason in proof["unverified"]),
+            proof["unverified"],
+        )
 
     def test_a_guard_only_change_that_adds_no_test_proves_its_guards_with_existing_tests(self):
         seed = {**SEED, "test_guard.py": self.OWN_FILE}
@@ -471,16 +632,19 @@ class FeatureProofTests(unittest.TestCase):
         project = Project(seed)
         self.addCleanup(project.close)
         project.write(commented)
-        proof = regression.prove(feature_state(project, [self.GUARD]), project.root,
-                                 Path(tempfile.mkdtemp(prefix="guard-change-")))
+        proof = regression.prove(
+            feature_state(project, [self.GUARD]), project.root, Path(tempfile.mkdtemp(prefix="guard-change-"))
+        )
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual({"C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
         project.write({"calc.py": "def add(a, b):\n    return a - b\n"})
-        broken = regression.prove(feature_state(project, [self.GUARD]), project.root,
-                                  Path(tempfile.mkdtemp(prefix="guard-change-")))
+        broken = regression.prove(
+            feature_state(project, [self.GUARD]), project.root, Path(tempfile.mkdtemp(prefix="guard-change-"))
+        )
         self.assertEqual("FAIL", broken["verdict"])
-        self.assertTrue(any("pass on base fail on the candidate" in failure for failure in broken["failures"]),
-                        broken["failures"])
+        self.assertTrue(
+            any("pass on base fail on the candidate" in failure for failure in broken["failures"]), broken["failures"]
+        )
 
     # A program's final check adds its own tests on a branch where merged workstreams already proved each
     # criterion; its guards name their tests, in files it leaves alone (live run, 2026-10-06).
@@ -488,11 +652,16 @@ class FeatureProofTests(unittest.TestCase):
         project = Project({**SEED, "test_guard.py": self.OWN_FILE})
         self.addCleanup(project.close)
         project.write(FEATURE)
-        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
-                                 Path(tempfile.mkdtemp(prefix="untouched-guard-")))
+        proof = regression.prove(
+            feature_state(project, [EXAMPLE, self.GUARD]),
+            project.root,
+            Path(tempfile.mkdtemp(prefix="untouched-guard-")),
+        )
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
-        self.assertEqual({"C2": ["test_calc.CalcTests.test_c2_subtracts"],
-                          "C4": ["test_guard.GuardTests.test_c4_add_still_works"]}, proof["case_tests"])
+        self.assertEqual(
+            {"C2": ["test_calc.CalcTests.test_c2_subtracts"], "C4": ["test_guard.GuardTests.test_c4_add_still_works"]},
+            proof["case_tests"],
+        )
         self.assertNotIn("test_guard.GuardTests.test_c4_add_still_works", proof["pass_to_pass"])
 
     def test_a_guard_whose_test_runs_in_a_second_failing_class_does_not_hold(self):
@@ -501,8 +670,13 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove_unchanged([self.GUARD], {**SEED, "test_guard.py": self.OWN_FILE + "\n\n" + failing})
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual({"C4": []}, proof["case_tests"])
-        self.assertTrue(any("has a test named after it that fails: test_guard.OtherGuardTests.test_c4_add_still_works"
-                            in failure for failure in proof["failures"]), proof["failures"])
+        self.assertTrue(
+            any(
+                "has a test named after it that fails: test_guard.OtherGuardTests.test_c4_add_still_works" in failure
+                for failure in proof["failures"]
+            ),
+            proof["failures"],
+        )
 
     def test_a_guard_naming_two_tests_holds_on_an_unchanged_source_by_its_id(self):
         both = {**self.GUARD, "verification_method": "guard: test_c4_add_still_works, test_c4_adds_zero"}
@@ -516,35 +690,49 @@ class FeatureProofTests(unittest.TestCase):
         failing = zero.replace("assertEqual(1, add(1, 0))", "assertEqual(2, add(1, 0))")
         proof = self.prove_unchanged([both], {**SEED, "test_guard.py": failing})
         self.assertEqual("FAIL", proof["verdict"])
-        self.assertTrue(any("fails: test_guard.GuardTests.test_c4_adds_zero" in failure
-                            for failure in proof["failures"]), proof["failures"])
+        self.assertTrue(
+            any("fails: test_guard.GuardTests.test_c4_adds_zero" in failure for failure in proof["failures"]),
+            proof["failures"],
+        )
 
     def test_a_document_that_mentions_a_guards_test_does_not_drop_it(self):
         project = Project({**SEED, "test_guard.py": self.OWN_FILE})
         self.addCleanup(project.close)
         project.write({**FEATURE, "docs/verification.md": "C4 is guarded by test_c4_add_still_works.\n"})
-        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
-                                 Path(tempfile.mkdtemp(prefix="doc-guard-")))
+        proof = regression.prove(
+            feature_state(project, [EXAMPLE, self.GUARD]), project.root, Path(tempfile.mkdtemp(prefix="doc-guard-"))
+        )
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
 
     def test_a_guard_whose_expectation_the_change_rewrote_in_a_fixture_does_not_hold(self):
         # The guard's test file is untouched, but it reads its expectation from a fixture the change rewrites
         # along with the behavior: on the original code with the new fixture it fails (review, 2026-10-06).
-        reads = ("import json\nimport unittest\nfrom calc import add\n\n"
-                 "WANT = json.load(open('testdata/add.json'))\n\n\nclass GuardTests(unittest.TestCase):\n"
-                 "    def test_c4_add_still_works(self):\n        self.assertEqual(WANT['1+2'], add(1, 2))\n")
-        seed = {"calc.py": SEED["calc.py"], "test_guard.py": reads, "testdata/add.json": '{"1+2": 3}\n',
-                "test_calc.py": "import unittest\nimport calc\n\n\nclass CalcTests(unittest.TestCase):\n"
-                                "    def test_module(self):\n        self.assertTrue(hasattr(calc, 'add'))\n"}
+        reads = (
+            "import json\nimport unittest\nfrom calc import add\n\n"
+            "WANT = json.load(open('testdata/add.json'))\n\n\nclass GuardTests(unittest.TestCase):\n"
+            "    def test_c4_add_still_works(self):\n        self.assertEqual(WANT['1+2'], add(1, 2))\n"
+        )
+        seed = {
+            "calc.py": SEED["calc.py"],
+            "test_guard.py": reads,
+            "testdata/add.json": '{"1+2": 3}\n',
+            "test_calc.py": "import unittest\nimport calc\n\n\nclass CalcTests(unittest.TestCase):\n"
+            "    def test_module(self):\n        self.assertTrue(hasattr(calc, 'add'))\n",
+        }
         project = Project(seed)
         self.addCleanup(project.close)
-        project.write({"calc.py": "def add(a, b):\n    return a + b + 1\n\n\ndef sub(a, b):\n    return a - b\n",
-                       "test_calc.py": seed["test_calc.py"] + "\n    def test_c2_subtracts(self):\n"
-                                                              "        self.assertEqual(2, calc.sub(5, 3))\n",
-                       "testdata/add.json": '{"1+2": 4}\n'})
-        proof = regression.prove(feature_state(project, [EXAMPLE, self.GUARD]), project.root,
-                                 Path(tempfile.mkdtemp(prefix="fixture-guard-")))
+        project.write(
+            {
+                "calc.py": "def add(a, b):\n    return a + b + 1\n\n\ndef sub(a, b):\n    return a - b\n",
+                "test_calc.py": seed["test_calc.py"] + "\n    def test_c2_subtracts(self):\n"
+                "        self.assertEqual(2, calc.sub(5, 3))\n",
+                "testdata/add.json": '{"1+2": 4}\n',
+            }
+        )
+        proof = regression.prove(
+            feature_state(project, [EXAMPLE, self.GUARD]), project.root, Path(tempfile.mkdtemp(prefix="fixture-guard-"))
+        )
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual([], proof["case_tests"]["C4"])
         self.assertEqual(["test_calc.CalcTests.test_c2_subtracts"], proof["case_tests"]["C2"])
@@ -555,7 +743,8 @@ class FeatureProofTests(unittest.TestCase):
         project = Project({**SEED, "test_guard.py": self.OWN_FILE})
         self.addCleanup(project.close)
         rewritten = self.OWN_FILE.replace("from calc import add", "import calc").replace(
-            "self.assertEqual(3, add(1, 2))", "self.assertEqual(2, calc.sub(5, 3))")
+            "self.assertEqual(3, add(1, 2))", "self.assertEqual(2, calc.sub(5, 3))"
+        )
         project.write({**FEATURE, "test_guard.py": rewritten})
         state = feature_state(project, [EXAMPLE, self.GUARD])
         state["settings"] = {"regression": {"regression_command": f"{sys.executable} -m unittest -v test_calc"}}
@@ -584,8 +773,9 @@ class BaseAndTimeoutTests(unittest.TestCase):
         project = Project(SEED)
         self.addCleanup(project.close)
         project.write(FEATURE)
-        proof = regression.prove(self.recorded(project, project.base), project.root,
-                                 Path(tempfile.mkdtemp(prefix="feature-proof-")))
+        proof = regression.prove(
+            self.recorded(project, project.base), project.root, Path(tempfile.mkdtemp(prefix="feature-proof-"))
+        )
         self.assertEqual((project.base, "PASS"), (proof["base"], proof["verdict"]), proof["unverified"])
 
     def test_a_recorded_head_the_source_does_not_descend_from_is_not_a_base(self):
@@ -597,6 +787,7 @@ class BaseAndTimeoutTests(unittest.TestCase):
     def test_the_suite_timeout_follows_the_runs_tool_limit(self):
         def timeout(regression_settings=None, **limits):
             return regression.suite_timeout({"settings": {"regression": regression_settings, "limits": limits}})
+
         self.assertEqual(3600, timeout(tool_timeout_seconds=3600))
         self.assertIsNone(timeout(tool_timeout_seconds=0))
         self.assertEqual(verify.DEFAULT_TIMEOUT, timeout(tool_timeout_seconds=60))
@@ -609,23 +800,30 @@ class PromptTests(unittest.TestCase):
         from units import autoplanner
 
         from tests.test_bug_job import SmallCorrectionTests
+
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
         for stage in ("astra_discovery", "astra_finalize"):
             self.assertIn(autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.context(state, stage, state_path)[0], stage)
-        self.assertNotIn(autoplanner.EXAMPLE_CRITERIA_RULE,
-                         autoplanner.context(state, "requirements_gather", state_path)[0])
+        self.assertNotIn(
+            autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.context(state, "requirements_gather", state_path)[0]
+        )
 
     def test_the_plan_reviewer_recomputes_worked_examples(self):
         from units import autoplanner
 
         from tests.test_bug_job import SmallCorrectionTests
+
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
-        for stage, wanted in (("astra_challenge", True), ("astra_finalize", True), ("astra_discovery", False),
-                              ("glm_revise", False)):
+        for stage, wanted in (
+            ("astra_challenge", True),
+            ("astra_finalize", True),
+            ("astra_discovery", False),
+            ("glm_revise", False),
+        ):
             with self.subTest(stage=stage):
                 prompt = autoplanner.context(state, stage, state_path)[0]
                 self.assertEqual(wanted, "CHECK EVERY WORKED EXAMPLE" in prompt)
@@ -636,11 +834,16 @@ class PromptTests(unittest.TestCase):
         from units import autoplanner
 
         from tests.test_bug_job import SmallCorrectionTests
+
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
-        for stage, wanted in (("astra_challenge", True), ("astra_finalize", True), ("astra_discovery", False),
-                              ("glm_revise", False)):
+        for stage, wanted in (
+            ("astra_challenge", True),
+            ("astra_finalize", True),
+            ("astra_discovery", False),
+            ("glm_revise", False),
+        ):
             with self.subTest(stage=stage):
                 prompt = autoplanner.context(state, stage, state_path)[0]
                 self.assertEqual(wanted, "CHECK EVERY EXAMPLE AGAINST THE BRIEF" in prompt)
@@ -649,11 +852,17 @@ class PromptTests(unittest.TestCase):
         from units import autoplanner
 
         from tests.test_bug_job import SmallCorrectionTests
+
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
-        for stage, wanted in (("astra_discovery", True), ("astra_challenge", True), ("glm_revise", True),
-                              ("astra_finalize", True), ("requirements_gather", False)):
+        for stage, wanted in (
+            ("astra_discovery", True),
+            ("astra_challenge", True),
+            ("glm_revise", True),
+            ("astra_finalize", True),
+            ("requirements_gather", False),
+        ):
             with self.subTest(stage=stage):
                 self.assertEqual(wanted, "NO TIMING CRITERIA" in autoplanner.context(state, stage, state_path)[0])
 
@@ -661,6 +870,7 @@ class PromptTests(unittest.TestCase):
         from units import common
 
         from tests.test_bug_job import approved_small_fix
+
         state = approved_small_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
@@ -678,41 +888,80 @@ if __name__ == "__main__":
     unittest.main()
 
 
-BUG_SEED = {"pager.py": "def page_count(total, size):\n    return total // size\n",
-            "test_pager.py": "import unittest\nfrom pager import page_count\n\n\nclass PagerTests(unittest.TestCase):\n"
-                             "    def test_existing(self):\n        self.assertEqual(2, page_count(10, 5))\n"}
-BUG_FIX = {"pager.py": "def page_count(total, size):\n    return (total + size - 1) // size\n",
-           "test_pager.py": BUG_SEED["test_pager.py"]
-           + "\n    def test_t1_partial_page_counts(self):\n        self.assertEqual(3, page_count(11, 5))\n"
-           + "\n    def test_t4_exact_multiple_and_zero(self):\n"
-             "        self.assertEqual(2, page_count(10, 5))\n        self.assertEqual(0, page_count(0, 5))\n"}
+BUG_SEED = {
+    "pager.py": "def page_count(total, size):\n    return total // size\n",
+    "test_pager.py": "import unittest\nfrom pager import page_count\n\n\nclass PagerTests(unittest.TestCase):\n"
+    "    def test_existing(self):\n        self.assertEqual(2, page_count(10, 5))\n",
+}
+BUG_FIX = {
+    "pager.py": "def page_count(total, size):\n    return (total + size - 1) // size\n",
+    "test_pager.py": BUG_SEED["test_pager.py"]
+    + "\n    def test_t1_partial_page_counts(self):\n        self.assertEqual(3, page_count(11, 5))\n"
+    + "\n    def test_t4_exact_multiple_and_zero(self):\n"
+    "        self.assertEqual(2, page_count(10, 5))\n        self.assertEqual(0, page_count(0, 5))\n",
+}
 T1 = {"id": "T1", "given": "total=11, size=5", "when": "page_count(11, 5)", "then": "returns 3"}
-T4 = {"id": "T4", "given": "total=10 and total=0, size=5", "when": "page_count runs", "then": "returns 2 and 0",
-      "kind": "preserve"}
+T4 = {
+    "id": "T4",
+    "given": "total=10 and total=0, size=5",
+    "when": "page_count runs",
+    "then": "returns 2 and 0",
+    "kind": "preserve",
+}
 
 
 class DiagnosisCaseBuilderTests(unittest.TestCase):
     """The live Boltons fix used AC names, leaving the runner's T1–T6 cases unproven."""
 
     CASES = [
-        {"id": "T1", "given": "IndexedSet([1]) and three lists", "when": "update receives the lists",
-         "then": "members are [1, 2, 3, 4] and the return value is None"},
-        {"id": "T2", "given": "IndexedSet([1]) and two tuples", "when": "update receives the tuples",
-         "then": "members are [1, 2, 3, 4] and the return value is None", "kind": "restore"},
-        {"id": "T3", "given": "IndexedSet([1]) and two one-shot iterators", "when": "update receives the iterators",
-         "then": "members are [1, 2, 3, 4] and both iterators are exhausted", "kind": "restore"},
-        {"id": "T4", "given": "iterables yielding tuple-valued members", "when": "update receives the iterables",
-         "then": "each tuple remains one member", "kind": "restore"},
-        {"id": "T5", "given": "IndexedSet([1])", "when": "update receives no arguments",
-         "then": "members remain [1] and the return value is None", "kind": "preserve"},
-        {"id": "T6", "given": "IndexedSet([1]) and [2, 1, 3]", "when": "update receives one iterable",
-         "then": "members are [1, 2, 3] and the return value is None", "kind": "preserve"},
+        {
+            "id": "T1",
+            "given": "IndexedSet([1]) and three lists",
+            "when": "update receives the lists",
+            "then": "members are [1, 2, 3, 4] and the return value is None",
+        },
+        {
+            "id": "T2",
+            "given": "IndexedSet([1]) and two tuples",
+            "when": "update receives the tuples",
+            "then": "members are [1, 2, 3, 4] and the return value is None",
+            "kind": "restore",
+        },
+        {
+            "id": "T3",
+            "given": "IndexedSet([1]) and two one-shot iterators",
+            "when": "update receives the iterators",
+            "then": "members are [1, 2, 3, 4] and both iterators are exhausted",
+            "kind": "restore",
+        },
+        {
+            "id": "T4",
+            "given": "iterables yielding tuple-valued members",
+            "when": "update receives the iterables",
+            "then": "each tuple remains one member",
+            "kind": "restore",
+        },
+        {
+            "id": "T5",
+            "given": "IndexedSet([1])",
+            "when": "update receives no arguments",
+            "then": "members remain [1] and the return value is None",
+            "kind": "preserve",
+        },
+        {
+            "id": "T6",
+            "given": "IndexedSet([1]) and [2, 1, 3]",
+            "when": "update receives one iterable",
+            "then": "members are [1, 2, 3] and the return value is None",
+            "kind": "preserve",
+        },
     ]
 
     def test_the_actual_builder_prompt_lists_every_diagnosis_case_and_its_proof(self):
         from units import common
 
         from tests.test_bug_job import approved_small_fix
+
         state = approved_small_fix(test_cases=self.CASES)
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         prompt = common.execution_request(state, "terra", Path(state["workspace"]) / "state.json", schemas).prompt
@@ -726,13 +975,25 @@ class DiagnosisCaseBuilderTests(unittest.TestCase):
                 row = next(line for line in note.splitlines() if line.startswith("- " + case["id"] + ":"))
                 self.assertIn(test_cases.case_text(case), row)
                 self.assertIn("test_" + case["id"].lower() + "_<what it checks>", row)
-                self.assertIn("must pass on the original code and with the fix" if case.get("kind") == "preserve"
-                              else "must fail on the original code because of the bug and pass with the fix", row)
+                self.assertIn(
+                    "must pass on the original code and with the fix"
+                    if case.get("kind") == "preserve"
+                    else "must fail on the original code because of the bug and pass with the fix",
+                    row,
+                )
 
     def test_diagnosis_names_take_precedence_over_the_plans_named_criteria(self):
-        state = {"investigation": {"outcome": "reproduced", "test_cases": [T1, T4]},
-                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [
-                     {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_pages"}]}}}
+        state = {
+            "investigation": {"outcome": "reproduced", "test_cases": [T1, T4]},
+            "goal_contract": {
+                "body": {
+                    "task_kind": "bugfix",
+                    "acceptance_criteria": [
+                        {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_pages"}
+                    ],
+                }
+            },
+        }
         note = test_cases.builder_note(state)
         self.assertIn("test_t1_<what it checks>", note)
         self.assertIn("test_t4_<what it checks>", note)
@@ -742,13 +1003,35 @@ class DiagnosisCaseBuilderTests(unittest.TestCase):
     def test_a_real_proof_still_rejects_plan_names_for_diagnosis_cases(self):
         project = Project(BUG_SEED)
         self.addCleanup(project.close)
-        project.write({**BUG_FIX, "test_pager.py": BUG_FIX["test_pager.py"]
-                       .replace("test_t1_partial", "test_ac1_partial").replace("test_t4_exact", "test_ac4_exact")})
-        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
-                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [
-                     {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_partial_page_counts"}],
-                     "milestones": [{"id": "M1"}]}},
-                 "investigation": {"outcome": "reproduced", "test_cases": [T1, T4]}}
+        project.write(
+            {
+                **BUG_FIX,
+                "test_pager.py": BUG_FIX["test_pager.py"]
+                .replace("test_t1_partial", "test_ac1_partial")
+                .replace("test_t4_exact", "test_ac4_exact"),
+            }
+        )
+        state = {
+            "base_commit": project.base,
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {
+                "body": {
+                    "task_kind": "bugfix",
+                    "acceptance_criteria": [
+                        {
+                            "id": "AC1",
+                            "criterion": "partial pages",
+                            "verification_method": "test: test_ac1_partial_page_counts",
+                        }
+                    ],
+                    "milestones": [{"id": "M1"}],
+                }
+            },
+            "investigation": {"outcome": "reproduced", "test_cases": [T1, T4]},
+        }
         proof = regression.prove(state, project.root, project.evidence)
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual({"T1": [], "T4": []}, proof["case_tests"])
@@ -765,10 +1048,15 @@ class PreserveCaseProofTests(unittest.TestCase):
         project = Project(BUG_SEED)
         self.addCleanup(project.close)
         project.write(BUG_FIX)
-        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
-                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [],
-                                            "milestones": [{"id": "M1"}]}},
-                 "investigation": {"outcome": "reproduced", "test_cases": cases}}
+        state = {
+            "base_commit": project.base,
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [], "milestones": [{"id": "M1"}]}},
+            "investigation": {"outcome": "reproduced", "test_cases": cases},
+        }
         return regression.prove(state, project.root, Path(tempfile.mkdtemp(prefix="preserve-proof-")))
 
     def test_a_preserve_case_is_proven_by_a_test_that_passes_before_and_after_the_fix(self):
@@ -787,9 +1075,13 @@ class DesignOnlyTests(unittest.TestCase):
     """A design job delivers documents: a live one planned every criterion as a test and added tests/."""
 
     def state(self, kind):
-        return {"workflow": {"kind": kind}, "settings": {"joint_planning": True, "roles": {"plan_reviewer": {}}},
-                "goal_contract": {"body": {"task_kind": "build", "milestones": [{"id": "M1"}],
-                                           "acceptance_criteria": [EXAMPLE]}}}
+        return {
+            "workflow": {"kind": kind},
+            "settings": {"joint_planning": True, "roles": {"plan_reviewer": {}}},
+            "goal_contract": {
+                "body": {"task_kind": "build", "milestones": [{"id": "M1"}], "acceptance_criteria": [EXAMPLE]}
+            },
+        }
 
     def test_a_design_job_has_no_test_cases_and_needs_no_proof(self):
         design = self.state("design")
@@ -806,8 +1098,11 @@ class DesignOnlyTests(unittest.TestCase):
         from units import autoplanner
 
         from tests.test_bug_job import state_for
-        for kind, present, absent in (("design", autoplanner.DESIGN_DELIVERABLES_RULE, autoplanner.EXAMPLE_CRITERIA_RULE),
-                                      ("build", autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.DESIGN_DELIVERABLES_RULE)):
+
+        for kind, present, absent in (
+            ("design", autoplanner.DESIGN_DELIVERABLES_RULE, autoplanner.EXAMPLE_CRITERIA_RULE),
+            ("build", autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.DESIGN_DELIVERABLES_RULE),
+        ):
             state = {**state_for(), "workflow": {"kind": kind}, "answers": {}, "user_events": []}
             state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
             prompt, _ = autoplanner.context(state, "astra_discovery", Path("/tmp/state.json"))
@@ -824,31 +1119,35 @@ class FileListingRuleTests(unittest.TestCase):
         from units import autoplanner
 
         from tests.test_bug_job import state_for
+
         state = {**state_for(), "workflow": {"kind": "build"}, "answers": {}, "user_events": []}
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         prompt, _ = autoplanner.context(state, "astra_discovery", Path("/tmp/state.json"))
         rule = "A test checks what the program does, never which files the repository contains."
         self.assertIn(rule, autoplanner.EXAMPLE_CRITERIA_RULE)
         self.assertIn(rule, prompt)
-        self.assertIn('checked by the Validator reading the\nrepository', prompt)
+        self.assertIn("checked by the Validator reading the\nrepository", prompt)
 
 
 class MixedCaseIdTests(unittest.TestCase):
     def test_documented_lowercase_names_match_ids_with_letters_after_digits(self):
         for cid in ("M1A", "M1C", "AC18", "Feature2A"):
             name = "test_" + cid.lower() + "_behavior"
-            ids = ["tests.test_sample.Sample." + name,
-                   "tests/test_sample.py::Sample::" + name + "[blue]", name]
+            ids = ["tests.test_sample.Sample." + name, "tests/test_sample.py::Sample::" + name + "[blue]", name]
             with self.subTest(case=cid):
                 self.assertEqual({cid: ids}, test_cases.match_cases([{"id": cid}], ids))
-        self.assertEqual({"T1": ["TestT1X"], "M1A": ["TestM1A_Behavior"]},
-                         test_cases.match_cases([{"id": "T1"}, {"id": "M1A"}],
-                                               ["TestT1X", "TestM1A_Behavior"]))
+        self.assertEqual(
+            {"T1": ["TestT1X"], "M1A": ["TestM1A_Behavior"]},
+            test_cases.match_cases([{"id": "T1"}, {"id": "M1A"}], ["TestT1X", "TestM1A_Behavior"]),
+        )
 
     def test_case_ids_still_require_whole_tokens_in_the_test_function(self):
         for cid, other in (("M1A", "m1alpha"), ("M1A", "m1a2"), ("T1", "t10"), ("AC18", "ac180")):
-            names = ["test_" + other + "_behavior", "test_" + cid.lower() + ".Test" + cid + ".test_other",
-                     "tests/test_sample.py::Test" + cid + "::test_other[" + cid + "]"]
+            names = [
+                "test_" + other + "_behavior",
+                "test_" + cid.lower() + ".Test" + cid + ".test_other",
+                "tests/test_sample.py::Test" + cid + "::test_other[" + cid + "]",
+            ]
             with self.subTest(case=cid, other=other):
                 self.assertEqual({cid: []}, test_cases.match_cases([{"id": cid}], names))
 
@@ -860,14 +1159,23 @@ class MixedCaseIdTests(unittest.TestCase):
     def test_real_bug_proof_attributes_restore_and_preserve_mixed_ids(self):
         project = Project(BUG_SEED)
         self.addCleanup(project.close)
-        project.write({**BUG_FIX, "test_pager.py": BUG_FIX["test_pager.py"]
-                       .replace("test_t1_partial", "test_m1a_partial")
-                       .replace("test_t4_exact", "test_m1c_exact")})
-        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
-                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [],
-                                            "milestones": [{"id": "M1"}]}},
-                 "investigation": {"outcome": "reproduced", "test_cases":
-                                   [{**T1, "id": "M1A"}, {**T4, "id": "M1C"}]}}
+        project.write(
+            {
+                **BUG_FIX,
+                "test_pager.py": BUG_FIX["test_pager.py"]
+                .replace("test_t1_partial", "test_m1a_partial")
+                .replace("test_t4_exact", "test_m1c_exact"),
+            }
+        )
+        state = {
+            "base_commit": project.base,
+            "settings": {},
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [], "milestones": [{"id": "M1"}]}},
+            "investigation": {"outcome": "reproduced", "test_cases": [{**T1, "id": "M1A"}, {**T4, "id": "M1C"}]},
+        }
         proof = regression.prove(state, project.root, project.evidence)
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_pager.PagerTests.test_m1a_partial_page_counts"], proof["case_tests"]["M1A"])

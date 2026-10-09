@@ -5,6 +5,7 @@ than parsed display headers. Text comparison is exact (including whitespace), wi
 line anchors refined to tokens so a surrounding refactor need not copy whole lines.
 This establishes syntactic containment, never that instrumentation preserves behavior.
 """
+
 from __future__ import annotations
 
 import collections
@@ -43,8 +44,9 @@ def applied_files(workspace, base, patch):
 
         def git(*args, data=None):
             try:
-                result = subprocess.run(["git", *args], cwd=workspace, env=env, input=data,
-                                        capture_output=True, timeout=30)
+                result = subprocess.run(
+                    ["git", *args], cwd=workspace, env=env, input=data, capture_output=True, timeout=30
+                )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise ValueError(f"cannot inspect the patch: {exc}") from exc
             if result.returncode:
@@ -107,7 +109,7 @@ def contains_edits(original, instrumented, candidate):
                 break
             if cstart <= start and end <= cend:
                 for index in range(consumed, len(cadded) - len(added) + 1):
-                    if cadded[index:index + len(added)] == added:
+                    if cadded[index : index + len(added)] == added:
                         consumed, matched = index + len(added), True
                         break
                 if matched:

@@ -5,6 +5,7 @@ Oracles here never import production matchers (``autocode_support``,
 harness-captured run state only. That independence is what makes a verdict
 worth recording.
 """
+
 from __future__ import annotations
 
 import ast
@@ -41,7 +42,10 @@ except ImportError:
 # Statuses a driver may report when the runner stopped honestly rather than
 # finishing. These are never promoted to PASS.
 HONEST_PAUSE_PREFIXES = (
-    "PAUSED_", "BLOCKED_HUMAN", "AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER",
+    "PAUSED_",
+    "BLOCKED_HUMAN",
+    "AWAITING_GOAL_APPROVAL",
+    "WAITING_FOR_USER",
 )
 
 
@@ -86,7 +90,10 @@ def fx01_greeting_oracle(project: Path) -> OracleResult:
         try:
             proc = subprocess.run(
                 [sys.executable, str(cli), *argv],
-                cwd=project, capture_output=True, text=True, timeout=30,
+                cwd=project,
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             out, code = (proc.stdout + proc.stderr), proc.returncode
         except subprocess.TimeoutExpired:
@@ -125,8 +132,12 @@ def fx01_greeting_oracle(project: Path) -> OracleResult:
     failed = [row for row in checks if not row["ok"]]
     if not failed:
         return OracleResult(PASS, f"FX01 {len(checks)}/{len(checks)}", checks)
-    return OracleResult(FAIL, f"FX01 {len(checks) - len(failed)}/{len(checks)}: "
-                              + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]), checks)
+    return OracleResult(
+        FAIL,
+        f"FX01 {len(checks) - len(failed)}/{len(checks)}: "
+        + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]),
+        checks,
+    )
 
 
 # --- FX02: to-do persistence CLI (LIVE-02) -------------------------------
@@ -150,7 +161,11 @@ TODO_CASES = (
 def _run(project: Path, *args: str, stdin: str | None = None) -> tuple[int, str, str]:
     proc = subprocess.run(
         [sys.executable, str(project / "todo.py"), *args],
-        cwd=project, capture_output=True, text=True, timeout=30, input=stdin,
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        input=stdin,
     )
     return proc.returncode, proc.stdout, proc.stderr
 
@@ -177,6 +192,7 @@ def fx02_todo_oracle(project: Path) -> OracleResult:
     # The store path is resolved inside the scratch dir, where the CLI runs.
     import shutil
     import tempfile
+
     with tempfile.TemporaryDirectory(prefix="fx02-") as tmp:
         scratch = Path(tmp)
         shutil.copy2(cli, scratch / "todo.py")
@@ -199,9 +215,14 @@ def fx02_todo_oracle(project: Path) -> OracleResult:
         # complete
         code, out, err = _run(scratch, "complete", "1")
         after_complete = store.read_text() if store.exists() else ""
-        record("complete.ok", True,
-               code == 0 and ("done" in after_complete.lower() or '"completed"' in after_complete
-                              or "true" in after_complete.lower()))
+        record(
+            "complete.ok",
+            True,
+            code == 0
+            and (
+                "done" in after_complete.lower() or '"completed"' in after_complete or "true" in after_complete.lower()
+            ),
+        )
 
         # restart-stable ids: add another, restart, ids must not be reassigned
         fresh()
@@ -210,8 +231,7 @@ def fx02_todo_oracle(project: Path) -> OracleResult:
         before = store.read_text() if store.exists() else ""
         code, out, err = _run(scratch, "list")
         after = store.read_text() if store.exists() else ""
-        record("restart_stable.ok", True,
-               code == 0 and before == after and "first" in out and "second" in out)
+        record("restart_stable.ok", True, code == 0 and before == after and "first" in out and "second" in out)
 
         # unknown id: nonzero exit, store byte-identical
         fresh()
@@ -232,8 +252,12 @@ def fx02_todo_oracle(project: Path) -> OracleResult:
     failed = [row for row in checks if not row["ok"]]
     if not failed:
         return OracleResult(PASS, f"FX02 {len(checks)}/{len(checks)}", checks)
-    return OracleResult(FAIL, f"FX02 {len(checks) - len(failed)}/{len(checks)}: "
-                              + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]), checks)
+    return OracleResult(
+        FAIL,
+        f"FX02 {len(checks) - len(failed)}/{len(checks)}: "
+        + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]),
+        checks,
+    )
 
 
 # --- FX05: C#→Go policy port with golden vectors (LIVE-05) --------------
@@ -252,12 +276,12 @@ GOLDEN_VECTORS = (
     ("org", 30),
     ("fr", 30),
     ("", 30),
-    ("DE", 30),          # case-sensitive: not the de override
-    ("de.com", 30),      # not an exact TLD match
-    ("exception", 1),    # the required exception
+    ("DE", 30),  # case-sensitive: not the de override
+    ("de.com", 30),  # not an exact TLD match
+    ("exception", 1),  # the required exception
 )
 
-POLICY_CS = '''\
+POLICY_CS = """\
 using System;
 
 class Policy
@@ -275,7 +299,7 @@ class Policy
         Console.WriteLine(RetentionDays(args.Length > 0 ? args[0] : ""));
     }
 }
-'''
+"""
 
 
 def fx05_golden_oracle(project: Path) -> OracleResult:
@@ -301,15 +325,16 @@ def fx05_golden_oracle(project: Path) -> OracleResult:
 
     # Build once; then drive the binary per vector.
     import subprocess
-    build = subprocess.run(["go", "build", "-o", "policy.bin", "."],
-                           cwd=project, capture_output=True, text=True, timeout=120)
+
+    build = subprocess.run(
+        ["go", "build", "-o", "policy.bin", "."], cwd=project, capture_output=True, text=True, timeout=120
+    )
     record("build.ok", 0, build.returncode)
     if build.returncode != 0:
         return OracleResult(FAIL, f"go build failed: {build.stderr.strip()[:200]}", checks)
 
     for tld, want in GOLDEN_VECTORS:
-        proc = subprocess.run(["./policy.bin", tld], cwd=project,
-                              capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(["./policy.bin", tld], cwd=project, capture_output=True, text=True, timeout=30)
         out = (proc.stdout or "").strip()
         try:
             got = int(out.splitlines()[-1]) if out else None
@@ -321,8 +346,11 @@ def fx05_golden_oracle(project: Path) -> OracleResult:
     total = len(checks)
     if not failed:
         return OracleResult(PASS, f"FX05 {total}/{total} (golden vectors only; no C# execution)", checks)
-    return OracleResult(FAIL, f"FX05 {total - len(failed)}/{total}: "
-                              + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]), checks)
+    return OracleResult(
+        FAIL,
+        f"FX05 {total - len(failed)}/{total}: " + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]),
+        checks,
+    )
 
 
 # --- FX06: parallel diamond DAG (LIVE-06) -------------------------------
@@ -336,9 +364,18 @@ def fx05_golden_oracle(project: Path) -> OracleResult:
 DIAMOND_EDGES = (("A", "B"), ("A", "C"), ("B", "D"), ("C", "D"))
 DIAMOND_ARTIFACTS = (
     ("A", "contract/schema.json", "dependency_trace.json"),
-    ("B", "server/handler.py",),
-    ("C", "client/fetch.py",),
-    ("D", "integration/check.py",),
+    (
+        "B",
+        "server/handler.py",
+    ),
+    (
+        "C",
+        "client/fetch.py",
+    ),
+    (
+        "D",
+        "integration/check.py",
+    ),
 )
 
 
@@ -350,6 +387,7 @@ def fx06_diamond_oracle(project: Path) -> OracleResult:
     never out-of-scope.
     """
     import json as _json
+
     checks: list[dict] = []
 
     def record(name, expected, observed):
@@ -375,8 +413,11 @@ def fx06_diamond_oracle(project: Path) -> OracleResult:
     total = len(checks)
     if not failed:
         return OracleResult(PASS, f"FX06 {total}/{total}", checks)
-    return OracleResult(FAIL, f"FX06 {total - len(failed)}/{total}: "
-                              + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]), checks)
+    return OracleResult(
+        FAIL,
+        f"FX06 {total - len(failed)}/{total}: " + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]),
+        checks,
+    )
 
 
 # --- FX07: status filter in an existing project (LIVE-07) ----------------
@@ -388,22 +429,33 @@ def fx06_diamond_oracle(project: Path) -> OracleResult:
 # hold, and the filter actually filters — all via real HTTP, never the
 # model's own tests.
 
+
 def _fixture_workspace(root: Path) -> Path:
     """Two runs with different statuses, in the shape observatory expects."""
     runs = root / ".autocode" / "runs"
     for name, status in (("aaa-running", "RUNNING"), ("bbb-complete", "TASK_COMPLETE")):
         d = runs / name
         d.mkdir(parents=True, exist_ok=True)
-        (d / "state.json").write_text(json.dumps({
-            "version": 3, "task": f"task {name}", "workspace": str(root),
-            "status": status, "iteration": 1, "sessions": {}, "stages": [],
-            "next_stage": "sol" if status == "RUNNING" else None,
-        }))
+        (d / "state.json").write_text(
+            json.dumps(
+                {
+                    "version": 3,
+                    "task": f"task {name}",
+                    "workspace": str(root),
+                    "status": status,
+                    "iteration": 1,
+                    "sessions": {},
+                    "stages": [],
+                    "next_stage": "sol" if status == "RUNNING" else None,
+                }
+            )
+        )
     return root
 
 
 def _http_get(port: int, path: str, timeout: float = 10.0) -> tuple[int, str]:
     import urllib.request
+
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
@@ -413,8 +465,10 @@ def _http_get(port: int, path: str, timeout: float = 10.0) -> tuple[int, str]:
 
 def _http_post(port: int, path: str, body: bytes = b"{}", timeout: float = 10.0) -> int:
     import urllib.request
-    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body,
-                                 method="POST", headers={"Content-Type": "application/json"})
+
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}", data=body, method="POST", headers={"Content-Type": "application/json"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status
@@ -441,8 +495,7 @@ def fx07_status_filter_oracle(project: Path) -> OracleResult:
         return OracleResult(FAIL, "observatory.py not delivered", checks)
 
     # 1. Existing suite must still pass — the feature must not regress the project.
-    test = subprocess.run([sys.executable, "-m", "unittest"], cwd=project,
-                          capture_output=True, text=True, timeout=300)
+    test = subprocess.run([sys.executable, "-m", "unittest"], cwd=project, capture_output=True, text=True, timeout=300)
     record("existing_suite_ok", 0, test.returncode)
 
     # 2. Zero-dependency promise: stdlib-only imports in every delivered .py.
@@ -523,23 +576,33 @@ def fx07_status_filter_oracle(project: Path) -> OracleResult:
             thread.join(timeout=5)
 
     # 6-7. Frontend and docs mention the feature.
-    html = (project / "static" / "index.html").read_text(encoding="utf-8", errors="replace") \
-        if (project / "static" / "index.html").is_file() else ""
-    js = (project / "static" / "observatory.js").read_text(encoding="utf-8", errors="replace") \
-        if (project / "static" / "observatory.js").is_file() else ""
-    record("frontend_exposes_filter", True,
-           ("status" in html.lower() and "filter" in (html + js).lower()))
-    readme = (project / "README.md").read_text(encoding="utf-8", errors="replace") \
-        if (project / "README.md").is_file() else ""
-    record("readme_documents_filter", True,
-           "filter" in readme.lower() and "status" in readme.lower())
+    html = (
+        (project / "static" / "index.html").read_text(encoding="utf-8", errors="replace")
+        if (project / "static" / "index.html").is_file()
+        else ""
+    )
+    js = (
+        (project / "static" / "observatory.js").read_text(encoding="utf-8", errors="replace")
+        if (project / "static" / "observatory.js").is_file()
+        else ""
+    )
+    record("frontend_exposes_filter", True, ("status" in html.lower() and "filter" in (html + js).lower()))
+    readme = (
+        (project / "README.md").read_text(encoding="utf-8", errors="replace")
+        if (project / "README.md").is_file()
+        else ""
+    )
+    record("readme_documents_filter", True, "filter" in readme.lower() and "status" in readme.lower())
 
     failed = [row for row in checks if not row["ok"]]
     total = len(checks)
     if not failed:
         return OracleResult(PASS, f"FX07 {total}/{total}", checks)
-    return OracleResult(FAIL, f"FX07 {total - len(failed)}/{total}: "
-                              + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]), checks)
+    return OracleResult(
+        FAIL,
+        f"FX07 {total - len(failed)}/{total}: " + "; ".join(f"{r['name']}->{r['observed']!r}" for r in failed[:3]),
+        checks,
+    )
 
 
 # --- T02/T03: frozen synthetic existing-project fixtures -----------------
@@ -547,7 +610,7 @@ def fx07_status_filter_oracle(project: Path) -> OracleResult:
 CAMPAIGN_TIMEOUT = 3
 GREETING_USAGE = "usage: greet.py NAME\n"
 GREETING_HELP = GREETING_USAGE + "Print a greeting for NAME.\n"
-BUGFIX_SOURCE = '''\
+BUGFIX_SOURCE = """\
 import sys
 
 
@@ -564,9 +627,9 @@ def main(args):
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-'''
+"""
 
-BUGFIX_ORIGINAL_TESTS = '''\
+BUGFIX_ORIGINAL_TESTS = """\
 import subprocess
 import sys
 
@@ -580,11 +643,11 @@ for args, expected in [
                        capture_output=True, text=True, timeout=2)
     assert (p.returncode, p.stdout, p.stderr) == expected
 print("original tests: OK")
-'''
+"""
 
 NOTES_USAGE = "usage: notes.py list | add TEXT TAG | show ID\n"
 NOTES_HELP = NOTES_USAGE + "Store notes in notes.json in the current directory.\n"
-NOTES_SOURCE = '''\
+NOTES_SOURCE = """\
 import json
 from pathlib import Path
 import sys
@@ -627,10 +690,10 @@ def main(args):
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-'''
+"""
 
 NOTES_DATA = '[\n  {"id": 2, "text": "Ship draft", "tag": "Work"},\n  {"id": 5, "text": "Buy tea", "tag": "home"},\n  {"id": 9, "text": "Review draft", "tag": "WORK"}\n]\n'
-NOTES_ORIGINAL_TESTS = '''\
+NOTES_ORIGINAL_TESTS = """\
 import subprocess
 import sys
 
@@ -644,7 +707,7 @@ for args, expected in [
                        capture_output=True, text=True, timeout=2)
     assert (p.returncode, p.stdout, p.stderr) == expected
 print("original tests: OK")
-'''
+"""
 
 BUGFIX_SEED = {
     "greet.py": BUGFIX_SOURCE,
@@ -669,10 +732,12 @@ def _campaign_process(scratch: Path, script: str, args=()) -> dict:
     """
     try:
         proc = subprocess.run(
-            [sys.executable, "-I", "-B", script, *args], cwd=scratch,
-            env={"PATH": os.defpath, "HOME": str(scratch), "TMPDIR": str(scratch),
-                 "PYTHONIOENCODING": "utf-8"},
-            capture_output=True, encoding="utf-8", errors="replace",
+            [sys.executable, "-I", "-B", script, *args],
+            cwd=scratch,
+            env={"PATH": os.defpath, "HOME": str(scratch), "TMPDIR": str(scratch), "PYTHONIOENCODING": "utf-8"},
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=CAMPAIGN_TIMEOUT,
         )
         return {"exit": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
@@ -690,8 +755,7 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
     checks = []
 
     def record(name, expected, observed):
-        checks.append({"name": name, "expected": expected, "observed": observed,
-                       "ok": expected == observed})
+        checks.append({"name": name, "expected": expected, "observed": observed, "ok": expected == observed})
 
     def snapshot():
         files, unsafe = {}, []
@@ -717,8 +781,10 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
                 if not stat.S_ISREG(mode):
                     unsafe.append(rel)
                 else:
-                    files[rel] = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                                  "executable": bool(mode & 0o111)}
+                    files[rel] = {
+                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        "executable": bool(mode & 0o111),
+                    }
         return files, sorted(unsafe)
 
     try:
@@ -728,9 +794,11 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
         for rel in seed:
             if rel in spec["allowed_paths"]:
                 continue
-            record(f"protected.{rel}",
-                   {"sha256": hashlib.sha256(seed[rel].encode()).hexdigest(), "executable": False},
-                   before.get(rel))
+            record(
+                f"protected.{rel}",
+                {"sha256": hashlib.sha256(seed[rel].encode()).hexdigest(), "executable": False},
+                before.get(rel),
+            )
         for rel in spec["allowed_paths"]:
             record(f"delivery.{rel}", True, rel in before and not before[rel]["executable"])
         foreign = []
@@ -745,9 +813,11 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
                         names = [alias.name.split(".")[0] for alias in node.names]
                     elif isinstance(node, ast.ImportFrom) and node.module:
                         names = [node.module.split(".")[0]]
-                    foreign.extend(f"{rel}: {name}" for name in names
-                                   if name not in sys.stdlib_module_names
-                                   and name != Path(cli).stem)
+                    foreign.extend(
+                        f"{rel}: {name}"
+                        for name in names
+                        if name not in sys.stdlib_module_names and name != Path(cli).stem
+                    )
             except (SyntaxError, UnicodeError) as error:
                 foreign.append(f"{rel}: {type(error).__name__}")
         record("scope.stdlib_imports", [], foreign)
@@ -762,11 +832,13 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
                 target.write_bytes((project / rel).read_bytes())
 
             def run(name, args, code, out="", err=""):
-                record(name, {"exit": code, "stdout": out, "stderr": err},
-                       _campaign_process(scratch, cli, args))
+                record(name, {"exit": code, "stdout": out, "stderr": err}, _campaign_process(scratch, cli, args))
 
-            record("original_tests", {"exit": 0, "stdout": "original tests: OK\n", "stderr": ""},
-                   _campaign_process(scratch, "test_original.py"))
+            record(
+                "original_tests",
+                {"exit": 0, "stdout": "original tests: OK\n", "stderr": ""},
+                _campaign_process(scratch, "test_original.py"),
+            )
 
             if scenario_id == "BUGFIX-01":
                 for i, name in enumerate(("", " ", "\t\n", "\u2003", "\r\n ")):
@@ -782,16 +854,31 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
                 original = store.read_bytes()
                 all_notes = "2: Ship draft [Work]\n5: Buy tea [home]\n9: Review draft [WORK]\n"
                 work_notes = "2: Ship draft [Work]\n9: Review draft [WORK]\n"
-                for tag, output in (("work", work_notes), ("wOrK", work_notes),
-                                    ("HOME", "5: Buy tea [home]\n"), ("absent", ""),
-                                    ("wor", ""), (" work ", "")):
+                for tag, output in (
+                    ("work", work_notes),
+                    ("wOrK", work_notes),
+                    ("HOME", "5: Buy tea [home]\n"),
+                    ("absent", ""),
+                    ("wor", ""),
+                    (" work ", ""),
+                ):
                     run(f"filter.{tag!r}", ["list", "--tag", tag], 0, output)
                     record(f"filter.{tag!r}.data", original.hex(), store.read_bytes().hex())
-                for i, args in enumerate((["list", "--tag"], ["list", "--tag", ""],
-                                          ["list", "--tag", " \t"], ["list", "--tag", "\u2003"],
-                                          ["list", "--tag", "work", "extra"],
-                                          ["show", "2", "--tag", "work"], ["list", "--bad", "work"],
-                                          [], ["delete", "2"], ["add", "", "work"], ["show", "x"])):
+                for i, args in enumerate(
+                    (
+                        ["list", "--tag"],
+                        ["list", "--tag", ""],
+                        ["list", "--tag", " \t"],
+                        ["list", "--tag", "\u2003"],
+                        ["list", "--tag", "work", "extra"],
+                        ["show", "2", "--tag", "work"],
+                        ["list", "--bad", "work"],
+                        [],
+                        ["delete", "2"],
+                        ["add", "", "work"],
+                        ["show", "x"],
+                    )
+                ):
                     run(f"invalid.{i}", args, 2, err=NOTES_USAGE)
                     record(f"invalid.{i}.data", original.hex(), store.read_bytes().hex())
                 run("old.list", ["list"], 0, all_notes)
@@ -802,16 +889,20 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
                 record("old.readonly_data", original.hex(), store.read_bytes().hex())
                 run("old.add", ["add", "Meet Zo\u00eb", "wOrK"], 0, "added 10\n")
                 expected = json.loads(NOTES_DATA) + [{"id": 10, "text": "Meet Zo\u00eb", "tag": "wOrK"}]
-                record("old.add.data", json.dumps(expected, ensure_ascii=False, indent=2) + "\n",
-                       store.read_text(encoding="utf-8"))
+                record(
+                    "old.add.data",
+                    json.dumps(expected, ensure_ascii=False, indent=2) + "\n",
+                    store.read_text(encoding="utf-8"),
+                )
                 added = store.read_bytes()
                 run("restart.filter", ["list", "--tag", "WORK"], 0, work_notes + "10: Meet Zo\u00eb [wOrK]\n")
                 run("restart.show", ["show", "10"], 0, "10: Meet Zo\u00eb [wOrK]\n")
                 record("restart.data", added.hex(), store.read_bytes().hex())
                 # A second saved dataset rejects hard-coded seed answers and
                 # distinguishes Unicode casefold equality from lower/substring.
-                store.write_text('[{"id": 17, "text": "Travel", "tag": "Stra\\u00dfe"}, '
-                                 '{"id": 4, "text": "Trip", "tag": "other"}]\n')
+                store.write_text(
+                    '[{"id": 17, "text": "Travel", "tag": "Stra\\u00dfe"}, {"id": 4, "text": "Trip", "tag": "other"}]\n'
+                )
                 holdout = store.read_bytes()
                 run("saved.unicode_casefold", ["list", "--tag", "STRASSE"], 0, "17: Travel [Stra\u00dfe]\n")
                 record("saved.data", holdout.hex(), store.read_bytes().hex())
@@ -838,16 +929,18 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
                     (seed_scratch / rel).write_text(body, encoding="utf-8")
                 (seed_scratch / "test_regression.py").write_bytes((project / "test_regression.py").read_bytes())
                 seed_regression = _campaign_process(seed_scratch, "test_regression.py")
-                record("seed_regressions.detect_defect", True,
-                       isinstance(seed_regression.get("exit"), int) and seed_regression["exit"] > 0)
+                record(
+                    "seed_regressions.detect_defect",
+                    True,
+                    isinstance(seed_regression.get("exit"), int) and seed_regression["exit"] > 0,
+                )
         after, after_unsafe = snapshot()
         record("oracle.project_unchanged", before, after)
         record("oracle.paths_unchanged", unsafe, after_unsafe)
     except (OSError, ValueError) as error:
         record("oracle.readable_artifact", True, f"{type(error).__name__}: {error}")
     failed = sum(not row["ok"] for row in checks)
-    return OracleResult(FAIL if failed else PASS,
-                        f"{scenario_id}: {len(checks) - failed}/{len(checks)} checks", checks)
+    return OracleResult(FAIL if failed else PASS, f"{scenario_id}: {len(checks) - failed}/{len(checks)} checks", checks)
 
 
 def bugfix_blank_name_oracle(project: Path) -> OracleResult:
@@ -893,8 +986,12 @@ SCENARIOS = {
             "AC3": "Original tests unchanged and passing; new regressions fail on seed and pass on fix.",
             "AC4": "Only allowed paths changed; all protected bytes and modes preserved.",
         },
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: report-repair fix rerun reached Builder but exhausted 1200-second deadline; unchanged seed still fails oracle; no completed delivery"},
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: report-repair fix rerun reached Builder but exhausted 1200-second deadline; unchanged seed still fails oracle; no completed delivery",
+        },
     },
     "FEATURE-01": {
         "title": "T03: tag filtering in a seeded persistent notes CLI",
@@ -934,8 +1031,12 @@ SCENARIOS = {
             "AC4": "Read-only and malformed-store paths preserve bytes; saved fixture unchanged.",
             "AC5": "Frozen original tests pass; new regressions fail on seed/pass on feature; only allowed paths change.",
         },
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: externally interrupted during report repair; unchanged seed fails oracle; no completed delivery"},
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: externally interrupted during report repair; unchanged seed fails oracle; no completed delivery",
+        },
     },
     "LIVE-01": {
         "title": "Greeting CLI",
@@ -984,7 +1085,7 @@ SCENARIOS = {
             "Port the C# reference policy in reference/Policy.cs to Go. "
             "Deliver a Go module that builds with `go build .` and exposes the "
             "same retention-day behavior: RetentionDays(tld) returns 7 when tld "
-            "is exactly \"de\", returns 1 when tld is exactly \"exception\", and "
+            'is exactly "de", returns 1 when tld is exactly "exception", and '
             "returns 30 for every other value (empty string, other TLDs, "
             "different case, dotted names). Matching is exact and case-sensitive. "
             "The main package must read the first command-line argument (or empty "
@@ -999,14 +1100,15 @@ SCENARIOS = {
         "oracle": fx05_golden_oracle,
         "oracle_name": "FX05",
         "expected_class": "pass_or_honest",
-        "deliverables": ["go.mod", "policy.go", "policy_test.go", "golden-cases.json",
-                        "reference/Policy.cs"],
+        "deliverables": ["go.mod", "policy.go", "policy_test.go", "golden-cases.json", "reference/Policy.cs"],
         "seed": {"reference/Policy.cs": POLICY_CS},
         "baseline": {
             "status": "HONEST_BLOCKER",
-            "note": ("attempt budget exhausted on schema-invalid astra_review/resolver "
-                     "reports (finding L3); Policy.cs + golden-cases.json correct, "
-                     "Go implementation missing (2026-09-24, glm53)"),
+            "note": (
+                "attempt budget exhausted on schema-invalid astra_review/resolver "
+                "reports (finding L3); Policy.cs + golden-cases.json correct, "
+                "Go implementation missing (2026-09-24, glm53)"
+            ),
         },
     },
     "LIVE-06": {
@@ -1014,8 +1116,8 @@ SCENARIOS = {
         "task": (
             "Build a four-milestone dependency graph as a small Python reference. "
             "Milestone A writes contract/schema.json (a JSON object with keys "
-            "\"node\" and \"edges\") and dependency_trace.json (a JSON object "
-            "whose \"edges\" array lists the four prerequisite pairs [A,B], "
+            '"node" and "edges") and dependency_trace.json (a JSON object '
+            'whose "edges" array lists the four prerequisite pairs [A,B], '
             "[A,C], [B,D], [C,D]). Milestone B writes server/handler.py, a "
             "function handle(node) returning a string. Milestone C writes "
             "client/fetch.py, a function fetch(node) returning a string. "
@@ -1032,8 +1134,13 @@ SCENARIOS = {
         "oracle": fx06_diamond_oracle,
         "oracle_name": "FX06",
         "expected_class": "pass_or_honest",
-        "deliverables": ["contract/schema.json", "dependency_trace.json",
-                        "server/handler.py", "client/fetch.py", "integration/check.py"],
+        "deliverables": [
+            "contract/schema.json",
+            "dependency_trace.json",
+            "server/handler.py",
+            "client/fetch.py",
+            "integration/check.py",
+        ],
         # L2 confirmation surface: per-milestone disjoint ownership.
         "milestone_ownership": {
             "A": ["contract/schema.json", "dependency_trace.json"],
@@ -1043,9 +1150,11 @@ SCENARIOS = {
         },
         "baseline": {
             "status": "HONEST_BLOCKER",
-            "note": ("milestone A delivered and verified; milestone B blocked by "
-                     "finding L2 (ownership false positive on server/handler.py); "
-                     "(2026-09-24, glm53)"),
+            "note": (
+                "milestone A delivered and verified; milestone B blocked by "
+                "finding L2 (ownership false positive on server/handler.py); "
+                "(2026-09-24, glm53)"
+            ),
         },
     },
     "LIVE-07": {
@@ -1077,8 +1186,7 @@ SCENARIOS = {
         "oracle": fx07_status_filter_oracle,
         "oracle_name": "FX07",
         "expected_class": "pass_or_honest",
-        "deliverables": ["observatory.py", "static/index.html",
-                        "static/observatory.js", "README.md"],
+        "deliverables": ["observatory.py", "static/index.html", "static/observatory.js", "README.md"],
         # RELIABILITY.md's second bounded case: feature in an existing project.
         "seed_from": "/Users/ankurkothari/Documents/workspace/agent-observatory",
         "baseline": {
@@ -1098,6 +1206,7 @@ def _dual_layout_oracle(spec_id, rich_spec, thin_spec):
     def oracle(project):
         names = {row.name for row in Path(project).iterdir()} if Path(project).is_dir() else set()
         return rich_oracle(project) if seed_names <= names else thin_oracle(project)
+
     return {**rich_spec, "oracle": oracle}
 
 
@@ -1110,8 +1219,9 @@ def registry() -> dict:
         import task_scenarios
     merged = dict(task_scenarios.SCENARIOS)
     for scenario_id, spec in SCENARIOS.items():
-        merged[scenario_id] = (_dual_layout_oracle(scenario_id, spec, merged[scenario_id])
-                               if scenario_id in merged else spec)
+        merged[scenario_id] = (
+            _dual_layout_oracle(scenario_id, spec, merged[scenario_id]) if scenario_id in merged else spec
+        )
     return merged
 
 

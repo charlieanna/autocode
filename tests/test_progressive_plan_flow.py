@@ -1,5 +1,6 @@
 """Progressive proposal wiring: schema acceptance, generated disclosure, the
 candidate record, and delegation sealing at ordinary approval."""
+
 import copy
 import tempfile
 import unittest
@@ -20,27 +21,49 @@ def check(cid="K1", method="python -m pytest tests/test_journey.py -q", relation
 
 
 def slice_row(sid="S1", criteria=("C1",), checks=None, tentative=False, depends_on=(), paths=("greet.py",)):
-    return {"id": sid, "intended_result": f"{sid} delivers one useful end-to-end result",
-            "criterion_ids": list(criteria), "paths": list(paths), "depends_on": list(depends_on),
-            "checks": checks if checks is not None else [check()], "tentative": tentative}
+    return {
+        "id": sid,
+        "intended_result": f"{sid} delivers one useful end-to-end result",
+        "criterion_ids": list(criteria),
+        "paths": list(paths),
+        "depends_on": list(depends_on),
+        "checks": checks if checks is not None else [check()],
+        "tentative": tentative,
+    }
 
 
 def proposal():
-    return {"version": 1,
-            "needed_because": "the product only succeeds as several verified slices",
-            "shared_decisions": ["progress persists per student"],
-            "outstanding_criteria": [],
-            "done_slices": [],
-            "slices": [slice_row(),
-                       slice_row("S2", criteria=("C1",), checks=[check("K2", "python -m pytest tests/test_recs.py -q",
-                                                                       "fully_verify", ("C1",))],
-                                 tentative=True, depends_on=("S1",), paths=("greet.py",))]}
+    return {
+        "version": 1,
+        "needed_because": "the product only succeeds as several verified slices",
+        "shared_decisions": ["progress persists per student"],
+        "outstanding_criteria": [],
+        "done_slices": [],
+        "slices": [
+            slice_row(),
+            slice_row(
+                "S2",
+                criteria=("C1",),
+                checks=[check("K2", "python -m pytest tests/test_recs.py -q", "fully_verify", ("C1",))],
+                tentative=True,
+                depends_on=("S1",),
+                paths=("greet.py",),
+            ),
+        ],
+    }
 
 
 def report(body=None, with_proposal=True):
-    value = {"contract": body if body is not None else goal_fixtures.body(), "summary": "Plan the slices",
-             "code_refs": [], "alternatives": [], "uncertainties": [], "contract_changes": [],
-             "conflict_resolutions": [], "requirement_trace": []}
+    value = {
+        "contract": body if body is not None else goal_fixtures.body(),
+        "summary": "Plan the slices",
+        "code_refs": [],
+        "alternatives": [],
+        "uncertainties": [],
+        "contract_changes": [],
+        "conflict_resolutions": [],
+        "requirement_trace": [],
+    }
     if with_proposal:
         value["progressive_proposal"] = proposal()
     return value
@@ -51,31 +74,52 @@ class SchemaTests(unittest.TestCase):
         support.validate_schema(report(with_proposal=False), autoplanner.SCHEMAS["astra_discovery"])
         support.validate_schema(report(), autoplanner.SCHEMAS["astra_discovery"])
         final_body = goal_fixtures.body()
-        final_body["initial_task"] = {"objective": "Deliver S1", "affected_paths": ["app/"], "kind": "implement",
-                                      "milestone_id": "M1", "requirements": ["R1"],
-                                      "acceptance_criteria": ["C1"], "validation_plan": ["python -m pytest"]}
-        final = {"contract": final_body, "summary": "Plan the slices", "decisions": [],
-                 "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [],
-                 "progressive_proposal": proposal()}
+        final_body["initial_task"] = {
+            "objective": "Deliver S1",
+            "affected_paths": ["app/"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["R1"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["python -m pytest"],
+        }
+        final = {
+            "contract": final_body,
+            "summary": "Plan the slices",
+            "decisions": [],
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "requirement_trace": [],
+            "progressive_proposal": proposal(),
+        }
         support.validate_schema(final, autoplanner.SCHEMAS["astra_finalize"])
         with self.assertRaises(ValueError):
-            support.validate_schema({**report(), "progressive_proposal": {"version": 1}},
-                                    autoplanner.SCHEMAS["astra_discovery"])
+            support.validate_schema(
+                {**report(), "progressive_proposal": {"version": 1}}, autoplanner.SCHEMAS["astra_discovery"]
+            )
 
 
 class AcceptProposalTests(unittest.TestCase):
     def setUp(self):
-        self.state = {"version": 3, "task_id": "task-1", "task": "Build the platform", "answers": {},
-                      "user_events": [], "acceptance_criteria": [], "status": "RUNNING",
-                      "settings": {}}
+        self.state = {
+            "version": 3,
+            "task_id": "task-1",
+            "task": "Build the platform",
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "status": "RUNNING",
+            "settings": {},
+        }
 
     def test_installs_generated_disclosure_and_records_the_candidate(self):
         value = report()
         progressive_state.accept_proposal(self.state, value, origin="glm_draft")
         body = value["contract"]
         generated = rules.disclosure(proposal(), ["C1"])
-        self.assertEqual([line for line in body["constraints"] if line.startswith("Progressive ")],
-                         [generated["constraints"][0]])
+        self.assertEqual(
+            [line for line in body["constraints"] if line.startswith("Progressive ")], [generated["constraints"][0]]
+        )
         self.assertEqual(generated["technical_approach"], body["technical_approach"][:2])
         self.assertIn("A standard-library Python CLI using sys.argv", body["technical_approach"])
         self.assertIn("Python standard library only", body["constraints"])
@@ -115,10 +159,12 @@ class AcceptProposalTests(unittest.TestCase):
 
     def test_s3_and_milestone_errors_are_distinct_unchanged_guards(self):
         value = report()
-        value["progressive_proposal"]["slices"].append(slice_row(
-            "S3", checks=[check("K3")], depends_on=("S2",), tentative=False))
-        value["contract"]["milestones"].append({
-            **copy.deepcopy(value["contract"]["milestones"][0]), "id": "M2", "depends_on": ["M1"]})
+        value["progressive_proposal"]["slices"].append(
+            slice_row("S3", checks=[check("K3")], depends_on=("S2",), tentative=False)
+        )
+        value["contract"]["milestones"].append(
+            {**copy.deepcopy(value["contract"]["milestones"][0]), "id": "M2", "depends_on": ["M1"]}
+        )
         support.validate_schema(value, autoplanner.SCHEMAS["astra_discovery"])
         with self.assertRaisesRegex(ValueError, "slice S3 is future work"):
             progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="glm_draft")
@@ -136,8 +182,14 @@ class AcceptProposalTests(unittest.TestCase):
         self.assertEqual(["Python standard library only"], value["contract"]["constraints"])
 
     def test_the_generation_schema_placeholder_means_no_proposal(self):
-        placeholder = {"version": 0, "needed_because": "", "shared_decisions": [],
-                       "outstanding_criteria": [], "done_slices": [], "slices": []}
+        placeholder = {
+            "version": 0,
+            "needed_because": "",
+            "shared_decisions": [],
+            "outstanding_criteria": [],
+            "done_slices": [],
+            "slices": [],
+        }
         value = report(with_proposal=False)
         value["progressive_proposal"] = placeholder
         self.assertFalse(rules.declares(placeholder))
@@ -158,9 +210,16 @@ class AcceptProposalTests(unittest.TestCase):
 
 class SealTests(unittest.TestCase):
     def setUp(self):
-        self.state = {"version": 3, "task_id": "task-1", "task": "Build the platform", "answers": {},
-                      "user_events": [], "acceptance_criteria": [], "status": "RUNNING",
-                      "settings": {}}
+        self.state = {
+            "version": 3,
+            "task_id": "task-1",
+            "task": "Build the platform",
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "status": "RUNNING",
+            "settings": {},
+        }
         self.value = report()
         progressive_state.accept_proposal(self.state, self.value, origin="glm_draft")
 
@@ -198,7 +257,8 @@ class SealTests(unittest.TestCase):
     def test_seal_refuses_changed_product_criteria(self):
         self.with_contract()
         self.state["goal_contract"]["body"]["acceptance_criteria"] = [
-            {"id": "C9", "criterion": "New", "verification_method": "read", "human_review": False}]
+            {"id": "C9", "criterion": "New", "verification_method": "read", "human_review": False}
+        ]
         with self.assertRaisesRegex(ValueError, "product criteria changed"):
             progressive_state.seal(self.state, "r1:tok")
 
@@ -209,10 +269,18 @@ class ApprovalIntegrationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.workspace = Path(temp.name)
         (self.workspace / "config.py").write_text("PROVIDER = 'opencode'\n")
-        self.state = {"version": 3, "task_id": "task-1", "task": "Build the platform",
-                      "workspace": str(self.workspace), "answers": {}, "user_events": [],
-                      "acceptance_criteria": [], "status": "RUNNING", "next_stage": "astra_discovery",
-                      "settings": {}}
+        self.state = {
+            "version": 3,
+            "task_id": "task-1",
+            "task": "Build the platform",
+            "workspace": str(self.workspace),
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "status": "RUNNING",
+            "next_stage": "astra_discovery",
+            "settings": {},
+        }
 
     def approve(self, value):
         lifecycle.migrate(self.state)

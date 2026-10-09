@@ -1,4 +1,5 @@
 """Deterministic greeting CLI."""
+
 import sys
 
 USAGE = "usage: greet.py NAME"

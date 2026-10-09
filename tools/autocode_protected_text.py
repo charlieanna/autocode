@@ -8,6 +8,7 @@ kind of revision by putting the approved text back, so the contract never carrie
 
 Pure functions over the contract body. Imports nothing from the runner.
 """
+
 from __future__ import annotations
 
 ESCAPES = (("\\t", "\t"), ("\\n", "\n"), ("\\r", "\r"))

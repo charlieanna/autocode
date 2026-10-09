@@ -12,6 +12,7 @@ is one accepted call, scored on the repaired report. A call is scorable when its
 runner applied it: a call still in ``active_stage`` when the run stopped, or one whose repair was still
 running, was never accepted or rejected.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -43,8 +44,10 @@ def scripted(run: dict | None) -> list[str]:
 def is_scripted(row: dict, outputs) -> bool:
     """Did the scripted side answer this stage row? By the report path AutoCode gave the tool."""
     paths = {Path(path).with_suffix("") for path in outputs or () if isinstance(path, str) and path}
-    return bool(paths) and any(isinstance(row.get(key), str) and row[key] and Path(row[key]).with_suffix("") in paths
-                               for key in ("output", "reported_output", "events"))
+    return bool(paths) and any(
+        isinstance(row.get(key), str) and row[key] and Path(row[key]).with_suffix("") in paths
+        for key in ("output", "reported_output", "events")
+    )
 
 
 def calls(state: dict, run_dir: Path, scripted: list[str] | tuple = ()) -> list[dict]:
@@ -61,32 +64,66 @@ def calls(state: dict, run_dir: Path, scripted: list[str] | tuple = ()) -> list[
             continue
         revision_ = revision(row, run_dir)
         later = next((n for n in range(index + 1, len(rows)) if launched(rows[n])), len(rows))
-        repairs = [n for n in range(index + 1, later) if _repairs(rows[n]) and rows[n].get("source_revision") == revision_]
+        repairs = [
+            n for n in range(index + 1, later) if _repairs(rows[n]) and rows[n].get("source_revision") == revision_
+        ]
         end, repairs = (repairs[-1] if repairs else index), [rows[n] for n in repairs]
-        repaired = next((other for other in repairs if not other.get("rejected")), None) if row.get("rejected") else None
-        in_flight = bool(row.get("rejected") and not repaired and active and _repairs(active)
-                         and revision(active, run_dir) == revision_ and later == len(rows))
+        repaired = (
+            next((other for other in repairs if not other.get("rejected")), None) if row.get("rejected") else None
+        )
+        in_flight = bool(
+            row.get("rejected")
+            and not repaired
+            and active
+            and _repairs(active)
+            and revision(active, run_dir) == revision_
+            and later == len(rows)
+        )
         scored = repaired or row
-        found.append({
-            "row": row, "index": index, "end": end, "revision": revision_, "output": scored.get("output"),
-            "report": _dict(read(local(scored.get("output"), run_dir))), "applied": True,
-            "accepted": not row.get("rejected") or repaired is not None, "report_repaired": repaired is not None,
-            "pending": "its report repair was still running when the run stopped" if in_flight else "",
-            "model": (row.get("launch_route") or {}).get("model"), "cost_usd": _cost([row, *repairs])})
+        found.append(
+            {
+                "row": row,
+                "index": index,
+                "end": end,
+                "revision": revision_,
+                "output": scored.get("output"),
+                "report": _dict(read(local(scored.get("output"), run_dir))),
+                "applied": True,
+                "accepted": not row.get("rejected") or repaired is not None,
+                "report_repaired": repaired is not None,
+                "pending": "its report repair was still running when the run stopped" if in_flight else "",
+                "model": (row.get("launch_route") or {}).get("model"),
+                "cost_usd": _cost([row, *repairs]),
+            }
+        )
     if active and launched(active) and active not in rows and not is_scripted(active, scripted):
-        found.append({"row": active, "index": None, "end": None, "revision": revision(active, run_dir),
-                      "output": active.get("output"),
-                      "report": _dict(read(local(active.get("output"), run_dir))), "applied": False,
-                      "accepted": False, "report_repaired": False,
-                      "pending": "the run stopped before the runner applied it",
-                      "model": (active.get("launch_route") or {}).get("model"), "cost_usd": _cost([active])})
+        found.append(
+            {
+                "row": active,
+                "index": None,
+                "end": None,
+                "revision": revision(active, run_dir),
+                "output": active.get("output"),
+                "report": _dict(read(local(active.get("output"), run_dir))),
+                "applied": False,
+                "accepted": False,
+                "report_repaired": False,
+                "pending": "the run stopped before the runner applied it",
+                "model": (active.get("launch_route") or {}).get("model"),
+                "cost_usd": _cost([active]),
+            }
+        )
     return found
 
 
 def launched(row: dict) -> bool:
-    return (row.get("stage") == STAGE and not row.get("runner_owned")
-            and bool((row.get("launch_route") or {}).get("model"))
-            and isinstance(row.get("runner_calls"), int) and row["runner_calls"] >= 1)
+    return (
+        row.get("stage") == STAGE
+        and not row.get("runner_owned")
+        and bool((row.get("launch_route") or {}).get("model"))
+        and isinstance(row.get("runner_calls"), int)
+        and row["runner_calls"] >= 1
+    )
 
 
 def _repairs(row: dict) -> bool:
@@ -96,8 +133,11 @@ def _repairs(row: dict) -> bool:
 def revision(row: dict, run_dir: Path) -> str | None:
     """The source a call saw; an unfinished call has only its launch snapshot."""
     before = read(local(row.get("before_ref"), run_dir))
-    return (row.get("source_revision") or (row.get("capture_context") or {}).get("source_revision")
-            or (before.get("revision") if isinstance(before, dict) else None))
+    return (
+        row.get("source_revision")
+        or (row.get("capture_context") or {}).get("source_revision")
+        or (before.get("revision") if isinstance(before, dict) else None)
+    )
 
 
 def _cost(rows: list[dict]):
@@ -119,8 +159,8 @@ def local(path, run_dir: Path) -> Path | None:
         return candidate
     parts = candidate.parts
     for index in range(len(parts) - 2):
-        if parts[index:index + 2] == (".autocode", "runs"):
-            return Path(run_dir).joinpath(*parts[index + 3:])
+        if parts[index : index + 2] == (".autocode", "runs"):
+            return Path(run_dir).joinpath(*parts[index + 3 :])
     return candidate
 
 
@@ -139,8 +179,12 @@ def checkout(project: Path, state: dict, run_dir: Path, revision_: str, target: 
     sha256 matches the snapshot. Returns how ("code checkpoint" or "stage diff"), or "" when neither works.
     """
     for row in state.get("code_checkpoints") or []:
-        if not (isinstance(row, dict) and row.get("source_revision") == revision_ and row.get("available")
-                and row.get("commit")):
+        if not (
+            isinstance(row, dict)
+            and row.get("source_revision") == revision_
+            and row.get("available")
+            and row.get("commit")
+        ):
             continue
         _clear(target)
         if _extract(project, row["commit"], target):
@@ -185,8 +229,10 @@ def _matches(target: Path, files: dict) -> bool:
         if not isinstance(value, str) or value.startswith(("symlink:", "submodule:", "uninitialized")):
             continue
         executable = value.startswith("executable:")
-        if not path.is_file() or (bool(path.stat().st_mode & 0o111) != executable
-                                  or hashlib.sha256(path.read_bytes()).hexdigest() != value.removeprefix("executable:")):
+        if not path.is_file() or (
+            bool(path.stat().st_mode & 0o111) != executable
+            or hashlib.sha256(path.read_bytes()).hexdigest() != value.removeprefix("executable:")
+        ):
             return False
     return True
 
@@ -200,8 +246,9 @@ def _git(cwd: Path, *args: str) -> bytes | None:
     # GIT_CEILING_DIRECTORIES keeps `git apply` in a scratch directory from finding a repository above it.
     env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(cwd).resolve().parent)}
     try:
-        proc = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", *args], cwd=cwd, capture_output=True,
-                              env=env, timeout=60)
+        proc = subprocess.run(
+            ["git", "-c", "core.hooksPath=/dev/null", *args], cwd=cwd, capture_output=True, env=env, timeout=60
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     return proc.stdout if proc.returncode == 0 else None

@@ -1,4 +1,5 @@
 """Bounded CLI calls that retain ownership when a provider starts a new session."""
+
 from __future__ import annotations
 
 import json
@@ -132,9 +133,11 @@ def _stop(child, parent, identity_error, output):
 def run_cli(command, *, env, cwd, timeout, lifeline=None):
     """Run one CLI; on timeout stop only processes captured from its ancestry."""
     if psutil is None:
-        raise SupervisionUnavailable("CLI process supervision requires psutil in the harness interpreter, "
-                                     "including with --autocode; run scenarios/run.py with the project's "
-                                     "virtualenv Python (.venv/bin/python)")
+        raise SupervisionUnavailable(
+            "CLI process supervision requires psutil in the harness interpreter, "
+            "including with --autocode; run scenarios/run.py with the project's "
+            "virtualenv Python (.venv/bin/python)"
+        )
     read_fd = write_fd = None
     call_path = call_record = None
     child = parent = None
@@ -142,17 +145,27 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
     try:
         if lifeline is not None:
             deadline = lifeline["deadline"]
-            if (type(deadline) not in (int, float) or not math.isfinite(deadline)
-                    or deadline <= time.monotonic()):
+            if type(deadline) not in (int, float) or not math.isfinite(deadline) or deadline <= time.monotonic():
                 raise CallTimeout(command, timeout, [])
             root = Path(lifeline["root"]).resolve()
             nonce = uuid.uuid4().hex
-            wire = {"schema": 1, "nonce": nonce, "owner": attempts.identity(),
-                    "deadline": deadline, "timeout_seconds": min(timeout, deadline - time.monotonic()),
-                    "receipt": str(root / (nonce + "-supervision.json"))}
+            wire = {
+                "schema": 1,
+                "nonce": nonce,
+                "owner": attempts.identity(),
+                "deadline": deadline,
+                "timeout_seconds": min(timeout, deadline - time.monotonic()),
+                "receipt": str(root / (nonce + "-supervision.json")),
+            }
             call_path = root / (nonce + ".json")
-            call_record = {**wire, "kind": "cli_call", "action": lifeline["kind"],
-                           "phase": "pending", "started_at": time.time(), "usage_status": "unknown"}
+            call_record = {
+                **wire,
+                "kind": "cli_call",
+                "action": lifeline["kind"],
+                "phase": "pending",
+                "started_at": time.time(),
+                "usage_status": "unknown",
+            }
             # Admission precedes launch, so SIGKILL of this harness cannot hide it.
             attempts.atomic_json(call_path, call_record)
             data = (json.dumps(wire, separators=(",", ":")) + "\n").encode()
@@ -164,14 +177,23 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             actual_command = [*command, "--owner-lifeline-fd", str(read_fd)]
             # Its own session: every child that does not detach keeps the CLI's
             # group, which the CLI's keeper still owns after a CLI SIGKILL.
-            child = subprocess.Popen(actual_command, env=env, cwd=cwd, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True, close_fds=True, pass_fds=(read_fd,),
-                                     start_new_session=True)
+            child = subprocess.Popen(
+                actual_command,
+                env=env,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                close_fds=True,
+                pass_fds=(read_fd,),
+                start_new_session=True,
+            )
             os.close(read_fd)
             read_fd = None
         else:
-            child = subprocess.Popen(command, env=env, cwd=cwd, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True)
+            child = subprocess.Popen(
+                command, env=env, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
         try:
             parent = psutil.Process(child.pid)
         except (psutil.Error, OSError) as error:
@@ -184,8 +206,11 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
             raise subprocess.TimeoutExpired(command, timeout)
         stdout, stderr = child.communicate(timeout=remaining)
         if call_record is not None:
-            call_record.update(phase="interrupted" if child.returncode < 0 else "returned",
-                               exit=child.returncode, finished_at=time.time())
+            call_record.update(
+                phase="interrupted" if child.returncode < 0 else "returned",
+                exit=child.returncode,
+                finished_at=time.time(),
+            )
             attempts.atomic_json(call_path, call_record)
         return subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
     except BaseException as error:
@@ -196,8 +221,13 @@ def run_cli(command, *, env, cwd, timeout, lifeline=None):
         output = {"stdout": getattr(error, "stdout", None), "stderr": getattr(error, "stderr", None)}
         errors = _stop(child, parent, identity_error, output) if child is not None else []
         if call_record is not None:
-            call_record.update(phase="interrupted", exit=child.returncode if child is not None else None,
-                               finished_at=time.time(), interruption=type(error).__name__, cleanup_errors=errors)
+            call_record.update(
+                phase="interrupted",
+                exit=child.returncode if child is not None else None,
+                finished_at=time.time(),
+                interruption=type(error).__name__,
+                cleanup_errors=errors,
+            )
             try:
                 attempts.atomic_json(call_path, call_record)
             except (OSError, ValueError) as save_error:

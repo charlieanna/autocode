@@ -1,4 +1,5 @@
 """autocode doctor and autocode --version (issue #67)."""
+
 import importlib.util
 import json
 import os
@@ -18,9 +19,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def fake_runner(outputs):
     """A command runner answering from a table: tuple(cmd) -> (exit code, stdout)."""
+
     def runner(cmd, cwd=None):
         code, out = outputs.get(tuple(cmd), (127, ""))
         return subprocess.CompletedProcess(cmd, code, out, "")
+
     return runner
 
 
@@ -30,11 +33,17 @@ def on_path(*names):
 
 class EngineTests(unittest.TestCase):
     def test_opencode_1x_and_2x_are_ready_and_other_majors_are_refused(self):
-        for version, status in (("1.18.32", doctor.OK), ("2.0.1", doctor.OK),
-                                ("opencode v2.0.20", doctor.OK), ("0.9.0", doctor.MISSING),
-                                ("3.0.0", doctor.MISSING)):
+        for version, status in (
+            ("1.18.32", doctor.OK),
+            ("2.0.1", doctor.OK),
+            ("opencode v2.0.20", doctor.OK),
+            ("0.9.0", doctor.MISSING),
+            ("3.0.0", doctor.MISSING),
+        ):
             with self.subTest(version=version):
-                checks = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, version)}))
+                checks = doctor.engine_checks(
+                    on_path("opencode"), fake_runner({("opencode", "--version"): (0, version)})
+                )
                 self.assertEqual(status, {c.name: c.status for c in checks}["engine:opencode"])
 
     def test_codex_must_be_logged_in(self):
@@ -50,7 +59,9 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(doctor.passed([verdict]))
         self.assertEqual(doctor.OK, doctor.engine_verdict(codex_only, "codex").status)
         self.assertEqual(doctor.MISSING, doctor.engine_verdict(codex_only, "opencode").status)
-        opencode_only = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")}))
+        opencode_only = doctor.engine_checks(
+            on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")})
+        )
         self.assertEqual(doctor.OK, doctor.engine_verdict(opencode_only, None).status)
         nothing = doctor.engine_verdict(doctor.engine_checks(on_path(), fake_runner({})), None)
         self.assertEqual(doctor.MISSING, nothing.status)
@@ -58,6 +69,7 @@ class EngineTests(unittest.TestCase):
 
     def test_the_default_is_resolved_as_a_run_resolves_it(self):
         import autocode_providers
+
         runner_choice = lambda: autocode_providers.select(None, {}, default=None)  # autocode.py, no --engine codex
         with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
             os.environ.pop("AUTOCODE_PROVIDER", None)
@@ -80,6 +92,7 @@ class EngineTests(unittest.TestCase):
 
             def available_models(self, workspace=None):
                 return None
+
         ready = doctor.provider_check("fixturetool", lambda name: Provider())
         self.assertEqual(("provider:fixturetool", doctor.OK), (ready.name, ready.status))
         self.assertEqual(doctor.OK, doctor.engine_verdict([ready], None, "fixturetool").status)
@@ -87,19 +100,34 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(doctor.MISSING, absent.status)
         opencode = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")}))
         self.assertEqual(doctor.MISSING, doctor.engine_verdict([*opencode, absent], None, "fixturetool").status)
-        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config,
-                                                                              "AUTOCODE_PROVIDER": "nosuchtool"}):
-            checks = {c.name: c for c in doctor.all_checks(Path(config), None, on_path("opencode"),
-                                                           fake_runner({("opencode", "--version"): (0, "1.18.33")}))}
+        with (
+            tempfile.TemporaryDirectory() as config,
+            patch.dict(os.environ, {"XDG_CONFIG_HOME": config, "AUTOCODE_PROVIDER": "nosuchtool"}),
+        ):
+            checks = {
+                c.name: c
+                for c in doctor.all_checks(
+                    Path(config), None, on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")})
+                )
+            }
         self.assertEqual(doctor.MISSING, checks["provider:nosuchtool"].status)
         self.assertIn("nosuchtool", checks["engine"].detail)
         self.assertEqual(doctor.MISSING, checks["engine"].status)
         # --engine opencode runs the default provider too, so it is the one checked.
-        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config,
-                                                                              "AUTOCODE_PROVIDER": "fixturetool"}):
-            flagged = {c.name: c for c in doctor.all_checks(
-                Path(config), "opencode", on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")}),
-                lambda name: Provider(RuntimeError("'fixture' is not on PATH")))}
+        with (
+            tempfile.TemporaryDirectory() as config,
+            patch.dict(os.environ, {"XDG_CONFIG_HOME": config, "AUTOCODE_PROVIDER": "fixturetool"}),
+        ):
+            flagged = {
+                c.name: c
+                for c in doctor.all_checks(
+                    Path(config),
+                    "opencode",
+                    on_path("opencode"),
+                    fake_runner({("opencode", "--version"): (0, "1.18.33")}),
+                    lambda name: Provider(RuntimeError("'fixture' is not on PATH")),
+                )
+            }
         self.assertEqual(doctor.OK, flagged["engine:opencode"].status)
         self.assertEqual(doctor.MISSING, flagged["provider:fixturetool"].status)
         self.assertEqual(doctor.MISSING, flagged["engine"].status)
@@ -107,8 +135,10 @@ class EngineTests(unittest.TestCase):
 
     def test_a_default_provider_named_codex_is_a_provider_config_not_the_codex_engine(self):
         codex = fake_runner({("codex", "login", "status"): (0, "")})
-        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config,
-                                                                              "AUTOCODE_PROVIDER": "codex"}):
+        with (
+            tempfile.TemporaryDirectory() as config,
+            patch.dict(os.environ, {"XDG_CONFIG_HOME": config, "AUTOCODE_PROVIDER": "codex"}),
+        ):
             checks = {c.name: c for c in doctor.all_checks(Path(config), None, on_path("codex"), codex)}
             codex_engine = {c.name: c for c in doctor.all_checks(Path(config), "codex", on_path("codex"), codex)}
         self.assertEqual(doctor.OK, checks["engine:codex"].status)
@@ -132,22 +162,33 @@ class EngineTests(unittest.TestCase):
                     if isinstance(listed, Exception):
                         raise listed
                     return listed
+
             return lambda name: Facade
 
         ready = fake_runner({("opencode", "--version"): (0, "1.18.31"), ("codex", "login", "status"): (0, "")})
         everything = set(real.DEFAULT_MODELS.values())
-        cases = (({"opencode/big-pickle"}, doctor.MISSING, doctor.MISSING),
-                 (everything, doctor.OK, doctor.OK),
-                 (RuntimeError("OpenCode model listing timed out"), doctor.WARN, doctor.OK))
+        cases = (
+            ({"opencode/big-pickle"}, doctor.MISSING, doctor.MISSING),
+            (everything, doctor.OK, doctor.OK),
+            (RuntimeError("OpenCode model listing timed out"), doctor.WARN, doctor.OK),
+        )
         with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
             os.environ.pop("AUTOCODE_PROVIDER", None)
             for listed, routes, verdict in cases:
                 with self.subTest(listed=listed):
-                    checks = {c.name: c for c in doctor.all_checks(Path(config), None, on_path("opencode", "codex"),
-                                                                   ready, opencode(listed))}
+                    checks = {
+                        c.name: c
+                        for c in doctor.all_checks(
+                            Path(config), None, on_path("opencode", "codex"), ready, opencode(listed)
+                        )
+                    }
                     self.assertEqual((routes, verdict), (checks["routes"].status, checks["engine"].status))
-            codex = {c.name: c for c in doctor.all_checks(Path(config), "codex", on_path("opencode", "codex"),
-                                                          ready, opencode({"opencode/big-pickle"}))}
+            codex = {
+                c.name: c
+                for c in doctor.all_checks(
+                    Path(config), "codex", on_path("opencode", "codex"), ready, opencode({"opencode/big-pickle"})
+                )
+            }
         no_logins = doctor.route_check("opencode", None, opencode({"opencode/big-pickle"}))
         self.assertIn("zai-coding-plan/glm-5.3", no_logins.detail)
         self.assertIn("openai/gpt-6-sol", no_logins.detail)
@@ -170,8 +211,12 @@ class WorkspaceTests(unittest.TestCase):
         self.root = Path(temp.name)
 
     def git(self, *args):
-        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args], cwd=self.root,
-                       check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args],
+            cwd=self.root,
+            check=True,
+            capture_output=True,
+        )
 
     def statuses(self):
         return {c.name: c.status for c in doctor.workspace_check(self.root)}
@@ -199,16 +244,30 @@ class LocalComposeTests(unittest.TestCase):
         checks = doctor.local_compose_checks(on_path(), fake_runner({}))
         self.assertEqual([("docker", doctor.WARN)], [(c.name, c.status) for c in checks])
         self.assertTrue(doctor.passed(checks))
-        outputs = {("docker", "compose", "version", "--short"): (0, "2.29.1"),
-                   ("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"): (0, "unix:///tmp/docker.sock"),
-                   ("docker", "--host", "unix:///tmp/docker.sock", "version", "--format", "{{.Server.Version}}"): (0, "27.0.0")}
+        outputs = {
+            ("docker", "compose", "version", "--short"): (0, "2.29.1"),
+            ("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"): (0, "unix:///tmp/docker.sock"),
+            ("docker", "--host", "unix:///tmp/docker.sock", "version", "--format", "{{.Server.Version}}"): (
+                0,
+                "27.0.0",
+            ),
+        }
         with patch.dict(os.environ, {"DOCKER_HOST": "", "DOCKER_CONTEXT": ""}):
             checks = doctor.local_compose_checks(on_path("docker"), fake_runner(outputs))
             self.assertTrue(all(c.status == doctor.OK for c in checks))
             for command, replacement, name in (
-                    (("docker", "compose", "version", "--short"), (0, "2.16.9"), "docker:compose"),
-                    (("docker", "--host", "unix:///tmp/docker.sock", "version", "--format", "{{.Server.Version}}"), (1, "stopped"), "docker:daemon"),
-                    (("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"), (0, "ssh://other"), "docker:context")):
+                (("docker", "compose", "version", "--short"), (0, "2.16.9"), "docker:compose"),
+                (
+                    ("docker", "--host", "unix:///tmp/docker.sock", "version", "--format", "{{.Server.Version}}"),
+                    (1, "stopped"),
+                    "docker:daemon",
+                ),
+                (
+                    ("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"),
+                    (0, "ssh://other"),
+                    "docker:context",
+                ),
+            ):
                 checks = doctor.local_compose_checks(on_path("docker"), fake_runner(outputs | {command: replacement}))
                 self.assertEqual(doctor.WARN, next(c.status for c in checks if c.name == name))
                 self.assertTrue(doctor.passed(checks))
@@ -216,12 +275,18 @@ class LocalComposeTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def autocode(self, *args, cwd=REPO_ROOT, env=None):
-        return subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "autocode.py"), *args], cwd=cwd,
-                              capture_output=True, text=True, timeout=60,
-                              env={**os.environ, "PATH": os.defpath, **(env or {})})
+        return subprocess.run(
+            [sys.executable, str(REPO_ROOT / "tools" / "autocode.py"), *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "PATH": os.defpath, **(env or {})},
+        )
 
     def test_help_names_the_commands_handled_before_the_options(self):
         import autocode_subcommands as sub
+
         proc = self.autocode("--help")
         self.assertEqual(0, proc.returncode, proc.stderr)
         listed = proc.stdout.split("Commands, typed first:", 1)[1].replace("\n", " ")
@@ -236,8 +301,9 @@ class CliTests(unittest.TestCase):
             config.write_text('default_provider = "opencode"\n')
             config.chmod(0)
             try:
-                proc = self.autocode("doctor", "--json", "--workspace", folder,
-                                     env={"XDG_CONFIG_HOME": folder, "AUTOCODE_PROVIDER": ""})
+                proc = self.autocode(
+                    "doctor", "--json", "--workspace", folder, env={"XDG_CONFIG_HOME": folder, "AUTOCODE_PROVIDER": ""}
+                )
             finally:
                 config.chmod(0o600)
         self.assertEqual(1, proc.returncode, proc.stderr)
@@ -264,12 +330,14 @@ class CliTests(unittest.TestCase):
 class SourceCommitTests(unittest.TestCase):
     def test_commit_is_reported_only_from_the_autocode_checkout(self):
         import autocode_subcommands as sub
+
         # Running from this checkout: the commit is AutoCode's.
         commit = sub.source_commit()
         self.assertTrue(commit and commit[:1] in "0123456789abcdef", commit)
 
     def test_an_installed_package_inside_another_repository_reports_unknown(self):
         import autocode_subcommands as sub
+
         with tempfile.TemporaryDirectory() as folder:
             project = Path(folder)
             subprocess.run(["git", "init", "-q", str(project)], check=True)

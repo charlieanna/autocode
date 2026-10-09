@@ -4,6 +4,7 @@ The upstream API allows **60 metadata requests per hour per account**; going
 over returns 429 for the rest of the hour, and every request handler that needs
 metadata then fails. A metadata document changes a few times a day at most.
 """
+
 import json
 import os
 import urllib.request
@@ -21,8 +22,11 @@ def fetch(tld: str) -> dict:
 
 def parse(raw: bytes) -> dict:
     document = json.loads(raw)
-    return {"tld": document["tld"], "grace_days": int(document["grace"]["days"]),
-            "max_years": int(document["limits"]["renew_years"])}
+    return {
+        "tld": document["tld"],
+        "grace_days": int(document["grace"]["days"]),
+        "max_years": int(document["limits"]["renew_years"]),
+    }
 
 
 def lookup_metadata(tld: str) -> dict:

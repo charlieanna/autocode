@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Loopback-only UI for autocode's documented command-per-turn CLI."""
+
 import argparse
 import contextlib
 import json
@@ -19,73 +20,154 @@ from pathlib import Path
 from socketserver import TCPServer
 from urllib.parse import parse_qs, urlparse
 
-sys.dont_write_bytecode=True
+sys.dont_write_bytecode = True
 try:
- from .. import autocode_resolver_human as resolver_human
- from ..autocode_role_names import CATALOGUE as ROLE_NAMES
+    from .. import autocode_resolver_human as resolver_human
+    from ..autocode_role_names import CATALOGUE as ROLE_NAMES
 except ImportError:
- tools=str(Path(__file__).resolve().parents[1])
- if tools not in sys.path:sys.path.insert(0,tools)
- import autocode_resolver_human as resolver_human
- from autocode_role_names import CATALOGUE as ROLE_NAMES
-CODEX_DEFAULT_MODELS={'astra':'gpt-5.6-sol','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol','completion':'gpt-5.6-sol'}
-GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completion':'glm-5.3'}
-DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
-REASONING_EFFORTS={'low','medium','high','xhigh','max'}
+    tools = str(Path(__file__).resolve().parents[1])
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import autocode_resolver_human as resolver_human
+    from autocode_role_names import CATALOGUE as ROLE_NAMES
+CODEX_DEFAULT_MODELS = {
+    "astra": "gpt-5.6-sol",
+    "terra": "gpt-5.6-terra",
+    "sol": "gpt-5.6-sol",
+    "completion": "gpt-5.6-sol",
+}
+GLM_MODELS = {"astra": "glm-5.3", "terra": "glm-5.3-flash", "sol": "glm-5.3", "completion": "glm-5.3"}
+DEFAULT_REASONING_EFFORTS = {"astra": "high", "terra": "medium", "sol": "high", "completion": "medium"}
+REASONING_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 try:
- from .dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
+    from .dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
 except ImportError:
- from dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
-def obj(x): return x if isinstance(x,dict) else {}
-def items(x): return x if isinstance(x,list) else []
+    from dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
+
+
+def obj(x):
+    return x if isinstance(x, dict) else {}
+
+
+def items(x):
+    return x if isinstance(x, list) else []
+
+
 def pending_decisions(state):
- """Only a current durable Resolver receipt can expose a decision."""
- public=resolver_human.projection(state)
- return public['pending_questions'],public['user_request'] or None
-def require_human_response(view,data,scopes):
- public=obj(view.get('human_escalation'))
- if (view.get('human_request_authorized') is not True or public.get('scope') not in scopes
-     or not public.get('request_id') or not public.get('request_token')
-     or data.get('resolver_request')!=public['request_id']
-     or data.get('resolver_token')!=public['request_token']):
-  raise ValueError('Response requires the exact current Resolver request and token. Refresh the task.')
- return public
+    """Only a current durable Resolver receipt can expose a decision."""
+    public = resolver_human.projection(state)
+    return public["pending_questions"], public["user_request"] or None
+
+
+def require_human_response(view, data, scopes):
+    public = obj(view.get("human_escalation"))
+    if (
+        view.get("human_request_authorized") is not True
+        or public.get("scope") not in scopes
+        or not public.get("request_id")
+        or not public.get("request_token")
+        or data.get("resolver_request") != public["request_id"]
+        or data.get("resolver_token") != public["request_token"]
+    ):
+        raise ValueError("Response requires the exact current Resolver request and token. Refresh the task.")
+    return public
+
+
 def json_file(p):
- try:
-  x=json.loads(p.read_text(encoding='utf8'));return x if isinstance(x,dict) else {'_console_error':'state is not a JSON object'}
- except (OSError,ValueError) as e:return {'_console_error':str(e)}
+    try:
+        x = json.loads(p.read_text(encoding="utf8"))
+        return x if isinstance(x, dict) else {"_console_error": "state is not a JSON object"}
+    except (OSError, ValueError) as e:
+        return {"_console_error": str(e)}
+
+
 def configured_zai(config_path=None):
- try:data=tomllib.loads((Path(config_path) if config_path else Path.home()/'.codex/config.toml').read_text(encoding='utf8'))
- except (OSError,tomllib.TOMLDecodeError):return None
- for k,v in obj(data.get('model_providers')).items():
-  if isinstance(v,dict) and k.lower().replace('.','')=='zai':return k
- return None
-def string_list(x):return [v for v in items(x) if isinstance(v,str)]
+    try:
+        data = tomllib.loads(
+            (Path(config_path) if config_path else Path.home() / ".codex/config.toml").read_text(encoding="utf8")
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    for k, v in obj(data.get("model_providers")).items():
+        if isinstance(v, dict) and k.lower().replace(".", "") == "zai":
+            return k
+    return None
+
+
+def string_list(x):
+    return [v for v in items(x) if isinstance(v, str)]
+
+
 def saved_models(state):
- state=obj(state);settings=obj(state.get('settings'));roles=obj(settings.get('roles'));models=obj(state.get('models'));result={};engines={};efforts={}
- engine=settings.get('engine') if isinstance(settings.get('engine'),str) else state.get('engine') if isinstance(state.get('engine'),str) else None
- names=['astra','terra','sol']+[role for role in ('requirements','glm','plan_reviewer','completion','resolver') if role in roles or role in models]
- for role in names:
-  config=obj(roles.get(role));value=config.get('model')
-  if not isinstance(value,str):value=models.get(role)
-  result[role]=value if isinstance(value,str) else None
-  engines[role]=config.get('engine') if isinstance(config.get('engine'),str) else engine if config or result[role] is not None else None
-  effort=config.get('reasoning_effort')
-  efforts[role]=effort if isinstance(effort,str) else None
- return {'engine':engine,'joint_planning':settings.get('joint_planning') is True,'roles':result,'role_engines':engines,'role_efforts':efforts}
+    state = obj(state)
+    settings = obj(state.get("settings"))
+    roles = obj(settings.get("roles"))
+    models = obj(state.get("models"))
+    result = {}
+    engines = {}
+    efforts = {}
+    engine = (
+        settings.get("engine")
+        if isinstance(settings.get("engine"), str)
+        else state.get("engine")
+        if isinstance(state.get("engine"), str)
+        else None
+    )
+    names = ["astra", "terra", "sol"] + [
+        role
+        for role in ("requirements", "glm", "plan_reviewer", "completion", "resolver")
+        if role in roles or role in models
+    ]
+    for role in names:
+        config = obj(roles.get(role))
+        value = config.get("model")
+        if not isinstance(value, str):
+            value = models.get(role)
+        result[role] = value if isinstance(value, str) else None
+        engines[role] = (
+            config.get("engine")
+            if isinstance(config.get("engine"), str)
+            else engine
+            if config or result[role] is not None
+            else None
+        )
+        effort = config.get("reasoning_effort")
+        efforts[role] = effort if isinstance(effort, str) else None
+    return {
+        "engine": engine,
+        "joint_planning": settings.get("joint_planning") is True,
+        "roles": result,
+        "role_engines": engines,
+        "role_efforts": efforts,
+    }
+
+
 def discovery_role(state):
- state=obj(state);joint=obj(state.get('settings')).get('joint_planning') is True
- for record in reversed(items(state.get('stages'))):
-  record=obj(record)
-  if record.get('rejected') or record.get('timed_out') or record.get('interrupted') or record.get('exit_code') not in (None,0):continue
-  stage=record.get('original_stage') if record.get('applied_original_events') else record.get('stage')
-  if stage not in ('astra_discovery','astra_challenge','glm_revise','astra_finalize'):continue
-  if record.get('role') in ('astra','glm'):return record['role']
-  return 'glm' if joint and stage in ('astra_discovery','glm_revise') else 'astra'
- origin=obj(state.get('goal_contract')).get('origin')
- if origin in ('astra_discovery','astra_finalize'):return 'astra'
- if joint and origin in ('glm_draft','glm_revise'):return 'glm'
- return None
+    state = obj(state)
+    joint = obj(state.get("settings")).get("joint_planning") is True
+    for record in reversed(items(state.get("stages"))):
+        record = obj(record)
+        if (
+            record.get("rejected")
+            or record.get("timed_out")
+            or record.get("interrupted")
+            or record.get("exit_code") not in (None, 0)
+        ):
+            continue
+        stage = record.get("original_stage") if record.get("applied_original_events") else record.get("stage")
+        if stage not in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            continue
+        if record.get("role") in ("astra", "glm"):
+            return record["role"]
+        return "glm" if joint and stage in ("astra_discovery", "glm_revise") else "astra"
+    origin = obj(state.get("goal_contract")).get("origin")
+    if origin in ("astra_discovery", "astra_finalize"):
+        return "astra"
+    if joint and origin in ("glm_draft", "glm_revise"):
+        return "glm"
+    return None
+
+
 def provider_registry():
     """The runner's own provider registry, so the dashboard and CLI resolve tools identically."""
     try:
@@ -99,7 +181,9 @@ def provider_registry():
 
 
 class ModelCatalogue:
-    def __init__(self, command=('opencode', 'models'), ttl=300, timeout=10, output_limit=65536, lister=None, provider='opencode'):
+    def __init__(
+        self, command=("opencode", "models"), ttl=300, timeout=10, output_limit=65536, lister=None, provider="opencode"
+    ):
         self.command = tuple(command)
         self.lister, self.provider = lister, provider
         self.ttl, self.timeout, self.output_limit = ttl, timeout, output_limit
@@ -108,11 +192,15 @@ class ModelCatalogue:
 
     def _read_command(self):
         deadline = time.monotonic() + self.timeout
-        process = subprocess.Popen(list(self.command), stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   start_new_session=True)
+        process = subprocess.Popen(
+            list(self.command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
         streams = selectors.DefaultSelector()
-        output = {'stdout': bytearray(), 'stderr': bytearray()}
+        output = {"stdout": bytearray(), "stderr": bytearray()}
         total = 0
         try:
             for name in output:
@@ -128,10 +216,14 @@ class ModelCatalogue:
                         continue
                     total += len(chunk)
                     if total > self.output_limit:
-                        raise ValueError('Model catalogue output exceeded the safe limit')
+                        raise ValueError("Model catalogue output exceeded the safe limit")
                     output[key.data].extend(chunk)
-            code = process.wait(timeout=max(.001, deadline - time.monotonic()))
-            return code, output['stdout'].decode('utf8', errors='replace'), output['stderr'].decode('utf8', errors='replace')
+            code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
+            return (
+                code,
+                output["stdout"].decode("utf8", errors="replace"),
+                output["stderr"].decode("utf8", errors="replace"),
+            )
         except BaseException:
             # Only this catalogue lookup and its children share the new group.
             with contextlib.suppress(ProcessLookupError):
@@ -154,20 +246,26 @@ class ModelCatalogue:
         values, error = None, None
         try:
             if self.lister:
-                values = sorted({value for value in self.lister() if isinstance(value, str) and value and not any(c.isspace() for c in value)})
+                values = sorted(
+                    {
+                        value
+                        for value in self.lister()
+                        if isinstance(value, str) and value and not any(c.isspace() for c in value)
+                    }
+                )
                 if not values:
-                    raise ValueError('No usable model identifiers were returned')
+                    raise ValueError("No usable model identifiers were returned")
             else:
                 code, stdout, _ = self._read_command()
                 if code:
-                    raise ValueError('The model-listing command did not complete successfully')
+                    raise ValueError("The model-listing command did not complete successfully")
                 values = sorted({line.strip() for line in stdout.splitlines() if MODEL_ID.fullmatch(line.strip())})
                 if not values:
-                    raise ValueError('No usable provider/model identifiers were returned')
+                    raise ValueError("No usable provider/model identifiers were returned")
         except subprocess.TimeoutExpired:
-            error = 'Model catalogue lookup timed out.'
+            error = "Model catalogue lookup timed out."
         except Exception:
-            error = 'Model catalogue unavailable. Check the provider installation and model listing in your terminal.'
+            error = "Model catalogue unavailable. Check the provider installation and model listing in your terminal."
         finally:
             with self.lock:
                 if not error and values:
@@ -178,527 +276,1179 @@ class ModelCatalogue:
 
     def status(self):
         with self.lock:
-            return {'models': list(self.models or []), 'usable': bool(self.models) and not self.error and not self.loading,
-                    'loading': self.loading, 'error': self.error, 'provider': self.provider}
-def assignment_snapshot(raw,source,at=None,reason=None):
- raw=obj(raw)
- if not raw:return None
- snapshot={'source':source,'id':raw.get('id') if isinstance(raw.get('id'),str) else None,
-  'objective':raw.get('objective') if isinstance(raw.get('objective'),str) else None,
-  'requirements':string_list(raw.get('requirements')),'validation_plan':string_list(raw.get('validation_plan')),
-  'owner':raw.get('owner') if isinstance(raw.get('owner'),str) else raw.get('assigned_role') if isinstance(raw.get('assigned_role'),str) else None,
-  'next_role':raw.get('next_role') if isinstance(raw.get('next_role'),str) else None,
-  'timestamp':raw.get('assigned_at') if isinstance(raw.get('assigned_at'),str) else at if isinstance(at,str) else None,
-  'brief_revision':raw.get('contract_revision') if type(raw.get('contract_revision')) is int else None,
-  'decision':raw.get('decision') if isinstance(raw.get('decision'),str) else None,
-  'reason':reason if isinstance(reason,str) else raw.get('reason') if isinstance(raw.get('reason'),str) else raw.get('rationale') if isinstance(raw.get('rationale'),str) else None}
- return snapshot if any(snapshot[k] is not None for k in ('id','objective','timestamp','brief_revision','decision','reason')) or snapshot['requirements'] or snapshot['validation_plan'] else None
-def astra_plan_state(s):
- s=obj(s);history=[];by_identity={};decisions=[]
- def add(entry):
-  if not entry:return None
-  # Assignment and review timestamps are distinct; they do not identify a task.
-  key=('task',entry['id'],entry['brief_revision']) if entry['id'] else ('legacy',json.dumps(entry,sort_keys=True))
-  if key not in by_identity:by_identity[key]=entry;history.append(entry)
-  else:
-   existing=by_identity[key]
-   for field,value in entry.items():
-    if value is not None and value!=[] and (not existing.get(field) or field in ('source','next_role','next_stage','reason')):existing[field]=value
-  return by_identity[key]
- for raw in items(s.get('task_archive')):add(assignment_snapshot(raw,'archived assignment'))
- for raw in items(s.get('decisions')):
-  decision=obj(raw);report=obj(decision.get('report'));reason=decision.get('reason') or decision.get('rationale')
-  if not isinstance(reason,str):reason='\n'.join(string_list(report.get('evidence'))) or report.get('blocker') or None
-  entry=assignment_snapshot(decision.get('current_task'),'recorded decision',decision.get('at'),reason)
-  next_stage=decision.get('next_stage') if isinstance(decision.get('next_stage'),str) else None
-  if entry:
-   entry['next_stage']=next_stage
-   if not entry['next_role'] and next_stage in ('astra','terra','sol'):entry['next_role']=next_stage
-   add(entry)
-  plan=string_list(decision.get('plan')) or string_list(report.get('plan'))
-  if plan or isinstance(report.get('status'),str) or isinstance(reason,str):
-   decisions.append({'timestamp':decision.get('at') if isinstance(decision.get('at'),str) else None,
-    'iteration':decision.get('iteration') if type(decision.get('iteration')) is int else None,
-    'brief_revision':report.get('contract_revision') if type(report.get('contract_revision')) is int else None,
-    'status':report.get('status') if isinstance(report.get('status'),str) else None,
-    'plan':plan,'reason':reason if isinstance(reason,str) else None,'next_stage':next_stage})
- current=add(assignment_snapshot(s.get('current_task'),'current assignment'))
- history.sort(key=lambda entry:(entry['timestamp'] is None,entry['timestamp'] or ''))
- decisions.sort(key=lambda entry:(entry['timestamp'] is None,entry['timestamp'] or ''))
- contract=obj(s.get('goal_contract'));briefs=[];seen=set();approved_tokens=set()
- for raw in items(s.get('user_events')):
-  event=obj(raw)
-  if event.get('kind')=='goal_approval' and isinstance(event.get('token'),str):approved_tokens.add(event['token'])
- for raw in items(s.get('contract_history'))+[contract]:
-  value=obj(raw);body=obj(value.get('body'))
-  if not body:continue
-  revision=value.get('revision') if type(value.get('revision')) is int else None
-  contract_hash=value.get('hash') if isinstance(value.get('hash'),str) else None
-  key=(revision,contract_hash or json.dumps(body,sort_keys=True))
-  if key in seen:continue
-  seen.add(key)
-  token='r'+str(revision)+':'+contract_hash if revision is not None and contract_hash is not None else None
-  briefs.append({'revision':revision,'approval_status':value.get('approval_status') if isinstance(value.get('approval_status'),str) else 'unavailable',
-   'timestamp':obj(value.get('approval_event')).get('at') or value.get('created_at'),
-   'current':value is contract,'historically_approved':token in approved_tokens if token else False,'body':body})
- briefs.sort(key=lambda value:(value['revision'] is None,value['revision'] or 0))
- initial=string_list(s.get('initial_plan'));initial_status=s.get('initial_plan_approval') if isinstance(s.get('initial_plan_approval'),str) else None
- if not initial:
-  approved=next((brief for brief in briefs if brief['historically_approved']),None)
-  if approved:
-   initial=[milestone['objective'] for milestone in items(approved['body'].get('milestones')) if isinstance(milestone,dict) and isinstance(milestone.get('objective'),str)]
-   initial=initial or string_list(approved['body'].get('technical_approach'))
-   initial_status='historically approved/inactive' if not approved['current'] and approved['approval_status']!='approved' else 'approved'
- if not initial:
-  for raw in items(s.get('contract_history')):
-   value=obj(raw);plan=string_list(value.get('plan'))
-   if plan:initial=plan;initial_status=value.get('approval_status') if isinstance(value.get('approval_status'),str) else None;break
- if not initial:
-  first=next((decision for decision in decisions if decision['plan']),None)
-  if first:initial=first['plan'];initial_status=None
- revisions=[]
- for raw in items(s.get('contract_history')):
-  value=obj(raw);approval=value.get('approval_status') if isinstance(value.get('approval_status'),str) else None
-  revision=value.get('revision') if type(value.get('revision')) is int else None
-  at=value.get('created_at') if isinstance(value.get('created_at'),str) else obj(value.get('approval_event')).get('at')
-  contract_hash=value.get('hash') if isinstance(value.get('hash'),str) else None
-  token='r'+str(revision)+':'+contract_hash if revision is not None and contract_hash is not None else None
-  if approval is not None or revision is not None or isinstance(at,str):revisions.append({'revision':revision,'approval_status':approval,'historically_approved':token in approved_tokens if token else False,'timestamp':at if isinstance(at,str) else None})
- return {'initial_plan':initial,'initial_plan_approval':initial_status,'current_plan':string_list(s.get('plan')),
-  'current_plan_approval':contract.get('approval_status') if isinstance(contract.get('approval_status'),str) else None,
-  'current_assignment':current,'history':history,'briefs':briefs,'decisions':decisions,'revision_history':revisions}
-class LegacyConsole:
- require_human_response=staticmethod(require_human_response)
- def __init__(self,workspaces,runner,zai_probe=configured_zai,watch_roots=(),watch_depth=3,watch_ttl=4.0,catalogue_command=('opencode','models'),run_provider='opencode'):
-  self.run_provider=run_provider
-  if run_provider=='opencode':self.catalogue=ModelCatalogue(catalogue_command)
-  else:self.catalogue=ModelCatalogue(lister=provider_registry().resolve(run_provider).list_models,provider=run_provider)
-  self.explicit=list(dict.fromkeys(Path(x).resolve() for x in workspaces));self._explicit_set=set(self.explicit);self.created_workspaces=[];self.runner=str(Path(runner).resolve());self.zai_probe=zai_probe;self.actions={};self.pending=set();self.workspace_busy=set();self.lock=threading.Lock();self.cli_watch_roots=list(dict.fromkeys(Path(x).resolve() for x in watch_roots));self.runtime_watch_roots=[];self.watch_depth=max(0,int(watch_depth));self.watch_ttl=max(0.0,float(watch_ttl));self.scan_lock=threading.Lock();self.discovery_cache={};self.pool=ThreadPoolExecutor(max_workers=max(4,len(self.explicit)))
- @property
- def watch_roots(self):return self.cli_watch_roots+self.runtime_watch_roots
- def watch_root_rows(self):
-  return [{'path':str(root),'runtime':root in self.runtime_watch_roots,'removable':root in self.runtime_watch_roots} for root in self.watch_roots]
- def add_runtime_watch_root(self,raw):
-  if not isinstance(raw,str) or not raw.strip():raise ValueError('Watch root path is required')
-  try:root=Path(raw).expanduser().resolve(strict=True)
-  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory') from None
-  if not root.is_dir():raise ValueError('Watch root must be an existing directory')
-  with self.scan_lock:
-   if root in self.cli_watch_roots or root in self.runtime_watch_roots:raise ValueError('Watch root is already configured')
-   self.runtime_watch_roots.append(root);self.discovery_cache.pop(str(root),None)
-  return root
- def remove_runtime_watch_root(self,raw):
-  if not isinstance(raw,str):raise ValueError('Watch root path is required')
-  try:root=Path(raw).expanduser().resolve(strict=False)
-  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root') from None
-  with self.scan_lock:
-   if root in self.cli_watch_roots:raise ValueError('CLI watch roots cannot be removed at runtime')
-   if root not in self.runtime_watch_roots:raise ValueError('Watch root is not a removable runtime root')
-   self.runtime_watch_roots.remove(root);self.discovery_cache.pop(str(root),None)
-  return root
- @property
- def workspaces(self):
-  found=self._discovered();ws=list(self.explicit)+list(self.created_workspaces)
-  for w in sorted(found,key=str):
-   if w not in ws:ws.append(w)
-  return list(dict.fromkeys(ws))
- def _refresh_discovery(self):
-  now=time.time();entries=[]
-  for root in self.watch_roots:
-   e=self.discovery_cache.get(str(root))
-   if e is None or now-e['at']>=self.watch_ttl:
-    found,error=self._scan_watch_root(root);e={'at':now,'found':found,'error':error};self.discovery_cache[str(root)]=e
-   entries.append((root,e))
-  return entries
- def _discovered(self):
-  with self.scan_lock:
-   found=set()
-   for _,e in self._refresh_discovery():found|=e['found']
-   return found
- def root_error_rows(self):
-  with self.scan_lock:return [{'workspace':str(root),'error':e['error']} for root,e in self._refresh_discovery() if e['error']]
- def _scan_watch_root(self,root):
-  found=set()
-  try:
-   # A Git repository is a discovery boundary. Descending into repositories
-   # makes a broad watch root walk dependency trees, build output and every
-   # saved Autocode artifact on each cache refresh.
-   if (root/'.git').exists():
-    if (root/'.autocode/runs').is_dir():found.add(root)
-    return found,None
-   stack=[(root,0)]
-   while stack:
-    base,level=stack.pop()
-    try:entries=list(os.scandir(base))
-    except OSError as e:
-     if level==0:return found,'watch root unavailable: '+str(e)
-     continue
-    for entry in entries:
-     if entry.name in ('.git','.autocode','node_modules','.next','.venv','venv','__pycache__') or level>=self.watch_depth:continue
-     try:
-      isdir=entry.is_dir(follow_symlinks=False);resolved=Path(entry.path).resolve();resolved.relative_to(root)
-      if (resolved/'.git').exists():
-       if (resolved/'.autocode/runs').is_dir():found.add(resolved)
-       continue
-      if isdir:stack.append((Path(entry.path),level+1))
-     except (OSError,ValueError):continue
-  except OSError as e:return found,'watch root unavailable: '+str(e)
-  return found,None
- def workspace_for(self,raw):
-  try:p=Path(raw).resolve(strict=True)
-  except (OSError,ValueError):return None
-  return p if p in self.workspaces and p.is_dir() and (p/'.git').exists() else None
- def selected_workspace(self,raw):
-  if not isinstance(raw,str) or not raw.strip():return None
-  try:p=Path(raw).expanduser().resolve(strict=True)
-  except (OSError,ValueError):return None
-  return p if p.is_dir() and (p/'.git').exists() else None
- def run_for(self,ws,raw):
-  if not ws or not isinstance(raw,str):return None
-  try:r=Path(raw).resolve(strict=True);root=(ws/'.autocode/runs').resolve(strict=True);root.relative_to(ws);r.relative_to(root);(r/'state.json').resolve(strict=True).relative_to(root)
-  except (OSError,ValueError):return None
-  return r if r.is_dir() and (r/'state.json').is_file() else None
- def view(self,ws,run,s=None):
-  s=obj(s) if s is not None else json_file(run/'state.json');contract=obj(s.get('goal_contract'));body=obj(contract.get('body'));criteria=items(body.get('acceptance_criteria')) or items(s.get('acceptance_criteria'));result={str(x.get('id')):str(x.get('status','unknown')).lower() for x in items(obj(s.get('validation')).get('criterion_results')) if isinstance(x,dict)};counts={'pass':0,'fail':0,'unknown':0}
-  for c in criteria:
-   status=result.get(str(obj(c).get('id')),'unknown');counts['pass' if status in ('pass','verified') else 'fail' if status in ('fail','blocked') else 'unknown']+=1
-  public=resolver_human.projection(s);active=obj(s.get('active_stage'));questions,request=public['pending_questions'],public['user_request'] or None
-  check=obj(s.get('active_runner_check'))
-  if check:s={**s,'stage':check.get('summary') or check.get('stage')}
-  return {**public,'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'completed_at':s.get('completed_at') if isinstance(s.get('completed_at'),str) else None,'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':questions,'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'progress_messages':items(s.get('progress_messages')),'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':request,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'reasoning_escalations':items(s.get('reasoning_escalations')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
- def discover(self):
-  rows=self.root_error_rows()
-  for ws in self.workspaces:
-   root=ws/'.autocode/runs'
-   try:children=list(root.iterdir()) if root.is_dir() else []
-   except OSError as e:rows.append({'workspace':str(ws),'error':'runs unavailable: '+str(e)});continue
-   for p in children:
-    if not p.is_dir():continue
-    run=self.run_for(ws,str(p))
-    if not run:rows.append({'workspace':str(ws),'run':str(p),'error':'run escapes watched workspace or state is unavailable'});continue
-    s=json_file(run/'state.json');rows.append({'workspace':str(ws),'run':str(run),'error':'state unavailable: '+s['_console_error']} if '_console_error' in s else self.view(ws,run,s))
-  return rows
- def _record(self,key,label,cmd):
-  x={'id':uuid.uuid4().hex,'label':label,'command':cmd,'queued_at':time.time(),'status':'queued'}
-  with self.lock:self.actions.setdefault(key,[]).append(x)
-  return x
- def enqueue(self,ws,run,label,extra,on_complete=None):
-  isolated=run is None
-  key=str(run) if run else str(ws)+':new:'+uuid.uuid4().hex
-  with self.lock:
-   if key in self.pending or (not isolated and str(ws) in self.workspace_busy):raise ValueError('A run or workspace action is already queued or running')
-   self.pending.add(key)
-   if not isolated:self.workspace_busy.add(str(ws))
-  cmd=[sys.executable,self.runner,'--workspace',str(ws)]+(['--run-dir',str(run)] if run else [])+list(extra);x=self._record(str(run or ws),label,cmd);x['isolated_task']=isolated;self.pool.submit(self._execute,key,str(ws),x,on_complete);return x
- def _execute(self,key,ws,x,on_complete=None):
-  x['status']='running';x['started_at']=time.time()
-  try:
-   # A dashboard restart must not disconnect the runner's output or kill its
-   # process group. Full logs live beside the workspace's runner metadata;
-   # only bounded tails are copied into the dashboard response.
-   logs=Path(ws)/'.autocode'/'dashboard-actions'/x['id'];logs.mkdir(parents=True,mode=0o700)
-   out_path,err_path=logs/'stdout.log',logs/'stderr.log'
-   x.update(stdout_path=str(out_path),stderr_path=str(err_path))
-   with out_path.open('xb') as out,err_path.open('xb') as err:
-    os.chmod(out_path,0o600);os.chmod(err_path,0o600)
-    p=subprocess.Popen(x['command'],stdin=subprocess.DEVNULL,stdout=out,stderr=err,start_new_session=True)
-    x['pid']=p.pid
-    (logs/'action.json').write_text(json.dumps(x),encoding='utf8')
-    code=p.wait()
-   def tail(path):
-    with path.open('rb') as handle:
-     handle.seek(0,os.SEEK_END);size=handle.tell();handle.seek(max(0,size-131072))
-     return ('[Earlier output is in the saved log]\n' if size>131072 else '')+handle.read().decode('utf8',errors='replace')
-   x.update(stdout=tail(out_path),stderr=tail(err_path),exit_status=code,status='finished' if code==0 else 'failed')
-  except Exception as e:x.update(stdout='',stderr=str(e),exit_status=None,status='launch_failed',uncertain=True)
-  finally:
-   x['finished_at']=time.time()
-   with self.lock:
-    self.pending.discard(key)
-    if not x.get('isolated_task'):self.workspace_busy.discard(ws)
-  if on_complete:
-   try:on_complete(x)
-   except Exception as error:x['callback_error']=str(error)
- def action_log(self,ws,run=None):
-  try:key=str(Path(run or ws).resolve())
-  except OSError:key=str(run or ws)
-  return list(self.actions.get(key,[]))
- def joint_models(self,d,*,catalogue=None,check_catalogue=True):
-  catalogue_source=catalogue or self.catalogue;provider=catalogue_source.provider
-  explicit={role:d.get(role+'_model','') for role in ('glm','plan_reviewer','astra','terra','sol','completion')}
-  if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Model choices must be strings')
-  chosen={role:value for role,value in explicit.items() if value}
-  if provider!='opencode':
-   if any(any(c.isspace() for c in value) for value in chosen.values()):raise ValueError('Model names cannot contain whitespace')
-   if chosen and check_catalogue:
-    catalogue=catalogue_source.fetch()
-    if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')
-    for value in chosen.values():
-     if value not in catalogue['models']:raise ValueError('Choose a current model from the '+provider+' catalogue')
-   return chosen
-  # Retain bare OpenAI aliases in older conversations. The runner expands them
-  # to openai/model on OpenCode; they never select a separate Codex login.
-  opencode_choices={role:value for role,value in chosen.items()
-                    if not (role in OPENAI_ALIAS_ROLES and value in BARE_OPENAI_ALIASES)}
-  for role,value in opencode_choices.items():
-   if not MODEL_ID.fullmatch(value):raise ValueError(role.title()+' requires an OpenCode provider/model identifier')
-  if opencode_choices and check_catalogue:
-   catalogue=catalogue_source.fetch()
-   if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')
-   for value in opencode_choices.values():
-    if value not in catalogue['models']:raise ValueError('Choose a current provider/model identifier from the catalogue')
-  return chosen
- def joint_efforts(self,d):
-  explicit={role:d.get(role+'_reasoning_effort','') for role in ('plan_reviewer','astra','terra','sol','completion')}
-  if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Reasoning choices must be strings')
-  if any(value and value not in REASONING_EFFORTS for value in explicit.values()):raise ValueError('Choose a supported reasoning level')
-  return {role:value for role,value in explicit.items() if value}
- def confirm_model_replacement(self,d,ws,run,v):
-  role=d.get('role');model=d.get('model');request_id=d.get('request_id')
-  roles=obj(obj(v.get('model_settings')).get('roles'))
-  if not isinstance(role,str) or role not in roles or not isinstance(roles.get(role),str):raise ValueError('Choose a saved role with a recorded model')
-  if not isinstance(model,str) or not model.strip():raise ValueError('Choose a replacement model')
-  if not isinstance(request_id,str) or not request_id.strip():raise ValueError('A replacement request ID is required')
-  if model==roles[role]:raise ValueError('Choose a model different from the saved model')
-  if v.get('active_stage'):raise ValueError('Wait for the current model step to finish before replacing a model')
-  if v.get('status')=='TASK_COMPLETE':raise ValueError('Completed task configuration is read-only')
-  engine=obj(v.get('model_settings')).get('engine')
-  if engine=='opencode':
-   selected=self.joint_models({role+'_model':model}).get(role)
-  else:
-   if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]*',model):raise ValueError('Choose a bare Codex model name')
-   selected=model
-  action=self.enqueue(ws,run,'Confirm model replacement for '+role,['--'+role.replace('_','-')+'-model',selected,'--show-goal','--no-chat'])
-  action['request_id']=request_id
-  return action
- def create(self,d):
-  raw=d.get('project') if isinstance(d.get('project'),str) and d.get('project').strip() else d.get('workspace','');ws=self.selected_workspace(raw);goal=d.get('goal','');engine=d.get('engine','opencode')
-  if not ws:raise ValueError('Select or enter an existing Git workspace')
-  if not isinstance(goal,str) or not goal.strip():raise ValueError('A non-empty goal is required')
-  if engine not in ('opencode','codex'):raise ValueError('Unsupported engine')
-  if ws not in self.created_workspaces and ws not in self.explicit:self.created_workspaces.append(ws)
-  if engine=='opencode':
-   provider='opencode' if d.get('conversation_handoff') else self.run_provider
-   chosen=self.conversation_models(d) if d.get('conversation_handoff') else self.joint_models(d);efforts=self.joint_efforts(d)
-   extra=[goal,'--engine','opencode','--provider',provider,'--joint-planning','--no-chat']
-   if d.get('conversation_handoff'):
-    handoff=Path(d['conversation_handoff']).resolve()
-    if not handoff.is_relative_to(ws/'.autocode/conversation-handoffs'):raise ValueError('Conversation handoff must be staged in the selected project')
-    extra+=['--conversation-handoff',str(handoff)]
-   for role,value in chosen.items():extra+=['--'+role.replace('_','-')+'-model',value]
-   for role,value in efforts.items():extra+=['--'+role.replace('_','-')+'-reasoning-effort',value]
-   return self.enqueue(ws,None,'Create OpenCode task' if provider=='opencode' else 'Create '+provider+' task',extra)
-  if d.get('glm_model'):raise ValueError('Planner discovery requires the default joint-planning engine')
-  models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
-  for r,m in models.items():
-   if not isinstance(m,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]*',m):raise ValueError('Choose a bare Codex model name')
-   if m==GLM_MODELS[r] and not provider:raise ValueError('Z.ai is not configured in local Codex')
-  efforts={**DEFAULT_REASONING_EFFORTS,**self.joint_efforts(d)}
-  extra=[goal,'--engine','codex','--no-chat']
-  for role,model in models.items():extra+=['--'+role+'-model',model]
-  for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
-  for r,m in models.items():
-   if m==GLM_MODELS[r]:extra+=['--'+r+'-provider',provider]
-  return self.enqueue(ws,None,'Create Codex task',extra)
- def mutate(self,d):
-  ws=self.workspace_for(d.get('workspace',''));run=self.run_for(ws,d.get('run',''))
-  if not run:raise ValueError('Run does not belong to the selected watched workspace')
-  v=self.view(ws,run);action=d.get('action');pending={str(obj(q).get('id')) for q in v['questions']}
-  if action=='resolver_response':
-   public=require_human_response(v,d,('operational_exhaustion','blocker'))
-   response,text=d.get('resolver_response'),d.get('resolver_message','')
-   if (response not in ('provide_information','leave_paused') or not isinstance(text,str)
-       or len(text)>16000 or (response=='provide_information' and not text.strip())):
-    raise ValueError('Provide corrective information or leave the task paused')
-   extra=['--resolver-request',public['request_id'],'--resolver-token',public['request_token'],'--resolver-response',response]
-   if text:extra+=['--resolver-message',text]
-   return self.enqueue(ws,run,'Respond to Resolver',extra+['--no-chat'])
-  if action=='answer':
-   public=require_human_response(v,d,('clarification','permission','goal_change'))
-   ident,text=str(d.get('id','')),d.get('text','')
-   if ident not in pending or not isinstance(text,str) or not text.strip():raise ValueError('Question is not currently pending')
-   return self.enqueue(ws,run,'Answer '+ident,['--answer',ident+'='+text,'--resolver-token',public['request_token']])
-  if action=='delegate':
-   public=require_human_response(v,d,('clarification','permission','goal_change'))
-   ident=str(d.get('id',''))
-   if ident not in pending:raise ValueError('Question is not currently pending')
-   return self.enqueue(ws,run,'Delegate '+ident,['--delegate',ident,'--resolver-token',public['request_token']])
-  if action=='approve_goal':
-   require_human_response(v,d,('goal_approval',))
-   token=d.get('token','')
-   if not isinstance(token,str) or not token or token!=v['goal_token'] or token!=f"r{v['goal'].get('revision')}:{v['goal'].get('hash')}" or d.get('confirmation')!=token:raise ValueError('Displayed goal token changed or confirmation does not match')
-   return self.enqueue(ws,run,'Approve goal',['--approve-goal',token])
-  if action=='approve_review':
-   public=require_human_response(v,d,('human_review',))
-   ident,token=str(d.get('id','')),d.get('token','')
-   if ident not in public['request'].get('criteria',[]) or ident not in {str(c.get('id')) for c in v['review_criteria']} or not isinstance(token,str) or not token or token!=v['review_token']:raise ValueError('Displayed review token changed or criterion is not eligible')
-   return self.enqueue(ws,run,'Approve review '+ident,['--approve-review',ident,'--review-token',token])
-  if action=='set_reasoning':
-   efforts=self.joint_efforts(d)
-   if not efforts:raise ValueError('Choose at least one reasoning level')
-   if v.get('active_stage'):raise ValueError('Wait for the current model step to finish before changing reasoning')
-   extra=[]
-   for role,value in efforts.items():extra+=['--'+role.replace('_','-')+'-reasoning-effort',value]
-   return self.enqueue(ws,run,'Save reasoning settings',extra+['--show-goal','--no-chat'])
-  if action=='set_model':return self.confirm_model_replacement(d,ws,run,v)
-  if action=='continue':
-   expected=d.get('expected_goal_token')
-   if expected is not None and (not isinstance(expected,str) or not expected or expected!=approved_goal_token(v) or v.get('goal_token') not in (None,'',expected) or d.get('token')!=expected or d.get('confirmation')!=expected or obj(obj(v.get('conversation')).get('plan_gate')).get('pending_product_change')):raise ValueError('The approved plan changed. Reload before building.')
-   return self.enqueue(ws,run,'Continue',['--expected-goal-token',expected] if expected is not None else [])
-  raise ValueError('Unknown action')
-try:
- from .dashboard_backend import RegistryInterventionMixin, approved_goal_token
- from .dashboard_chat import ConversationMixin
- from .dashboard_checkpoints import CheckpointMixin
- from .dashboard_delete import PermanentDeleteMixin
- from .dashboard_evidence import stage_evidence
- from .dashboard_project_controls import ProjectRemovalMixin
- from .dashboard_recovery import RecoveryActionsMixin
- from .dashboard_setup import SetupMixin
- from .dashboard_tasks import TaskArchiveMixin
-except ImportError:  # Support running this file directly from a source checkout.
- from dashboard_backend import RegistryInterventionMixin, approved_goal_token
- from dashboard_chat import ConversationMixin
- from dashboard_checkpoints import CheckpointMixin
- from dashboard_delete import PermanentDeleteMixin
- from dashboard_evidence import stage_evidence
- from dashboard_project_controls import ProjectRemovalMixin
- from dashboard_recovery import RecoveryActionsMixin
- from dashboard_setup import SetupMixin
- from dashboard_tasks import TaskArchiveMixin
+            return {
+                "models": list(self.models or []),
+                "usable": bool(self.models) and not self.error and not self.loading,
+                "loading": self.loading,
+                "error": self.error,
+                "provider": self.provider,
+            }
 
-class Console(CheckpointMixin, SetupMixin, PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
- def model_catalogue(self,refresh=False):
-  result=self.catalogue.fetch(refresh=refresh)
-  conversations=result if self.run_provider=='opencode' else self.conversation_catalogue.fetch(refresh=refresh)
-  return {**result,**conversation_model_fields(),'conversation_catalogue':conversations,
-          'conversation_readiness':self.conversation_model_readiness({},catalogue=conversations,refresh_transport=refresh),
-          'conversation_provider':'opencode'}
+
+def assignment_snapshot(raw, source, at=None, reason=None):
+    raw = obj(raw)
+    if not raw:
+        return None
+    snapshot = {
+        "source": source,
+        "id": raw.get("id") if isinstance(raw.get("id"), str) else None,
+        "objective": raw.get("objective") if isinstance(raw.get("objective"), str) else None,
+        "requirements": string_list(raw.get("requirements")),
+        "validation_plan": string_list(raw.get("validation_plan")),
+        "owner": raw.get("owner")
+        if isinstance(raw.get("owner"), str)
+        else raw.get("assigned_role")
+        if isinstance(raw.get("assigned_role"), str)
+        else None,
+        "next_role": raw.get("next_role") if isinstance(raw.get("next_role"), str) else None,
+        "timestamp": raw.get("assigned_at")
+        if isinstance(raw.get("assigned_at"), str)
+        else at
+        if isinstance(at, str)
+        else None,
+        "brief_revision": raw.get("contract_revision") if type(raw.get("contract_revision")) is int else None,
+        "decision": raw.get("decision") if isinstance(raw.get("decision"), str) else None,
+        "reason": reason
+        if isinstance(reason, str)
+        else raw.get("reason")
+        if isinstance(raw.get("reason"), str)
+        else raw.get("rationale")
+        if isinstance(raw.get("rationale"), str)
+        else None,
+    }
+    return (
+        snapshot
+        if any(
+            snapshot[k] is not None for k in ("id", "objective", "timestamp", "brief_revision", "decision", "reason")
+        )
+        or snapshot["requirements"]
+        or snapshot["validation_plan"]
+        else None
+    )
+
+
+def astra_plan_state(s):
+    s = obj(s)
+    history = []
+    by_identity = {}
+    decisions = []
+
+    def add(entry):
+        if not entry:
+            return None
+        # Assignment and review timestamps are distinct; they do not identify a task.
+        key = (
+            ("task", entry["id"], entry["brief_revision"])
+            if entry["id"]
+            else ("legacy", json.dumps(entry, sort_keys=True))
+        )
+        if key not in by_identity:
+            by_identity[key] = entry
+            history.append(entry)
+        else:
+            existing = by_identity[key]
+            for field, value in entry.items():
+                if (
+                    value is not None
+                    and value != []
+                    and (not existing.get(field) or field in ("source", "next_role", "next_stage", "reason"))
+                ):
+                    existing[field] = value
+        return by_identity[key]
+
+    for raw in items(s.get("task_archive")):
+        add(assignment_snapshot(raw, "archived assignment"))
+    for raw in items(s.get("decisions")):
+        decision = obj(raw)
+        report = obj(decision.get("report"))
+        reason = decision.get("reason") or decision.get("rationale")
+        if not isinstance(reason, str):
+            reason = "\n".join(string_list(report.get("evidence"))) or report.get("blocker") or None
+        entry = assignment_snapshot(decision.get("current_task"), "recorded decision", decision.get("at"), reason)
+        next_stage = decision.get("next_stage") if isinstance(decision.get("next_stage"), str) else None
+        if entry:
+            entry["next_stage"] = next_stage
+            if not entry["next_role"] and next_stage in ("astra", "terra", "sol"):
+                entry["next_role"] = next_stage
+            add(entry)
+        plan = string_list(decision.get("plan")) or string_list(report.get("plan"))
+        if plan or isinstance(report.get("status"), str) or isinstance(reason, str):
+            decisions.append(
+                {
+                    "timestamp": decision.get("at") if isinstance(decision.get("at"), str) else None,
+                    "iteration": decision.get("iteration") if type(decision.get("iteration")) is int else None,
+                    "brief_revision": report.get("contract_revision")
+                    if type(report.get("contract_revision")) is int
+                    else None,
+                    "status": report.get("status") if isinstance(report.get("status"), str) else None,
+                    "plan": plan,
+                    "reason": reason if isinstance(reason, str) else None,
+                    "next_stage": next_stage,
+                }
+            )
+    current = add(assignment_snapshot(s.get("current_task"), "current assignment"))
+    history.sort(key=lambda entry: (entry["timestamp"] is None, entry["timestamp"] or ""))
+    decisions.sort(key=lambda entry: (entry["timestamp"] is None, entry["timestamp"] or ""))
+    contract = obj(s.get("goal_contract"))
+    briefs = []
+    seen = set()
+    approved_tokens = set()
+    for raw in items(s.get("user_events")):
+        event = obj(raw)
+        if event.get("kind") == "goal_approval" and isinstance(event.get("token"), str):
+            approved_tokens.add(event["token"])
+    for raw in items(s.get("contract_history")) + [contract]:
+        value = obj(raw)
+        body = obj(value.get("body"))
+        if not body:
+            continue
+        revision = value.get("revision") if type(value.get("revision")) is int else None
+        contract_hash = value.get("hash") if isinstance(value.get("hash"), str) else None
+        key = (revision, contract_hash or json.dumps(body, sort_keys=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        token = (
+            "r" + str(revision) + ":" + contract_hash if revision is not None and contract_hash is not None else None
+        )
+        briefs.append(
+            {
+                "revision": revision,
+                "approval_status": value.get("approval_status")
+                if isinstance(value.get("approval_status"), str)
+                else "unavailable",
+                "timestamp": obj(value.get("approval_event")).get("at") or value.get("created_at"),
+                "current": value is contract,
+                "historically_approved": token in approved_tokens if token else False,
+                "body": body,
+            }
+        )
+    briefs.sort(key=lambda value: (value["revision"] is None, value["revision"] or 0))
+    initial = string_list(s.get("initial_plan"))
+    initial_status = s.get("initial_plan_approval") if isinstance(s.get("initial_plan_approval"), str) else None
+    if not initial:
+        approved = next((brief for brief in briefs if brief["historically_approved"]), None)
+        if approved:
+            initial = [
+                milestone["objective"]
+                for milestone in items(approved["body"].get("milestones"))
+                if isinstance(milestone, dict) and isinstance(milestone.get("objective"), str)
+            ]
+            initial = initial or string_list(approved["body"].get("technical_approach"))
+            initial_status = (
+                "historically approved/inactive"
+                if not approved["current"] and approved["approval_status"] != "approved"
+                else "approved"
+            )
+    if not initial:
+        for raw in items(s.get("contract_history")):
+            value = obj(raw)
+            plan = string_list(value.get("plan"))
+            if plan:
+                initial = plan
+                initial_status = value.get("approval_status") if isinstance(value.get("approval_status"), str) else None
+                break
+    if not initial:
+        first = next((decision for decision in decisions if decision["plan"]), None)
+        if first:
+            initial = first["plan"]
+            initial_status = None
+    revisions = []
+    for raw in items(s.get("contract_history")):
+        value = obj(raw)
+        approval = value.get("approval_status") if isinstance(value.get("approval_status"), str) else None
+        revision = value.get("revision") if type(value.get("revision")) is int else None
+        at = (
+            value.get("created_at")
+            if isinstance(value.get("created_at"), str)
+            else obj(value.get("approval_event")).get("at")
+        )
+        contract_hash = value.get("hash") if isinstance(value.get("hash"), str) else None
+        token = (
+            "r" + str(revision) + ":" + contract_hash if revision is not None and contract_hash is not None else None
+        )
+        if approval is not None or revision is not None or isinstance(at, str):
+            revisions.append(
+                {
+                    "revision": revision,
+                    "approval_status": approval,
+                    "historically_approved": token in approved_tokens if token else False,
+                    "timestamp": at if isinstance(at, str) else None,
+                }
+            )
+    return {
+        "initial_plan": initial,
+        "initial_plan_approval": initial_status,
+        "current_plan": string_list(s.get("plan")),
+        "current_plan_approval": contract.get("approval_status")
+        if isinstance(contract.get("approval_status"), str)
+        else None,
+        "current_assignment": current,
+        "history": history,
+        "briefs": briefs,
+        "decisions": decisions,
+        "revision_history": revisions,
+    }
+
+
+class LegacyConsole:
+    require_human_response = staticmethod(require_human_response)
+
+    def __init__(
+        self,
+        workspaces,
+        runner,
+        zai_probe=configured_zai,
+        watch_roots=(),
+        watch_depth=3,
+        watch_ttl=4.0,
+        catalogue_command=("opencode", "models"),
+        run_provider="opencode",
+    ):
+        self.run_provider = run_provider
+        if run_provider == "opencode":
+            self.catalogue = ModelCatalogue(catalogue_command)
+        else:
+            self.catalogue = ModelCatalogue(
+                lister=provider_registry().resolve(run_provider).list_models, provider=run_provider
+            )
+        self.explicit = list(dict.fromkeys(Path(x).resolve() for x in workspaces))
+        self._explicit_set = set(self.explicit)
+        self.created_workspaces = []
+        self.runner = str(Path(runner).resolve())
+        self.zai_probe = zai_probe
+        self.actions = {}
+        self.pending = set()
+        self.workspace_busy = set()
+        self.lock = threading.Lock()
+        self.cli_watch_roots = list(dict.fromkeys(Path(x).resolve() for x in watch_roots))
+        self.runtime_watch_roots = []
+        self.watch_depth = max(0, int(watch_depth))
+        self.watch_ttl = max(0.0, float(watch_ttl))
+        self.scan_lock = threading.Lock()
+        self.discovery_cache = {}
+        self.pool = ThreadPoolExecutor(max_workers=max(4, len(self.explicit)))
+
+    @property
+    def watch_roots(self):
+        return self.cli_watch_roots + self.runtime_watch_roots
+
+    def watch_root_rows(self):
+        return [
+            {
+                "path": str(root),
+                "runtime": root in self.runtime_watch_roots,
+                "removable": root in self.runtime_watch_roots,
+            }
+            for root in self.watch_roots
+        ]
+
+    def add_runtime_watch_root(self, raw):
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError("Watch root path is required")
+        try:
+            root = Path(raw).expanduser().resolve(strict=True)
+        except (OSError, ValueError):
+            raise ValueError("Watch root must be an existing directory") from None
+        if not root.is_dir():
+            raise ValueError("Watch root must be an existing directory")
+        with self.scan_lock:
+            if root in self.cli_watch_roots or root in self.runtime_watch_roots:
+                raise ValueError("Watch root is already configured")
+            self.runtime_watch_roots.append(root)
+            self.discovery_cache.pop(str(root), None)
+        return root
+
+    def remove_runtime_watch_root(self, raw):
+        if not isinstance(raw, str):
+            raise ValueError("Watch root path is required")
+        try:
+            root = Path(raw).expanduser().resolve(strict=False)
+        except (OSError, ValueError):
+            raise ValueError("Watch root is not a removable runtime root") from None
+        with self.scan_lock:
+            if root in self.cli_watch_roots:
+                raise ValueError("CLI watch roots cannot be removed at runtime")
+            if root not in self.runtime_watch_roots:
+                raise ValueError("Watch root is not a removable runtime root")
+            self.runtime_watch_roots.remove(root)
+            self.discovery_cache.pop(str(root), None)
+        return root
+
+    @property
+    def workspaces(self):
+        found = self._discovered()
+        ws = list(self.explicit) + list(self.created_workspaces)
+        for w in sorted(found, key=str):
+            if w not in ws:
+                ws.append(w)
+        return list(dict.fromkeys(ws))
+
+    def _refresh_discovery(self):
+        now = time.time()
+        entries = []
+        for root in self.watch_roots:
+            e = self.discovery_cache.get(str(root))
+            if e is None or now - e["at"] >= self.watch_ttl:
+                found, error = self._scan_watch_root(root)
+                e = {"at": now, "found": found, "error": error}
+                self.discovery_cache[str(root)] = e
+            entries.append((root, e))
+        return entries
+
+    def _discovered(self):
+        with self.scan_lock:
+            found = set()
+            for _, e in self._refresh_discovery():
+                found |= e["found"]
+            return found
+
+    def root_error_rows(self):
+        with self.scan_lock:
+            return [
+                {"workspace": str(root), "error": e["error"]} for root, e in self._refresh_discovery() if e["error"]
+            ]
+
+    def _scan_watch_root(self, root):
+        found = set()
+        try:
+            # A Git repository is a discovery boundary. Descending into repositories
+            # makes a broad watch root walk dependency trees, build output and every
+            # saved Autocode artifact on each cache refresh.
+            if (root / ".git").exists():
+                if (root / ".autocode/runs").is_dir():
+                    found.add(root)
+                return found, None
+            stack = [(root, 0)]
+            while stack:
+                base, level = stack.pop()
+                try:
+                    entries = list(os.scandir(base))
+                except OSError as e:
+                    if level == 0:
+                        return found, "watch root unavailable: " + str(e)
+                    continue
+                for entry in entries:
+                    if (
+                        entry.name in (".git", ".autocode", "node_modules", ".next", ".venv", "venv", "__pycache__")
+                        or level >= self.watch_depth
+                    ):
+                        continue
+                    try:
+                        isdir = entry.is_dir(follow_symlinks=False)
+                        resolved = Path(entry.path).resolve()
+                        resolved.relative_to(root)
+                        if (resolved / ".git").exists():
+                            if (resolved / ".autocode/runs").is_dir():
+                                found.add(resolved)
+                            continue
+                        if isdir:
+                            stack.append((Path(entry.path), level + 1))
+                    except (OSError, ValueError):
+                        continue
+        except OSError as e:
+            return found, "watch root unavailable: " + str(e)
+        return found, None
+
+    def workspace_for(self, raw):
+        try:
+            p = Path(raw).resolve(strict=True)
+        except (OSError, ValueError):
+            return None
+        return p if p in self.workspaces and p.is_dir() and (p / ".git").exists() else None
+
+    def selected_workspace(self, raw):
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        try:
+            p = Path(raw).expanduser().resolve(strict=True)
+        except (OSError, ValueError):
+            return None
+        return p if p.is_dir() and (p / ".git").exists() else None
+
+    def run_for(self, ws, raw):
+        if not ws or not isinstance(raw, str):
+            return None
+        try:
+            r = Path(raw).resolve(strict=True)
+            root = (ws / ".autocode/runs").resolve(strict=True)
+            root.relative_to(ws)
+            r.relative_to(root)
+            (r / "state.json").resolve(strict=True).relative_to(root)
+        except (OSError, ValueError):
+            return None
+        return r if r.is_dir() and (r / "state.json").is_file() else None
+
+    def view(self, ws, run, s=None):
+        s = obj(s) if s is not None else json_file(run / "state.json")
+        contract = obj(s.get("goal_contract"))
+        body = obj(contract.get("body"))
+        criteria = items(body.get("acceptance_criteria")) or items(s.get("acceptance_criteria"))
+        result = {
+            str(x.get("id")): str(x.get("status", "unknown")).lower()
+            for x in items(obj(s.get("validation")).get("criterion_results"))
+            if isinstance(x, dict)
+        }
+        counts = {"pass": 0, "fail": 0, "unknown": 0}
+        for c in criteria:
+            status = result.get(str(obj(c).get("id")), "unknown")
+            counts[
+                "pass" if status in ("pass", "verified") else "fail" if status in ("fail", "blocked") else "unknown"
+            ] += 1
+        public = resolver_human.projection(s)
+        active = obj(s.get("active_stage"))
+        questions, request = public["pending_questions"], public["user_request"] or None
+        check = obj(s.get("active_runner_check"))
+        if check:
+            s = {**s, "stage": check.get("summary") or check.get("stage")}
+        return {
+            **public,
+            "workspace": str(ws),
+            "project_workspace": s.get("project_workspace", str(ws)),
+            "task_branch": s.get("task_branch"),
+            "run": str(run),
+            "created_at": s.get("created_at"),
+            "task": s.get("task", "unavailable"),
+            "phase": s.get("phase", "unavailable"),
+            "status": s.get("status", "unavailable"),
+            "completed_at": s.get("completed_at") if isinstance(s.get("completed_at"), str) else None,
+            "stage": active.get("stage") or s.get("stage") or s.get("next_stage") or "unavailable",
+            "iteration": s.get("iteration", "unavailable"),
+            "state_error": s.get("_console_error"),
+            "stop_reason": s.get("stop_reason"),
+            "goal": contract,
+            "goal_token": s.get("displayed_goal") if isinstance(s.get("displayed_goal"), str) else "",
+            "criteria": criteria,
+            "counts": counts,
+            "questions": questions,
+            "answers": obj(s.get("answers")),
+            "discovery_summary": s.get("discovery_summary") if isinstance(s.get("discovery_summary"), str) else "",
+            "discovery_role": discovery_role(s),
+            "stages": [x for x in items(s.get("stages")) if isinstance(x, dict)],
+            "active_stage": active,
+            "progress_messages": items(s.get("progress_messages")),
+            "plan": items(s.get("plan")),
+            "astra_plan": astra_plan_state(s),
+            "user_request": request,
+            "review_token": s.get("displayed_review") if isinstance(s.get("displayed_review"), str) else "",
+            "review_criteria": [obj(c) for c in criteria if obj(c).get("human_review")],
+            "human_reviews": obj(s.get("human_reviews")),
+            "reasoning_escalations": items(s.get("reasoning_escalations")),
+            "zai": bool(self.zai_probe()),
+            "model_settings": saved_models(s),
+        }
+
+    def discover(self):
+        rows = self.root_error_rows()
+        for ws in self.workspaces:
+            root = ws / ".autocode/runs"
+            try:
+                children = list(root.iterdir()) if root.is_dir() else []
+            except OSError as e:
+                rows.append({"workspace": str(ws), "error": "runs unavailable: " + str(e)})
+                continue
+            for p in children:
+                if not p.is_dir():
+                    continue
+                run = self.run_for(ws, str(p))
+                if not run:
+                    rows.append(
+                        {
+                            "workspace": str(ws),
+                            "run": str(p),
+                            "error": "run escapes watched workspace or state is unavailable",
+                        }
+                    )
+                    continue
+                s = json_file(run / "state.json")
+                rows.append(
+                    {"workspace": str(ws), "run": str(run), "error": "state unavailable: " + s["_console_error"]}
+                    if "_console_error" in s
+                    else self.view(ws, run, s)
+                )
+        return rows
+
+    def _record(self, key, label, cmd):
+        x = {"id": uuid.uuid4().hex, "label": label, "command": cmd, "queued_at": time.time(), "status": "queued"}
+        with self.lock:
+            self.actions.setdefault(key, []).append(x)
+        return x
+
+    def enqueue(self, ws, run, label, extra, on_complete=None):
+        isolated = run is None
+        key = str(run) if run else str(ws) + ":new:" + uuid.uuid4().hex
+        with self.lock:
+            if key in self.pending or (not isolated and str(ws) in self.workspace_busy):
+                raise ValueError("A run or workspace action is already queued or running")
+            self.pending.add(key)
+            if not isolated:
+                self.workspace_busy.add(str(ws))
+        cmd = (
+            [sys.executable, self.runner, "--workspace", str(ws)]
+            + (["--run-dir", str(run)] if run else [])
+            + list(extra)
+        )
+        x = self._record(str(run or ws), label, cmd)
+        x["isolated_task"] = isolated
+        self.pool.submit(self._execute, key, str(ws), x, on_complete)
+        return x
+
+    def _execute(self, key, ws, x, on_complete=None):
+        x["status"] = "running"
+        x["started_at"] = time.time()
+        try:
+            # A dashboard restart must not disconnect the runner's output or kill its
+            # process group. Full logs live beside the workspace's runner metadata;
+            # only bounded tails are copied into the dashboard response.
+            logs = Path(ws) / ".autocode" / "dashboard-actions" / x["id"]
+            logs.mkdir(parents=True, mode=0o700)
+            out_path, err_path = logs / "stdout.log", logs / "stderr.log"
+            x.update(stdout_path=str(out_path), stderr_path=str(err_path))
+            with out_path.open("xb") as out, err_path.open("xb") as err:
+                os.chmod(out_path, 0o600)
+                os.chmod(err_path, 0o600)
+                p = subprocess.Popen(
+                    x["command"], stdin=subprocess.DEVNULL, stdout=out, stderr=err, start_new_session=True
+                )
+                x["pid"] = p.pid
+                (logs / "action.json").write_text(json.dumps(x), encoding="utf8")
+                code = p.wait()
+
+            def tail(path):
+                with path.open("rb") as handle:
+                    handle.seek(0, os.SEEK_END)
+                    size = handle.tell()
+                    handle.seek(max(0, size - 131072))
+                    return ("[Earlier output is in the saved log]\n" if size > 131072 else "") + handle.read().decode(
+                        "utf8", errors="replace"
+                    )
+
+            x.update(
+                stdout=tail(out_path),
+                stderr=tail(err_path),
+                exit_status=code,
+                status="finished" if code == 0 else "failed",
+            )
+        except Exception as e:
+            x.update(stdout="", stderr=str(e), exit_status=None, status="launch_failed", uncertain=True)
+        finally:
+            x["finished_at"] = time.time()
+            with self.lock:
+                self.pending.discard(key)
+                if not x.get("isolated_task"):
+                    self.workspace_busy.discard(ws)
+        if on_complete:
+            try:
+                on_complete(x)
+            except Exception as error:
+                x["callback_error"] = str(error)
+
+    def action_log(self, ws, run=None):
+        try:
+            key = str(Path(run or ws).resolve())
+        except OSError:
+            key = str(run or ws)
+        return list(self.actions.get(key, []))
+
+    def joint_models(self, d, *, catalogue=None, check_catalogue=True):
+        catalogue_source = catalogue or self.catalogue
+        provider = catalogue_source.provider
+        explicit = {
+            role: d.get(role + "_model", "") for role in ("glm", "plan_reviewer", "astra", "terra", "sol", "completion")
+        }
+        if any(not isinstance(value, str) for value in explicit.values()):
+            raise ValueError("Model choices must be strings")
+        chosen = {role: value for role, value in explicit.items() if value}
+        if provider != "opencode":
+            if any(any(c.isspace() for c in value) for value in chosen.values()):
+                raise ValueError("Model names cannot contain whitespace")
+            if chosen and check_catalogue:
+                catalogue = catalogue_source.fetch()
+                if not catalogue["usable"]:
+                    raise ValueError(
+                        catalogue["error"]
+                        or "Model catalogue is unavailable; reset role choices to Use Autocode default"
+                    )
+                for value in chosen.values():
+                    if value not in catalogue["models"]:
+                        raise ValueError("Choose a current model from the " + provider + " catalogue")
+            return chosen
+        # Retain bare OpenAI aliases in older conversations. The runner expands them
+        # to openai/model on OpenCode; they never select a separate Codex login.
+        opencode_choices = {
+            role: value
+            for role, value in chosen.items()
+            if not (role in OPENAI_ALIAS_ROLES and value in BARE_OPENAI_ALIASES)
+        }
+        for role, value in opencode_choices.items():
+            if not MODEL_ID.fullmatch(value):
+                raise ValueError(role.title() + " requires an OpenCode provider/model identifier")
+        if opencode_choices and check_catalogue:
+            catalogue = catalogue_source.fetch()
+            if not catalogue["usable"]:
+                raise ValueError(
+                    catalogue["error"] or "Model catalogue is unavailable; reset role choices to Use Autocode default"
+                )
+            for value in opencode_choices.values():
+                if value not in catalogue["models"]:
+                    raise ValueError("Choose a current provider/model identifier from the catalogue")
+        return chosen
+
+    def joint_efforts(self, d):
+        explicit = {
+            role: d.get(role + "_reasoning_effort", "")
+            for role in ("plan_reviewer", "astra", "terra", "sol", "completion")
+        }
+        if any(not isinstance(value, str) for value in explicit.values()):
+            raise ValueError("Reasoning choices must be strings")
+        if any(value and value not in REASONING_EFFORTS for value in explicit.values()):
+            raise ValueError("Choose a supported reasoning level")
+        return {role: value for role, value in explicit.items() if value}
+
+    def confirm_model_replacement(self, d, ws, run, v):
+        role = d.get("role")
+        model = d.get("model")
+        request_id = d.get("request_id")
+        roles = obj(obj(v.get("model_settings")).get("roles"))
+        if not isinstance(role, str) or role not in roles or not isinstance(roles.get(role), str):
+            raise ValueError("Choose a saved role with a recorded model")
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("Choose a replacement model")
+        if not isinstance(request_id, str) or not request_id.strip():
+            raise ValueError("A replacement request ID is required")
+        if model == roles[role]:
+            raise ValueError("Choose a model different from the saved model")
+        if v.get("active_stage"):
+            raise ValueError("Wait for the current model step to finish before replacing a model")
+        if v.get("status") == "TASK_COMPLETE":
+            raise ValueError("Completed task configuration is read-only")
+        engine = obj(v.get("model_settings")).get("engine")
+        if engine == "opencode":
+            selected = self.joint_models({role + "_model": model}).get(role)
+        else:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", model):
+                raise ValueError("Choose a bare Codex model name")
+            selected = model
+        action = self.enqueue(
+            ws,
+            run,
+            "Confirm model replacement for " + role,
+            ["--" + role.replace("_", "-") + "-model", selected, "--show-goal", "--no-chat"],
+        )
+        action["request_id"] = request_id
+        return action
+
+    def create(self, d):
+        raw = (
+            d.get("project")
+            if isinstance(d.get("project"), str) and d.get("project").strip()
+            else d.get("workspace", "")
+        )
+        ws = self.selected_workspace(raw)
+        goal = d.get("goal", "")
+        engine = d.get("engine", "opencode")
+        if not ws:
+            raise ValueError("Select or enter an existing Git workspace")
+        if not isinstance(goal, str) or not goal.strip():
+            raise ValueError("A non-empty goal is required")
+        if engine not in ("opencode", "codex"):
+            raise ValueError("Unsupported engine")
+        if ws not in self.created_workspaces and ws not in self.explicit:
+            self.created_workspaces.append(ws)
+        if engine == "opencode":
+            provider = "opencode" if d.get("conversation_handoff") else self.run_provider
+            chosen = self.conversation_models(d) if d.get("conversation_handoff") else self.joint_models(d)
+            efforts = self.joint_efforts(d)
+            extra = [goal, "--engine", "opencode", "--provider", provider, "--joint-planning", "--no-chat"]
+            if d.get("conversation_handoff"):
+                handoff = Path(d["conversation_handoff"]).resolve()
+                if not handoff.is_relative_to(ws / ".autocode/conversation-handoffs"):
+                    raise ValueError("Conversation handoff must be staged in the selected project")
+                extra += ["--conversation-handoff", str(handoff)]
+            for role, value in chosen.items():
+                extra += ["--" + role.replace("_", "-") + "-model", value]
+            for role, value in efforts.items():
+                extra += ["--" + role.replace("_", "-") + "-reasoning-effort", value]
+            return self.enqueue(
+                ws, None, "Create OpenCode task" if provider == "opencode" else "Create " + provider + " task", extra
+            )
+        if d.get("glm_model"):
+            raise ValueError("Planner discovery requires the default joint-planning engine")
+        models = {r: d.get(r + "_model", v) for r, v in CODEX_DEFAULT_MODELS.items()}
+        provider = self.zai_probe()
+        for r, m in models.items():
+            if not isinstance(m, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", m):
+                raise ValueError("Choose a bare Codex model name")
+            if m == GLM_MODELS[r] and not provider:
+                raise ValueError("Z.ai is not configured in local Codex")
+        efforts = {**DEFAULT_REASONING_EFFORTS, **self.joint_efforts(d)}
+        extra = [goal, "--engine", "codex", "--no-chat"]
+        for role, model in models.items():
+            extra += ["--" + role + "-model", model]
+        for role, value in efforts.items():
+            extra += ["--" + role + "-reasoning-effort", value]
+        for r, m in models.items():
+            if m == GLM_MODELS[r]:
+                extra += ["--" + r + "-provider", provider]
+        return self.enqueue(ws, None, "Create Codex task", extra)
+
+    def mutate(self, d):
+        ws = self.workspace_for(d.get("workspace", ""))
+        run = self.run_for(ws, d.get("run", ""))
+        if not run:
+            raise ValueError("Run does not belong to the selected watched workspace")
+        v = self.view(ws, run)
+        action = d.get("action")
+        pending = {str(obj(q).get("id")) for q in v["questions"]}
+        if action == "resolver_response":
+            public = require_human_response(v, d, ("operational_exhaustion", "blocker"))
+            response, text = d.get("resolver_response"), d.get("resolver_message", "")
+            if (
+                response not in ("provide_information", "leave_paused")
+                or not isinstance(text, str)
+                or len(text) > 16000
+                or (response == "provide_information" and not text.strip())
+            ):
+                raise ValueError("Provide corrective information or leave the task paused")
+            extra = [
+                "--resolver-request",
+                public["request_id"],
+                "--resolver-token",
+                public["request_token"],
+                "--resolver-response",
+                response,
+            ]
+            if text:
+                extra += ["--resolver-message", text]
+            return self.enqueue(ws, run, "Respond to Resolver", extra + ["--no-chat"])
+        if action == "answer":
+            public = require_human_response(v, d, ("clarification", "permission", "goal_change"))
+            ident, text = str(d.get("id", "")), d.get("text", "")
+            if ident not in pending or not isinstance(text, str) or not text.strip():
+                raise ValueError("Question is not currently pending")
+            return self.enqueue(
+                ws,
+                run,
+                "Answer " + ident,
+                ["--answer", ident + "=" + text, "--resolver-token", public["request_token"]],
+            )
+        if action == "delegate":
+            public = require_human_response(v, d, ("clarification", "permission", "goal_change"))
+            ident = str(d.get("id", ""))
+            if ident not in pending:
+                raise ValueError("Question is not currently pending")
+            return self.enqueue(
+                ws, run, "Delegate " + ident, ["--delegate", ident, "--resolver-token", public["request_token"]]
+            )
+        if action == "approve_goal":
+            require_human_response(v, d, ("goal_approval",))
+            token = d.get("token", "")
+            if (
+                not isinstance(token, str)
+                or not token
+                or token != v["goal_token"]
+                or token != f"r{v['goal'].get('revision')}:{v['goal'].get('hash')}"
+                or d.get("confirmation") != token
+            ):
+                raise ValueError("Displayed goal token changed or confirmation does not match")
+            return self.enqueue(ws, run, "Approve goal", ["--approve-goal", token])
+        if action == "approve_review":
+            public = require_human_response(v, d, ("human_review",))
+            ident, token = str(d.get("id", "")), d.get("token", "")
+            if (
+                ident not in public["request"].get("criteria", [])
+                or ident not in {str(c.get("id")) for c in v["review_criteria"]}
+                or not isinstance(token, str)
+                or not token
+                or token != v["review_token"]
+            ):
+                raise ValueError("Displayed review token changed or criterion is not eligible")
+            return self.enqueue(
+                ws, run, "Approve review " + ident, ["--approve-review", ident, "--review-token", token]
+            )
+        if action == "set_reasoning":
+            efforts = self.joint_efforts(d)
+            if not efforts:
+                raise ValueError("Choose at least one reasoning level")
+            if v.get("active_stage"):
+                raise ValueError("Wait for the current model step to finish before changing reasoning")
+            extra = []
+            for role, value in efforts.items():
+                extra += ["--" + role.replace("_", "-") + "-reasoning-effort", value]
+            return self.enqueue(ws, run, "Save reasoning settings", extra + ["--show-goal", "--no-chat"])
+        if action == "set_model":
+            return self.confirm_model_replacement(d, ws, run, v)
+        if action == "continue":
+            expected = d.get("expected_goal_token")
+            if expected is not None and (
+                not isinstance(expected, str)
+                or not expected
+                or expected != approved_goal_token(v)
+                or v.get("goal_token") not in (None, "", expected)
+                or d.get("token") != expected
+                or d.get("confirmation") != expected
+                or obj(obj(v.get("conversation")).get("plan_gate")).get("pending_product_change")
+            ):
+                raise ValueError("The approved plan changed. Reload before building.")
+            return self.enqueue(
+                ws, run, "Continue", ["--expected-goal-token", expected] if expected is not None else []
+            )
+        raise ValueError("Unknown action")
+
+
+try:
+    from .dashboard_backend import RegistryInterventionMixin, approved_goal_token
+    from .dashboard_chat import ConversationMixin
+    from .dashboard_checkpoints import CheckpointMixin
+    from .dashboard_delete import PermanentDeleteMixin
+    from .dashboard_evidence import stage_evidence
+    from .dashboard_project_controls import ProjectRemovalMixin
+    from .dashboard_recovery import RecoveryActionsMixin
+    from .dashboard_setup import SetupMixin
+    from .dashboard_tasks import TaskArchiveMixin
+except ImportError:  # Support running this file directly from a source checkout.
+    from dashboard_backend import RegistryInterventionMixin, approved_goal_token
+    from dashboard_chat import ConversationMixin
+    from dashboard_checkpoints import CheckpointMixin
+    from dashboard_delete import PermanentDeleteMixin
+    from dashboard_evidence import stage_evidence
+    from dashboard_project_controls import ProjectRemovalMixin
+    from dashboard_recovery import RecoveryActionsMixin
+    from dashboard_setup import SetupMixin
+    from dashboard_tasks import TaskArchiveMixin
+
+
+class Console(
+    CheckpointMixin,
+    SetupMixin,
+    PermanentDeleteMixin,
+    TaskArchiveMixin,
+    ProjectRemovalMixin,
+    ConversationMixin,
+    RecoveryActionsMixin,
+    RegistryInterventionMixin,
+    LegacyConsole,
+):
+    def model_catalogue(self, refresh=False):
+        result = self.catalogue.fetch(refresh=refresh)
+        conversations = (
+            result if self.run_provider == "opencode" else self.conversation_catalogue.fetch(refresh=refresh)
+        )
+        return {
+            **result,
+            **conversation_model_fields(),
+            "conversation_catalogue": conversations,
+            "conversation_readiness": self.conversation_model_readiness(
+                {}, catalogue=conversations, refresh_transport=refresh
+            ),
+            "conversation_provider": "opencode",
+        }
+
 
 # Static presentation is kept separate from the read-only adapter and mutation API.
-INDEX = re.sub(r'\{\{role:(\w+)\}\}',lambda match:ROLE_NAMES['roles'][match[1]],Path(__file__).with_name('dashboard.html').read_text())
-STYLE = Path(__file__).with_name('dashboard.css').read_text()+'\n'+Path(__file__).with_name('dashboard_scoped_start.css').read_text()+'\n'+Path(__file__).with_name('dashboard_reference_layout.css').read_text()
-APP = 'globalThis.AUTOCODE_ROLE_NAMES = '+json.dumps(ROLE_NAMES,sort_keys=True)+';\n'+Path(__file__).with_name('dashboard_app.js').read_text()+'\n'+Path(__file__).with_name('dashboard_setup.js').read_text()+'\n'+Path(__file__).with_name('dashboard_checkpoints.js').read_text()+'\n'+Path(__file__).with_name('dashboard_scoped_start.js').read_text()
+INDEX = re.sub(
+    r"\{\{role:(\w+)\}\}",
+    lambda match: ROLE_NAMES["roles"][match[1]],
+    Path(__file__).with_name("dashboard.html").read_text(),
+)
+STYLE = (
+    Path(__file__).with_name("dashboard.css").read_text()
+    + "\n"
+    + Path(__file__).with_name("dashboard_scoped_start.css").read_text()
+    + "\n"
+    + Path(__file__).with_name("dashboard_reference_layout.css").read_text()
+)
+APP = (
+    "globalThis.AUTOCODE_ROLE_NAMES = "
+    + json.dumps(ROLE_NAMES, sort_keys=True)
+    + ";\n"
+    + Path(__file__).with_name("dashboard_app.js").read_text()
+    + "\n"
+    + Path(__file__).with_name("dashboard_setup.js").read_text()
+    + "\n"
+    + Path(__file__).with_name("dashboard_checkpoints.js").read_text()
+    + "\n"
+    + Path(__file__).with_name("dashboard_scoped_start.js").read_text()
+)
+
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
- def server_bind(self):
-  # Skip HTTPServer's reverse-DNS getfqdn() of the numeric loopback address: ~35s per bind on some hosts (#92).
-  TCPServer.server_bind(self);self.server_name,self.server_port=self.server_address[:2]
+    def server_bind(self):
+        # Skip HTTPServer's reverse-DNS getfqdn() of the numeric loopback address: ~35s per bind on some hosts (#92).
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
 
 class Handler(BaseHTTPRequestHandler):
- server_version='agent-console';protocol_version='HTTP/1.1'
- def log_message(self,*x):pass
- @property
- def console(self):return self.server.console
- def reply(self,c,x,t='application/json'):
-  raw=x if isinstance(x,bytes) else x.encode() if isinstance(x,str) else json.dumps(x).encode();self.send_response(c);self.send_header('Content-Type',t+'; charset=utf-8');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
- def same_origin(self):
-  hosts=self.headers.get_all('Host') or []
-  if len(hosts)!=1 or hosts[0] not in self.server.hosts:return False
-  o=self.headers.get('Origin')
-  if not o:return True
-  try:p=urlparse(o);p.port  # noqa: B018 - validates the port; ValueError on non-numeric ports
-  except ValueError:return False
-  return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
- def do_GET(self):
-  try:return self.get_request()
-  except (BrokenPipeError,ConnectionResetError):return
-  except (OSError,ValueError,TypeError) as error:
-   try:return self.reply(503,{'error':str(error)})
-   except (BrokenPipeError,ConnectionResetError):return
-  except Exception as error:
-   # A failed view must not close the socket or look like a fresh checkpoint.
-   # Do not send state, credentials, or arbitrary exception text to the browser.
-   print('Dashboard GET failed: '+type(error).__name__,file=sys.stderr,flush=True)
-   try:return self.reply(500,{'error':'Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log.'})
-   except (BrokenPipeError,ConnectionResetError):return
- def get_request(self):
-  p=urlparse(self.path)
-  if not self.same_origin():return self.reply(403,{'error':'cross-origin request rejected'})
-  if p.path=='/api/conversations':return self.reply(200,{'conversations':self.console.conversation_list()})
-  if p.path=='/api/conversation':
-   try:return self.reply(200,self.console.conversation_get(parse_qs(p.query).get('id',[''])[0]))
-   except (OSError,ValueError):return self.reply(404,{'error':'Conversation unavailable'})
-  if p.path=='/':return self.reply(200,INDEX,'text/html')
-  if p.path=='/static/style.css':return self.reply(200,STYLE,'text/css')
-  if p.path=='/static/app.js':return self.reply(200,APP,'application/javascript')
-  if p.path=='/static/connected.svg':return self.reply(200,(Path(__file__).parent/'assets/connected.svg').read_bytes(),'image/svg+xml')
-  if p.path.startswith('/static/fonts/'):
-   fonts=('Inter-Regular.woff2','Inter-SemiBold.woff2','JetBrainsMono-Regular.woff2')
-   name=p.path[len('/static/fonts/'):]
-   if name not in fonts:return self.reply(404,{'error':'Font asset unavailable'})
-   return self.reply(200,(Path(__file__).parent/'assets/fonts'/name).read_bytes(),'font/woff2')
-  if p.path=='/api/runs':return self.reply(200,self.console.dashboard_snapshot())
-  if p.path=='/api/models':return self.reply(200,self.console.model_catalogue())
-  if p.path=='/api/screenshot':
-   try:
-    q=parse_qs(p.query);raw=q.get('workspace',[''])[0];selected=q.get('run',[''])[0]
-    if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its evidence'})
-    ws=self.console.workspace_for(raw);run=self.console.run_for(ws,selected)
-    if not run:return self.reply(404,{'error':'Task unavailable'})
-    try:from .dashboard_screenshots import read_image  # noqa: I001 - intentional compact fallback import
-    except ImportError:from dashboard_screenshots import read_image  # noqa: I001
-    image,mime=read_image(self.console.task_view(ws,run),q.get('image',[''])[0],ws,run)
-    self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(image)));self.send_header('Cache-Control','private, no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(image);return
-   except (ValueError,OSError):return self.reply(400,{'error':'Saved screenshot unavailable for this verification'})
-  if p.path=='/api/evidence':
-   q=parse_qs(p.query);raw=q.get('workspace',[''])[0];selected=q.get('run',[''])[0]
-   if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its changes'})
-   ws=self.console.workspace_for(raw);run=self.console.run_for(ws,selected)
-   if not run:return self.reply(404,{'error':'Task unavailable'})
-   try:return self.reply(200,stage_evidence(run,int(q['stage'][0]) if 'stage' in q else None,workspace=ws,file_index=int(q['file'][0]) if 'file' in q else None))
-   except (ValueError,OSError):return self.reply(400,{'error':'Saved changes unavailable for this stage'})
-  if p.path=='/api/run':
-   archived=self.console.archived_task(parse_qs(p.query).get('run',[''])[0])
-   if archived:return self.reply(200,self.console.archived_view(archived))
-   q=parse_qs(p.query);raw=q.get('workspace',[''])[0];removed=self.console.removed_project(raw)
-   if removed:return self.reply(200,{'project_removed':True,'workspace':removed['workspace'],'run':q.get('run',[''])[0],'task':'Removed project'})
-   self.console.conversations  # noqa: B018 - force lazy conversation-store init before serving the view
-   ws=self.console.workspace_for(q.get('workspace',[''])[0]);run=self.console.run_for(ws,q.get('run',[''])[0]);return self.reply(200,self.console.task_view(ws,run)) if run else self.reply(404,{'error':'run unavailable'})
-  self.reply(404,{'error':'not found'})
- def do_POST(self):
-  if not self.same_origin():return self.reply(403,{'error':'cross-origin mutation rejected'})
-  try:
-   d=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))))
-   if not isinstance(d,dict):raise ValueError('JSON body must be an object')
-   if self.path=='/api/setup/check':x=self.console.setup_check(d)
-   elif self.path=='/api/setup/project':x=self.console.setup_project(d)
-   elif self.path=='/api/checkpoint/compare':x=self.console.checkpoint_action(d)
-   elif self.path=='/api/checkpoint/restore':x=self.console.checkpoint_action(d,restore=True)
-   elif self.path=='/api/projects':x=self.console.project_action(d)
-   elif self.path=='/api/tasks':x=self.console.task_archive_action(d)
-   elif self.path=='/api/tasks/delete-preview':x=self.console.deletion_preview(d)
-   elif self.path=='/api/tasks/delete':x=self.console.delete_permanently(d)
-   elif self.path=='/api/conversations':x=self.console.conversation_create(d)
-   elif self.path=='/api/conversation/archive':x=self.console.conversation_archive(d)
-   elif self.path=='/api/conversation/message':
-    self.console.require_unarchived_conversation(d.get('id'),model_work=True);x=self.console.conversations.send(d.get('id'),d.get('text'),d.get('request_id'))
-   elif self.path=='/api/conversation/refresh-draft':
-    self.console.require_unarchived_conversation(d.get('id'),model_work=True);x=self.console.conversations.refresh_draft(d.get('id'),requirements_revision=d.get('requirements_revision'),logical_turn_id=d.get('logical_turn_id'),request_id=d.get('request_id'))
-   elif self.path=='/api/conversation/confirm-scope':x=self.console.confirm_conversation_scope(d)
-   elif self.path=='/api/conversation/retry':
-    self.console.require_unarchived_conversation(d.get('id'),model_work=True);x=self.console.conversations.retry(d.get('id'))
-   elif self.path=='/api/conversation/attach':x=self.console.conversation_attach(d)
-   elif self.path=='/api/chat':x=self.console.chat(d)
-   elif self.path=='/api/create':x=self.console.create(d)
-   elif self.path=='/api/action':x=self.console.mutate(d)
-   elif self.path=='/api/models/refresh':x=self.console.model_catalogue(refresh=True)
-   elif self.path=='/api/watch-roots':
-    action=d.get('action');path=d.get('path')
-    if action=='add':x={'path':str(self.console.add_runtime_watch_root(path))}
-    elif action=='remove':x={'path':str(self.console.remove_runtime_watch_root(path))}
-    else:raise ValueError('Unknown watch-root action')
-   else:raise ValueError('not found')
-   self.reply(202,x)
-  except (BrokenPipeError,ConnectionResetError):return
-  except (ValueError,TypeError,OSError,json.JSONDecodeError) as e:
-   try:self.reply(400,{'error':str(e)})
-   except (BrokenPipeError,ConnectionResetError):return
+    server_version = "agent-console"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *x):
+        pass
+
+    @property
+    def console(self):
+        return self.server.console
+
+    def reply(self, c, x, t="application/json"):
+        raw = x if isinstance(x, bytes) else x.encode() if isinstance(x, str) else json.dumps(x).encode()
+        self.send_response(c)
+        self.send_header("Content-Type", t + "; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def same_origin(self):
+        hosts = self.headers.get_all("Host") or []
+        if len(hosts) != 1 or hosts[0] not in self.server.hosts:
+            return False
+        o = self.headers.get("Origin")
+        if not o:
+            return True
+        try:
+            p = urlparse(o)
+            p.port  # noqa: B018 - validates the port; ValueError on non-numeric ports
+        except ValueError:
+            return False
+        return (
+            p.scheme == "http"
+            and p.netloc == hosts[0]
+            and p.hostname is not None
+            and p.username is None
+            and p.password is None
+            and not (p.path or p.params or p.query or p.fragment)
+        )
+
+    def do_GET(self):
+        try:
+            return self.get_request()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except (OSError, ValueError, TypeError) as error:
+            try:
+                return self.reply(503, {"error": str(error)})
+            except (BrokenPipeError, ConnectionResetError):
+                return
+        except Exception as error:
+            # A failed view must not close the socket or look like a fresh checkpoint.
+            # Do not send state, credentials, or arbitrary exception text to the browser.
+            print("Dashboard GET failed: " + type(error).__name__, file=sys.stderr, flush=True)
+            try:
+                return self.reply(
+                    500,
+                    {
+                        "error": "Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log."
+                    },
+                )
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+    def get_request(self):
+        p = urlparse(self.path)
+        if not self.same_origin():
+            return self.reply(403, {"error": "cross-origin request rejected"})
+        if p.path == "/api/conversations":
+            return self.reply(200, {"conversations": self.console.conversation_list()})
+        if p.path == "/api/conversation":
+            try:
+                return self.reply(200, self.console.conversation_get(parse_qs(p.query).get("id", [""])[0]))
+            except (OSError, ValueError):
+                return self.reply(404, {"error": "Conversation unavailable"})
+        if p.path == "/":
+            return self.reply(200, INDEX, "text/html")
+        if p.path == "/static/style.css":
+            return self.reply(200, STYLE, "text/css")
+        if p.path == "/static/app.js":
+            return self.reply(200, APP, "application/javascript")
+        if p.path == "/static/connected.svg":
+            return self.reply(200, (Path(__file__).parent / "assets/connected.svg").read_bytes(), "image/svg+xml")
+        if p.path.startswith("/static/fonts/"):
+            fonts = ("Inter-Regular.woff2", "Inter-SemiBold.woff2", "JetBrainsMono-Regular.woff2")
+            name = p.path[len("/static/fonts/") :]
+            if name not in fonts:
+                return self.reply(404, {"error": "Font asset unavailable"})
+            return self.reply(200, (Path(__file__).parent / "assets/fonts" / name).read_bytes(), "font/woff2")
+        if p.path == "/api/runs":
+            return self.reply(200, self.console.dashboard_snapshot())
+        if p.path == "/api/models":
+            return self.reply(200, self.console.model_catalogue())
+        if p.path == "/api/screenshot":
+            try:
+                q = parse_qs(p.query)
+                raw = q.get("workspace", [""])[0]
+                selected = q.get("run", [""])[0]
+                if self.console.removed_project(raw) or self.console.archived_task(selected):
+                    return self.reply(404, {"error": "Restore this task and project to inspect its evidence"})
+                ws = self.console.workspace_for(raw)
+                run = self.console.run_for(ws, selected)
+                if not run:
+                    return self.reply(404, {"error": "Task unavailable"})
+                try:
+                    from .dashboard_screenshots import read_image  # noqa: I001 - intentional compact fallback import
+                except ImportError:
+                    from dashboard_screenshots import read_image  # noqa: I001
+                image, mime = read_image(self.console.task_view(ws, run), q.get("image", [""])[0], ws, run)
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(image)))
+                self.send_header("Cache-Control", "private, no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(image)
+                return
+            except (ValueError, OSError):
+                return self.reply(400, {"error": "Saved screenshot unavailable for this verification"})
+        if p.path == "/api/evidence":
+            q = parse_qs(p.query)
+            raw = q.get("workspace", [""])[0]
+            selected = q.get("run", [""])[0]
+            if self.console.removed_project(raw) or self.console.archived_task(selected):
+                return self.reply(404, {"error": "Restore this task and project to inspect its changes"})
+            ws = self.console.workspace_for(raw)
+            run = self.console.run_for(ws, selected)
+            if not run:
+                return self.reply(404, {"error": "Task unavailable"})
+            try:
+                return self.reply(
+                    200,
+                    stage_evidence(
+                        run,
+                        int(q["stage"][0]) if "stage" in q else None,
+                        workspace=ws,
+                        file_index=int(q["file"][0]) if "file" in q else None,
+                    ),
+                )
+            except (ValueError, OSError):
+                return self.reply(400, {"error": "Saved changes unavailable for this stage"})
+        if p.path == "/api/run":
+            archived = self.console.archived_task(parse_qs(p.query).get("run", [""])[0])
+            if archived:
+                return self.reply(200, self.console.archived_view(archived))
+            q = parse_qs(p.query)
+            raw = q.get("workspace", [""])[0]
+            removed = self.console.removed_project(raw)
+            if removed:
+                return self.reply(
+                    200,
+                    {
+                        "project_removed": True,
+                        "workspace": removed["workspace"],
+                        "run": q.get("run", [""])[0],
+                        "task": "Removed project",
+                    },
+                )
+            self.console.conversations  # noqa: B018 - force lazy conversation-store init before serving the view
+            ws = self.console.workspace_for(q.get("workspace", [""])[0])
+            run = self.console.run_for(ws, q.get("run", [""])[0])
+            return (
+                self.reply(200, self.console.task_view(ws, run))
+                if run
+                else self.reply(404, {"error": "run unavailable"})
+            )
+        self.reply(404, {"error": "not found"})
+
+    def do_POST(self):
+        if not self.same_origin():
+            return self.reply(403, {"error": "cross-origin mutation rejected"})
+        try:
+            d = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+            if not isinstance(d, dict):
+                raise ValueError("JSON body must be an object")
+            if self.path == "/api/setup/check":
+                x = self.console.setup_check(d)
+            elif self.path == "/api/setup/project":
+                x = self.console.setup_project(d)
+            elif self.path == "/api/checkpoint/compare":
+                x = self.console.checkpoint_action(d)
+            elif self.path == "/api/checkpoint/restore":
+                x = self.console.checkpoint_action(d, restore=True)
+            elif self.path == "/api/projects":
+                x = self.console.project_action(d)
+            elif self.path == "/api/tasks":
+                x = self.console.task_archive_action(d)
+            elif self.path == "/api/tasks/delete-preview":
+                x = self.console.deletion_preview(d)
+            elif self.path == "/api/tasks/delete":
+                x = self.console.delete_permanently(d)
+            elif self.path == "/api/conversations":
+                x = self.console.conversation_create(d)
+            elif self.path == "/api/conversation/archive":
+                x = self.console.conversation_archive(d)
+            elif self.path == "/api/conversation/message":
+                self.console.require_unarchived_conversation(d.get("id"), model_work=True)
+                x = self.console.conversations.send(d.get("id"), d.get("text"), d.get("request_id"))
+            elif self.path == "/api/conversation/refresh-draft":
+                self.console.require_unarchived_conversation(d.get("id"), model_work=True)
+                x = self.console.conversations.refresh_draft(
+                    d.get("id"),
+                    requirements_revision=d.get("requirements_revision"),
+                    logical_turn_id=d.get("logical_turn_id"),
+                    request_id=d.get("request_id"),
+                )
+            elif self.path == "/api/conversation/confirm-scope":
+                x = self.console.confirm_conversation_scope(d)
+            elif self.path == "/api/conversation/retry":
+                self.console.require_unarchived_conversation(d.get("id"), model_work=True)
+                x = self.console.conversations.retry(d.get("id"))
+            elif self.path == "/api/conversation/attach":
+                x = self.console.conversation_attach(d)
+            elif self.path == "/api/chat":
+                x = self.console.chat(d)
+            elif self.path == "/api/create":
+                x = self.console.create(d)
+            elif self.path == "/api/action":
+                x = self.console.mutate(d)
+            elif self.path == "/api/models/refresh":
+                x = self.console.model_catalogue(refresh=True)
+            elif self.path == "/api/watch-roots":
+                action = d.get("action")
+                path = d.get("path")
+                if action == "add":
+                    x = {"path": str(self.console.add_runtime_watch_root(path))}
+                elif action == "remove":
+                    x = {"path": str(self.console.remove_runtime_watch_root(path))}
+                else:
+                    raise ValueError("Unknown watch-root action")
+            else:
+                raise ValueError("not found")
+            self.reply(202, x)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except (ValueError, TypeError, OSError, json.JSONDecodeError) as e:
+            try:
+                self.reply(400, {"error": str(e)})
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+
 def main():
-  p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);p.add_argument('--provider',help='Tool for new runs (default: AUTOCODE_PROVIDER, then default_provider in ~/.config/autocode/config.toml, then opencode)');a=p.parse_args()
-  if a.watch_depth<0:p.error('--watch-depth must be zero or greater')
-  try:
-   registry=provider_registry();run_provider=a.provider or registry.default_name();registry.resolve(run_provider)
-  except (RuntimeError,ValueError) as error:p.error(str(error))
-  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth,run_provider=run_provider);c._discovered();s=LoopbackHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
-if __name__=='__main__':main()
+    p = argparse.ArgumentParser()
+    p.add_argument("--workspace", action="append", default=[])
+    p.add_argument("--watch-root", action="append", default=[])
+    p.add_argument("--watch-depth", type=int, default=3)
+    p.add_argument("--runner", default=str(Path(__file__).resolve().parents[1] / "autocode.py"))
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument(
+        "--provider",
+        help="Tool for new runs (default: AUTOCODE_PROVIDER, then default_provider in ~/.config/autocode/config.toml, then opencode)",
+    )
+    a = p.parse_args()
+    if a.watch_depth < 0:
+        p.error("--watch-depth must be zero or greater")
+    try:
+        registry = provider_registry()
+        run_provider = a.provider or registry.default_name()
+        registry.resolve(run_provider)
+    except (RuntimeError, ValueError) as error:
+        p.error(str(error))
+    c = Console(a.workspace, a.runner, watch_roots=a.watch_root, watch_depth=a.watch_depth, run_provider=run_provider)
+    c._discovered()
+    s = LoopbackHTTPServer(("127.0.0.1", a.port), Handler)
+    s.console = c
+    s.hosts = {"127.0.0.1:" + str(s.server_port), "localhost:" + str(s.server_port)}
+    print("http://127.0.0.1:" + str(s.server_port), flush=True)
+    s.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

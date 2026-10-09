@@ -1,4 +1,5 @@
 """Full command-line flow with real processes and an explicitly fake provider."""
+
 import json
 import os
 import shutil
@@ -19,25 +20,54 @@ class SubprocessFlow(unittest.TestCase):
         self.project = self.root / "unrelated-project"
         self.project.mkdir()
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
-        subprocess.run(["git", "-C", str(self.project), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
-                        "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.project),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=f@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         bin_dir = self.root / "fixture-bin"
         bin_dir.mkdir()
         source = Path(__file__).resolve().parent
         for filename in ("fake_codex.py", "goal_fixtures.py"):
             shutil.copy2(source / filename, bin_dir / ("codex" if filename == "fake_codex.py" else filename))
         (bin_dir / "codex").chmod(0o755)
-        self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                    "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home")}
-        self.entry = [os.environ["AUTOCODE_TEST_CLI"]] if os.environ.get("AUTOCODE_TEST_CLI") else [sys.executable, str(source / "autocode.py")]
+        self.env = {
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "AUTOCODE_HOME": str(self.root / "registry-home"),
+        }
+        self.entry = (
+            [os.environ["AUTOCODE_TEST_CLI"]]
+            if os.environ.get("AUTOCODE_TEST_CLI")
+            else [sys.executable, str(source / "autocode.py")]
+        )
 
     def launch(self, args, expected, *, answers=None):
         if "--run-dir" not in args and "--engine" not in args:
             args = [*self.new_run_engine_args, *args]
         if "--run-dir" not in args and "--in-place" not in args:
             args = [*args, "--in-place"]
-        result = subprocess.run([*self.entry, "--workspace", str(self.project), *args], cwd=self.root, env=self.env,
-                                input=answers, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(
+            [*self.entry, "--workspace", str(self.project), *args],
+            cwd=self.root,
+            env=self.env,
+            input=answers,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 
@@ -46,61 +76,60 @@ class SubprocessFlow(unittest.TestCase):
         return run, json.loads((run / "state.json").read_text())
 
     def test_two_milestones_require_independent_evidence_before_advancing(self):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'milestones'
-        self.launch(['Build greeting and goodbye', '--chat'], 0, answers='CLI\nyes\n')
+        self.env["AUTOCODE_FIXTURE_MODE"] = "milestones"
+        self.launch(["Build greeting and goodbye", "--chat"], 0, answers="CLI\nyes\n")
         run, state = self.saved()
-        self.assertEqual('TASK_COMPLETE', state['status'])
-        execution = [r['stage'] for r in state['stages'] if r['stage'] != 'astra_discovery']
-        self.assertEqual(['astra_plan', 'terra', 'sol', 'astra_review', 'terra', 'sol', 'astra_review'], execution)
-        self.assertEqual({'M1', 'M2'}, {r['id'] for r in state['milestone_progress'].values() if r['accepted']})
-        first = next(r for r in state['milestone_progress'].values() if r['id'] == 'M1')
-        self.assertEqual('NOT_VERIFIED', first['accepted_validation']['criterion_results'][1]['status'])
-        unchanged = (run / 'state.json').read_bytes()
-        status = json.loads(self.launch(['--run-dir', str(run), '--status'], 0).stdout)
-        self.assertTrue(status['milestone_checkpoint']['enabled'])
-        self.assertGreater(status['milestone_checkpoint']['seconds_by_role']['sol'], 0)
-        self.assertEqual(unchanged, (run / 'state.json').read_bytes())
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        execution = [r["stage"] for r in state["stages"] if r["stage"] != "astra_discovery"]
+        self.assertEqual(["astra_plan", "terra", "sol", "astra_review", "terra", "sol", "astra_review"], execution)
+        self.assertEqual({"M1", "M2"}, {r["id"] for r in state["milestone_progress"].values() if r["accepted"]})
+        first = next(r for r in state["milestone_progress"].values() if r["id"] == "M1")
+        self.assertEqual("NOT_VERIFIED", first["accepted_validation"]["criterion_results"][1]["status"])
+        unchanged = (run / "state.json").read_bytes()
+        status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
+        self.assertTrue(status["milestone_checkpoint"]["enabled"])
+        self.assertGreater(status["milestone_checkpoint"]["seconds_by_role"]["sol"], 0)
+        self.assertEqual(unchanged, (run / "state.json").read_bytes())
 
     def test_changing_code_with_repeated_failed_checks_stops_after_one_replan(self):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
-        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
+        self.env["AUTOCODE_FIXTURE_MODE"] = "stalled"
+        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         _, state = self.saved()
-        self.assertEqual('PAUSED_MILESTONE_STALLED', state['status'])
-        progress = next(iter(state['milestone_progress'].values()))
-        self.assertEqual(1, progress['replans'])
-        self.assertEqual(6, len(progress['reviews']))
-        self.assertEqual(6, sum(r['stage'] == 'terra' for r in state['stages']))
+        self.assertEqual("PAUSED_MILESTONE_STALLED", state["status"])
+        progress = next(iter(state["milestone_progress"].values()))
+        self.assertEqual(1, progress["replans"])
+        self.assertEqual(6, len(progress["reviews"]))
+        self.assertEqual(6, sum(r["stage"] == "terra" for r in state["stages"]))
 
     def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
-        self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
-        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nno\n')
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        self.launch(["Build greeting", "--chat"], 2, answers="CLI\nno\n")
         run, state = self.saved()
-        args = ['--run-dir', str(run), '--no-chat']
-        self.launch([*args, '--approve-goal', state['displayed_goal']], 0)
-        self.launch([*args, '--pause-after-stage'], 2)
-        self.launch([*args, '--resume-paused', '--pause-after-stage'], 2)
+        args = ["--run-dir", str(run), "--no-chat"]
+        self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
+        self.launch([*args, "--pause-after-stage"], 2)
+        self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         _, state = self.saved()
-        state['settings'].pop('milestone_checkpoints')
-        state['settings']['workflow'] = {'mode': 'glm_final_audit_v2'}
-        (run / 'state.json').write_text(json.dumps(state))
-        original = (run / 'state.json').read_bytes()
-        self.launch([*args, '--request-milestone-checkpoints'], 0)
-        self.assertEqual(original, (run / 'state.json').read_bytes())
-        status = json.loads(self.launch([*args, '--status'], 0).stdout)
-        self.assertTrue(status['milestone_activation_pending'])
-        self.launch([*args, '--show-goal'], 0)
+        state["settings"].pop("milestone_checkpoints")
+        state["settings"]["workflow"] = {"mode": "glm_final_audit_v2"}
+        (run / "state.json").write_text(json.dumps(state))
+        original = (run / "state.json").read_bytes()
+        self.launch([*args, "--request-milestone-checkpoints"], 0)
+        self.assertEqual(original, (run / "state.json").read_bytes())
+        status = json.loads(self.launch([*args, "--status"], 0).stdout)
+        self.assertTrue(status["milestone_activation_pending"])
+        self.launch([*args, "--show-goal"], 0)
         _, migrated = self.saved()
-        self.assertEqual(state['goal_contract'], migrated['goal_contract'])
-        self.assertEqual(len(state['stages']), len(migrated['stages']))
-        self.assertEqual('sol', migrated['next_stage'])
-        self.assertNotIn('workflow', migrated['settings'])
-        self.launch([*args, '--resume-paused'], 0)
-        self.assertEqual('TASK_COMPLETE', self.saved()[1]['status'])
+        self.assertEqual(state["goal_contract"], migrated["goal_contract"])
+        self.assertEqual(len(state["stages"]), len(migrated["stages"]))
+        self.assertEqual("sol", migrated["next_stage"])
+        self.assertNotIn("workflow", migrated["settings"])
+        self.launch([*args, "--resume-paused"], 0)
+        self.assertEqual("TASK_COMPLETE", self.saved()[1]["status"])
 
     def test_chat_brief_feedback_approval_and_autonomous_rework(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "rework"
-        result = self.launch(["Build a greeting tool", "--chat"], 0,
-                             answers="CLI\nKeep Unicode support\nyes\n")
+        result = self.launch(["Build a greeting tool", "--chat"], 0, answers="CLI\nKeep Unicode support\nyes\n")
         run, state = self.saved()
         self.assertEqual("COMPLETE", state["phase"])
         self.assertEqual(["CONTINUE", "REWORK", "COMPLETE"], [d["report"]["status"] for d in state["decisions"]])
@@ -130,8 +159,14 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["Build a greeting tool"], 2)
         run, _ = self.saved()
-        listed = subprocess.run([*self.entry, "registry", "list", "--json"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+        listed = subprocess.run(
+            [*self.entry, "registry", "list", "--json"],
+            cwd=self.root,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         self.assertEqual(0, listed.returncode, listed.stdout + listed.stderr)
         runs = json.loads(listed.stdout)["runs"]
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in runs])
@@ -141,8 +176,9 @@ class SubprocessFlow(unittest.TestCase):
         resumed_home = self.root / "resumed-registry-home"
         self.env["AUTOCODE_HOME"] = str(resumed_home)
         self.launch(["--run-dir", str(run)], 2)
-        resumed = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+        resumed = subprocess.run(
+            [*self.entry, "registry", "list"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in json.loads(resumed.stdout)["runs"]])
         observed = [json.loads(line) for line in probe.read_text().splitlines()]
@@ -161,8 +197,9 @@ class SubprocessFlow(unittest.TestCase):
         probe = self.root / "retry-launches.jsonl"
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["--run-dir", str(run), "--resume-paused"], 2)
-        registered = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                   capture_output=True, text=True, timeout=30)
+        registered = subprocess.run(
+            [*self.entry, "registry", "list"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
         self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
         self.assertEqual(str(run.resolve()), json.loads(registered.stdout)["runs"][0]["run_dir"])
         self.assertEqual(["astra_discovery"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
@@ -170,16 +207,26 @@ class SubprocessFlow(unittest.TestCase):
     def test_read_only_commands_do_not_create_or_register_storage(self):
         run = self.project / ".autocode/runs/read-only"
         run.mkdir(parents=True)
-        state = {"version": 2, "workspace": str(self.project), "task": "Read only", "status": "RUNNING",
-                 "iteration": 1, "sessions": {}, "history": [], "stages": [], "next_stage": "astra_plan"}
+        state = {
+            "version": 2,
+            "workspace": str(self.project),
+            "task": "Read only",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "history": [],
+            "stages": [],
+            "next_stage": "astra_plan",
+        }
         state_path = run / "state.json"
         state_path.write_text(json.dumps(state))
         before = state_path.read_bytes()
         self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
         self.launch(["--run-dir", str(run), "--status"], 0)
         self.launch(["--run-dir", str(run), "--dry-run"], 0)
-        help_result = subprocess.run([*self.entry, "--help"], cwd=self.root, env=self.env,
-                                     capture_output=True, text=True, timeout=30)
+        help_result = subprocess.run(
+            [*self.entry, "--help"], cwd=self.root, env=self.env, capture_output=True, text=True, timeout=30
+        )
         self.assertEqual(0, help_result.returncode, help_result.stdout + help_result.stderr)
         self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
         self.assertEqual(before, state_path.read_bytes())
@@ -271,15 +318,23 @@ class SubprocessFlow(unittest.TestCase):
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         project, launch = self.project, self.launch
         launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--terra-provider", "ZAI"], 2)
-        expected_models = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra",
-                           "sol": "gpt-5.6-sol", "completion": "gpt-5.6-sol"}
+        expected_models = {
+            "astra": "gpt-5.6-sol",
+            "terra": "gpt-5.6-terra",
+            "sol": "gpt-5.6-sol",
+            "completion": "gpt-5.6-sol",
+        }
         run = next((project / ".autocode/runs").iterdir())
         args = ["--run-dir", str(run)]
-        def state(): return json.loads((run / "state.json").read_text())
+
+        def state():
+            return json.loads((run / "state.json").read_text())
+
         self.assertEqual("DISCOVERING", state()["phase"])
         self.assertEqual("WAITING_FOR_USER", state()["status"])
-        self.assertEqual(expected_models, {role:settings["model"]
-                                          for role,settings in state()["settings"]["roles"].items()})
+        self.assertEqual(
+            expected_models, {role: settings["model"] for role, settings in state()["settings"]["roles"].items()}
+        )
         self.assertFalse((project / "greet.py").exists())
         launch([*args, "--answer", "Q1=CLI"], 0)
         self.assertEqual(1, len(state()["stages"]))
@@ -300,8 +355,9 @@ class SubprocessFlow(unittest.TestCase):
         launch(args, 0)
         final = state()
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(expected_models, {role:settings["model"]
-                                          for role,settings in final["settings"]["roles"].items()})
+        self.assertEqual(
+            expected_models, {role: settings["model"] for role, settings in final["settings"]["roles"].items()}
+        )
         self.assertEqual(before, (project / "greet.py").read_bytes())
         self.assertEqual(1, sum(r["stage"] == "terra" for r in final["stages"]))
         self.assertEqual(["Optional web UI"], final["deferred_backlog"])
@@ -317,6 +373,7 @@ class SubprocessFlow(unittest.TestCase):
                 self.assertIn('model_provider="ZAI"', command)
             else:
                 self.assertFalse(any(str(item).startswith("model_provider=") for item in command))
+
 
 if __name__ == "__main__":
     unittest.main()

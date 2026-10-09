@@ -4,6 +4,7 @@ Run with the repository venv: python -m unittest scenarios.test_adversarial_reco
 Failures are product invariant violations, never expectedFailure/xfail markers.
 Every test proves its injected fault reached the intended provider boundary.
 """
+
 from __future__ import annotations
 
 import sys
@@ -48,8 +49,11 @@ class RecoveryAttacks(AdversarialCase):
         self.assertEqual(2, len(probe["cited_files"]))
         self.assertTrue(all(row["exists"] for row in probe["cited_files"]))
         self.assertTrue(any(Path(ref).name == "state.json" for ref in probe["evidence_refs"]))
-        self.assertEqual("TASK_COMPLETE", view["status"],
-                         f"A cited existing run-root artifact must be staged like iteration evidence: {self.root}")
+        self.assertEqual(
+            "TASK_COMPLETE",
+            view["status"],
+            f"A cited existing run-root artifact must be staged like iteration evidence: {self.root}",
+        )
 
     def test_missing_investigator_citation_cannot_authorize_a_retry(self):
         view = self.run_fault("investigator_missing_citation")
@@ -74,8 +78,10 @@ class RecoveryAttacks(AdversarialCase):
     def test_one_truncated_report_is_repaired_without_losing_the_run(self):
         view = self.run_fault("truncated_once")
         self.assertEqual(1, len(self.trace("truncated_report_emitted")), self.root)
-        self.assertTrue(any(row["repair"] for row in self.trace("stage_enter", "astra_discovery")),
-                        f"Fault must reach report-only repair: {self.root}")
+        self.assertTrue(
+            any(row["repair"] for row in self.trace("stage_enter", "astra_discovery")),
+            f"Fault must reach report-only repair: {self.root}",
+        )
         self.assertEqual("TASK_COMPLETE", view["status"], view)
 
     def test_persistent_truncation_stops_before_builder_with_bounded_recovery(self):
@@ -83,7 +89,9 @@ class RecoveryAttacks(AdversarialCase):
         faults = self.trace("truncated_report_emitted")
         self.assertGreaterEqual(len(faults), 2, self.root)
         self.assertTrue(any(row["repair"] for row in self.trace("stage_enter", "astra_discovery")), self.root)
-        self.assertLessEqual(len(faults), 4, f"Persistent report failure must stop with a bounded repair count: {self.root}")
+        self.assertLessEqual(
+            len(faults), 4, f"Persistent report failure must stop with a bounded repair count: {self.root}"
+        )
         self.assertFalse(self.trace("stage_enter", "terra"), self.root)
         self.assertNotEqual("TASK_COMPLETE", view["status"], view)
         self.assertIn(view["needs"]["kind"], ("resume", "answer"), view)
@@ -95,13 +103,20 @@ class RecoveryAttacks(AdversarialCase):
         self.assertEqual("PASS", faults[0]["validation"]["verdict"])
         handoffs = [row for row in self.trace("completion_handoff") if not row["repair"]]
         self.assertGreaterEqual(len(handoffs), 2, f"Fault must reach automatic completion recovery: {self.root}")
-        self.assertEqual(handoffs[0]["source_revision"], handoffs[1]["source_revision"],
-                         "The injected denial did not change the source")
-        self.assertEqual("PASS", handoffs[1]["validation_verdict"],
-                         f"Retried completion needs retained valid evidence or fresh validation: {self.root}")
+        self.assertEqual(
+            handoffs[0]["source_revision"],
+            handoffs[1]["source_revision"],
+            "The injected denial did not change the source",
+        )
+        self.assertEqual(
+            "PASS",
+            handoffs[1]["validation_verdict"],
+            f"Retried completion needs retained valid evidence or fresh validation: {self.root}",
+        )
         self.assertEqual("TASK_COMPLETE", view["status"], view)
 
 
 if __name__ == "__main__":
     import unittest
+
     unittest.main()

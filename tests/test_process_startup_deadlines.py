@@ -1,4 +1,5 @@
 """Initial provider inspection and persistence cannot disable its deadlines."""
+
 import shutil
 import signal
 import tempfile
@@ -22,7 +23,7 @@ class StartupDeadlineTests(unittest.TestCase):
             returncode = None
 
             def poll(self):
-                if phase == 'fast_exit':
+                if phase == "fast_exit":
                     self.returncode = 7
                 return self.returncode
 
@@ -97,15 +98,22 @@ class StartupDeadlineTests(unittest.TestCase):
             if child.returncode is None:
                 child.returncode = 0
 
-        row = {'pid': child.pid, 'parent': 1, 'group': child.pid, 'started': 'birth',
-               'birth_time': 1.0, 'birth_identity': 1.0, 'state': 'sleeping'}
+        row = {
+            "pid": child.pid,
+            "parent": 1,
+            "group": child.pid,
+            "started": "birth",
+            "birth_time": 1.0,
+            "birth_identity": 1.0,
+            "state": "sleeping",
+        }
         inspected = False
 
         def table(pids=None):
             nonlocal inspected
             if not inspected:
                 inspected = True
-                if phase == 'inspection':
+                if phase == "inspection":
                     stall()
             return {child.pid: row} if child.returncode is None and child.pid in (pids or ()) else {}
 
@@ -116,7 +124,7 @@ class StartupDeadlineTests(unittest.TestCase):
             owned[:] = rows
             if not checkpointed:
                 checkpointed = True
-                if phase == 'checkpoint':
+                if phase == "checkpoint":
                     stall()
 
         class Monitor:
@@ -124,11 +132,14 @@ class StartupDeadlineTests(unittest.TestCase):
             timeout = None
 
             def poll(self, **kwargs):
-                return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
-                        'idle_limit_seconds': 5, 'tool_limit_seconds': 0}
+                return {
+                    "idle_seconds": 0,
+                    "tool_elapsed_seconds": None,
+                    "idle_limit_seconds": 5,
+                    "tool_limit_seconds": 0,
+                }
 
-        monitor = (monitor_for(lambda: clock[0]) if monitor_for
-                   else Monitor() if idle or phase == 'fast_exit' else None)
+        monitor = monitor_for(lambda: clock[0]) if monitor_for else Monitor() if idle or phase == "fast_exit" else None
         proc = MagicMock()
         proc._ident = (child.pid, 1.0)
         proc.create_time.return_value = 1.0
@@ -138,18 +149,19 @@ class StartupDeadlineTests(unittest.TestCase):
             self.assertEqual(child.pid, pid)
             child.returncode = -sig
 
-        with patch.object(processes.time, 'monotonic', lambda: clock[0]), \
-             patch.object(processes.threading, 'Timer', Timer), \
-             patch.object(processes.threading, 'Thread', Thread), \
-             patch.object(processes.threading.Event, 'wait', event_wait), \
-             patch.object(processes, 'process_table', table), \
-             patch.object(processes, 'process_ids', return_value=[child.pid]), \
-             patch.object(processes.psutil, 'Process', return_value=proc), \
-             patch.object(processes.os, 'getpgid', return_value=child.pid), \
-             patch.object(processes.os, 'killpg', terminate), \
-             patch.object(processes.ProcessTree, 'stop', lambda tree, child: None):
-            code, expired = processes.wait_for_stage(child, None if idle else 5, checkpoint,
-                                                     activity=monitor)
+        with (
+            patch.object(processes.time, "monotonic", lambda: clock[0]),
+            patch.object(processes.threading, "Timer", Timer),
+            patch.object(processes.threading, "Thread", Thread),
+            patch.object(processes.threading.Event, "wait", event_wait),
+            patch.object(processes, "process_table", table),
+            patch.object(processes, "process_ids", return_value=[child.pid]),
+            patch.object(processes.psutil, "Process", return_value=proc),
+            patch.object(processes.os, "getpgid", return_value=child.pid),
+            patch.object(processes.os, "killpg", terminate),
+            patch.object(processes.ProcessTree, "stop", lambda tree, child: None),
+        ):
+            code, expired = processes.wait_for_stage(child, None if idle else 5, checkpoint, activity=monitor)
         return code, expired, owned, monitor, running_after_cap
 
     def assert_bounded(self, phase, *, idle=False):
@@ -157,49 +169,60 @@ class StartupDeadlineTests(unittest.TestCase):
         self.assertTrue(expired)
         self.assertEqual(-signal.SIGTERM, code)
         self.assertEqual([False], running)
-        if phase == 'checkpoint':
-            self.assertEqual(424242, owned[0]['pid'])
+        if phase == "checkpoint":
+            self.assertEqual(424242, owned[0]["pid"])
         if idle:
-            self.assertEqual('idle', monitor.timeout['kind'])
+            self.assertEqual("idle", monitor.timeout["kind"])
 
     def test_hard_cap_during_initial_checkpoint(self):
-        self.assert_bounded('checkpoint')
+        self.assert_bounded("checkpoint")
 
     def test_hard_cap_during_initial_inspection(self):
-        self.assert_bounded('inspection')
+        self.assert_bounded("inspection")
 
     def test_idle_cap_during_initial_checkpoint(self):
-        self.assert_bounded('checkpoint', idle=True)
+        self.assert_bounded("checkpoint", idle=True)
 
     def test_idle_cap_during_initial_inspection(self):
-        self.assert_bounded('inspection', idle=True)
+        self.assert_bounded("inspection", idle=True)
 
     def test_idle_stop_reason_comes_from_the_stages_own_monitor(self):
         # The supervisor stops the stage first when the observer's last poll lags; its reason must still be
         # the one the real monitor run_role built names: the limit, its origin and the stage's advice.
-        events = Path(tempfile.mkdtemp(prefix='idle-reason-')) / 'events.jsonl'
+        events = Path(tempfile.mkdtemp(prefix="idle-reason-")) / "events.jsonl"
         self.addCleanup(shutil.rmtree, events.parent, True)
         events.touch()
         for origin, hint, expected in (
-                ('runner_default', CHANGE_IDLE_LIMIT,
-                 '(5 seconds, runner default; change it with autocode resume --max-idle-seconds N)'),
-                ('user_explicit', JOB_IDLE_LIMIT,
-                 '(5 seconds, set explicitly; an exact job retry runs under the same limit; '
-                 'a different limit needs a new run)'),
-                (None, CHANGE_IDLE_LIMIT, '(5 seconds; change it with autocode resume --max-idle-seconds N)')):
+            (
+                "runner_default",
+                CHANGE_IDLE_LIMIT,
+                "(5 seconds, runner default; change it with autocode resume --max-idle-seconds N)",
+            ),
+            (
+                "user_explicit",
+                JOB_IDLE_LIMIT,
+                "(5 seconds, set explicitly; an exact job retry runs under the same limit; "
+                "a different limit needs a new run)",
+            ),
+            (None, CHANGE_IDLE_LIMIT, "(5 seconds; change it with autocode resume --max-idle-seconds N)"),
+        ):
             with self.subTest(origin=origin, hint=hint):
+
                 def monitor_for(clock):
-                    return ActivityMonitor(events, idle_seconds=5, tool_seconds=0, clock=clock,
-                                           idle_origin=origin, idle_hint=hint)
-                _, expired, _, monitor, _ = self.run_provider('inspection', idle=True, monitor_for=monitor_for)
+                    return ActivityMonitor(
+                        events, idle_seconds=5, tool_seconds=0, clock=clock, idle_origin=origin, idle_hint=hint
+                    )
+
+                _, expired, _, monitor, _ = self.run_provider("inspection", idle=True, monitor_for=monitor_for)
                 self.assertTrue(expired)
-                self.assertEqual('idle', monitor.timeout['kind'])
-                self.assertEqual('No new provider activity within the inactivity limit ' + expected,
-                                 monitor.timeout['reason'])
+                self.assertEqual("idle", monitor.timeout["kind"])
+                self.assertEqual(
+                    "No new provider activity within the inactivity limit " + expected, monitor.timeout["reason"]
+                )
 
     def test_watchdog_cannot_reap_before_identity_is_captured(self):
-        code, expired, owned, _, _ = self.run_provider('fast_exit')
+        code, expired, owned, _, _ = self.run_provider("fast_exit")
         self.assertEqual(7, code)
         self.assertFalse(expired)
-        self.assertEqual([424242], [row['pid'] for row in owned])
-        self.assertEqual(1.0, owned[0]['birth_identity'])
+        self.assertEqual([424242], [row["pid"] for row in owned])
+        self.assertEqual(1.0, owned[0]["birth_identity"])

@@ -1,4 +1,5 @@
 """Caller-rooted regression proofs using real Git and Python test subprocesses."""
+
 import errno
 import os
 import shlex
@@ -22,19 +23,30 @@ from tests.test_verify import Project, git, isolated_python
 
 ARCHITECTURE = {"README.md": "Two components.\n", "architecture/components.json": '[{"id":"gateway"},{"id":"store"}]\n'}
 SERVER = "def health():\n    return {status!r}\n"
-NEW_TEST = ("import os\nimport sys\nimport unittest\n"
-            "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
-            "import server\nclass GatewayTests(unittest.TestCase):\n"
-            "    def test_c1_health_answers_ok(self):\n        self.assertEqual('ok', server.health())\n")
-OLD_TEST = NEW_TEST.replace("GatewayTests", "ExistingTests").replace("test_c1_health_answers_ok", "test_health_is_string").replace(
-    "self.assertEqual('ok', server.health())", "self.assertIsInstance(server.health(), str)")
+NEW_TEST = (
+    "import os\nimport sys\nimport unittest\n"
+    "sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n"
+    "import server\nclass GatewayTests(unittest.TestCase):\n"
+    "    def test_c1_health_answers_ok(self):\n        self.assertEqual('ok', server.health())\n"
+)
+OLD_TEST = (
+    NEW_TEST.replace("GatewayTests", "ExistingTests")
+    .replace("test_c1_health_answers_ok", "test_health_is_string")
+    .replace("self.assertEqual('ok', server.health())", "self.assertIsInstance(server.health(), str)")
+)
 SMOKE_TEST = NEW_TEST.replace("self.assertEqual('ok', server.health())", "self.assertTrue(server.health())")
-CRITERION = {"id": "C1", "criterion": "GET /health answers ok", "verification_method": "test: test_c1_health_answers_ok"}
+CRITERION = {
+    "id": "C1",
+    "criterion": "GET /health answers ok",
+    "verification_method": "test: test_c1_health_answers_ok",
+}
 
 
 def component_files(status="ok", *, tests_dir="tests", package=True):
-    files = {"components/gateway/server.py": SERVER.format(status=status),
-             f"components/gateway/{tests_dir}/test_gateway.py": NEW_TEST}
+    files = {
+        "components/gateway/server.py": SERVER.format(status=status),
+        f"components/gateway/{tests_dir}/test_gateway.py": NEW_TEST,
+    }
     if package:
         files[f"components/gateway/{tests_dir}/__init__.py"] = ""
     return files
@@ -42,9 +54,16 @@ def component_files(status="ok", *, tests_dir="tests", package=True):
 
 def state(project, *, root="components/gateway", python=sys.executable, criterion=CRITERION):
     options = {key: value for key, value in (("test_root", root), ("python", python)) if value}
-    return {"base_commit": project.base, "settings": {"regression": options}, "iteration": 1, "stages": [],
-            "history": [], "goal_contract": {"body": {"task_kind": "build", "acceptance_criteria": [criterion],
-                                                      "milestones": [{"id": "M1"}]}}}
+    return {
+        "base_commit": project.base,
+        "settings": {"regression": options},
+        "iteration": 1,
+        "stages": [],
+        "history": [],
+        "goal_contract": {
+            "body": {"task_kind": "build", "acceptance_criteria": [criterion], "milestones": [{"id": "M1"}]}
+        },
+    }
 
 
 def commit(project, files):
@@ -79,14 +98,16 @@ class ComponentProofTests(unittest.TestCase):
         self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
         self.assertEqual("detected:unittest", proof["commands"]["suite_source"])
         self.assertTrue(proof["commands"]["suite"].endswith("discover -v -s components/gateway"))
-        self.assertEqual({"C1": ["components.gateway.tests.test_gateway.GatewayTests.test_c1_health_answers_ok"]},
-                         proof["case_tests"])
+        self.assertEqual(
+            {"C1": ["components.gateway.tests.test_gateway.GatewayTests.test_c1_health_answers_ok"]},
+            proof["case_tests"],
+        )
         self.assertTrue(any("nothing under components/gateway/" in note for note in proof["notes"]))
         suite = util.read(proof["path"])["checks"]["suite_on_candidate"]
         self.assertEqual(["tests.test_gateway.GatewayTests.test_c1_health_answers_ok"], suite["results"]["passed"])
 
     def test_source_bound_component_proves_real_subprocess_http_health_post_get(self):
-        server = '''import json
+        server = """import json
 from http.server import BaseHTTPRequestHandler
 NOTES = {}
 class Handler(BaseHTTPRequestHandler):
@@ -107,8 +128,8 @@ class Handler(BaseHTTPRequestHandler):
         note = {"id": len(NOTES) + 1, "text": body["text"]}
         NOTES[note["id"]] = note
         self.reply(201, note)
-'''
-        test = '''import http.client
+"""
+        test = """import http.client
 import json
 import subprocess
 import sys
@@ -142,19 +163,32 @@ class StoreTests(unittest.TestCase):
         finally:
             process.terminate()
             process.communicate(timeout=5)
-'''
-        self.project.write({"components/store/server.py": server, "components/store/tests/__init__.py": "",
-                            "components/store/tests/test_store.py": test})
-        criterion = {"id": "C1", "criterion": "Real local HTTP health, POST, GET flow",
-                     "verification_method": "test: test_c1_real_http_flow"}
+"""
+        self.project.write(
+            {
+                "components/store/server.py": server,
+                "components/store/tests/__init__.py": "",
+                "components/store/tests/test_store.py": test,
+            }
+        )
+        criterion = {
+            "id": "C1",
+            "criterion": "Real local HTTP health, POST, GET flow",
+            "verification_method": "test: test_c1_real_http_flow",
+        }
         for legacy in (False, True):
             with self.subTest(legacy=legacy):
                 self.project.write({"components/store/server.py": server})
-                run = state(self.project, root=None if legacy else "components/store",
-                            criterion=criterion, python=isolated_python(self))
+                run = state(
+                    self.project,
+                    root=None if legacy else "components/store",
+                    criterion=criterion,
+                    python=isolated_python(self),
+                )
                 if legacy:
                     run["task"] = components.component_brief(
-                        components.Component("store", "HTTP service", ("R1",), (), (), ()), components.Architecture())
+                        components.Component("store", "HTTP service", ("R1",), (), (), ()), components.Architecture()
+                    )
                 before = deepcopy(run)
                 regression.settings(run)
                 self.assertEqual(before, run)
@@ -162,14 +196,18 @@ class StoreTests(unittest.TestCase):
                 self.assertEqual(before["settings"], run["settings"])
                 self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
                 self.assertTrue(proof["commands"]["suite"].endswith("discover -v -s components/store"), proof)
-                self.assertEqual({"C1": ["components.store.tests.test_store.StoreTests.test_c1_real_http_flow"]}, proof["case_tests"])
+                self.assertEqual(
+                    {"C1": ["components.store.tests.test_store.StoreTests.test_c1_real_http_flow"]}, proof["case_tests"]
+                )
                 handoff = regression.handoff(run)
                 self.assertEqual(proof["case_tests"], handoff["case_tests"])
                 self.assertEqual(proof["source_revision"], handoff["source_revision"])
                 self.assertTrue(handoff["checks"])
                 revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
                 self.assertTrue(regression.complete(run, revision))
-                self.project.write({"components/store/server.py": server.replace('self.reply(201, note)', 'self.reply(500, note)')})
+                self.project.write(
+                    {"components/store/server.py": server.replace("self.reply(201, note)", "self.reply(500, note)")}
+                )
                 revision = regression.source_scope.snapshot(self.project.root, run)["revision"]
                 self.assertFalse(regression.complete(run, revision))
 
@@ -189,45 +227,95 @@ class StoreTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.project = Project(ARCHITECTURE)
                 self.addCleanup(self.project.close)
-                commit(self.project, {**component_files(), "components/gateway/__init__.py": "",
-                                     "components/gateway/tests/test_existing.py": OLD_TEST})
-                self.project.write({"components/gateway/server.py": SERVER.format(status=200),
-                    "components/gateway/tests/test_gateway.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+                commit(
+                    self.project,
+                    {
+                        **component_files(),
+                        "components/gateway/__init__.py": "",
+                        "components/gateway/tests/test_existing.py": OLD_TEST,
+                    },
+                )
+                self.project.write(
+                    {
+                        "components/gateway/server.py": SERVER.format(status=200),
+                        "components/gateway/tests/test_gateway.py": NEW_TEST.replace(
+                            "'ok', server.health()", "200, server.health()"
+                        ),
+                    }
+                )
                 if mutation == "skip":
-                    self.project.write({"components/gateway/tests/test_existing.py": OLD_TEST.replace(
-                        "    def test_health_is_string", "    @unittest.skip('hidden')\n    def test_health_is_string")})
+                    self.project.write(
+                        {
+                            "components/gateway/tests/test_existing.py": OLD_TEST.replace(
+                                "    def test_health_is_string",
+                                "    @unittest.skip('hidden')\n    def test_health_is_string",
+                            )
+                        }
+                    )
                 elif mutation.endswith("hook"):
                     package = "components/gateway/tests" if mutation == "tests hook" else "components/gateway"
-                    self.project.write({package + "/__init__.py": 'def load_tests(loader, tests, pattern):\n'
-                        '    return loader.loadTestsFromName("components.gateway.tests.test_gateway")\n'})
+                    self.project.write(
+                        {
+                            package + "/__init__.py": "def load_tests(loader, tests, pattern):\n"
+                            '    return loader.loadTestsFromName("components.gateway.tests.test_gateway")\n'
+                        }
+                    )
                 proof = self.prove()
                 self.assertEqual(verify.FAIL, proof["verdict"], proof)
                 self.assertIn("test_health_is_string", self.reasons(proof))
 
     def test_component_package_hook_and_relative_imports_below_namespace_parent(self):
-        commit(self.project, {**component_files(), "components/gateway/__init__.py":
-            'def load_tests(loader, tests, pattern):\n    return loader.loadTestsFromName("components.gateway.hidden_checks")\n',
-            "components/gateway/hidden_checks.py": OLD_TEST.replace("import server", "from components.gateway import server")})
-        self.project.write({"components/gateway/server.py": SERVER.format(status=200),
-            "components/gateway/tests/test_gateway.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+        commit(
+            self.project,
+            {
+                **component_files(),
+                "components/gateway/__init__.py": 'def load_tests(loader, tests, pattern):\n    return loader.loadTestsFromName("components.gateway.hidden_checks")\n',
+                "components/gateway/hidden_checks.py": OLD_TEST.replace(
+                    "import server", "from components.gateway import server"
+                ),
+            },
+        )
+        self.project.write(
+            {
+                "components/gateway/server.py": SERVER.format(status=200),
+                "components/gateway/tests/test_gateway.py": NEW_TEST.replace(
+                    "'ok', server.health()", "200, server.health()"
+                ),
+            }
+        )
         proof = self.prove()
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertIn("hidden_checks.ExistingTests.test_health_is_string", self.reasons(proof))
         self.project = Project(ARCHITECTURE)
         self.addCleanup(self.project.close)
-        self.project.write({**component_files(), "components/gateway/__init__.py": "",
-                           "components/gateway/tests/test_gateway.py": NEW_TEST.replace("import server", "from .. import server")})
+        self.project.write(
+            {
+                **component_files(),
+                "components/gateway/__init__.py": "",
+                "components/gateway/tests/test_gateway.py": NEW_TEST.replace("import server", "from .. import server"),
+            }
+        )
         proof = self.prove()
         self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
         self.assertTrue(proof["commands"]["suite"].endswith(" -s components/gateway -t ."))
         self.assertFalse((self.project.root / "components/__init__.py").exists())
 
     def test_preexisting_component_failure_does_not_become_new_regression(self):
-        commit(self.project, {**component_files(status=200), "components/gateway/__init__.py": "",
-                             "components/gateway/tests/test_existing.py": OLD_TEST,
-                             "components/gateway/tests/test_passing.py": SMOKE_TEST})
-        self.project.write({"components/gateway/server.py": SERVER.format(status="ok"),
-                           "components/gateway/tests/test_gateway.py": NEW_TEST + "\n# repair coverage\n"})
+        commit(
+            self.project,
+            {
+                **component_files(status=200),
+                "components/gateway/__init__.py": "",
+                "components/gateway/tests/test_existing.py": OLD_TEST,
+                "components/gateway/tests/test_passing.py": SMOKE_TEST,
+            },
+        )
+        self.project.write(
+            {
+                "components/gateway/server.py": SERVER.format(status="ok"),
+                "components/gateway/tests/test_gateway.py": NEW_TEST + "\n# repair coverage\n",
+            }
+        )
         proof = self.prove()
         self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
 
@@ -237,7 +325,9 @@ class StoreTests(unittest.TestCase):
             with self.subTest(explicit=explicit):
                 run = state(self.project)
                 if explicit:
-                    run["settings"]["regression"]["test_command"] = f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway"
+                    run["settings"]["regression"]["test_command"] = (
+                        f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway"
+                    )
                 proof = regression.prove(run, self.project.root, self.run_dir)
                 self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
                 self.assertIn("outside the test root components/gateway/ changed", self.reasons(proof))
@@ -247,7 +337,9 @@ class StoreTests(unittest.TestCase):
         for option in ("test_command", "regression_command"):
             with self.subTest(option=option):
                 run = state(self.project)
-                run["settings"]["regression"][option] = f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway"
+                run["settings"]["regression"][option] = (
+                    f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway"
+                )
                 proof = regression.prove(run, self.project.root, self.run_dir)
                 self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
                 source = "suite_source" if option == "test_command" else "regression_source"
@@ -262,12 +354,27 @@ class StoreTests(unittest.TestCase):
             self.project.write(component_files())
             for marked in (False, True):
                 with self.subTest(base=list(base), marked=marked):
-                    framework = verify.Framework("unittest", suite, python=sys.executable,
-                                                 test_root="components/gateway" if marked else None)
-                    baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, suite_command=suite, timeout=120)
-                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+                    framework = verify.Framework(
+                        "unittest", suite, python=sys.executable, test_root="components/gateway" if marked else None
+                    )
+                    baseline = verify.baseline(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        suite_command=suite,
+                        timeout=120,
+                    )
+                    proof = verify.verify(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        base_suite=baseline,
+                        new_behavior=True,
+                        test_root="components/gateway",
+                        timeout=120,
+                    )
                     self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
                     self.assertIn("preservation", self.reasons(proof))
 
@@ -276,42 +383,84 @@ class StoreTests(unittest.TestCase):
             self.project = Project(base)
             self.addCleanup(self.project.close)
             self.project.write(component_files())
-            detected = verify.detect_framework(self.project.root, python=sys.executable,
-                test_root="components/gateway", base=self.project.base)
+            detected = verify.detect_framework(
+                self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+            )
             for framework in (detected, verify.Framework(detected.name, detected.suite, python=detected.python)):
                 with self.subTest(base=list(base), marked=framework.test_root):
-                    baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, suite_command=framework.suite, timeout=120)
-                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+                    baseline = verify.baseline(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        suite_command=framework.suite,
+                        timeout=120,
+                    )
+                    proof = verify.verify(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        base_suite=baseline,
+                        new_behavior=True,
+                        test_root="components/gateway",
+                        timeout=120,
+                    )
                     self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
 
     def test_canonical_root_command_with_different_python_metadata_is_not_authority(self):
         self.project.write(component_files())
         suite = f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway"
         framework = verify.Framework("unittest", suite, python="python3", test_root="components/gateway")
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=framework, suite_command=suite, timeout=120)
-        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+        baseline = verify.baseline(
+            self.project.root, self.project.base, self.run_dir, framework=framework, suite_command=suite, timeout=120
+        )
+        proof = verify.verify(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=framework,
+            base_suite=baseline,
+            new_behavior=True,
+            test_root="components/gateway",
+            timeout=120,
+        )
         self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
         self.assertIn("preservation", self.reasons(proof))
 
     @unittest.skipUnless(shutil.which("go"), "needs a Go toolchain")
     def test_scoped_explicit_go_command_cannot_use_unscoped_first_suite_allowance(self):
-        self.project.write({"components/gateway/server.go": "package gateway\nfunc Health() int { return 200 }\n",
-            "components/gateway/server_test.go": 'package gateway\nimport "testing"\n'
-                'func TestHealth(t *testing.T) { if Health() != 200 { t.Fatal("health") } }\n'})
+        self.project.write(
+            {
+                "components/gateway/server.go": "package gateway\nfunc Health() int { return 200 }\n",
+                "components/gateway/server_test.go": 'package gateway\nimport "testing"\n'
+                'func TestHealth(t *testing.T) { if Health() != 200 { t.Fatal("health") } }\n',
+            }
+        )
         suite = "go test ./..."
         framework = verify.Framework("go", suite, test_root="components/gateway")
         with patch.dict(os.environ, {"GO111MODULE": "off"}):
-            baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-                framework=framework, suite_command=suite, timeout=120)
+            baseline = verify.baseline(
+                self.project.root,
+                self.project.base,
+                self.run_dir,
+                framework=framework,
+                suite_command=suite,
+                timeout=120,
+            )
             for root, expected in ((None, verify.PASS), ("components/gateway", verify.UNVERIFIED)):
                 with self.subTest(root=root):
-                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, base_suite=baseline, suite_command=suite, new_behavior=True,
-                        test_root=root, timeout=120)
+                    proof = verify.verify(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        base_suite=baseline,
+                        suite_command=suite,
+                        new_behavior=True,
+                        test_root=root,
+                        timeout=120,
+                    )
                     self.assertEqual(expected, proof["verdict"], self.reasons(proof))
 
     def test_wrong_framework_kind_cannot_use_unparsed_baseline_exit_codes(self):
@@ -321,26 +470,46 @@ class StoreTests(unittest.TestCase):
         for layout in ("architecture", "README", "existing"):
             base = {"README.md": "A new component.\n"} if layout == "README" else ARCHITECTURE
             if layout == "existing":
-                base = {**base, **component_files(), f"{root}/tests/test_gateway.py": SMOKE_TEST,
+                base = {
+                    **base,
+                    **component_files(),
+                    f"{root}/tests/test_gateway.py": SMOKE_TEST,
                     f"{root}/tests/test_pytest_only.py": "from components.gateway import server\n"
-                        "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n"}
+                    "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n",
+                }
             self.project = Project(base)
             self.addCleanup(self.project.close)
-            self.project.write(component_files() if layout != "existing" else {
-                f"{root}/server.py": SERVER.format(status=200),
-                f"{root}/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+            self.project.write(
+                component_files()
+                if layout != "existing"
+                else {
+                    f"{root}/server.py": SERVER.format(status=200),
+                    f"{root}/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()"),
+                }
+            )
             supplied = verify.Framework("pytest", suite, python=python, test_root=root)
-            canonical = verify.detect_framework(self.project.root, python=python, test_root=root, base=self.project.base)
+            canonical = verify.detect_framework(
+                self.project.root, python=python, test_root=root, base=self.project.base
+            )
             self.assertEqual(("unittest", suite), (canonical.name, canonical.suite))
-            baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-                framework=supplied, suite_command=suite, timeout=120)
+            baseline = verify.baseline(
+                self.project.root, self.project.base, self.run_dir, framework=supplied, suite_command=suite, timeout=120
+            )
             self.assertIsNone(baseline["receipt"]["results"])
             self.assertFalse(baseline["receipt"]["results_expected"])
             self.assertEqual("passing" if layout == "existing" else "failing", baseline["health"])
             self.assertEqual(0 if layout == "existing" else 1, baseline["receipt"]["exit_code"])
             with self.subTest(layout=layout, interface="verify"):
-                proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-                    framework=supplied, base_suite=baseline, new_behavior=True, test_root=root, timeout=120)
+                proof = verify.verify(
+                    self.project.root,
+                    self.project.base,
+                    self.run_dir,
+                    framework=supplied,
+                    base_suite=baseline,
+                    new_behavior=True,
+                    test_root=root,
+                    timeout=120,
+                )
                 receipt = proof["checks"]["suite_on_candidate"]
                 self.assertEqual(0, receipt["exit_code"])
                 self.assertIsNone(receipt["results"])
@@ -351,12 +520,14 @@ class StoreTests(unittest.TestCase):
             with self.subTest(layout=layout, interface="prove"):
                 detect = verify.detect_framework
                 initial = True
+
                 def selected_framework(*args, **kwargs):
                     nonlocal initial
                     if initial:
                         initial = False
                         return supplied
                     return detect(*args, **kwargs)
+
                 # Only initial selection is injected; detection and proof executions stay real.
                 with patch.object(verify, "detect_framework", side_effect=selected_framework):
                     proof = self.prove(python=python)
@@ -368,12 +539,23 @@ class StoreTests(unittest.TestCase):
         # An opaque wrapper must still execute its base definition over candidate product code.
         for command in (collector, "sh components/gateway/check.sh"):
             with self.subTest(command=command):
-                self.project = Project({**ARCHITECTURE, **component_files(),
-                    "components/gateway/tests/test_gateway.py": SMOKE_TEST,
-                    "components/gateway/check.sh": collector + " > /dev/null 2>&1\n"})
+                self.project = Project(
+                    {
+                        **ARCHITECTURE,
+                        **component_files(),
+                        "components/gateway/tests/test_gateway.py": SMOKE_TEST,
+                        "components/gateway/check.sh": collector + " > /dev/null 2>&1\n",
+                    }
+                )
                 self.addCleanup(self.project.close)
-                self.project.write({"components/gateway/server.py": SERVER.format(status="fixed"),
-                    "components/gateway/tests/test_gateway.py": NEW_TEST.replace("'ok', server.health()", "'fixed', server.health()")})
+                self.project.write(
+                    {
+                        "components/gateway/server.py": SERVER.format(status="fixed"),
+                        "components/gateway/tests/test_gateway.py": NEW_TEST.replace(
+                            "'ok', server.health()", "'fixed', server.health()"
+                        ),
+                    }
+                )
                 run = state(self.project)
                 run["settings"]["regression"]["test_command"] = command
                 proof = regression.prove(run, self.project.root, self.run_dir)
@@ -381,19 +563,35 @@ class StoreTests(unittest.TestCase):
 
     def test_wrong_kind_cannot_borrow_typed_baseline_then_hide_candidate_results(self):
         commit(self.project, {**component_files(), "components/gateway/tests/test_gateway.py": SMOKE_TEST})
-        good = verify.detect_framework(self.project.root, python=sys.executable,
-            test_root="components/gateway", base=self.project.base)
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=good, suite_command=good.suite, timeout=120)
+        good = verify.detect_framework(
+            self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+        )
+        baseline = verify.baseline(
+            self.project.root, self.project.base, self.run_dir, framework=good, suite_command=good.suite, timeout=120
+        )
         self.assertTrue(baseline["receipt"]["results"]["passed"])
-        self.project.write({"components/gateway/server.py": SERVER.format(status=200),
-            "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+        self.project.write(
+            {
+                "components/gateway/server.py": SERVER.format(status=200),
+                "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                    "'ok', server.health()", "200, server.health()"
+                ),
+            }
+        )
         wrong = verify.Framework("pytest", good.suite, python=good.python, test_root=True)
         # Keep the targeted checks native; only the suite metadata is deliberately wrong.
         targeted = good.targeted(["components/gateway/tests/test_new.py"])
-        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=wrong, base_suite=baseline, regression_command=targeted,
-            new_behavior=True, test_root="components/gateway", timeout=120)
+        proof = verify.verify(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=wrong,
+            base_suite=baseline,
+            regression_command=targeted,
+            new_behavior=True,
+            test_root="components/gateway",
+            timeout=120,
+        )
         self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
         receipt = proof["checks"]["suite_on_candidate"]
         self.assertEqual(0, receipt["exit_code"], proof)
@@ -405,22 +603,53 @@ class StoreTests(unittest.TestCase):
 
     def test_canonical_first_suite_does_not_depend_on_scope_descriptor_type(self):
         self.project.write(component_files())
-        framework = verify.detect_framework(self.project.root, python=sys.executable,
-            test_root="components/gateway", base=self.project.base)
+        framework = verify.detect_framework(
+            self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+        )
         framework.test_root = True
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=framework, suite_command=framework.suite, timeout=120)
-        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+        baseline = verify.baseline(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=framework,
+            suite_command=framework.suite,
+            timeout=120,
+        )
+        proof = verify.verify(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=framework,
+            base_suite=baseline,
+            new_behavior=True,
+            test_root="components/gateway",
+            timeout=120,
+        )
         self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
 
     def test_scoped_preservation_requires_same_base_completed_passing_evidence(self):
         commit(self.project, component_files())
-        framework = verify.detect_framework(self.project.root, python=sys.executable,
-            test_root="components/gateway", base=self.project.base)
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=framework, suite_command=framework.suite, timeout=120)
-        for condition in ("normal", "wrong base", "skipped", "zero", "incomplete", "timeout", "interrupted", "regression"):
+        framework = verify.detect_framework(
+            self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+        )
+        baseline = verify.baseline(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=framework,
+            suite_command=framework.suite,
+            timeout=120,
+        )
+        for condition in (
+            "normal",
+            "wrong base",
+            "skipped",
+            "zero",
+            "incomplete",
+            "timeout",
+            "interrupted",
+            "regression",
+        ):
             with self.subTest(condition=condition):
                 supplied = deepcopy(baseline)
                 candidate = deepcopy(baseline["receipt"])
@@ -443,19 +672,46 @@ class StoreTests(unittest.TestCase):
                     candidate["results"]["failed"], candidate["results"]["passed"] = candidate["results"]["passed"], []
                     candidate["exit_code"] = 1
                 with patch.object(verify, "run_suite", return_value=candidate):
-                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, base_suite=supplied, preserve_only=True, test_root="components/gateway")
-                expected = verify.PASS if condition == "normal" else verify.FAIL if condition == "regression" else verify.UNVERIFIED
+                    proof = verify.verify(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        base_suite=supplied,
+                        preserve_only=True,
+                        test_root="components/gateway",
+                    )
+                expected = (
+                    verify.PASS
+                    if condition == "normal"
+                    else verify.FAIL
+                    if condition == "regression"
+                    else verify.UNVERIFIED
+                )
                 self.assertEqual(expected, proof["verdict"], proof)
 
     def test_canonical_first_root_requires_complete_executed_candidate_tests(self):
         self.project.write(component_files())
-        framework = verify.detect_framework(self.project.root, python=sys.executable,
-            test_root="components/gateway", base=self.project.base)
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=framework, suite_command=framework.suite, timeout=120)
-        executed = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway")
+        framework = verify.detect_framework(
+            self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+        )
+        baseline = verify.baseline(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=framework,
+            suite_command=framework.suite,
+            timeout=120,
+        )
+        executed = verify.verify(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=framework,
+            base_suite=baseline,
+            new_behavior=True,
+            test_root="components/gateway",
+        )
         self.assertEqual(verify.PASS, executed["verdict"], self.reasons(executed))
         for condition in ("skipped", "zero", "incomplete", "timeout", "interrupted"):
             with self.subTest(condition=condition):
@@ -471,13 +727,22 @@ class StoreTests(unittest.TestCase):
                     candidate["timed_out"] = True
                 else:
                     candidate["supervision_errors"] = ["fault-injected interruption"]
+
                 def run_suite(selected, command, tree, directory, stem, **kwargs):
                     if command == framework.suite:
                         return candidate
                     return executed["checks"][stem.replace("-", "_")]
+
                 with patch.object(verify, "run_suite", side_effect=run_suite):
-                    proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-                        framework=framework, base_suite=baseline, new_behavior=True, test_root="components/gateway")
+                    proof = verify.verify(
+                        self.project.root,
+                        self.project.base,
+                        self.run_dir,
+                        framework=framework,
+                        base_suite=baseline,
+                        new_behavior=True,
+                        test_root="components/gateway",
+                    )
                 self.assertNotEqual(verify.PASS, proof["verdict"], proof)
                 self.assertFalse(any("nothing under" in note for note in proof["notes"]), proof)
 
@@ -488,10 +753,24 @@ class StoreTests(unittest.TestCase):
         self.project.write(component_files())
         supplied = verify.detect_framework(self.project.root, python=sys.executable, test_root="components/gateway")
         self.assertEqual("unittest", supplied.name)
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=supplied, suite_command=supplied.suite, timeout=120)
-        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=supplied, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+        baseline = verify.baseline(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=supplied,
+            suite_command=supplied.suite,
+            timeout=120,
+        )
+        proof = verify.verify(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=supplied,
+            base_suite=baseline,
+            new_behavior=True,
+            test_root="components/gateway",
+            timeout=120,
+        )
         self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
         self.assertFalse(any("nothing under components/gateway/" in note for note in proof["notes"]), proof)
 
@@ -502,12 +781,29 @@ class StoreTests(unittest.TestCase):
         git(self.project.root, "add", "-u")
         self.project.write(component_files())
         supplied = verify.detect_framework(self.project.root, python=sys.executable, test_root="components/gateway")
-        self.assertIsNone(verify.detect_framework(self.project.root, python=sys.executable,
-            test_root="components/gateway", base=self.project.base))
-        baseline = verify.baseline(self.project.root, self.project.base, self.run_dir,
-            framework=supplied, suite_command=supplied.suite, timeout=120)
-        proof = verify.verify(self.project.root, self.project.base, self.run_dir,
-            framework=supplied, base_suite=baseline, new_behavior=True, test_root="components/gateway", timeout=120)
+        self.assertIsNone(
+            verify.detect_framework(
+                self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+            )
+        )
+        baseline = verify.baseline(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=supplied,
+            suite_command=supplied.suite,
+            timeout=120,
+        )
+        proof = verify.verify(
+            self.project.root,
+            self.project.base,
+            self.run_dir,
+            framework=supplied,
+            base_suite=baseline,
+            new_behavior=True,
+            test_root="components/gateway",
+            timeout=120,
+        )
         self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
         self.assertFalse(any("nothing under components/gateway/" in note for note in proof["notes"]), proof)
 
@@ -522,15 +818,26 @@ class StoreTests(unittest.TestCase):
                     policy.symlink_to("pyproject.toml")
                 else:
                     policy.write_bytes(b"#" * (test_root.POLICY_MAX_BYTES + 1))
-                self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-                    test_root="components/gateway", base=project.base))
+                self.assertIsNone(
+                    verify.detect_framework(
+                        project.root, python=sys.executable, test_root="components/gateway", base=project.base
+                    )
+                )
                 suite = f"{shlex.quote(sys.executable)} -m unittest discover -v -s components/gateway"
                 framework = verify.Framework("unittest", suite, python=sys.executable, test_root="components/gateway")
-                baseline = verify.baseline(project.root, project.base, self.run_dir,
-                    framework=framework, suite_command=suite, timeout=120)
-                proof = verify.verify(project.root, project.base, self.run_dir,
-                    framework=framework, base_suite=baseline, new_behavior=True,
-                    test_root="components/gateway", timeout=120)
+                baseline = verify.baseline(
+                    project.root, project.base, self.run_dir, framework=framework, suite_command=suite, timeout=120
+                )
+                proof = verify.verify(
+                    project.root,
+                    project.base,
+                    self.run_dir,
+                    framework=framework,
+                    base_suite=baseline,
+                    new_behavior=True,
+                    test_root="components/gateway",
+                    timeout=120,
+                )
                 self.assertEqual(verify.UNVERIFIED, proof["verdict"], self.reasons(proof))
                 self.assertFalse(any("nothing under components/gateway/" in note for note in proof["notes"]), proof)
 
@@ -539,10 +846,15 @@ class StoreTests(unittest.TestCase):
         for name in ("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml"):
             for location in ("current", "ancestor", "pinned"):
                 with self.subTest(name=name, location=location):
-                    self.project = Project({**ARCHITECTURE, **component_files(),
-                        "components/gateway/tests/test_gateway.py": SMOKE_TEST,
-                        "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
-                            "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n"})
+                    self.project = Project(
+                        {
+                            **ARCHITECTURE,
+                            **component_files(),
+                            "components/gateway/tests/test_gateway.py": SMOKE_TEST,
+                            "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
+                            "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n",
+                        }
+                    )
                     self.addCleanup(self.project.close)
                     policy = name if location == "ancestor" else f"components/gateway/{name}"
                     self.project.write({policy: "[pytest]\n"})
@@ -551,8 +863,14 @@ class StoreTests(unittest.TestCase):
                     if location == "pinned":
                         (self.project.root / policy).unlink()
                         git(self.project.root, "add", "-u")
-                    self.project.write({"components/gateway/server.py": SERVER.format(status=200),
-                        "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+                    self.project.write(
+                        {
+                            "components/gateway/server.py": SERVER.format(status=200),
+                            "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                                "'ok', server.health()", "200, server.health()"
+                            ),
+                        }
+                    )
                     proof = self.prove(python=python)
                     self.assertEqual(verify.FAIL, proof["verdict"], proof)
                     self.assertEqual("detected:pytest", proof["commands"]["suite_source"])
@@ -563,31 +881,51 @@ class StoreTests(unittest.TestCase):
         for name in (".pytest.ini", "pytest.toml", ".pytest.toml"):
             for unsafe in (False, True):
                 with self.subTest(name=name, unsafe=unsafe):
-                    self.project = Project({**ARCHITECTURE, **component_files(),
-                        "components/gateway/tests/test_gateway.py": SMOKE_TEST,
-                        "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
+                    self.project = Project(
+                        {
+                            **ARCHITECTURE,
+                            **component_files(),
+                            "components/gateway/tests/test_gateway.py": SMOKE_TEST,
+                            "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
                             "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n",
-                        "components/gateway/policy.txt": "[pytest]\n"})
+                            "components/gateway/policy.txt": "[pytest]\n",
+                        }
+                    )
                     self.addCleanup(self.project.close)
                     link = self.project.root / "components/gateway" / name
                     link.symlink_to("missing.txt" if unsafe else "policy.txt")
                     commit(self.project, {})
                     link.unlink()
                     git(self.project.root, "add", "-u")
-                    self.project.write({"components/gateway/server.py": SERVER.format(status=200),
-                        "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+                    self.project.write(
+                        {
+                            "components/gateway/server.py": SERVER.format(status=200),
+                            "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                                "'ok', server.health()", "200, server.health()"
+                            ),
+                        }
+                    )
                     proof = self.prove(python=python)
                     self.assertEqual(verify.UNVERIFIED if unsafe else verify.FAIL, proof["verdict"], proof)
                     if unsafe:
-                        self.assertIsNone(verify.detect_framework(self.project.root, python=python,
-                            test_root="components/gateway", base=self.project.base))
+                        self.assertIsNone(
+                            verify.detect_framework(
+                                self.project.root, python=python, test_root="components/gateway", base=self.project.base
+                            )
+                        )
                     else:
                         self.assertIn("test_old_health_is_string", self.reasons(proof))
                         # Restore the policy as well: keep pytest rootdir and test identities unchanged.
                         link.symlink_to("policy.txt")
                         git(self.project.root, "add", link.relative_to(self.project.root).as_posix())
-                        self.project.write({"components/gateway/server.py": SERVER.format(status="fixed"),
-                            "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "'fixed', server.health()")})
+                        self.project.write(
+                            {
+                                "components/gateway/server.py": SERVER.format(status="fixed"),
+                                "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                                    "'ok', server.health()", "'fixed', server.health()"
+                                ),
+                            }
+                        )
                         control = self.prove(python=python)
                         self.assertEqual(verify.PASS, control["verdict"], self.reasons(control))
 
@@ -597,7 +935,13 @@ class StoreTests(unittest.TestCase):
             with self.subTest(policy=policy):
                 self.project = Project(ARCHITECTURE)
                 self.addCleanup(self.project.close)
-                content = "[tool.pytest.ini_options]\n" if policy.endswith("toml") else "[pytest]\n" if policy.endswith("ini") else ""
+                content = (
+                    "[tool.pytest.ini_options]\n"
+                    if policy.endswith("toml")
+                    else "[pytest]\n"
+                    if policy.endswith("ini")
+                    else ""
+                )
                 if policy.startswith("components/"):
                     self.project.write({**component_files(), policy: content})
                 else:
@@ -615,17 +959,29 @@ class StoreTests(unittest.TestCase):
                 self.project = Project(ARCHITECTURE)
                 self.addCleanup(self.project.close)
                 policy = "components/gateway/pyproject.toml" if location == "dirty-launch" else location
-                commit(self.project, {**component_files(), "components/gateway/tests/test_gateway.py": SMOKE_TEST,
-                    "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
-                        "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n"})
+                commit(
+                    self.project,
+                    {
+                        **component_files(),
+                        "components/gateway/tests/test_gateway.py": SMOKE_TEST,
+                        "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
+                        "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n",
+                    },
+                )
                 self.project.write({policy: "[tool.pytest.ini_options]\n"})
                 if location == "dirty-launch":
                     self.project.base = verify.commit_worktree(self.project.root)
                 else:
                     commit(self.project, {})
                 (self.project.root / policy).unlink()
-                self.project.write({"components/gateway/server.py": SERVER.format(status=200),
-                    "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+                self.project.write(
+                    {
+                        "components/gateway/server.py": SERVER.format(status=200),
+                        "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                            "'ok', server.health()", "200, server.health()"
+                        ),
+                    }
+                )
                 proof = self.prove(python=python)
                 self.assertEqual(verify.FAIL, proof["verdict"], proof)
                 self.assertEqual("detected:pytest", proof["commands"]["suite_source"])
@@ -633,13 +989,25 @@ class StoreTests(unittest.TestCase):
 
     def test_root_conftest_imports_without_collecting_unrelated_root_tests(self):
         python = self.pytest_python()
-        commit(self.project, {**component_files(), "conftest.py": "from components.gateway import server\nimport pytest\n"
-            "@pytest.fixture\ndef existing_health():\n    return server.health()\n",
-            "test_unrelated.py": "def test_unrelated():\n    assert False\n",
-            "components/gateway/tests/test_pytest_only.py": "def test_old_health_is_string(existing_health):\n"
-                "    assert isinstance(existing_health, str)\n"})
-        self.project.write({"components/gateway/server.py": SERVER.format(status="fixed"),
-            "components/gateway/tests/test_gateway.py": NEW_TEST.replace("'ok', server.health()", "'fixed', server.health()")})
+        commit(
+            self.project,
+            {
+                **component_files(),
+                "conftest.py": "from components.gateway import server\nimport pytest\n"
+                "@pytest.fixture\ndef existing_health():\n    return server.health()\n",
+                "test_unrelated.py": "def test_unrelated():\n    assert False\n",
+                "components/gateway/tests/test_pytest_only.py": "def test_old_health_is_string(existing_health):\n"
+                "    assert isinstance(existing_health, str)\n",
+            },
+        )
+        self.project.write(
+            {
+                "components/gateway/server.py": SERVER.format(status="fixed"),
+                "components/gateway/tests/test_gateway.py": NEW_TEST.replace(
+                    "'ok', server.health()", "'fixed', server.health()"
+                ),
+            }
+        )
         proof = self.prove(python=python)
         self.assertEqual(verify.PASS, proof["verdict"], self.reasons(proof))
         results = util.read(proof["path"])["checks"]["suite_on_candidate"]["results"]
@@ -659,55 +1027,102 @@ class StoreTests(unittest.TestCase):
         python = self.pytest_python()
         for kind in ("local", "root", "chain", "dirty-launch"):
             with self.subTest(kind=kind):
-                self.project = Project({**ARCHITECTURE, **component_files(),
-                    "components/gateway/tests/test_gateway.py": SMOKE_TEST,
-                    "components/gateway/policy.toml": "[project]\nname='gateway'\n",
-                    "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
-                        "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n"})
+                self.project = Project(
+                    {
+                        **ARCHITECTURE,
+                        **component_files(),
+                        "components/gateway/tests/test_gateway.py": SMOKE_TEST,
+                        "components/gateway/policy.toml": "[project]\nname='gateway'\n",
+                        "components/gateway/tests/test_pytest_only.py": "from components.gateway import server\n"
+                        "def test_old_health_is_string():\n    assert isinstance(server.health(), str)\n",
+                    }
+                )
                 self.addCleanup(self.project.close)
                 self.project.write({"components/gateway/policy.toml": "[tool.pytest.ini_options]\n"})
                 link = self.project.root / ("pyproject.toml" if kind == "root" else "components/gateway/pyproject.toml")
-                link.symlink_to("components/gateway/policy.toml" if kind == "root" else "second.toml" if kind == "chain" else "policy.toml")
+                link.symlink_to(
+                    "components/gateway/policy.toml"
+                    if kind == "root"
+                    else "second.toml"
+                    if kind == "chain"
+                    else "policy.toml"
+                )
                 if kind == "chain":
                     (link.parent / "second.toml").symlink_to("./policy.toml")
                 if kind == "dirty-launch":
                     self.project.base = verify.commit_worktree(self.project.root)
                 else:
                     commit(self.project, {})
-                self.project.write({"components/gateway/policy.toml": "[project]\nname='gateway'\n",
-                    "components/gateway/server.py": SERVER.format(status=200),
-                    "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "200, server.health()")})
+                self.project.write(
+                    {
+                        "components/gateway/policy.toml": "[project]\nname='gateway'\n",
+                        "components/gateway/server.py": SERVER.format(status=200),
+                        "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                            "'ok', server.health()", "200, server.health()"
+                        ),
+                    }
+                )
                 proof = self.prove(python=python)
                 self.assertEqual(verify.FAIL, proof["verdict"], proof)
                 self.assertEqual("detected:pytest", proof["commands"]["suite_source"])
                 self.assertIn("test_old_health_is_string", self.reasons(proof))
-                self.project.write({"components/gateway/policy.toml": "[tool.pytest.ini_options]\n",
-                    "components/gateway/server.py": SERVER.format(status="fixed"),
-                    "components/gateway/tests/test_new.py": NEW_TEST.replace("'ok', server.health()", "'fixed', server.health()")})
+                self.project.write(
+                    {
+                        "components/gateway/policy.toml": "[tool.pytest.ini_options]\n",
+                        "components/gateway/server.py": SERVER.format(status="fixed"),
+                        "components/gateway/tests/test_new.py": NEW_TEST.replace(
+                            "'ok', server.health()", "'fixed', server.health()"
+                        ),
+                    }
+                )
                 control = self.prove(python=python)
                 self.assertEqual(verify.PASS, control["verdict"], self.reasons(control))
 
     def test_unsafe_pinned_links_and_empty_root_ancestor_policy_stay_unverified(self):
-        for kind in ("loop", "root-loop", "ini-loop", "conftest-loop", "escape", "absolute", "untracked", "depth", "empty-root"):
+        for kind in (
+            "loop",
+            "root-loop",
+            "ini-loop",
+            "conftest-loop",
+            "escape",
+            "absolute",
+            "untracked",
+            "depth",
+            "empty-root",
+        ):
             with self.subTest(kind=kind):
-                self.project = Project(ARCHITECTURE if kind == "empty-root" else {**ARCHITECTURE, **component_files(),
-                                                                                 "components/gateway/tests/test_gateway.py": SMOKE_TEST})
+                self.project = Project(
+                    ARCHITECTURE
+                    if kind == "empty-root"
+                    else {**ARCHITECTURE, **component_files(), "components/gateway/tests/test_gateway.py": SMOKE_TEST}
+                )
                 self.addCleanup(self.project.close)
                 name = {"ini-loop": "pytest.ini", "conftest-loop": "conftest.py"}.get(kind, "pyproject.toml")
-                link = self.project.root / (name if kind in ("root-loop", "empty-root") else f"components/gateway/{name}")
-                target = {"escape": "../../../outside.toml", "absolute": str(self.run_dir / "external.toml"),
-                          "untracked": "untracked.toml", "depth": "link0.toml"}.get(kind, name)
+                link = self.project.root / (
+                    name if kind in ("root-loop", "empty-root") else f"components/gateway/{name}"
+                )
+                target = {
+                    "escape": "../../../outside.toml",
+                    "absolute": str(self.run_dir / "external.toml"),
+                    "untracked": "untracked.toml",
+                    "depth": "link0.toml",
+                }.get(kind, name)
                 link.symlink_to(target)
                 if kind == "depth":
                     for index in range(40):
-                        (link.parent / f"link{index}.toml").symlink_to(f"link{index + 1}.toml" if index < 39 else "policy.toml")
+                        (link.parent / f"link{index}.toml").symlink_to(
+                            f"link{index + 1}.toml" if index < 39 else "policy.toml"
+                        )
                     self.project.write({"components/gateway/policy.toml": "[project]\nname='gateway'\n"})
                 commit(self.project, {})
                 if kind == "untracked":
                     self.project.write({"components/gateway/untracked.toml": "[project]\nname='gateway'\n"})
                 self.project.write(component_files(status=200))
-                self.assertIsNone(verify.detect_framework(self.project.root, python=sys.executable,
-                    test_root="components/gateway", base=self.project.base))
+                self.assertIsNone(
+                    verify.detect_framework(
+                        self.project.root, python=sys.executable, test_root="components/gateway", base=self.project.base
+                    )
+                )
                 proof = self.prove()
                 self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
 
@@ -718,9 +1133,12 @@ class RootTests(unittest.TestCase):
         self.addCleanup(project.close)
         project.write(component_files())
         policy = project.root / "components/gateway/pyproject.toml"
+
         def detect():
-            return verify.detect_framework(project.root, python=sys.executable,
-                test_root="components/gateway", base=project.base)
+            return verify.detect_framework(
+                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+            )
+
         self.assertEqual("unittest", detect().name)
         policy.write_text("[project]\nname='gateway'\n")
         self.assertEqual("unittest", detect().name)
@@ -729,9 +1147,11 @@ class RootTests(unittest.TestCase):
         policy.write_bytes(b"#" * (1024 * 1024 + 1))
         self.assertIsNone(detect())
         original_fstat = os.fstat
+
         def growing_file(descriptor):
             current = original_fstat(descriptor)
             return SimpleNamespace(st_mode=current.st_mode, st_size=0)
+
         with patch.object(os, "fstat", side_effect=growing_file):
             self.assertIsNone(detect())
         policy.write_bytes(b"#" * test_root.POLICY_MAX_BYTES)
@@ -745,10 +1165,12 @@ class RootTests(unittest.TestCase):
                 policy.chmod(0o644)
         original_open = os.open
         for error in (errno.EACCES, errno.ELOOP):
+
             def unreadable(path, flags, *args, **kwargs):
                 if path == "pyproject.toml" and kwargs.get("dir_fd") is not None:
                     raise OSError(error, "unknown current policy")
                 return original_open(path, flags, *args, **kwargs)
+
             with self.subTest(errno=error), patch.object(os, "open", side_effect=unreadable):
                 self.assertIsNone(detect())
 
@@ -759,13 +1181,19 @@ class RootTests(unittest.TestCase):
         policy = project.root / "components/gateway/pyproject.toml"
         os.mkfifo(policy)
         with patch.object(os, "fdopen", wraps=os.fdopen) as reader:
-            self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-                test_root="components/gateway", base=project.base))
+            self.assertIsNone(
+                verify.detect_framework(
+                    project.root, python=sys.executable, test_root="components/gateway", base=project.base
+                )
+            )
             reader.assert_not_called()
         policy.unlink()
         policy.mkdir()
-        self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-            test_root="components/gateway", base=project.base))
+        self.assertIsNone(
+            verify.detect_framework(
+                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+            )
+        )
 
     def test_native_current_and_pinned_policy_detection_stays_pytest(self):
         for name in ("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml"):
@@ -780,11 +1208,24 @@ class RootTests(unittest.TestCase):
                         commit(project, {})
                         (project.root / policy).unlink()
                         git(project.root, "add", "-u")
-                    self.assertEqual("pytest", verify.detect_framework(project.root, python=sys.executable,
-                        test_root="components/gateway", base=project.base).name)
+                    self.assertEqual(
+                        "pytest",
+                        verify.detect_framework(
+                            project.root, python=sys.executable, test_root="components/gateway", base=project.base
+                        ).name,
+                    )
 
     def test_current_policy_links_fail_closed_without_following_host_files(self):
-        for name in ("pyproject.toml", "setup.cfg", "tox.ini", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "conftest.py"):
+        for name in (
+            "pyproject.toml",
+            "setup.cfg",
+            "tox.ini",
+            "pytest.ini",
+            ".pytest.ini",
+            "pytest.toml",
+            ".pytest.toml",
+            "conftest.py",
+        ):
             for kind in ("loop", "missing", "outside"):
                 with self.subTest(name=name, kind=kind):
                     project = Project(ARCHITECTURE)
@@ -795,8 +1236,11 @@ class RootTests(unittest.TestCase):
                     policy = project.root / "components/gateway" / name
                     policy.symlink_to({"loop": name, "missing": "missing-policy", "outside": str(outside)}[kind])
                     with patch.object(os, "fdopen", wraps=os.fdopen) as reader:
-                        self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-                            test_root="components/gateway", base=project.base))
+                        self.assertIsNone(
+                            verify.detect_framework(
+                                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+                            )
+                        )
                         reader.assert_not_called()
 
     def test_current_ancestor_link_and_safe_relative_chain(self):
@@ -805,14 +1249,21 @@ class RootTests(unittest.TestCase):
         project.write(component_files())
         policy = project.root / "pyproject.toml"
         policy.symlink_to("pyproject.toml")
-        self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-            test_root="components/gateway", base=project.base))
+        self.assertIsNone(
+            verify.detect_framework(
+                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+            )
+        )
         policy.unlink()
         project.write({"components/gateway/policy.toml": "[tool.pytest.ini_options]\n"})
         policy.symlink_to("components/gateway/second.toml")
         (policy.parent / "components/gateway/second.toml").symlink_to("./policy.toml")
-        self.assertEqual("pytest", verify.detect_framework(project.root, python=sys.executable,
-            test_root="components/gateway", base=project.base).name)
+        self.assertEqual(
+            "pytest",
+            verify.detect_framework(
+                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+            ).name,
+        )
 
     def test_current_reader_bounds_directory_links_and_replacement(self):
         project = Project(ARCHITECTURE)
@@ -822,48 +1273,87 @@ class RootTests(unittest.TestCase):
         alias = policy.parent / "policy-dir"
         alias.symlink_to("policies", target_is_directory=True)
         policy.symlink_to("policy-dir/policy.toml")
-        self.assertEqual("pytest", verify.detect_framework(project.root, python=sys.executable,
-            test_root="components/gateway", base=project.base).name)
+        self.assertEqual(
+            "pytest",
+            verify.detect_framework(
+                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+            ).name,
+        )
         policy.unlink()
         policy.symlink_to("link0.toml")
         for index in range(40):
             (policy.parent / f"link{index}.toml").symlink_to(
-                f"link{index + 1}.toml" if index < 39 else "policies/policy.toml")
-        self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-            test_root="components/gateway", base=project.base))
+                f"link{index + 1}.toml" if index < 39 else "policies/policy.toml"
+            )
+        self.assertIsNone(
+            verify.detect_framework(
+                project.root, python=sys.executable, test_root="components/gateway", base=project.base
+            )
+        )
         policy.unlink()
         policy.write_text("[tool.pytest.ini_options]\n")
         outside = Path(project.temp.name) / "host-policy.toml"
         outside.write_text("[tool.pytest.ini_options]\n")
         original_open = os.open
+
         def replace_before_open(path, flags, *args, **kwargs):
             if path == "pyproject.toml" and kwargs.get("dir_fd") is not None:
                 policy.unlink()
                 policy.symlink_to(outside)
             return original_open(path, flags, *args, **kwargs)
+
         with patch.object(os, "open", side_effect=replace_before_open):
-            self.assertIsNone(verify.detect_framework(project.root, python=sys.executable,
-                test_root="components/gateway", base=project.base))
+            self.assertIsNone(
+                verify.detect_framework(
+                    project.root, python=sys.executable, test_root="components/gateway", base=project.base
+                )
+            )
 
     def test_pytest_config_known_names_and_conditional_sections(self):
         cases = [(name, "", True) for name in ("pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml")]
-        cases += [("setup.cfg", "[metadata]\nname=gateway\n", False),
-                  ("setup.cfg", "[tool:pytest]\n", True), ("tox.ini", "[tox]\n", False),
-                  ("tox.ini", "[pytest]\n", True), ("pyproject.toml", "[project]\nname='gateway'\n", False),
-                  ("pyproject.toml", "[tool.pytest.ini_options]\n", True),
-                  ("other.toml", "[pytest]\n", False), ("other.ini", "[pytest]\n", False)]
+        cases += [
+            ("setup.cfg", "[metadata]\nname=gateway\n", False),
+            ("setup.cfg", "[tool:pytest]\n", True),
+            ("tox.ini", "[tox]\n", False),
+            ("tox.ini", "[pytest]\n", True),
+            ("pyproject.toml", "[project]\nname='gateway'\n", False),
+            ("pyproject.toml", "[tool.pytest.ini_options]\n", True),
+            ("other.toml", "[pytest]\n", False),
+            ("other.ini", "[pytest]\n", False),
+        ]
         for name, content, expected in cases:
             with self.subTest(name=name, content=content):
-                self.assertEqual(expected, verify._pytest_configured(Path("."), [name],
-                    read=lambda path: content if path.name == name else ""))
+                self.assertEqual(
+                    expected,
+                    verify._pytest_configured(
+                        Path("."), [name], read=lambda path: content if path.name == name else ""
+                    ),
+                )
 
     def test_normalize_and_literal_boundary(self):
         self.assertEqual("components/gateway", test_root.normalize("components/gateway/"))
-        for value in ("", "/abs/dir", "../x", "components/../x", "components//x", "./components", "-s", "components/*", ":(glob)x", "a\\b", "components/\n"):
+        for value in (
+            "",
+            "/abs/dir",
+            "../x",
+            "components/../x",
+            "components//x",
+            "./components",
+            "-s",
+            "components/*",
+            ":(glob)x",
+            "a\\b",
+            "components/\n",
+        ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 test_root.normalize(value)
-        self.assertEqual(["components/gateway", "components/gatewayx/a.py", "top.py"], test_root.outside(
-            "components/gateway", ["components/gateway/a.py", "top.py", "components/gatewayx/a.py", "components/gateway"]))
+        self.assertEqual(
+            ["components/gateway", "components/gatewayx/a.py", "top.py"],
+            test_root.outside(
+                "components/gateway",
+                ["components/gateway/a.py", "top.py", "components/gatewayx/a.py", "components/gateway"],
+            ),
+        )
 
     def test_empty_base_is_pinned_and_git_errors_are_not_empty(self):
         project = Project({**ARCHITECTURE, "components/gateway/server.py": SERVER.format(status="ok")})
@@ -875,14 +1365,27 @@ class RootTests(unittest.TestCase):
         self.assertFalse(test_root.empty_on_base(project.root, "0" * 40, "components/store"))
 
     def test_first_suite_requires_no_old_tests_and_all_new_tests_passing(self):
-        results = {"passed": ["tests.test_a.A.test_a"], "failed": [], "skipped": [], "collection_errors": [],
-                   "uncollected": [], "total": 1, "complete": True}
+        results = {
+            "passed": ["tests.test_a.A.test_a"],
+            "failed": [],
+            "skipped": [],
+            "collection_errors": [],
+            "uncollected": [],
+            "total": 1,
+            "complete": True,
+        }
         candidate = {"exit_code": 0, "timed_out": False, "results": results}
         absent = {"exit_code": 1, "timed_out": False, "results": None}
         self.assertTrue(test_root.first_suite(absent, candidate))
         self.assertFalse(test_root.first_suite({"timed_out": False, "results": results}, candidate))
         self.assertFalse(test_root.first_suite({**absent, "timed_out": True}, candidate))
-        for change in ({"failed": ["bad"]}, {"skipped": ["bad"]}, {"passed": []}, {"complete": False}, {"collection_errors": ["bad"]}):
+        for change in (
+            {"failed": ["bad"]},
+            {"skipped": ["bad"]},
+            {"passed": []},
+            {"complete": False},
+            {"collection_errors": ["bad"]},
+        ):
             with self.subTest(change=change):
                 self.assertFalse(test_root.first_suite(absent, {**candidate, "results": {**results, **change}}))
 
@@ -890,7 +1393,24 @@ class RootTests(unittest.TestCase):
         project = Project(ARCHITECTURE)
         self.addCleanup(project.close)
         for root, code in (("components/gateway/", 0), ("../elsewhere", 2)):
-            proc = subprocess.run([sys.executable, str(Path(test_root.__file__).with_name("autocode.py")),
-                "Build a thing", "--in-place", "--no-chat", "--dry-run", "--engine", "codex", "--workspace", str(project.root),
-                "--test-root", root], cwd=project.root, capture_output=True, text=True, timeout=120)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(test_root.__file__).with_name("autocode.py")),
+                    "Build a thing",
+                    "--in-place",
+                    "--no-chat",
+                    "--dry-run",
+                    "--engine",
+                    "codex",
+                    "--workspace",
+                    str(project.root),
+                    "--test-root",
+                    root,
+                ],
+                cwd=project.root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
             self.assertEqual(code, proc.returncode, proc.stdout + proc.stderr)

@@ -1,4 +1,5 @@
 """Conversation/task handoff tests with local fake models and a fake CLI only."""
+
 import hashlib
 import http.client
 import json
@@ -18,7 +19,7 @@ from dashboard_chat import planning_messages
 
 from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
 
-FAKE_RUNNER = r'''
+FAKE_RUNNER = r"""
 import json, sys
 from pathlib import Path
 sys.path.insert(0, FIXTURE_IMPORT_PATH)
@@ -90,7 +91,7 @@ else:
   else: state['continued']=state.get('continued',0)+1
   write(path,state)
  print('fixture saved')
-'''
+"""
 
 
 class ChatFixture:
@@ -98,35 +99,46 @@ class ChatFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
-        source_snapshot = patch.object(resolver_human.support, 'snapshot', return_value={'revision': 'fixture-source'})
+        source_snapshot = patch.object(resolver_human.support, "snapshot", return_value={"revision": "fixture-source"})
         source_snapshot.start()
         self.addCleanup(source_snapshot.stop)
-        self.workspace = self.root / 'project'
-        (self.workspace / '.git').mkdir(parents=True)
-        self.fake = self.root / 'runner.py'
-        self.fake.write_text(FAKE_RUNNER.replace('FIXTURE_IMPORT_PATH', repr(str(Path(__file__).resolve().parent))))
+        self.workspace = self.root / "project"
+        (self.workspace / ".git").mkdir(parents=True)
+        self.fake = self.root / "runner.py"
+        self.fake.write_text(FAKE_RUNNER.replace("FIXTURE_IMPORT_PATH", repr(str(Path(__file__).resolve().parent))))
         self.provider_calls = []
         self.console = self.make_console()
 
     def provider(self, messages, model, workdir):
         self.provider_calls.append((messages, model, workdir))
-        return 'Planner: ' + messages[-1]['text']
+        return "Planner: " + messages[-1]["text"]
 
     def make_console(self):
         from autocode_planner_routes import MANDATED_ROUTES
         from dashboard_setup import BARE_OPENAI_ALIASES
-        console = Console([self.workspace], self.fake, lambda: None,
-                          conversation_root=self.root / 'dashboard/conversations',
-                          conversation_provider=self.provider)
+
+        console = Console(
+            [self.workspace],
+            self.fake,
+            lambda: None,
+            conversation_root=self.root / "dashboard/conversations",
+            conversation_provider=self.provider,
+        )
         console.catalogue.fetch = lambda **kwargs: {
-            'usable': True, 'models': sorted({route['model'] for route in MANDATED_ROUTES.values()} |
-                                            {'openai/' + name for name in BARE_OPENAI_ALIASES} |
-                                            {'zai-coding-plan/glm-5.3-flash'})}
-        console._probe_conversation_transport = lambda *_: {'status': 'ok', 'data': {'version': '1.18.33'}}
+            "usable": True,
+            "models": sorted(
+                {route["model"] for route in MANDATED_ROUTES.values()}
+                | {"openai/" + name for name in BARE_OPENAI_ALIASES}
+                | {"zai-coding-plan/glm-5.3-flash"}
+            ),
+        }
+        console._probe_conversation_transport = lambda *_: {"status": "ok", "data": {"version": "1.18.33"}}
+
         def close():
             console.pool.shutdown(wait=True)
             if console._conversation_store is not None:
                 console._conversation_store.close()
+
         self.addCleanup(close)
         return console
 
@@ -139,187 +151,244 @@ class ChatFixture:
             result = function()
             if result:
                 return result
-            time.sleep(.01)
-        self.fail('Timed out waiting for the fake runner/provider')
+            time.sleep(0.01)
+        self.fail("Timed out waiting for the fake runner/provider")
 
     def ready(self, doc):
-        return self.eventually(lambda: (value if (value := self.console.conversation_get(doc['id']))['status'] == 'ready' else None))
+        return self.eventually(
+            lambda: value if (value := self.console.conversation_get(doc["id"]))["status"] == "ready" else None
+        )
 
-    def create_conversation(self, text='Build a personal engineering journal', **extra):
-        return self.ready(self.console.conversation_create({'text': text, 'request_id': 'start-request', **extra}))
+    def create_conversation(self, text="Build a personal engineering journal", **extra):
+        return self.ready(self.console.conversation_create({"text": text, "request_id": "start-request", **extra}))
 
     def commands(self):
-        path = self.root / 'commands.jsonl'
+        path = self.root / "commands.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
     def settled(self):
         def idle():
-            return not self.console.pending and all('finished_at' in a for rows in self.console.actions.values() for a in rows)
+            return not self.console.pending and all(
+                "finished_at" in a for rows in self.console.actions.values() for a in rows
+            )
+
         self.eventually(idle)
 
     def make_run(self, questions=()):
-        self.run = self.workspace / '.autocode/runs/manual'
+        self.run = self.workspace / ".autocode/runs/manual"
         self.run.mkdir(parents=True)
-        self.state = {'workspace': str(self.workspace), 'task': 'Existing task', 'status': 'WAITING_FOR_USER',
-                      'pending_questions': list(questions), 'intervention_capability': {'supported': True, 'version': 1}}
+        self.state = {
+            "workspace": str(self.workspace),
+            "task": "Existing task",
+            "status": "WAITING_FOR_USER",
+            "pending_questions": list(questions),
+            "intervention_capability": {"supported": True, "version": 1},
+        }
         if questions:
             publish(self.state)
         self.save_state()
         return self.run
 
     def save_state(self):
-        (self.run / 'state.json').write_text(json.dumps(self.state))
+        (self.run / "state.json").write_text(json.dumps(self.state))
 
     def read_state(self):
-        return json.loads((self.run / 'state.json').read_text())
+        return json.loads((self.run / "state.json").read_text())
 
-    def chat(self, text='Please retain the history', **extra):
+    def chat(self, text="Please retain the history", **extra):
         fields = {}
-        if extra.get('question_id'):
-            previous = next((row for row in self.console._chat_rows(self.run)
-                             if row['id'] == extra.get('request_id', 'message-request')), None)
-            public = self.read_state().get('resolver_human_request', {})
-            fields = ({key: previous.get(key) for key in ('resolver_request', 'resolver_token')} if previous else
-                      {'resolver_request': public.get('request_id'), 'resolver_token': public.get('request_token')})
-        return self.console.chat({'workspace': str(self.workspace), 'run': str(self.run),
-                                  'request_id': 'message-request', 'text': text, **fields, **extra})
+        if extra.get("question_id"):
+            previous = next(
+                (
+                    row
+                    for row in self.console._chat_rows(self.run)
+                    if row["id"] == extra.get("request_id", "message-request")
+                ),
+                None,
+            )
+            public = self.read_state().get("resolver_human_request", {})
+            fields = (
+                {key: previous.get(key) for key in ("resolver_request", "resolver_token")}
+                if previous
+                else {"resolver_request": public.get("request_id"), "resolver_token": public.get("request_token")}
+            )
+        return self.console.chat(
+            {
+                "workspace": str(self.workspace),
+                "run": str(self.run),
+                "request_id": "message-request",
+                "text": text,
+                **fields,
+                **extra,
+            }
+        )
 
-    def confirmed_chat(self, text='Please retain the history', **extra):
+    def confirmed_chat(self, text="Please retain the history", **extra):
         row = self.chat(text, **extra)
-        if row.get('confirmation', {}).get('status') == 'pending':
-            return self.chat(text, **extra, decision='confirm', decision_token=row['confirmation']['token'])
+        if row.get("confirmation", {}).get("status") == "pending":
+            return self.chat(text, **extra, decision="confirm", decision_token=row["confirmation"]["token"])
         return row
 
 
 class ChatBridgeTests(ChatFixture, unittest.TestCase):
     def test_saved_progress_is_exposed_without_launching_runner(self):
         self.make_run()
-        self.state['progress_messages'] = [{'id': 'progress-1', 'role': 'assistant',
-            'speaker': 'Builder', 'text': 'Fix routing', 'created_at': '2026-09-24T01:00:00Z'}]
+        self.state["progress_messages"] = [
+            {
+                "id": "progress-1",
+                "role": "assistant",
+                "speaker": "Builder",
+                "text": "Fix routing",
+                "created_at": "2026-09-24T01:00:00Z",
+            }
+        ]
         self.save_state()
         view = self.console.view(self.workspace, self.run, self.read_state())
-        self.assertEqual(self.state['progress_messages'], view['progress_messages'])
+        self.assertEqual(self.state["progress_messages"], view["progress_messages"])
         self.assertEqual([], self.commands())
 
     def test_project_free_conversation_persists_and_replays_without_starting_runner(self):
-        data = {'text': 'Plan a journal', 'request_id': 'conversation-start'}
+        data = {"text": "Plan a journal", "request_id": "conversation-start"}
         first = self.ready(self.console.conversation_create(data))
-        self.assertEqual(first['id'], self.console.conversation_create(data)['id'])
-        second = self.ready(self.console.conversations.send(first['id'], 'Keep it local', 'followup-request'))
-        restored = self.make_console().conversation_get(first['id'])
-        self.assertEqual(second['messages'], restored['messages'])
-        self.assertEqual(['Plan a journal', 'Planner: Plan a journal', 'Keep it local', 'Planner: Keep it local'],
-                         [row['text'] for row in restored['messages']])
-        self.assertIsNone(restored['attachment'])
+        self.assertEqual(first["id"], self.console.conversation_create(data)["id"])
+        second = self.ready(self.console.conversations.send(first["id"], "Keep it local", "followup-request"))
+        restored = self.make_console().conversation_get(first["id"])
+        self.assertEqual(second["messages"], restored["messages"])
+        self.assertEqual(
+            ["Plan a journal", "Planner: Plan a journal", "Keep it local", "Planner: Keep it local"],
+            [row["text"] for row in restored["messages"]],
+        )
+        self.assertIsNone(restored["attachment"])
         self.assertEqual([], self.commands())
-        self.assertFalse((self.workspace / '.autocode').exists())
-        self.assertTrue(all(workdir.is_relative_to(self.root / 'dashboard') for _, _, workdir in self.provider_calls))
+        self.assertFalse((self.workspace / ".autocode").exists())
+        self.assertTrue(all(workdir.is_relative_to(self.root / "dashboard") for _, _, workdir in self.provider_calls))
 
     def test_attachment_carries_full_transcript_models_joint_flag_and_canonical_project(self):
-        models = {'glm_model': 'zai-coding-plan/glm-5.3', 'astra_model': 'gpt-6-astra',
-                  'terra_model': 'zai-coding-plan/glm-5.3-flash', 'sol_model': 'gpt-5.6-sol',
-                  'completion_model': 'gpt-5.6-sol',
-                  'astra_reasoning_effort': 'xhigh', 'terra_reasoning_effort': 'medium',
-                  'sol_reasoning_effort': 'high', 'completion_reasoning_effort': 'medium'}
+        models = {
+            "glm_model": "zai-coding-plan/glm-5.3",
+            "astra_model": "gpt-6-astra",
+            "terra_model": "zai-coding-plan/glm-5.3-flash",
+            "sol_model": "gpt-5.6-sol",
+            "completion_model": "gpt-5.6-sol",
+            "astra_reasoning_effort": "xhigh",
+            "terra_reasoning_effort": "medium",
+            "sol_reasoning_effort": "high",
+            "completion_reasoning_effort": "medium",
+        }
         doc = self.create_conversation(models=models)
-        doc = self.ready(self.console.conversations.send(doc['id'], 'Actually include review notes', 'revise-request'))
-        alias = self.root / 'project-alias'
+        doc = self.ready(self.console.conversations.send(doc["id"], "Actually include review notes", "revise-request"))
+        alias = self.root / "project-alias"
         alias.symlink_to(self.workspace)
-        attach = {'id': doc['id'], 'project': str(alias) + '/'}
+        attach = {"id": doc["id"], "project": str(alias) + "/"}
         self.console.conversation_attach(attach)
-        linked = self.eventually(lambda: (value if (value := self.console.conversation_get(doc['id']))['attachment']['status'] == 'linked' else None))
+        linked = self.eventually(
+            lambda: (
+                value
+                if (value := self.console.conversation_get(doc["id"]))["attachment"]["status"] == "linked"
+                else None
+            )
+        )
         self.settled()
         self.console.conversation_attach(attach)
         commands = self.commands()
         self.assertEqual(1, len(commands))
         args = commands[0]
-        self.assertEqual(str(self.workspace), args[args.index('--workspace') + 1])
-        goal = args[args.index('--workspace') + 2]
-        for message in doc['messages']:
-            self.assertIn(message['text'], goal)
-        self.assertIn(doc['id'], goal)
+        self.assertEqual(str(self.workspace), args[args.index("--workspace") + 1])
+        goal = args[args.index("--workspace") + 2]
+        for message in doc["messages"]:
+            self.assertIn(message["text"], goal)
+        self.assertIn(doc["id"], goal)
         for role, model in models.items():
-            self.assertEqual(model, args[args.index('--' + role.replace('_', '-')) + 1])
-        self.assertIn('--joint-planning', args)
-        self.assertIn('--no-chat', args)
-        self.assertNotIn('--approve-goal', args)
-        run = Path(linked['attachment']['run'])
+            self.assertEqual(model, args[args.index("--" + role.replace("_", "-")) + 1])
+        self.assertIn("--joint-planning", args)
+        self.assertIn("--no-chat", args)
+        self.assertNotIn("--approve-goal", args)
+        run = Path(linked["attachment"]["run"])
         view = self.console.task_view(self.workspace, run)
-        self.assertEqual(doc['messages'], view['draft_messages'])
-        self.assertEqual(doc['title'], view['task'])
-        self.assertEqual(linked['attachment']['action_id'], view['actions'][0]['id'])
+        self.assertEqual(doc["messages"], view["draft_messages"])
+        self.assertEqual(doc["title"], view["task"])
+        self.assertEqual(linked["attachment"]["action_id"], view["actions"][0]["id"])
 
     def test_attach_creates_requested_git_project_with_initial_commit(self):
         doc = self.create_conversation()
-        project = self.root / 'new-project'
-        self.console.conversation_attach({'id': doc['id'], 'project': str(project), 'create_project': True})
+        project = self.root / "new-project"
+        self.console.conversation_attach({"id": doc["id"], "project": str(project), "create_project": True})
         self.settled()
-        self.assertTrue((project / '.git').is_dir())
-        revision = subprocess.run(['git', '-C', str(project), 'rev-parse', '--verify', 'HEAD'], capture_output=True, text=True)
+        self.assertTrue((project / ".git").is_dir())
+        revision = subprocess.run(
+            ["git", "-C", str(project), "rev-parse", "--verify", "HEAD"], capture_output=True, text=True
+        )
         self.assertEqual(0, revision.returncode, revision.stderr)
-        self.assertEqual(str(project), self.commands()[0][self.commands()[0].index('--workspace') + 1])
+        self.assertEqual(str(project), self.commands()[0][self.commands()[0].index("--workspace") + 1])
 
     def test_escaping_run_storage_is_rejected_before_launch_and_during_reconciliation(self):
         doc = self.create_conversation()
-        outside = self.root / 'outside-runs'
+        outside = self.root / "outside-runs"
         outside.mkdir()
-        (self.workspace / '.autocode').mkdir()
-        (self.workspace / '.autocode/runs').symlink_to(outside, target_is_directory=True)
-        with self.assertRaisesRegex(ValueError, 'storage must stay inside'):
-            self.console.conversation_attach({'id': doc['id'], 'project': str(self.workspace)})
+        (self.workspace / ".autocode").mkdir()
+        (self.workspace / ".autocode/runs").symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "storage must stay inside"):
+            self.console.conversation_attach({"id": doc["id"], "project": str(self.workspace)})
         self.assertEqual([], self.commands())
-        self.assertIsNone(self.console.conversation_get(doc['id'])['attachment'])
-        escaped_run = outside / 'matching-checkpoint'
+        self.assertIsNone(self.console.conversation_get(doc["id"])["attachment"])
+        escaped_run = outside / "matching-checkpoint"
         escaped_run.mkdir()
-        goal = 'Exact prior handoff goal'
-        (escaped_run / 'state.json').write_text(json.dumps({'workspace': str(self.workspace), 'task': goal}))
-        self.console.conversations.update(doc['id'], attachment={
-            'workspace': str(self.workspace), 'goal_hash': hashlib.sha256(goal.encode()).hexdigest(),
-            'status': 'starting', 'run': None, 'action_id': 'prior-action'})
-        attachment = self.console.conversation_get(doc['id'])['attachment']
-        self.assertEqual('failed', attachment['status'])
-        self.assertIsNone(attachment['run'])
-        self.assertIn('storage escapes', attachment['error'])
+        goal = "Exact prior handoff goal"
+        (escaped_run / "state.json").write_text(json.dumps({"workspace": str(self.workspace), "task": goal}))
+        self.console.conversations.update(
+            doc["id"],
+            attachment={
+                "workspace": str(self.workspace),
+                "goal_hash": hashlib.sha256(goal.encode()).hexdigest(),
+                "status": "starting",
+                "run": None,
+                "action_id": "prior-action",
+            },
+        )
+        attachment = self.console.conversation_get(doc["id"])["attachment"]
+        self.assertEqual("failed", attachment["status"])
+        self.assertIsNone(attachment["run"])
+        self.assertIn("storage escapes", attachment["error"])
         self.assertEqual([], self.commands())
 
     def test_startup_failure_before_checkpoint_stays_visible_and_does_not_spawn_twice(self):
-        (self.root / 'fail-before-checkpoint').touch()
+        (self.root / "fail-before-checkpoint").touch()
         doc = self.create_conversation()
-        attach = {'id': doc['id'], 'project': str(self.workspace)}
+        attach = {"id": doc["id"], "project": str(self.workspace)}
         self.console.conversation_attach(attach)
         self.settled()
-        failed = self.console.conversation_get(doc['id'])
-        self.assertEqual('failed', failed['attachment']['status'])
-        self.assertIn('startup failed', failed['attachment']['error'])
+        failed = self.console.conversation_get(doc["id"])
+        self.assertEqual("failed", failed["attachment"]["status"])
+        self.assertIn("startup failed", failed["attachment"]["error"])
         self.console.conversation_attach(attach)
         self.assertEqual(1, len(self.commands()))
 
     def test_confirmed_startup_failure_can_retry_explicitly_once(self):
-        marker = self.root / 'fail-before-checkpoint'
+        marker = self.root / "fail-before-checkpoint"
         marker.touch()
         doc = self.create_conversation()
-        attach = {'id': doc['id'], 'project': str(self.workspace)}
+        attach = {"id": doc["id"], "project": str(self.workspace)}
         self.console.conversation_attach(attach)
         self.settled()
-        self.assertEqual('failed', self.console.conversation_get(doc['id'])['attachment']['status'])
+        self.assertEqual("failed", self.console.conversation_get(doc["id"])["attachment"]["status"])
         marker.unlink()
-        self.console.conversation_attach({**attach, 'retry': True})
+        self.console.conversation_attach({**attach, "retry": True})
         self.settled()
-        self.assertEqual('linked', self.console.conversation_get(doc['id'])['attachment']['status'])
+        self.assertEqual("linked", self.console.conversation_get(doc["id"])["attachment"]["status"])
         self.assertEqual(2, len(self.commands()))
 
     def test_unconfirmed_handoff_after_restart_never_automatically_relaunches(self):
-        marker = self.root / 'fail-before-checkpoint'
+        marker = self.root / "fail-before-checkpoint"
         marker.touch()
         doc = self.create_conversation()
-        attach = {'id': doc['id'], 'project': str(self.workspace)}
+        attach = {"id": doc["id"], "project": str(self.workspace)}
         self.console.conversation_attach(attach)
         self.settled()
         # No status reconciliation before the restart: durable intent remains starting.
         restored = self.make_console()
-        recovered = restored.conversation_get(doc['id'])
-        self.assertEqual('uncertain', recovered['attachment']['status'])
-        restored.conversation_attach({**attach, 'retry': True})
+        recovered = restored.conversation_get(doc["id"])
+        self.assertEqual("uncertain", recovered["attachment"]["status"])
+        restored.conversation_attach({**attach, "retry": True})
         self.assertEqual(1, len(self.commands()))
 
     def test_two_dashboard_instances_cannot_attach_same_conversation_twice(self):
@@ -328,14 +397,18 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         barrier = threading.Barrier(2)
         for console in (self.console, other):
             original = console.conversation_get
+
             def synchronized(ident, original=original):
                 value = original(ident)
                 barrier.wait(timeout=3)
                 return value
+
             console.conversation_get = synchronized
         with ThreadPoolExecutor(max_workers=2) as pool:
-            actions = [pool.submit(console.conversation_attach, {'id': doc['id'], 'project': str(self.workspace)})
-                       for console in (self.console, other)]
+            actions = [
+                pool.submit(console.conversation_attach, {"id": doc["id"], "project": str(self.workspace)})
+                for console in (self.console, other)
+            ]
             for action in actions:
                 action.result(timeout=5)
         self.console.pool.shutdown(wait=True)
@@ -344,26 +417,29 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
 
     def test_two_dashboard_instances_retrying_same_rejected_handoff_launch_once(self):
         doc = self.create_conversation()
-        attach = {'id': doc['id'], 'project': str(self.workspace)}
-        with patch.object(self.console, 'create', side_effect=ValueError('fixture rejected before launch')):
-            with self.assertRaisesRegex(ValueError, 'handoff failed'):
+        attach = {"id": doc["id"], "project": str(self.workspace)}
+        with patch.object(self.console, "create", side_effect=ValueError("fixture rejected before launch")):
+            with self.assertRaisesRegex(ValueError, "handoff failed"):
                 self.console.conversation_attach(attach)
-        prior = self.console.conversation_get(doc['id'])['attachment']
-        self.assertEqual('failed', prior['status'])
-        self.assertTrue(prior['launch_rejected'])
+        prior = self.console.conversation_get(doc["id"])["attachment"]
+        self.assertEqual("failed", prior["status"])
+        self.assertTrue(prior["launch_rejected"])
         other = self.make_console()
         barrier = threading.Barrier(2)
         for console in (self.console, other):
             original = console.conversation_get
+
             def synchronized(ident, original=original):
                 value = original(ident)
-                self.assertEqual(prior, value['attachment'])
+                self.assertEqual(prior, value["attachment"])
                 barrier.wait(timeout=3)
                 return value
+
             console.conversation_get = synchronized
         with ThreadPoolExecutor(max_workers=2) as pool:
-            actions = [pool.submit(console.conversation_attach, {**attach, 'retry': True})
-                       for console in (self.console, other)]
+            actions = [
+                pool.submit(console.conversation_attach, {**attach, "retry": True}) for console in (self.console, other)
+            ]
             for action in actions:
                 action.result(timeout=5)
         self.console.pool.shutdown(wait=True)
@@ -371,206 +447,266 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         self.assertEqual(1, len(self.commands()))
 
     def test_startup_failure_after_checkpoint_is_visible_in_linked_task(self):
-        (self.root / 'fail-after-checkpoint').touch()
+        (self.root / "fail-after-checkpoint").touch()
         doc = self.create_conversation()
-        self.console.conversation_attach({'id': doc['id'], 'project': str(self.workspace)})
+        self.console.conversation_attach({"id": doc["id"], "project": str(self.workspace)})
         self.settled()
-        linked = self.console.conversation_get(doc['id'])
-        run = Path(linked['attachment']['run'])
+        linked = self.console.conversation_get(doc["id"])
+        run = Path(linked["attachment"]["run"])
         view = self.console.task_view(self.workspace, run)
-        self.assertEqual('failed', view['actions'][0]['status'])
-        self.assertIn('provider unavailable', view['actions'][0]['stderr'])
-        self.assertEqual(doc['messages'], view['draft_messages'])
+        self.assertEqual("failed", view["actions"][0]["status"])
+        self.assertIn("provider unavailable", view["actions"][0]["stderr"])
+        self.assertEqual(doc["messages"], view["draft_messages"])
 
     def test_long_valid_conversation_can_attach_without_losing_context(self):
-        doc = self.create_conversation('a' * 18000)
-        self.assertGreater(sum(len(row['text']) for row in doc['messages']), 32000)
-        self.console.conversation_attach({'id': doc['id'], 'project': str(self.workspace)})
+        doc = self.create_conversation("a" * 18000)
+        self.assertGreater(sum(len(row["text"]) for row in doc["messages"]), 32000)
+        self.console.conversation_attach({"id": doc["id"], "project": str(self.workspace)})
         self.settled()
         self.assertEqual(1, len(self.commands()))
-        self.assertIn(doc['messages'][-1]['text'], self.commands()[0][2])
+        self.assertIn(doc["messages"][-1]["text"], self.commands()[0][2])
 
     def test_answers_continue_only_after_last_pending_question_and_replay_is_idempotent(self):
-        self.make_run([{'id': 'q1', 'question': 'Who is this for?'}, {'id': 'q2', 'question': 'Which platform?'}])
-        row = self.chat('Just me', question_id='q1')
-        self.eventually(lambda: self.console._chat_rows(self.run)[0]['status'] == 'received')
-        self.assertEqual('Who is this for?', row['question_text'])
+        self.make_run([{"id": "q1", "question": "Who is this for?"}, {"id": "q2", "question": "Which platform?"}])
+        row = self.chat("Just me", question_id="q1")
+        self.eventually(lambda: self.console._chat_rows(self.run)[0]["status"] == "received")
+        self.assertEqual("Who is this for?", row["question_text"])
         self.assertEqual(1, len(self.commands()))
-        self.assertNotIn('continued', self.read_state())
-        self.chat('Just me', question_id='q1')
+        self.assertNotIn("continued", self.read_state())
+        self.chat("Just me", question_id="q1")
         self.assertEqual(1, len(self.commands()))
-        self.chat('Browser', question_id='q2', request_id='second-message')
-        self.eventually(lambda: self.read_state().get('continued') == 1)
+        self.chat("Browser", question_id="q2", request_id="second-message")
+        self.eventually(lambda: self.read_state().get("continued") == 1)
         self.assertEqual(3, len(self.commands()))
-        self.assertEqual({'q1': 'Just me', 'q2': 'Browser'}, self.read_state()['answers'])
-        self.assertTrue(all('--no-chat' in args for args in self.commands()))
-        self.assertIn('--resume-paused', self.commands()[-1])
+        self.assertEqual({"q1": "Just me", "q2": "Browser"}, self.read_state()["answers"])
+        self.assertTrue(all("--no-chat" in args for args in self.commands()))
+        self.assertIn("--resume-paused", self.commands()[-1])
         restored = self.make_console()
         restored.conversations  # noqa: B018 - force lazy conversation-store init
-        self.assertEqual(['q1', 'q2'], [row['question_id'] for row in restored.task_view(self.workspace, self.run)['chat_messages']])
+        self.assertEqual(
+            ["q1", "q2"], [row["question_id"] for row in restored.task_view(self.workspace, self.run)["chat_messages"]]
+        )
 
     def test_delegate_uses_same_composer_and_continues_after_last_question(self):
-        self.make_run([{'id': 'q1', 'question': 'Platform?', 'proposed_default': 'Browser'}])
-        self.chat('', question_id='q1', delegate=True)
-        self.eventually(lambda: self.read_state().get('continued') == 1)
-        self.assertIn('--delegate', self.commands()[0])
-        self.assertEqual('Use the suggested default: Browser', self.console._chat_rows(self.run)[0]['text'])
+        self.make_run([{"id": "q1", "question": "Platform?", "proposed_default": "Browser"}])
+        self.chat("", question_id="q1", delegate=True)
+        self.eventually(lambda: self.read_state().get("continued") == 1)
+        self.assertIn("--delegate", self.commands()[0])
+        self.assertEqual("Use the suggested default: Browser", self.console._chat_rows(self.run)[0]["text"])
 
     def test_failed_answer_retains_message_and_never_continues(self):
-        self.make_run([{'id': 'q1', 'question': 'Platform?'}])
-        (self.root / 'answer-fails').touch()
-        self.chat('Browser', question_id='q1')
-        self.eventually(lambda: self.console._chat_rows(self.run)[0]['status'] == 'error')
-        self.assertIn('answer rejected', self.console._chat_rows(self.run)[0]['error'])
-        self.assertNotIn('continued', self.read_state())
+        self.make_run([{"id": "q1", "question": "Platform?"}])
+        (self.root / "answer-fails").touch()
+        self.chat("Browser", question_id="q1")
+        self.eventually(lambda: self.console._chat_rows(self.run)[0]["status"] == "error")
+        self.assertIn("answer rejected", self.console._chat_rows(self.run)[0]["error"])
+        self.assertNotIn("continued", self.read_state())
         self.assertEqual(1, len(self.commands()))
 
     def test_restart_confirms_saved_answer_only_from_matching_checkpoint_text(self):
         self.make_run()
-        self.state['answers'] = {'q1': {'text': 'Browser only'}}
+        self.state["answers"] = {"q1": {"text": "Browser only"}}
         self.save_state()
-        row = {'id': 'restart-answer', 'role': 'user', 'speaker': 'You', 'text': 'Browser only',
-               'submitted_text': 'Browser only', 'question_id': 'q1', 'question_text': 'Platform?',
-               'delegate': False, 'status': 'saved', 'action_id': 'lost-process-action', 'error': None}
+        row = {
+            "id": "restart-answer",
+            "role": "user",
+            "speaker": "You",
+            "text": "Browser only",
+            "submitted_text": "Browser only",
+            "question_id": "q1",
+            "question_text": "Platform?",
+            "delegate": False,
+            "status": "saved",
+            "action_id": "lost-process-action",
+            "error": None,
+        }
         self.console._save_chat(self.run, row)
         restored = self.make_console()
         restored.conversations  # noqa: B018 - force lazy conversation-store init
-        message = restored.task_view(self.workspace, self.run)['chat_messages'][0]
-        self.assertEqual('received', message['status'])
-        self.assertIsNone(message['error'])
-        self.assertEqual('saved', restored._chat_rows(self.run)[0]['status'], 'Polling must not rewrite receipts')
-        self.assertNotIn('continued', self.read_state())
+        message = restored.task_view(self.workspace, self.run)["chat_messages"][0]
+        self.assertEqual("received", message["status"])
+        self.assertIsNone(message["error"])
+        self.assertEqual("saved", restored._chat_rows(self.run)[0]["status"], "Polling must not rewrite receipts")
+        self.assertNotIn("continued", self.read_state())
         self.assertEqual([], self.commands())
 
     def test_restart_keeps_unconfirmed_answers_visible_for_explicit_same_id_retry(self):
-        self.make_run([{'id': ident, 'question': ident} for ident in ('missing', 'changed', 'delegated')])
-        self.state['answers'] = {'changed': {'text': 'Different value'}, 'delegated': {'text': 'Browser only'}}
+        self.make_run([{"id": ident, "question": ident} for ident in ("missing", "changed", "delegated")])
+        self.state["answers"] = {"changed": {"text": "Different value"}, "delegated": {"text": "Browser only"}}
         fields = publish(self.state)
         self.save_state()
-        for ident in ('missing', 'changed', 'delegated'):
-            self.console._save_chat(self.run, {
-                'id': 'restart-' + ident, 'role': 'user', 'speaker': 'You', 'text': 'Browser only',
-                'submitted_text': 'Browser only', 'question_id': ident, 'question_text': ident,
-                'delegate': ident == 'delegated', 'status': 'saved', 'action_id': 'lost-' + ident, 'error': None, **fields})
+        for ident in ("missing", "changed", "delegated"):
+            self.console._save_chat(
+                self.run,
+                {
+                    "id": "restart-" + ident,
+                    "role": "user",
+                    "speaker": "You",
+                    "text": "Browser only",
+                    "submitted_text": "Browser only",
+                    "question_id": ident,
+                    "question_text": ident,
+                    "delegate": ident == "delegated",
+                    "status": "saved",
+                    "action_id": "lost-" + ident,
+                    "error": None,
+                    **fields,
+                },
+            )
         restored = self.make_console()
         restored.conversations  # noqa: B018 - force lazy conversation-store init
-        messages = restored.task_view(self.workspace, self.run)['chat_messages']
-        self.assertEqual(['error'] * 3, [row['status'] for row in messages])
-        self.assertTrue(all('could not be confirmed after restart' in row['error'] for row in messages))
-        self.assertEqual(['saved'] * 3, [row['status'] for row in restored._chat_rows(self.run)])
+        messages = restored.task_view(self.workspace, self.run)["chat_messages"]
+        self.assertEqual(["error"] * 3, [row["status"] for row in messages])
+        self.assertTrue(all("could not be confirmed after restart" in row["error"] for row in messages))
+        self.assertEqual(["saved"] * 3, [row["status"] for row in restored._chat_rows(self.run)])
         self.assertEqual([], self.commands())
-        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Browser only',
-                'question_id': 'missing', 'request_id': 'restart-missing', **fields}
-        self.assertEqual('saved', restored.chat(data)['status'])
+        data = {
+            "workspace": str(self.workspace),
+            "run": str(self.run),
+            "text": "Browser only",
+            "question_id": "missing",
+            "request_id": "restart-missing",
+            **fields,
+        }
+        self.assertEqual("saved", restored.chat(data)["status"])
         self.assertEqual([], self.commands())
-        restored.chat({**data, 'retry': True})
-        self.eventually(lambda: restored._chat_rows(self.run)[0]['status'] == 'received')
+        restored.chat({**data, "retry": True})
+        self.eventually(lambda: restored._chat_rows(self.run)[0]["status"] == "received")
         self.assertEqual(1, len(self.commands()))
-        self.assertIn('--answer', self.commands()[0])
+        self.assertIn("--answer", self.commands()[0])
         self.assertEqual(3, len(restored._chat_rows(self.run)))
 
     def test_planning_timeline_keeps_timestamps_and_reads_only_contained_unique_artifacts(self):
         self.make_run()
-        initial = self.run / 'initial.json'
-        initial.write_text(json.dumps({'summary': 'First clarification reply'}))
-        joint = self.run / 'joint.json'
-        joint.write_text(json.dumps({'summary': 'Duplicate artifact text must not appear'}))
-        outside = self.root / 'outside.json'
-        outside.write_text(json.dumps({'summary': 'Outside project private content'}))
-        escaped = self.run / 'symlink.json'
+        initial = self.run / "initial.json"
+        initial.write_text(json.dumps({"summary": "First clarification reply"}))
+        joint = self.run / "joint.json"
+        joint.write_text(json.dumps({"summary": "Duplicate artifact text must not appear"}))
+        outside = self.root / "outside.json"
+        outside.write_text(json.dumps({"summary": "Outside project private content"}))
+        escaped = self.run / "symlink.json"
         escaped.symlink_to(outside)
-        oversized = self.run / 'oversized.json'
-        oversized.write_text(json.dumps({'summary': 'x' * 524288}))
-        rejected = self.run / 'rejected.json'
-        rejected.write_text(json.dumps({'summary': 'Rejected stage text'}))
-        state = {'planning': {'reports': {'astra_discovery': {'output': str(joint), 'report': {'summary': 'Current Planner draft'}}}},
-                 'stages': [
-                     {'stage': 'astra_discovery', 'role': 'glm', 'output': str(initial), 'exit_code': 0,
-                      'started_at': '2026-09-20T10:00:00Z', 'finished_at': '2026-09-20T10:01:00Z'},
-                     {'stage': 'astra_discovery', 'role': 'glm', 'output': str(joint), 'exit_code': 0,
-                      'started_at': '2026-09-20T10:02:00Z'},
-                     *[{'stage': 'astra_discovery', 'output': str(path), 'exit_code': 0} for path in (outside, escaped, oversized)],
-                     {'stage': 'astra_discovery', 'output': str(rejected), 'exit_code': 0, 'rejected': True}]}
+        oversized = self.run / "oversized.json"
+        oversized.write_text(json.dumps({"summary": "x" * 524288}))
+        rejected = self.run / "rejected.json"
+        rejected.write_text(json.dumps({"summary": "Rejected stage text"}))
+        state = {
+            "planning": {
+                "reports": {"astra_discovery": {"output": str(joint), "report": {"summary": "Current Planner draft"}}}
+            },
+            "stages": [
+                {
+                    "stage": "astra_discovery",
+                    "role": "glm",
+                    "output": str(initial),
+                    "exit_code": 0,
+                    "started_at": "2026-09-20T10:00:00Z",
+                    "finished_at": "2026-09-20T10:01:00Z",
+                },
+                {
+                    "stage": "astra_discovery",
+                    "role": "glm",
+                    "output": str(joint),
+                    "exit_code": 0,
+                    "started_at": "2026-09-20T10:02:00Z",
+                },
+                *[
+                    {"stage": "astra_discovery", "output": str(path), "exit_code": 0}
+                    for path in (outside, escaped, oversized)
+                ],
+                {"stage": "astra_discovery", "output": str(rejected), "exit_code": 0, "rejected": True},
+            ],
+        }
         messages = planning_messages(state, self.run)
-        self.assertEqual({'First clarification reply', 'Current Planner draft'}, {row['text'] for row in messages})
-        by_text = {row['text']: row for row in messages}
-        self.assertEqual('2026-09-20T10:01:00Z', by_text['First clarification reply']['created_at'])
-        self.assertEqual('2026-09-20T10:02:00Z', by_text['Current Planner draft']['created_at'])
-        self.assertEqual(['Requirements', 'Requirements'], [row['speaker'] for row in messages])
+        self.assertEqual({"First clarification reply", "Current Planner draft"}, {row["text"] for row in messages})
+        by_text = {row["text"]: row for row in messages}
+        self.assertEqual("2026-09-20T10:01:00Z", by_text["First clarification reply"]["created_at"])
+        self.assertEqual("2026-09-20T10:02:00Z", by_text["Current Planner draft"]["created_at"])
+        self.assertEqual(["Requirements", "Requirements"], [row["speaker"] for row in messages])
 
     def test_stale_question_and_conflicting_replay_are_rejected_without_commands(self):
-        self.make_run([{'id': 'current', 'question': 'Current question'}])
-        for question in ('old', None):
-            with self.assertRaisesRegex(ValueError, 'no longer pending|Choose which question'):
-                self.chat('answer', question_id=question)
+        self.make_run([{"id": "current", "question": "Current question"}])
+        for question in ("old", None):
+            with self.assertRaisesRegex(ValueError, "no longer pending|Choose which question"):
+                self.chat("answer", question_id=question)
         self.assertEqual([], self.commands())
         self.assertEqual([], self.console._chat_rows(self.run))
-        self.chat('answer', question_id='current')
-        with self.assertRaisesRegex(ValueError, 'different message'):
-            self.chat('different answer', question_id='current')
+        self.chat("answer", question_id="current")
+        with self.assertRaisesRegex(ValueError, "different message"):
+            self.chat("different answer", question_id="current")
 
     def test_human_review_question_does_not_capture_ordinary_feedback(self):
         self.make_run()
-        publish(self.state, scope='human_review')
+        publish(self.state, scope="human_review")
         self.save_state()
         view = self.console.view(self.workspace, self.run)
-        self.assertTrue(view['human_request_authorized'])
-        self.assertEqual('human_review', view['human_escalation']['scope'])
-        self.assertTrue(view['questions'])
-        with patch.object(self.console, 'intervene', return_value={'id': 'feedback', 'status': 'applied'}) as intervention, \
-                patch.object(self.console, 'enqueue') as enqueue:
-            row = self.confirmed_chat('Please change the requested output before I accept it', request_id='review-feedback')
-        self.assertEqual('received', row['status'])
-        self.assertEqual('feedback', intervention.call_args.args[2])
+        self.assertTrue(view["human_request_authorized"])
+        self.assertEqual("human_review", view["human_escalation"]["scope"])
+        self.assertTrue(view["questions"])
+        with (
+            patch.object(
+                self.console, "intervene", return_value={"id": "feedback", "status": "applied"}
+            ) as intervention,
+            patch.object(self.console, "enqueue") as enqueue,
+        ):
+            row = self.confirmed_chat(
+                "Please change the requested output before I accept it", request_id="review-feedback"
+            )
+        self.assertEqual("received", row["status"])
+        self.assertEqual("feedback", intervention.call_args.args[2])
         enqueue.assert_not_called()
 
     def test_feedback_has_durable_receipt_survives_reload_and_replays_once(self):
         self.make_run()
         first = self.confirmed_chat()
-        self.assertEqual('received', first['status'])
-        self.assertTrue(first['receipt']['durable'])
+        self.assertEqual("received", first["status"])
+        self.assertTrue(first["receipt"]["durable"])
         self.confirmed_chat()
-        inbox = json.loads((self.root / 'inbox.json').read_text())
+        inbox = json.loads((self.root / "inbox.json").read_text())
         self.assertEqual(1, len(inbox))
         restored = self.make_console()
         restored.conversations  # noqa: B018 - force lazy conversation-store init
-        self.assertEqual(first, restored.task_view(self.workspace, self.run)['chat_messages'][0] | {})
-        (self.root / 'applied.json').write_text(json.dumps(inbox))
+        self.assertEqual(first, restored.task_view(self.workspace, self.run)["chat_messages"][0] | {})
+        (self.root / "applied.json").write_text(json.dumps(inbox))
         restored.status_cache.clear()
-        self.assertEqual('applied', restored.task_view(self.workspace, self.run)['chat_messages'][0]['status'])
+        self.assertEqual("applied", restored.task_view(self.workspace, self.run)["chat_messages"][0]["status"])
         self.assertEqual([], self.commands())
 
     def test_uncertain_feedback_is_not_reported_received(self):
         self.make_run()
-        (self.root / 'bad-receipt').touch()
+        (self.root / "bad-receipt").touch()
         result = self.confirmed_chat()
-        self.assertEqual('error', result['status'])
-        self.assertIn('uncertain', result['error'].lower())
-        self.assertFalse(result['receipt']['durable'])
+        self.assertEqual("error", result["status"])
+        self.assertIn("uncertain", result["error"].lower())
+        self.assertFalse(result["receipt"]["durable"])
 
     def test_explicit_feedback_retry_reuses_durable_request_id(self):
         self.make_run()
-        marker = self.root / 'bad-receipt'
+        marker = self.root / "bad-receipt"
         marker.touch()
         failed = self.confirmed_chat()
         marker.unlink()
         self.assertEqual(failed, self.confirmed_chat())
-        self.assertFalse((self.root / 'inbox.json').exists())
+        self.assertFalse((self.root / "inbox.json").exists())
         retry = self.confirmed_chat(retry=True)
-        self.assertEqual('received', retry['status'])
-        self.assertTrue(retry['receipt']['durable'])
-        self.assertEqual(failed['id'], retry['receipt']['id'])
+        self.assertEqual("received", retry["status"])
+        self.assertTrue(retry["receipt"]["durable"])
+        self.assertEqual(failed["id"], retry["receipt"]["id"])
         self.confirmed_chat(retry=True)
-        self.assertEqual(1, len(json.loads((self.root / 'inbox.json').read_text())))
+        self.assertEqual(1, len(json.loads((self.root / "inbox.json").read_text())))
         self.assertEqual(1, len(self.console._chat_rows(self.run)))
 
     def test_two_dashboards_replaying_same_message_submit_only_once(self):
         self.make_run()
         other = self.make_console()
-        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Keep the same history',
-                'request_id': 'concurrent-replay'}
+        data = {
+            "workspace": str(self.workspace),
+            "run": str(self.run),
+            "text": "Keep the same history",
+            "request_id": "concurrent-replay",
+        }
         proposal = self.console.chat(data)
-        data.update(decision='confirm', decision_token=proposal['confirmation']['token'])
+        data.update(decision="confirm", decision_token=proposal["confirmation"]["token"])
         entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
         submitted = []
         # The waits below are finite hang detectors, not speed assumptions: chat()
@@ -579,24 +715,29 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         timeout = 30
         for console in (self.console, other):
             original = console.intervene
+
             def held_submit(*args, original=original, **kwargs):
                 submitted.append(args)
                 entered.set()
                 if not release.wait(timeout=timeout):
-                    raise AssertionError('fixture release timed out')
+                    raise AssertionError("fixture release timed out")
                 return original(*args, **kwargs)
+
             console.intervene = held_submit
+
         def replay():
             second_started.set()
             return other.chat(data)
+
         def first_call_report(started_at, first):
-            report = {'first_chat_elapsed_s': round(time.monotonic() - started_at, 3),
-                      'first_chat_done': first.done()}
+            report = {"first_chat_elapsed_s": round(time.monotonic() - started_at, 3), "first_chat_done": first.done()}
             if first.done():
                 error = first.exception(timeout=0)
-                report['first_chat_exception' if error else 'first_chat_result'] = (
-                    repr(error) if error else first.result(timeout=0))
+                report["first_chat_exception" if error else "first_chat_result"] = (
+                    repr(error) if error else first.result(timeout=0)
+                )
             return report
+
         with ThreadPoolExecutor(max_workers=2) as pool:
             started_at = time.monotonic()
             first = pool.submit(self.console.chat, data)
@@ -609,7 +750,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
             first.result(timeout=timeout)
             second.result(timeout=timeout)
         self.assertEqual(1, len(submitted))
-        self.assertEqual(1, len(json.loads((self.root / 'inbox.json').read_text())))
+        self.assertEqual(1, len(json.loads((self.root / "inbox.json").read_text())))
         self.assertEqual(1, len(self.console._chat_rows(self.run)))
 
     def test_concurrent_receipt_saves_from_two_dashboards_do_not_overwrite_each_other(self):
@@ -618,45 +759,57 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         barrier = threading.Barrier(2)
         for console in (self.console, other):
             original = console._chat_rows
+
             def delayed_read(run, original=original):
                 value = original(run)
                 # Both writers could read the empty list before either saved without the OS lock.
-                time.sleep(.03)
+                time.sleep(0.03)
                 return value
+
             console._chat_rows = delayed_read
+
         def save(console, ident):
             barrier.wait(timeout=2)
-            return console._save_chat(self.run, {'id': ident, 'text': ident, 'status': 'saved'})
+            return console._save_chat(self.run, {"id": ident, "text": ident, "status": "saved"})
+
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(save, console, ident) for console, ident in
-                       ((self.console, 'message-one'), (other, 'message-two'))]
+            futures = [
+                pool.submit(save, console, ident)
+                for console, ident in ((self.console, "message-one"), (other, "message-two"))
+            ]
             for future in futures:
                 future.result(timeout=3)
-        self.assertEqual({'message-one', 'message-two'}, {row['id'] for row in self.console._chat_rows(self.run)})
+        self.assertEqual({"message-one", "message-two"}, {row["id"] for row in self.console._chat_rows(self.run)})
 
 
 class ChatHttpTests(ChatFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
+        self.server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
         self.server.console = self.console
-        self.host = '127.0.0.1:' + str(self.server.server_port)
-        self.server.hosts = {self.host, 'localhost:' + str(self.server.server_port)}
+        self.host = "127.0.0.1:" + str(self.server.server_port)
+        self.server.hosts = {self.host, "localhost:" + str(self.server.server_port)}
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
         def shutdown():
             self.server.shutdown()
             self.server.server_close()
             self.thread.join(timeout=2)
+
         self.addCleanup(shutdown)
 
     def request(self, method, path, data=None, headers=None):
         # The handler runs several sequential fake-runner subprocesses whose latency
         # is load dependent, so this read is a finite hang bound, not a speed claim.
-        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=30)
         try:
-            connection.request(method, path, body=json.dumps(data) if data is not None else None,
-                               headers={'Content-Type': 'application/json', **(headers or {})})
+            connection.request(
+                method,
+                path,
+                body=json.dumps(data) if data is not None else None,
+                headers={"Content-Type": "application/json", **(headers or {})},
+            )
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         finally:
@@ -664,23 +817,24 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
 
     def test_http_role_catalogue_matches_terminal_and_resolves_page_labels(self):
         from autocode_role_names import CATALOGUE
-        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
+
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=30)
         try:
-            connection.request('GET', '/static/app.js')
+            connection.request("GET", "/static/app.js")
             response = connection.getresponse()
             self.assertEqual(200, response.status)
             script = response.read().decode()
-            prefix = 'globalThis.AUTOCODE_ROLE_NAMES = '
+            prefix = "globalThis.AUTOCODE_ROLE_NAMES = "
             self.assertTrue(script.startswith(prefix))
-            actual = json.loads(script[len(prefix):].split(';\n', 1)[0])
+            actual = json.loads(script[len(prefix) :].split(";\n", 1)[0])
             self.assertEqual(CATALOGUE, actual)
-            connection.request('GET', '/')
+            connection.request("GET", "/")
             response = connection.getresponse()
             self.assertEqual(200, response.status)
             page = response.read().decode()
-            self.assertNotIn('{{role:', page)
-            self.assertIn('Plan Reviewer <small>', page)
-            self.assertIn('Completion Reviewer <small>', page)
+            self.assertNotIn("{{role:", page)
+            self.assertIn("Plan Reviewer <small>", page)
+            self.assertIn("Completion Reviewer <small>", page)
         finally:
             connection.close()
         self.assertEqual([], self.commands())
@@ -688,84 +842,103 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
 
     def test_task_http_projects_saved_transcript_without_clock_reordering_or_state_writes(self):
         from urllib.parse import urlencode
-        self.make_run([{'id':'q1','question':'Which format?'}])
-        route='/api/run?'+urlencode({'workspace':str(self.workspace),'run':str(self.run)})
+
+        self.make_run([{"id": "q1", "question": "Which format?"}])
+        route = "/api/run?" + urlencode({"workspace": str(self.workspace), "run": str(self.run)})
         for status, texts in (
-            ('TASK_COMPLETE', ['Builder finished', 'Checks passed', 'Task complete']),
-            ('WAITING_FOR_USER', ['Planning started', 'A format is needed']),
-            ('PAUSED_REPEATED_FAILURE', ['Checks failed', 'Saved work needs repair']),
+            ("TASK_COMPLETE", ["Builder finished", "Checks passed", "Task complete"]),
+            ("WAITING_FOR_USER", ["Planning started", "A format is needed"]),
+            ("PAUSED_REPEATED_FAILURE", ["Checks failed", "Saved work needs repair"]),
         ):
             with self.subTest(status=status):
-                self.state['status']=status
-                self.state['progress_messages']=[{'id':f'progress-{index}', 'role':'assistant',
-                    'text':text, 'created_at':30-index} for index,text in enumerate(texts)]
+                self.state["status"] = status
+                self.state["progress_messages"] = [
+                    {"id": f"progress-{index}", "role": "assistant", "text": text, "created_at": 30 - index}
+                    for index, text in enumerate(texts)
+                ]
                 self.save_state()
-                before=(self.run/'state.json').read_bytes()
-                code, first=self.request('GET',route)
-                self.assertEqual(200,code)
-                code, second=self.request('GET',route)
-                self.assertEqual(200,code)
-                self.assertEqual(texts,[row['text'] for row in first['transcript']['messages']])
-                self.assertEqual(first['transcript'],second['transcript'])
-                self.assertEqual(before,(self.run/'state.json').read_bytes())
-        self.assertEqual([],self.commands())
-        self.assertEqual([],self.provider_calls)
+                before = (self.run / "state.json").read_bytes()
+                code, first = self.request("GET", route)
+                self.assertEqual(200, code)
+                code, second = self.request("GET", route)
+                self.assertEqual(200, code)
+                self.assertEqual(texts, [row["text"] for row in first["transcript"]["messages"]])
+                self.assertEqual(first["transcript"], second["transcript"])
+                self.assertEqual(before, (self.run / "state.json").read_bytes())
+        self.assertEqual([], self.commands())
+        self.assertEqual([], self.provider_calls)
 
     def test_http_chat_round_trip_is_persistent_without_project(self):
-        status, started = self.request('POST', '/api/conversations', {'text': 'Draft a review journal', 'request_id': 'http-start'})
+        status, started = self.request(
+            "POST", "/api/conversations", {"text": "Draft a review journal", "request_id": "http-start"}
+        )
         self.assertEqual(202, status)
         self.ready(started)
-        status, loaded = self.request('GET', '/api/conversation?id=' + started['id'])
+        status, loaded = self.request("GET", "/api/conversation?id=" + started["id"])
         self.assertEqual(200, status)
-        self.assertEqual(2, len(loaded['messages']))
-        status, _ = self.request('POST', '/api/conversation/message', {'id': started['id'], 'text': 'Only local storage', 'request_id': 'http-followup'})
+        self.assertEqual(2, len(loaded["messages"]))
+        status, _ = self.request(
+            "POST",
+            "/api/conversation/message",
+            {"id": started["id"], "text": "Only local storage", "request_id": "http-followup"},
+        )
         self.assertEqual(202, status)
         self.ready(started)
-        status, listing = self.request('GET', '/api/conversations')
+        status, listing = self.request("GET", "/api/conversations")
         self.assertEqual(200, status)
-        self.assertEqual(4, listing['conversations'][0]['message_count'])
+        self.assertEqual(4, listing["conversations"][0]["message_count"])
         self.assertEqual([], self.commands())
 
     def test_saved_diff_endpoint_is_scoped_read_only_and_hidden_with_task(self):
         from urllib.parse import urlencode
+
         self.make_run()
-        diff = self.run / 'implementation.diff'
+        diff = self.run / "implementation.diff"
         diff.write_text('--- a/app.py\n+++ b/app.py\n+print("Hello")\n')
-        self.state['stages'] = [{'stage': 'terra', 'diff_ref': str(diff)}]
+        self.state["stages"] = [{"stage": "terra", "diff_ref": str(diff)}]
         self.save_state()
-        route = '/api/evidence?' + urlencode({'workspace': str(self.workspace), 'run': str(self.run)})
-        code, data = self.request('GET', route)
+        route = "/api/evidence?" + urlencode({"workspace": str(self.workspace), "run": str(self.run)})
+        code, data = self.request("GET", route)
         self.assertEqual(200, code)
-        self.assertEqual(0, data['stages'][0]['index'])
-        code, data = self.request('GET', route + '&stage=0')
+        self.assertEqual(0, data["stages"][0]["index"])
+        code, data = self.request("GET", route + "&stage=0")
         self.assertEqual(200, code)
-        self.assertIn('+print', data['text'])
-        self.assertEqual(403, self.request('GET', route, headers={'Origin': 'http://evil.test'})[0])
-        self.assertEqual(400, self.request('GET', route + '&stage=-1')[0])
-        self.console.task_archive_action({'workspace': str(self.workspace), 'run': str(self.run), 'action': 'archive'})
-        self.assertEqual(404, self.request('GET', route)[0])
+        self.assertIn("+print", data["text"])
+        self.assertEqual(403, self.request("GET", route, headers={"Origin": "http://evil.test"})[0])
+        self.assertEqual(400, self.request("GET", route + "&stage=-1")[0])
+        self.console.task_archive_action({"workspace": str(self.workspace), "run": str(self.run), "action": "archive"})
+        self.assertEqual(404, self.request("GET", route)[0])
         self.assertEqual([], self.commands())
 
     def test_http_chat_endpoint_rejects_stale_question_and_accepts_feedback(self):
         self.make_run()
-        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Keep history', 'request_id': 'http-feedback'}
-        code, result = self.request('POST', '/api/chat', {**data, 'question_id': 'obsolete'})
+        data = {
+            "workspace": str(self.workspace),
+            "run": str(self.run),
+            "text": "Keep history",
+            "request_id": "http-feedback",
+        }
+        code, result = self.request("POST", "/api/chat", {**data, "question_id": "obsolete"})
         self.assertEqual(400, code)
-        self.assertIn('no longer pending', result['error'])
-        code, result = self.request('POST', '/api/chat', data)
+        self.assertIn("no longer pending", result["error"])
+        code, result = self.request("POST", "/api/chat", data)
         self.assertEqual(202, code)
-        self.assertEqual('awaiting_confirmation', result['status'])
-        code, result = self.request('POST', '/api/chat', {
-            **data, 'decision': 'confirm', 'decision_token': result['confirmation']['token']})
+        self.assertEqual("awaiting_confirmation", result["status"])
+        code, result = self.request(
+            "POST", "/api/chat", {**data, "decision": "confirm", "decision_token": result["confirmation"]["token"]}
+        )
         self.assertEqual(202, code)
-        self.assertTrue(result['receipt']['durable'])
+        self.assertTrue(result["receipt"]["durable"])
 
     def test_all_read_and_write_conversation_routes_reject_untrusted_hosts(self):
-        for method, path, data in [('GET', '/api/conversations', None), ('GET', '/api/runs', None),
-                                   ('POST', '/api/conversations', {'text': 'blocked'})]:
-            code, value = self.request(method, path, data, {'Host': 'untrusted.example'})
+        for method, path, data in [
+            ("GET", "/api/conversations", None),
+            ("GET", "/api/runs", None),
+            ("POST", "/api/conversations", {"text": "blocked"}),
+        ]:
+            code, value = self.request(method, path, data, {"Host": "untrusted.example"})
             self.assertEqual(403, code)
-            self.assertIn('cross-origin', value['error'])
+            self.assertIn("cross-origin", value["error"])
         self.assertEqual([], self.provider_calls)
 
 
@@ -773,25 +946,28 @@ class PlanningReportNames(unittest.TestCase):
     def test_reports_use_the_canonical_job_for_each_legacy_and_v2_stage(self):
         from autocode_status import role_name
         from units.autoplanner import V2_STAGES
-        stages = ['astra_discovery', 'astra_challenge', 'glm_revise', 'astra_finalize', *V2_STAGES]
-        state = {'planning': {'reports': {stage: {'report': {'summary': stage}} for stage in stages}}}
+
+        stages = ["astra_discovery", "astra_challenge", "glm_revise", "astra_finalize", *V2_STAGES]
+        state = {"planning": {"reports": {stage: {"report": {"summary": stage}} for stage in stages}}}
         messages = planning_messages(state)
-        self.assertEqual(stages, [row['stage'] for row in messages])
-        self.assertEqual([role_name(stage, state) for stage in stages], [row['speaker'] for row in messages])
-        self.assertEqual(['Requirements', 'Planner', 'Plan Reviewer', 'Planner', 'Plan Reviewer'],
-                         [row['speaker'] for row in messages[-len(V2_STAGES):]])
+        self.assertEqual(stages, [row["stage"] for row in messages])
+        self.assertEqual([role_name(stage, state) for stage in stages], [row["speaker"] for row in messages])
+        self.assertEqual(
+            ["Requirements", "Planner", "Plan Reviewer", "Planner", "Plan Reviewer"],
+            [row["speaker"] for row in messages[-len(V2_STAGES) :]],
+        )
 
     def test_clarification_speaker_uses_stage_even_when_provider_role_is_missing(self):
         with tempfile.TemporaryDirectory() as temporary:
             run = Path(temporary)
             stages = []
-            for number, role in enumerate([None, 'glm', 'astra']):
-                path = run / (str(number) + '.json')
-                path.write_text(json.dumps({'summary': 'Clarification ' + str(number)}))
-                stages.append({'stage': 'astra_discovery', 'role': role, 'output': str(path), 'exit_code': 0})
-            messages = planning_messages({'stages': stages}, run)
-            self.assertEqual(['Requirements'] * 3, [row['speaker'] for row in messages])
+            for number, role in enumerate([None, "glm", "astra"]):
+                path = run / (str(number) + ".json")
+                path.write_text(json.dumps({"summary": "Clarification " + str(number)}))
+                stages.append({"stage": "astra_discovery", "role": role, "output": str(path), "exit_code": 0})
+            messages = planning_messages({"stages": stages}, run)
+            self.assertEqual(["Requirements"] * 3, [row["speaker"] for row in messages])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

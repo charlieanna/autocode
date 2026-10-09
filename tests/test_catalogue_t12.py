@@ -8,6 +8,7 @@ UI-02's failure-detector, UI-03's 21-screen matrix
 and UI-13's forced-colors verification are reported honestly where the
 environment or product does not supply them.
 """
+
 import os
 import shutil
 import sys
@@ -53,8 +54,8 @@ def run_browser_suite(name, timeout=900):
     with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
         environment["AGENT_BROWSER_SOCKET_DIR"] = sockets
         completed = browser_suite_process.run(
-            ["node", str(DASH / BROWSER_SUITES[name])],
-            cwd=REPO_ROOT, env=environment, timeout=timeout)
+            ["node", str(DASH / BROWSER_SUITES[name])], cwd=REPO_ROOT, env=environment, timeout=timeout
+        )
     _SUITE_CACHE[name] = completed
     return _SUITE_CACHE[name]
 
@@ -66,30 +67,37 @@ class DashboardCase(kit.CatalogueCase):
         if name in REAL_BROWSER_SUITES and shutil.which("agent-browser") is None:
             self.skipTest(
                 "agent-browser bridge is not on PATH; install it to run the "
-                f"real-browser {name!r} suite (see tools/dashboard/tests/)")
+                f"real-browser {name!r} suite (see tools/dashboard/tests/)"
+            )
         kind = "browser" if name in REAL_BROWSER_SUITES else "node_vm"
         try:
             completed = run_browser_suite(name)
         except BaseException as error:
-            self.bundle.log("dashboard_suite", suite=name, kind=kind,
-                            **getattr(error, "receipt", {"reason": "harness_error", "error": str(error)}))
+            self.bundle.log(
+                "dashboard_suite",
+                suite=name,
+                kind=kind,
+                **getattr(error, "receipt", {"reason": "harness_error", "error": str(error)}),
+            )
             raise
         self.bundle.log("dashboard_suite", suite=name, kind=kind, **completed.receipt)
         ok = completed.returncode == 0
         if not ok:
             # CI retains the unittest log, but not the disposable catalogue bundle.
             # Show the underlying browser assertion instead of only its Boolean verdict.
-            print(f"Dashboard suite {name!r} exited {completed.returncode}:\n"
-                  f"{completed.stdout}\n{completed.stderr}", file=sys.stderr)
+            print(
+                f"Dashboard suite {name!r} exited {completed.returncode}:\n{completed.stdout}\n{completed.stderr}",
+                file=sys.stderr,
+            )
         self.check(f"[{name}] browser_suite_passes", True, ok)
         return ok
 
 
 class DashboardScenarios(DashboardCase):
-
     def monitor_snapshot(self, status="RUNNING", findings=None):
         sys.path.insert(0, str(REPO_ROOT / "tools" / "dashboard"))
         import dashboard_monitor as monitor
+
         with tempfile.TemporaryDirectory() as temp:
             run = Path(temp) / "run"
             run.mkdir()
@@ -99,9 +107,18 @@ class DashboardScenarios(DashboardCase):
 
     def test_ui01_dashboard_matches_control_state(self):
         """UI-01. Existing: dashboard monitor snapshot tests + status browser suite."""
-        snapshot = self.monitor_snapshot(findings=[
-            {"id": "F-1", "source": "sol", "severity": "high", "finding": "Blocker one",
-             "status": "open", "blocking": True}])
+        snapshot = self.monitor_snapshot(
+            findings=[
+                {
+                    "id": "F-1",
+                    "source": "sol",
+                    "severity": "high",
+                    "finding": "Blocker one",
+                    "status": "open",
+                    "blocking": True,
+                }
+            ]
+        )
         self.check("blocker_visible_in_dashboard", 1, snapshot["findings_summary"]["open"])
         self.check("control_next_stage_reflected", None, snapshot.get("next_stage"))
         ok = self.browser("status")
@@ -113,24 +130,31 @@ class DashboardScenarios(DashboardCase):
         failure-injection detector exists — recorded as a scoped gap."""
         ok = self.browser("task_clarity")
         self.check("clarity_suite_passes", True, ok)
-        self.bundle.log("scoped_gap", capability="clipping failure-injection detector",
-                        note="browser suites assert required text is visible in the rendered "
-                             "fixture; no synthetic clipped-layout failure detector exists in "
-                             "the product test surface")
-        self.finish(summary="VISUAL_FAILURE_DETECTED: positive visibility verified; "
-                            "failure-injection detector is a scoped gap")
+        self.bundle.log(
+            "scoped_gap",
+            capability="clipping failure-injection detector",
+            note="browser suites assert required text is visible in the rendered "
+            "fixture; no synthetic clipped-layout failure detector exists in "
+            "the product test surface",
+        )
+        self.finish(
+            summary="VISUAL_FAILURE_DETECTED: positive visibility verified; failure-injection detector is a scoped gap"
+        )
 
     def test_ui03_twenty_one_state_matrix(self):
         """UI-03. Partial: lifecycle suite captures states/viewports; the full 7x3
         matrix is owned by the Figma design-coverage track and is an explicit gap here."""
         ok = self.browser("lifecycle")
         self.check("lifecycle_captures_pass", True, ok)
-        self.bundle.log("scoped_gap", capability="21-screen capture manifest",
-                        note="existing suites capture lifecycle states at selected viewports; a "
-                             "complete 7-state x 3-viewport manifest belongs to the Figma "
-                             "design-coverage track (#250 coverage manifests, #251 rendered "
-                             "comparison, #297 deterministic PNG comparison), which superseded "
-                             "the planned FX04 frozen-reference fixture")
+        self.bundle.log(
+            "scoped_gap",
+            capability="21-screen capture manifest",
+            note="existing suites capture lifecycle states at selected viewports; a "
+            "complete 7-state x 3-viewport manifest belongs to the Figma "
+            "design-coverage track (#250 coverage manifests, #251 rendered "
+            "comparison, #297 deterministic PNG comparison), which superseded "
+            "the planned FX04 frozen-reference fixture",
+        )
         self.finish(summary="MATRIX_PARTIAL: named missing combinations recorded as a gap")
 
     def test_ui04_recovery_requires_separate_resume(self):
@@ -179,12 +203,17 @@ class DashboardScenarios(DashboardCase):
         """UI-11. Existing: monitor process evidence + status suite."""
         sys.path.insert(0, str(REPO_ROOT / "tools" / "dashboard"))
         import dashboard_monitor as monitor
+
         with tempfile.TemporaryDirectory() as temp:
             run = Path(temp) / "run"
             run.mkdir()
             (run / "state.json").write_text("{}")
-            live_state = {"status": "RUNNING", "stages": [], "findings_ledger": [],
-                          "active_stage": {"stage": "terra", "pid": 424242, "role": "terra"}}
+            live_state = {
+                "status": "RUNNING",
+                "stages": [],
+                "findings_ledger": [],
+                "active_stage": {"stage": "terra", "pid": 424242, "role": "terra"},
+            }
             with patch.object(monitor, "process_table", return_value={}) as probe:
                 monitor.snapshot(live_state, run, detailed=True)
                 self.check("worker_status_backed_by_process_inspection", 1, probe.call_count)
@@ -204,9 +233,12 @@ class DashboardScenarios(DashboardCase):
         rendering is honestly reported as unverified in this environment."""
         ok = self.browser("a11y")
         self.check("focus_appearance_covered", True, ok)
-        self.bundle.log("environment_limitation", capability="forced-colors rendering",
-                        note="no forced-colors-capable capture in this run; focus visibility "
-                             "verified, forced-colors contrast not evidenced")
+        self.bundle.log(
+            "environment_limitation",
+            capability="forced-colors rendering",
+            note="no forced-colors-capable capture in this run; focus visibility "
+            "verified, forced-colors contrast not evidenced",
+        )
         self.finish(summary="VERIFIED_FOCUS_ONLY: forced-colors remains explicitly unverified")
 
     def test_ui14_completed_controls_read_only(self):

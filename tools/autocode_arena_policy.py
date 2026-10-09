@@ -1,4 +1,5 @@
 """Pure Arena scoring and paired candidate gates; no model or repository access."""
+
 from __future__ import annotations
 
 
@@ -14,14 +15,19 @@ def verdict(status: str, checks: list[dict], error: str | None = None) -> str:
 
 
 def summarize(rows: list[dict]) -> dict:
-    counts = {name: sum(r["verdict"] == name for r in rows)
-              for name in ("PASS", "FALSE_COMPLETE", "STOPPED", "FAIL", "ERROR", "RUNNING")}
+    counts = {
+        name: sum(r["verdict"] == name for r in rows)
+        for name in ("PASS", "FALSE_COMPLETE", "STOPPED", "FAIL", "ERROR", "RUNNING")
+    }
     complete = counts["PASS"] + counts["FALSE_COMPLETE"]
-    return {"attempts": len(rows), "outcomes": counts,
-            "solve_rate": counts["PASS"] / len(rows) if rows else None,
-            "false_complete_per_attempt": counts["FALSE_COMPLETE"] / len(rows) if rows else None,
-            "false_complete_per_completion": counts["FALSE_COMPLETE"] / complete if complete else None,
-            "elapsed_seconds": sum(r.get("elapsed_seconds") or 0 for r in rows)}
+    return {
+        "attempts": len(rows),
+        "outcomes": counts,
+        "solve_rate": counts["PASS"] / len(rows) if rows else None,
+        "false_complete_per_attempt": counts["FALSE_COMPLETE"] / len(rows) if rows else None,
+        "false_complete_per_completion": counts["FALSE_COMPLETE"] / complete if complete else None,
+        "elapsed_seconds": sum(r.get("elapsed_seconds") or 0 for r in rows),
+    }
 
 
 def compare(cases: list[dict], baseline: list[dict], candidate: list[dict]) -> dict:
@@ -47,8 +53,11 @@ def compare(cases: list[dict], baseline: list[dict], candidate: list[dict]) -> d
         a, b = left[0], right[0]
         if a["case_sha256"] != case["sha256"] or b["case_sha256"] != case["sha256"]:
             reasons.append(f"{case['id']}: case identity changed")
-        if (a["execution_kind"] != b["execution_kind"] or a["options"] != b["options"]
-                or a.get("plan_approval") != b.get("plan_approval")):
+        if (
+            a["execution_kind"] != b["execution_kind"]
+            or a["options"] != b["options"]
+            or a.get("plan_approval") != b.get("plan_approval")
+        ):
             reasons.append(f"{case['id']}: execution configuration differs")
         if a["execution_kind"] != "live" or b["execution_kind"] != "live":
             reasons.append(f"{case['id']}: fixture evidence cannot qualify a version")
@@ -60,10 +69,13 @@ def compare(cases: list[dict], baseline: list[dict], candidate: list[dict]) -> d
             reasons.append(f"{case['id']}: candidate falsely claimed completion")
         if a["verdict"] == "PASS" and b["verdict"] != "PASS":
             reasons.append(f"{case['id']}: previously passing case regressed")
-        pairs.append({"case": case["id"], "split": case["split"],
-                      "baseline": a["verdict"], "candidate": b["verdict"]})
+        pairs.append({"case": case["id"], "split": case["split"], "baseline": a["verdict"], "candidate": b["verdict"]})
     unseen = [p for p in pairs if p["split"] == "holdout"]
     if not any(p["baseline"] != "PASS" and p["candidate"] == "PASS" for p in unseen):
         reasons.append("no measured solve improvement on holdout cases")
-    return {"decision": "REJECT" if reasons else "CANDIDATE_FOR_HUMAN_REVIEW",
-            "reasons": reasons, "pairs": pairs, "promoted": False}
+    return {
+        "decision": "REJECT" if reasons else "CANDIDATE_FOR_HUMAN_REVIEW",
+        "reasons": reasons,
+        "pairs": pairs,
+        "promoted": False,
+    }

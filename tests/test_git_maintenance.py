@@ -2,6 +2,7 @@
 
 tests/__init__.py turns it off through the environment; see the comment there.
 """
+
 import json
 import os
 import subprocess
@@ -19,10 +20,17 @@ class BackgroundMaintenanceTests(unittest.TestCase):
             subprocess.run([*git, "init", "-q"], check=True, capture_output=True)
             (repo / "a.txt").write_text("a\n")
             subprocess.run([*git, "add", "a.txt"], check=True, capture_output=True)
-            subprocess.run([*git, "commit", "-qm", "a"], check=True, capture_output=True,
-                           env={**os.environ, "GIT_TRACE2_EVENT": str(trace)})
-            children = [event["argv"] for event in map(json.loads, trace.read_text().splitlines())
-                        if event.get("event") == "child_start"]
+            subprocess.run(
+                [*git, "commit", "-qm", "a"],
+                check=True,
+                capture_output=True,
+                env={**os.environ, "GIT_TRACE2_EVENT": str(trace)},
+            )
+            children = [
+                event["argv"]
+                for event in map(json.loads, trace.read_text().splitlines())
+                if event.get("event") == "child_start"
+            ]
         self.assertEqual([], [argv for argv in children if {"maintenance", "gc"} & set(argv)], children)
 
 

@@ -3,6 +3,7 @@
 This is an executable-check input, not another task contract or acceptance owner.
 Paths are portable and source-owned so the same check can run in a clean replay.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -68,8 +69,12 @@ def read_json(path, expected=None):
 
 def number(value, label, *, minimum=0, maximum=None, integer=False):
     try:
-        valid = (type(value) in ((int,) if integer else (int, float)) and math.isfinite(value)
-                 and value >= minimum and (maximum is None or value <= maximum))
+        valid = (
+            type(value) in ((int,) if integer else (int, float))
+            and math.isfinite(value)
+            and value >= minimum
+            and (maximum is None or value <= maximum)
+        )
     except OverflowError:
         valid = False
     if not valid:
@@ -131,7 +136,9 @@ def load(workspace, policy_path, expected):
     pins = {str(path.relative_to(root)): digest, str(manifest_path.relative_to(root)): manifest_hash}
     cases, identities, covered = {}, set(), set()
     for case in _list(manifest["cases"], "reference cases"):
-        object_fields(case, "id file_key node_id state route implementation_paths viewport export_scale artifacts", "case")
+        object_fields(
+            case, "id file_key node_id state route implementation_paths viewport export_scale artifacts", "case"
+        )
         key = _identity(case["id"])
         frame = (_text(case["file_key"], "file key"), _text(case["node_id"], "node ID"))
         if key in cases or frame not in nodes:
@@ -189,13 +196,23 @@ def load(workspace, policy_path, expected):
             if number(region["max_changed_ratio"], "region max_changed_ratio", maximum=1) == 1:
                 raise ValueError("Region max_changed_ratio must be less than 1")
             for axis, dimension in (("x", "width"), ("y", "height")):
-                if region[axis] + region[dimension] > round(cases[key]["viewport"][dimension] * cases[key]["export_scale"]):
+                if region[axis] + region[dimension] > round(
+                    cases[key]["viewport"][dimension] * cases[key]["export_scale"]
+                ):
                     raise ValueError(f"Region outside reference pixels: {region_id}")
         checks[key] = check
     if checks.keys() != cases.keys():
         raise ValueError("Comparison policy must cover every reference case exactly once")
-    return {"policy": policy, "manifest": manifest, "manifest_path": manifest_path, "pins": pins,
-            "policy_sha256": digest, "manifest_sha256": manifest_hash, "cases": cases, "checks": checks}
+    return {
+        "policy": policy,
+        "manifest": manifest,
+        "manifest_path": manifest_path,
+        "pins": pins,
+        "policy_sha256": digest,
+        "manifest_sha256": manifest_hash,
+        "cases": cases,
+        "checks": checks,
+    }
 
 
 def implementation_inputs(workspace, cases, snapshot):

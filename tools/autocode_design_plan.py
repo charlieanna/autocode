@@ -3,6 +3,7 @@
 No separate acceptance authority or run-state writes. The goal lifecycle checks
 this mapping before installing/approving a plan; report coverage checks it again.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,21 +16,31 @@ except ImportError:
     import autocode_util as util
 
 
-CASE = manifest.obj({"id": manifest.TEXT, "criterion_ids": manifest.TEXTS,
-                     "milestone_ids": manifest.TEXTS})
-DERIVED = manifest.obj({"target_id": manifest.TEXT, "behavior": manifest.TEXT,
-                        "basis": {"type": "string", "enum": ["approved_constraints", "derived_behavior"]},
-                        "exact_match": {"type": "boolean", "enum": [False]},
-                        "criterion_ids": manifest.TEXTS, "milestone_ids": manifest.TEXTS})
-SCHEMA = manifest.obj({"manifest_hash": manifest.TEXT,
-                       "cases": {"type": "array", "items": CASE},
-                       "responsive_derivations": {"type": "array", "items": DERIVED}})
+CASE = manifest.obj({"id": manifest.TEXT, "criterion_ids": manifest.TEXTS, "milestone_ids": manifest.TEXTS})
+DERIVED = manifest.obj(
+    {
+        "target_id": manifest.TEXT,
+        "behavior": manifest.TEXT,
+        "basis": {"type": "string", "enum": ["approved_constraints", "derived_behavior"]},
+        "exact_match": {"type": "boolean", "enum": [False]},
+        "criterion_ids": manifest.TEXTS,
+        "milestone_ids": manifest.TEXTS,
+    }
+)
+SCHEMA = manifest.obj(
+    {
+        "manifest_hash": manifest.TEXT,
+        "cases": {"type": "array", "items": CASE},
+        "responsive_derivations": {"type": "array", "items": DERIVED},
+    }
+)
 
 
 def body_schema(schema, record):
     if not record or record["body"]["version"] != 2:
         return schema
     from copy import deepcopy
+
     result = deepcopy(schema)
     result["properties"]["design_coverage"] = {"anyOf": [SCHEMA, {"type": "null"}]}
     return result
@@ -39,6 +50,7 @@ def report_schema(schema, record):
     if not record or record["body"]["version"] != 2 or "contract" not in schema.get("properties", {}):
         return schema
     from copy import deepcopy
+
     result = deepcopy(schema)
     result["properties"]["contract"] = body_schema(result["properties"]["contract"], record)
     return result
@@ -52,8 +64,9 @@ def _ownership(row, body):
             raise ValueError(f"Design coverage repeats {key}: {row.get('id', row.get('target_id'))}")
     if not set(row["criterion_ids"]) <= criteria or not set(row["milestone_ids"]) <= set(milestones):
         raise ValueError("Design coverage names unknown product criteria or milestones")
-    covered = {criterion for identity in row["milestone_ids"]
-               for criterion in milestones[identity]["acceptance_criteria"]}
+    covered = {
+        criterion for identity in row["milestone_ids"] for criterion in milestones[identity]["acceptance_criteria"]
+    }
     if not set(row["criterion_ids"]) <= covered:
         raise ValueError("Design ownership milestones do not own its mapped product criteria")
     return [path for identity in row["milestone_ids"] for path in milestones[identity].get("affected_paths", [])]
@@ -62,12 +75,14 @@ def _ownership(row, body):
 def _validate_visual_declaration(body, coverage):
     """Keep the visual-runtime declaration bound to the same approved case mapping."""
     marker = "VISUAL_CASE_CRITERIA="
-    rows = [row[len(marker):] for row in body.get("constraints", [])
-            if isinstance(row, str) and row.startswith(marker)]
+    rows = [
+        row[len(marker) :] for row in body.get("constraints", []) if isinstance(row, str) and row.startswith(marker)
+    ]
     if not rows:
         return
     if len(rows) != 1:
         raise ValueError("Design coverage needs exactly one visual case declaration when supplied")
+
     def unique(pairs):
         result = {}
         for key, value in pairs:
@@ -75,13 +90,20 @@ def _validate_visual_declaration(body, coverage):
                 raise ValueError("Visual case declaration repeats a case: " + key)
             result[key] = value
         return result
+
     declared = json.loads(rows[0], object_pairs_hook=unique)
     expected = {row["id"]: row["criterion_ids"] for row in coverage["cases"]}
-    if (not isinstance(declared, dict) or set(declared) != set(expected)
-            or any(not isinstance(mapped, list)
-                   or not all(isinstance(cid, str) for cid in mapped)
-                   or len(mapped) != len(set(mapped)) or set(mapped) != set(expected[identity])
-                   for identity, mapped in declared.items())):
+    if (
+        not isinstance(declared, dict)
+        or set(declared) != set(expected)
+        or any(
+            not isinstance(mapped, list)
+            or not all(isinstance(cid, str) for cid in mapped)
+            or len(mapped) != len(set(mapped))
+            or set(mapped) != set(expected[identity])
+            for identity, mapped in declared.items()
+        )
+    ):
         raise ValueError("Visual case declaration conflicts with structured design coverage")
 
 
@@ -103,12 +125,17 @@ def validate(record, body, *, ready=False):
         raise ValueError("Product plan must map every approved design case exactly once")
     for row in coverage["cases"]:
         paths = _ownership(row, body)
-        if not all(any(manifest.inventory.path_intersects(path, owned) for owned in paths)
-                   for path in cases[row["id"]]["implementation_paths"]):
+        if not all(
+            any(manifest.inventory.path_intersects(path, owned) for owned in paths)
+            for path in cases[row["id"]]["implementation_paths"]
+        ):
             raise ValueError(f"Design case has no milestone owning its implementation paths: {row['id']}")
     _validate_visual_declaration(body, coverage)
-    targets = {target["id"]: target for target in record["body"].get("responsive_targets", [])
-               if not target["reference_case_id"]}
+    targets = {
+        target["id"]: target
+        for target in record["body"].get("responsive_targets", [])
+        if not target["reference_case_id"]
+    }
     derived_ids = [row["target_id"] for row in coverage["responsive_derivations"]]
     if len(derived_ids) != len(set(derived_ids)) or set(derived_ids) != set(targets):
         raise ValueError("Plan must document every responsive target without a supplied reference exactly once")
@@ -120,8 +147,7 @@ def validate(record, body, *, ready=False):
 
 
 def case_criteria(body):
-    return {row["id"]: list(row["criterion_ids"])
-            for row in (body.get("design_coverage") or {}).get("cases", [])}
+    return {row["id"]: list(row["criterion_ids"]) for row in (body.get("design_coverage") or {}).get("cases", [])}
 
 
 def render(record, body):
@@ -132,12 +158,18 @@ def render(record, body):
     lines = ["", "Figma coverage (reference " + record["manifest_hash"][:12] + "):"]
     for case in record["body"]["cases"]:
         row = mapped.get(case["id"])
-        owner = (", ".join(row["milestone_ids"]) + "; criteria " + ", ".join(row["criterion_ids"])) if row else "UNMAPPED"
+        owner = (
+            (", ".join(row["milestone_ids"]) + "; criteria " + ", ".join(row["criterion_ids"])) if row else "UNMAPPED"
+        )
         viewport = case["viewport"]
-        lines.append(f"  {case['id']}: {case['file_key']}/{case['node_id']} · {case['route']} · "
-                     f"{case['state']} · {viewport['width']}×{viewport['height']} · {owner}")
+        lines.append(
+            f"  {case['id']}: {case['file_key']}/{case['node_id']} · {case['route']} · "
+            f"{case['state']} · {viewport['width']}×{viewport['height']} · {owner}"
+        )
     for row in coverage.get("responsive_derivations", []):
-        lines.append(f"  {row['target_id']}: derived responsive behavior ({row['basis']}): {row['behavior']}. "
-                     "No exact reference match is claimed.")
+        lines.append(
+            f"  {row['target_id']}: derived responsive behavior ({row['basis']}): {row['behavior']}. "
+            "No exact reference match is claimed."
+        )
     lines.extend("  Reference blocker: " + blocker for blocker in manifest.blockers(record))
     return lines

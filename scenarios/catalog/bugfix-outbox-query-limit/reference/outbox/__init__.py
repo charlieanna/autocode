@@ -69,9 +69,7 @@ class Store:
                         return False
                     raise ValueError("idempotency key conflicts with an existing order")
 
-                if connection.execute(
-                    "SELECT 1 FROM orders WHERE order_id = ?", (order_id,)
-                ).fetchone() is not None:
+                if connection.execute("SELECT 1 FROM orders WHERE order_id = ?", (order_id,)).fetchone() is not None:
                     raise ValueError("order id already exists")
 
                 connection.execute(
@@ -94,9 +92,7 @@ class Store:
 
     def orders(self):
         with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT order_id, amount FROM orders ORDER BY rowid"
-            ).fetchall()
+            rows = connection.execute("SELECT order_id, amount FROM orders ORDER BY rowid").fetchall()
         return {order_id: self._decode_amount(amount) for order_id, amount in rows}
 
     def pending(self, limit=100):
