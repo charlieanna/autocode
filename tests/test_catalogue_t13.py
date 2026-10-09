@@ -26,6 +26,7 @@ import autocode_stage_context as stage_context
 import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
 import autocode_support as support
+from autocode_stop_explanations import explain
 from . import test_catalogue_t01 as t01
 from goal_fixtures import approve_fixture, body
 
@@ -209,6 +210,41 @@ class CompatScenarios(CompatCase):
             self.check("installed_dry_run_outside_repo", 0, dry.returncode)
             self.check("dry_run_writes_no_run_state", [],
                        sorted(p.name for p in Path(outside).glob(".autocode/runs/*")))
+            fixture_bin = Path(outside) / "fixture-bin"
+            fixture_bin.mkdir()
+            marker = Path(outside) / "provider-was-started"
+            provider = fixture_bin / "codex"
+            provider.write_text("#!" + sys.executable + "\nfrom pathlib import Path\n"
+                                + "Path(" + repr(str(marker)) + ").touch()\nraise SystemExit(1)\n")
+            provider.chmod(0o755)
+            environment = {**self.cli_environment,
+                           "PATH": str(fixture_bin) + os.pathsep + os.environ["PATH"],
+                           "XDG_CONFIG_HOME": str(Path(outside) / "config-home"),
+                           "CODEX_HOME": str(Path(outside) / "codex-home"),
+                           "AUTOCODE_HOME": str(Path(outside) / "registry-home")}
+            environment.pop("AUTOCODE_PROVIDER", None)
+            before_worktrees = subprocess.run(
+                ["git", "worktree", "list", "--porcelain"], cwd=outside,
+                check=True, capture_output=True, text=True, timeout=60).stdout
+            expected = explain("RUNNING")
+            expected_text = "\n\n".join(expected[key] for key in
+                ("what_happened", "what_it_means", "what_the_command_does"))
+            for extra in ([], ["--in-place"]):
+                with self.subTest(extra=extra):
+                    explained = subprocess.run(
+                        [str(installed), "idea", "--workspace", outside, "--engine", "codex",
+                         "--no-chat", "--explain", *extra], cwd=outside, env=environment,
+                        capture_output=True, text=True, timeout=120)
+                    self.assertEqual(0, explained.returncode, explained.stdout + explained.stderr)
+                    self.assertEqual(expected_text, explained.stdout.strip())
+                    self.assertFalse(marker.exists(), "Explanation must not launch a provider")
+                    self.assertFalse((Path(outside) / ".autocode").exists())
+                    after_worktrees = subprocess.run(
+                        ["git", "worktree", "list", "--porcelain"], cwd=outside,
+                        check=True, capture_output=True, text=True, timeout=60).stdout
+                    self.assertEqual(before_worktrees, after_worktrees)
+                    self.bundle.log("installed_explanation", extra=extra, exit=explained.returncode,
+                                    stdout=explained.stdout, stderr=explained.stderr)
             self.bundle.operation("installed_cli_run", help_exit=helped.returncode,
                                   dry_exit=dry.returncode, cwd=outside)
         self.finish(summary="COMPLETE: installed CLI behaves outside the repository, offline")

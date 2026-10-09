@@ -52,6 +52,22 @@ class StopExplanationTests(unittest.TestCase):
             self.assertEqual({"PAUSED_SENTINEL", "WAITING_FOR_USER", "PAUSED_TIME_LIMIT"}, named)
             self.assertEqual({"PAUSED_SENTINEL"}, named - set(stop_explanations.TABLE))
 
+    def test_test_only_pause_states_are_excluded_from_runtime_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text('status = "PAUSED_BUDGET"\n')
+            (root / "test_runtime.py").write_text('status = "PAUSED_TEST"\nstatus = "PAUSED_TEST_DISPATCH"\n')
+            self.assertEqual({"PAUSED_BUDGET"}, named_pause_states(root))
+
+    def test_unknown_runtime_pause_still_fails_the_table_comparison(self):
+        unknown = "PAUSED_UNKNOWN_RUNTIME_SCAN_FIXTURE"
+        self.assertNotIn(unknown, stop_explanations.TABLE)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text(f'status = "{unknown}"\n')
+            missing = sorted(named_pause_states(root) - set(stop_explanations.TABLE))
+            self.assertEqual([unknown], missing)
+
     def test_explain_is_three_short_paragraphs_for_a_person(self):
         text = stop_explanations.explain(
             "PAUSED_BUDGET", stop_reason="iteration ceiling")
