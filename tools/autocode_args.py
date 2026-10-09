@@ -32,7 +32,7 @@ except ImportError:
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
-NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manifest", "figma_review", "in_place",
+NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manifest", "figma_approved_scope", "figma_approved_scope_sha256", "figma_review", "in_place",
                   "builder_strong_model", "conversation_handoff", "test_root")
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
@@ -78,6 +78,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-manifest", type=Path,
                         help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
+    parser.add_argument("--figma-approved-scope", type=Path, help="External reviewed product scope artifact for a new run or stopped reference revision; requires independent SHA256 and complete v2 manifest")
+    parser.add_argument("--figma-approved-scope-sha256", help="Trusted operator SHA256 of --figma-approved-scope; never loaded from the design bundle")
     parser.add_argument("--revise-figma-manifest", type=Path, help="Stopped run: propose complete updated references, preserving history and requiring plan review")
     parser.add_argument("--expected-design-hash", help="Exact inspected reference hash for --revise-figma-manifest")
     parser.add_argument("--design-change-reason", help="Concrete reason for --revise-figma-manifest")
@@ -411,7 +413,7 @@ def parse(unit, argv, default_models):
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")
     if not args.run_dir and any(present for flag, present in actions.items()
-                               if flag not in ("--status", "--explain", "--dry-run")):
+                               if flag not in READ_ACTIONS):
         parser.error("User actions require an existing --run-dir")
     if notice:
         # stderr: --status and --dry-run print exactly one JSON object on stdout.

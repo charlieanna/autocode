@@ -20,6 +20,26 @@ REPAIR_INPUT_ROUTE = (' Resume with autocode resume to archive this repair (evid
                       'and start a fresh attempt of the stage.')
 
 
+def completed_provider_report(record, *, opencode_report, qwen_report, read_object, persist):
+    """Extract provider output using the caller's original report and persistence callbacks."""
+    if record.get("engine") == "opencode":
+        # Raw provider events are authoritative, including during recovery.
+        if record.get('output_mode') != 'report_file':
+            record['response_text'] = str(Path(record['output']).with_suffix('.response.txt'))
+        value = opencode_report(record["events"], recover_wrapped=bool(record.get("report_only")),
+                                      response_path=None if record.get('output_mode') == 'report_file' else record['response_text'])
+        # Persist rejected reports too, so archival never leaves a missing repair input.
+        if record.get('output_mode') != 'report_file':
+            persist(Path(record['output']), value)
+    elif record.get("engine") == "qwen":
+        # Qwen events are also authoritative.
+        value = qwen_report(record["events"])
+        persist(Path(record['output']), value)
+    else:
+        value = read_object(Path(record["output"]))
+    return value
+
+
 def original_report_for_repair(original):
     """Expose terminal output directly, including reports rejected before saving.
 

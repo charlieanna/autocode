@@ -21,9 +21,12 @@ from unittest.mock import patch
 
 import autocode_contract_identity as contract
 import autocode_goals as goals
+import autocode_goal_lifecycle as lifecycle
 import autocode_rework_policy as reports
 import autocode_util as util
+import autocode_source_scope as source_scope
 import autocode_visual_evidence as evidence
+import autocode_visual_history as history
 import autocode_visual_runtime as visual
 import autocode
 import autocode_status_command
@@ -90,7 +93,11 @@ class VisualRuntimeTests(unittest.TestCase):
 
     def snapshot(self):
         value = {'head': 'fixture-parent-snapshot', 'files': {'greet.py': util.file_hash(self.root / 'greet.py')}}
-        return {**value, 'revision': util.digest(value)}
+        result = {**value, 'revision': util.digest(value)}
+        paths = source_scope.paths(self.state)
+        if paths:
+            result['source_paths'] = paths
+        return result
 
     def approve(self):
         saved = self.state['goal_contract']
@@ -114,6 +121,48 @@ class VisualRuntimeTests(unittest.TestCase):
         options = {'launch_authority': self.qualified_config, 'current_snapshot': self.snapshot(), **options}
         return visual.prepare(self.state, 'sol', self.root, self.run, self.base,
                                self.command, self.env, 'Validate the implementation', **options)
+
+    def test_lifecycle_projected_criteria_use_full_approved_visual_binding(self):
+        approved = deepcopy(self.state['goal_contract']['body']['acceptance_criteria'])
+        for omitted in (('verification_method',), ('human_review',),
+                        ('verification_method', 'human_review')):
+            with self.subTest(omitted=omitted):
+                self.state['acceptance_criteria'] = [
+                    {key: value for key, value in row.items() if key not in omitted}
+                    for row in approved]
+                for row in self.state['acceptance_criteria']:
+                    row.update(status='unverified', evidence='')
+                context, command, environment, _ = self.prepare()
+                self.assertEqual('READY', context['status'], context)
+                self.assertEqual(approved, context['current']['criteria'])
+                visual.verify_prelaunch(context, self.state, run_dir=self.run,
+                    current_snapshot=self.snapshot(), command=command, env=environment)
+
+    def test_projected_criteria_still_reject_definition_or_present_metadata_tampering(self):
+        approved = deepcopy(self.state['goal_contract']['body']['acceptance_criteria'])
+        projected = [{key: row[key] for key in ('id', 'criterion')} for row in approved]
+        changes = {
+            'verification method': lambda rows: rows[0].update(verification_method='claim green'),
+            'human review': lambda rows: rows[0].update(human_review=True),
+            'human review type': lambda rows: rows[0].update(human_review=0),
+            'criterion wording': lambda rows: rows[0].update(criterion='Claim acceptance'),
+            'criterion id': lambda rows: rows[0].update(id='foreign'),
+            'extra definition': lambda rows: rows[0].update(approved=True),
+            'missing wording': lambda rows: rows[0].pop('criterion'),
+            'missing id': lambda rows: rows[0].pop('id'),
+            'missing criterion': lambda rows: rows.pop(),
+            'duplicate criterion': lambda rows: rows.append(deepcopy(rows[0])),
+            'reordered criteria': lambda rows: rows.reverse(),
+        }
+        for label, change in changes.items():
+            with self.subTest(change=label):
+                self.state['acceptance_criteria'] = deepcopy(projected)
+                change(self.state['acceptance_criteria'])
+                context, command, environment, prompt = self.prepare()
+                self.assertEqual('NOT_READY', context['status'], context)
+                self.assertIn('Current criterion definitions differ', context['reason'])
+                self.assertEqual((self.command, self.env, 'Validate the implementation'),
+                                 (command, environment, prompt))
 
     def test_authorized_environment_is_used_and_bound_without_persisting_secrets(self):
         def qualified(**kwargs):
@@ -165,10 +214,11 @@ class VisualRuntimeTests(unittest.TestCase):
             with self.assertRaises(util.Paused):
                 visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(), command=command, env=env)
 
-    def review(self, *, statuses=('PASS', 'PASS')):
-        context, command, env, _ = self.prepare()
+    def review(self, *, statuses=('PASS', 'PASS'), scope_authority=None):
+        options = {'scope_authority': scope_authority} if scope_authority is not None else {}
+        context, command, env, _ = self.prepare(**options)
         self.assertEqual('READY', context['status'], context)
-        visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(), command=command, env=env)
+        visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(), command=command, env=env, **options)
         self.record = {'stage': 'sol', 'role': 'sol', 'engine': 'opencode', 'exit_code': 0,
                        'task_id': 'T1', 'contract_revision': 1, 'contract_hash': self.state['goal_contract']['hash'],
                        'source_revision': self.snapshot()['revision'], 'expected_session': None, 'thread_id': 'reviewer-session',
@@ -181,6 +231,15 @@ class VisualRuntimeTests(unittest.TestCase):
                            design_results=[{'id': cid, 'status': status,
                                             'criterion_ids': context['current']['case_criteria'][cid], **self.captures[cid]}
                                            for cid, status in zip(('empty', 'filled'), statuses)])
+        if 'visual_scope' in context['current']:
+            required = set(context['current']['visual_scope']['required_case_ids'])
+            for row in self.report['design_results']:
+                if row['id'] in required:
+                    comparison = self.run / (row['id'] + '-test-only-comparison.json')
+                    comparison.write_text(json.dumps({'test_only': True, 'case_id': row['id']}))
+                    row['comparison_ref'] = str(comparison)
+                else:
+                    row.update(status='NOT_VERIFIED', capture_ref='', capture_sha256='', candidate_ref='', comparison_ref='')
         self.save_report()
         for key in ('before_ref', 'after_ref'):
             util.atomic_json(Path(self.record[key]), self.snapshot())
@@ -211,10 +270,38 @@ class VisualRuntimeTests(unittest.TestCase):
                 'request_id': 'test-request', 'response_id': 'test-response', 'images': images,
                 'evidence_ref': audit_path, 'evidence_sha256': util.file_hash(audit_path)}
 
-    def accept(self, *, delivery=None, validation=None):
+    def accept(self, *, delivery=None, validation=None, scope_authority=None, native_history=None):
         with patch.object(visual.delivery, 'verify', side_effect=delivery or self.fake_delivery):
             return visual.accept_review(None, self.state, self.record, run_dir=self.run,
-                                        current_snapshot=self.snapshot(), accepted_validation=self.validation if validation is None else validation)
+                                        current_snapshot=self.snapshot(), accepted_validation=self.validation if validation is None else validation,
+                                        scope_authority=scope_authority, native_history=native_history)
+
+    def constructed_test_only_history(self, owner_type=history.NativeReviewHistory):
+        # Exact production constructor/type only. This fixture cannot authenticate
+        # a native namespace or substitute for real original-byte replay tests.
+        class NoNativeNamespace:
+            def verify_namespace(self, **kwargs):
+                raise AssertionError('Controlled runtime fixture has no native namespace authority')
+        return owner_type(self.root, self.run, protection=NoNativeNamespace())
+
+    @contextlib.contextmanager
+    def controlled_native_retention(self):
+        # Isolate the runtime's mandatory retention call/transaction ordering.
+        # Only this exact instance is patched; no production type guard changes.
+        owner = self.constructed_test_only_history()
+        self.assertIs(type(owner), history.NativeReviewHistory)
+        calls = []
+        def record_retention(state, record, receipt, *, context, accepted_validation, snapshot):
+            self.assertIs(state, self.state)
+            self.assertIs(record, self.record)
+            self.assertIs(context, self.record['visual_runtime'])
+            self.assertEqual(self.validation, accepted_validation)
+            self.assertEqual(self.snapshot(), snapshot)
+            self.assertNotIn('visual_acceptance_receipts', state)
+            calls.append({'receipt': deepcopy(receipt), 'snapshot': deepcopy(snapshot)})
+            return {'test_only_call_recording': True}  # Not original-native evidence.
+        with patch.object(owner, 'retain_review', side_effect=record_retention):
+            yield owner, calls
 
     def assert_blocked(self, operation):
         before = deepcopy(self.state.get('visual_acceptance_receipts'))
@@ -222,6 +309,225 @@ class VisualRuntimeTests(unittest.TestCase):
             operation()
         self.assertEqual('PAUSED_VISUAL_EVIDENCE', error.exception.status)
         self.assertEqual(before, self.state.get('visual_acceptance_receipts'))
+
+
+    def install_test_only_scope(self, *, integration=False):
+        # Controlled scope facts only, never native historical authentication.
+        body = self.state['goal_contract']['body']
+        body['constraints'].append('VISUAL_SLICE_GATES=complete-cases-v1')
+        template = deepcopy(body['milestones'][0])
+        body['milestones'] = [{**deepcopy(template), 'id': 'M1', 'acceptance_criteria': ['C1'],
+                               'affected_paths': ['greet.py'], 'depends_on': []},
+                              {**deepcopy(template), 'id': 'M2', 'acceptance_criteria': ['C2'],
+                               'affected_paths': ['greet.py'], 'depends_on': ['M1']}]
+        self.state['current_task'].update(kind='validate' if integration else 'implement',
+            milestone_id='M2' if integration else 'M1',
+            acceptance_criteria=['C1', 'C2'] if integration else ['C1'], affected_paths=['greet.py'])
+        self.approve()
+        self.test_scope = {'policy': 'complete-cases-v1', 'mode': 'integration' if integration else 'slice',
+            'milestone_ids': ['M2' if integration else 'M1'],
+            'required_case_ids': ['empty', 'filled'] if integration else ['empty'],
+            'current_case_ids': ['filled'] if integration else ['empty'],
+            'recheck_case_ids': ['empty'] if integration else [],
+            'out_of_scope_case_ids': [] if integration else ['filled'],
+            'case_criteria': {'empty': ['C1'], 'filled': ['C2']},
+            'case_owners': {'empty': 'M1', 'filled': 'M2'},
+            'task_criterion_ids': ['C1', 'C2'] if integration else ['C1'],
+            'affected_paths': ['greet.py'], 'changed_paths': [],
+            'accepted_milestone_ids': ['M1'] if integration else [],
+            'case_input_paths': {'empty': ['greet.py']} if integration else {}}
+        self.scope_calls = []
+
+    def controlled_scope_authority(self, *, state, snapshot):
+        self.scope_calls.append((state['current_task']['id'], deepcopy(snapshot)))
+        self.assertEqual(self.snapshot(), snapshot)
+        return deepcopy(self.test_scope)
+
+    @contextlib.contextmanager
+    def owned_fixture_snapshot(self):
+        # No Git/process/browser/model; freshness observes this fixture's file bytes.
+        with patch.object(visual.util, 'snapshot', side_effect=lambda root: self.snapshot()):
+            yield
+
+    def test_scoped_missing_authority_cannot_prepare_or_use_config_hints(self):
+        self.install_test_only_scope()
+        self.state['settings']['scope_authority'] = {'scope_all_accepted': True, 'visual_scope': self.test_scope}
+        before = deepcopy(self.state)
+        files = sorted(self.run.rglob('*'))
+        with self.owned_fixture_snapshot():
+            context, command, env, prompt = self.prepare()
+        self.assertEqual('NOT_READY', context['status'])
+        self.assertIn('runner CODE scope authority', context['reason'])
+        self.assertEqual((command, env, prompt), (self.command, self.env, 'Validate the implementation'))
+        self.assertEqual(before, self.state)
+        self.assertEqual(files, sorted(self.run.rglob('*')))
+
+    def test_scoped_malformed_authority_facts_fail_closed(self):
+        self.install_test_only_scope()
+        invalid = [None, True, {}, {**deepcopy(self.test_scope), 'milestone_ids': ['missing']},
+                   {**deepcopy(self.test_scope), 'required_case_ids': ['empty', 'filled']},
+                   {**deepcopy(self.test_scope), 'case_owners': {'empty': 'M1', 'filled': 'invented'}}]
+        for facts in invalid:
+            with self.subTest(facts=facts), self.owned_fixture_snapshot():
+                context, *_ = self.prepare(scope_authority=lambda **kwargs: facts)
+                self.assertEqual('NOT_READY', context['status'])
+        self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_acquisition_verifies_required_only_and_preserves_full_reference_roster(self):
+        self.install_test_only_scope()
+        Path(self.captures['filled']['capture_ref']).unlink()
+        with self.owned_fixture_snapshot(), patch.object(evidence, 'verify', wraps=evidence.verify) as verify:
+            context, command, env, prompt = self.prepare(scope_authority=self.controlled_scope_authority)
+            self.assertEqual('READY', context['status'], context)
+            visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(),
+                                    command=command, env=env, scope_authority=self.controlled_scope_authority)
+        self.assertEqual({'empty'}, {call.kwargs['case']['id'] for call in verify.call_args_list})
+        self.assertEqual(2, command.count('--file'))
+        manifest = util.read_object(context['manifest_path'])
+        self.assertEqual(['empty', 'filled'], [case['id'] for case in manifest['cases']])
+        self.assertEqual({'empty'}, set(context['captures']))
+        for case in self.state['settings']['design_manifest']['body']['cases']:
+            for artifact in case['artifacts'].values():
+                path = str(Path(self.state['settings']['design_manifest']['root']) / artifact['path'])
+                self.assertEqual(artifact['sha256'], context['pins'][path])
+        self.assertIn('Outside required_case_ids report NOT_VERIFIED', prompt)
+        self.assertGreaterEqual(len(self.scope_calls), 2)
+
+    def test_scoped_missing_required_capture_is_a_technical_hold(self):
+        self.install_test_only_scope()
+        Path(self.captures['empty']['capture_ref']).unlink()
+        with self.owned_fixture_snapshot():
+            context, *_ = self.prepare(scope_authority=self.controlled_scope_authority)
+        self.assertEqual('NOT_READY', context['status'])
+        self.assertIn('required visual cases', context['reason'])
+
+    def test_scoped_prelaunch_rederives_scope_and_never_trusts_stored_context(self):
+        self.install_test_only_scope()
+        with self.owned_fixture_snapshot():
+            context, command, env, _ = self.prepare(scope_authority=self.controlled_scope_authority)
+            self.assert_blocked(lambda: visual.verify_prelaunch(context, self.state, run_dir=self.run,
+                                current_snapshot=self.snapshot(), command=command, env=env))
+            self.test_scope['affected_paths'] = ['other.py']
+            self.assert_blocked(lambda: visual.verify_prelaunch(context, self.state, run_dir=self.run,
+                                current_snapshot=self.snapshot(), command=command, env=env,
+                                scope_authority=self.controlled_scope_authority))
+            self.assert_blocked(lambda: visual.verify_prelaunch(None, self.state, run_dir=self.run,
+                                current_snapshot=self.snapshot(), command=command, env=env,
+                                scope_authority=self.controlled_scope_authority))
+
+    def test_scoped_prelaunch_checks_outside_reference_and_fresh_owned_source(self):
+        self.install_test_only_scope()
+        with self.owned_fixture_snapshot():
+            context, command, env, _ = self.prepare(scope_authority=self.controlled_scope_authority)
+            outside = Path(self.state['settings']['design_manifest']['root']) / 'filled.png'
+            original = outside.read_bytes()
+            outside.write_bytes(b'changed reference')
+            self.assert_blocked(lambda: visual.verify_prelaunch(context, self.state, run_dir=self.run,
+                                current_snapshot=self.snapshot(), command=command, env=env,
+                                scope_authority=self.controlled_scope_authority))
+            outside.write_bytes(original)
+            stale = self.snapshot()
+            (self.root / 'greet.py').write_text('source changed after caller snapshot\n')
+            self.assert_blocked(lambda: visual.verify_prelaunch(context, self.state, run_dir=self.run,
+                                current_snapshot=stale, command=command, env=env,
+                                scope_authority=self.controlled_scope_authority))
+
+    def test_scoped_authority_may_not_mutate_source_while_deriving(self):
+        self.install_test_only_scope()
+        def mutate(**kwargs):
+            (self.root / 'greet.py').write_text('changed during authority\n')
+            return deepcopy(self.test_scope)
+        with self.owned_fixture_snapshot():
+            context, *_ = self.prepare(scope_authority=mutate)
+        self.assertEqual('NOT_READY', context['status'])
+        self.assertIn('source inputs', context['reason'])
+
+    def test_scoped_acceptance_and_projection_require_fresh_code_authority(self):
+        self.install_test_only_scope()
+        with self.owned_fixture_snapshot(), self.controlled_native_retention() as (owner, retained):
+            self.review(scope_authority=self.controlled_scope_authority)
+            self.assert_blocked(lambda: self.accept())
+            receipt = self.accept(scope_authority=self.controlled_scope_authority, native_history=owner)
+            self.assertEqual([{'receipt': receipt, 'snapshot': self.snapshot()}], retained)
+            self.assertEqual('PASS', receipt['scope_verdict'])
+            self.assertEqual('NOT_VERIFIED', receipt['cases'][1]['verdict'])
+            result = visual.projection(self.state, current_snapshot=self.snapshot(),
+                                       scope_authority=self.controlled_scope_authority)
+            self.assertEqual('SCOPED_VERIFIED', result['status'])
+            self.assertTrue(result['scope_all_accepted'])
+            self.assertFalse(result['current_all_accepted'])
+            unknown = visual.projection(self.state, current_snapshot=self.snapshot())
+            self.assertEqual('NOT_READY', unknown['status'])
+            self.assertFalse(unknown['current_all_accepted'])
+            self.assertFalse(visual.completion_check(self.state, current_snapshot=self.snapshot(),
+                             scope_authority=self.controlled_scope_authority)['passed'])
+            self.assert_blocked(lambda: visual.require_completion(self.state, current_snapshot=self.snapshot(),
+                               scope_authority=self.controlled_scope_authority))
+
+    def test_scoped_acceptance_refuses_missing_boolean_or_subclass_history_owner(self):
+        self.install_test_only_scope()
+        class RejectedHistorySubclass(history.NativeReviewHistory):
+            pass
+        subclass = self.constructed_test_only_history(RejectedHistorySubclass)
+        with self.owned_fixture_snapshot():
+            self.review(scope_authority=self.controlled_scope_authority)
+            with patch.object(subclass, 'retain_review',
+                              side_effect=AssertionError('A rejected owner must not retain evidence')) as retain:
+                for owner in (None, True, False, subclass):
+                    with self.subTest(owner_type=type(owner).__name__):
+                        self.assert_blocked(lambda: self.accept(
+                            scope_authority=self.controlled_scope_authority, native_history=owner))
+                        self.assertNotIn('visual_acceptance_receipts', self.state)
+                retain.assert_not_called()
+
+    def test_scoped_retention_failure_cannot_publish_an_acceptance_ledger(self):
+        self.install_test_only_scope()
+        owner = self.constructed_test_only_history()
+        self.assertIs(type(owner), history.NativeReviewHistory)
+        with self.owned_fixture_snapshot():
+            self.review(scope_authority=self.controlled_scope_authority)
+            for error in (RuntimeError('Controlled native retention/protection refusal'),
+                          util.Paused('PAUSED_VISUAL_EVIDENCE', 'Controlled original replay refusal')):
+                with self.subTest(error_type=type(error).__name__), \
+                        patch.object(owner, 'retain_review', side_effect=error) as retain:
+                    self.assert_blocked(lambda: self.accept(
+                        scope_authority=self.controlled_scope_authority, native_history=owner))
+                    retain.assert_called_once()
+                    self.assertIs(self.state, retain.call_args.args[0])
+                    self.assertEqual(self.snapshot(), retain.call_args.kwargs['snapshot'])
+                    self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_functional_pass_not_ready_holds_but_failure_keeps_bounded_rework(self):
+        self.install_test_only_scope()
+        context = {'status': 'NOT_READY', 'reason': 'Missing required capture'}
+        record = {'stage': 'sol', 'visual_runtime': context}
+        with self.owned_fixture_snapshot(), patch.object(visual.delivery, 'verify') as delivery:
+            self.assert_blocked(lambda: visual.accept_review(None, self.state, record, run_dir=self.run,
+                current_snapshot=self.snapshot(), accepted_validation={'verdict': 'PASS'},
+                scope_authority=self.controlled_scope_authority))
+            for verdict in ('FAIL', 'BLOCKED'):
+                self.assertIsNone(visual.accept_review(None, self.state, record, run_dir=self.run,
+                    current_snapshot=self.snapshot(), accepted_validation={'verdict': verdict},
+                    scope_authority=self.controlled_scope_authority))
+        delivery.assert_not_called()
+        self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_final_integration_needs_fresh_all_case_receipt(self):
+        self.install_test_only_scope(integration=True)
+        with self.owned_fixture_snapshot(), self.controlled_native_retention() as (owner, retained):
+            self.review(scope_authority=self.controlled_scope_authority)
+            receipt = self.accept(scope_authority=self.controlled_scope_authority, native_history=owner)
+            self.assertEqual([{'receipt': receipt, 'snapshot': self.snapshot()}], retained)
+            self.assertTrue(visual.completion_check(self.state, current_snapshot=self.snapshot(),
+                            scope_authority=self.controlled_scope_authority)['passed'])
+            Path(self.captures['filled']['capture_ref']).unlink()
+            self.assertFalse(visual.completion_check(self.state, current_snapshot=self.snapshot(),
+                             scope_authority=self.controlled_scope_authority)['passed'])
+
+    def test_capture_selection_rejects_unknown_duplicate_empty_or_unordered_partition(self):
+        for ids in ([], ['foreign'], ['empty', 'empty'], ['filled', 'empty'], True):
+            with self.subTest(ids=ids), self.assertRaises(ValueError):
+                evidence.context(self.state, self.snapshot(), required_case_ids=ids)
 
     def test_preparation_stages_exact_images_preserves_env_permissions_and_state(self):
         before = deepcopy(self.state)
@@ -254,7 +560,7 @@ class VisualRuntimeTests(unittest.TestCase):
                    'acceptance_criteria': ['C1', 'C2'], 'validation_plan': ['Inspect both rendered states']}
         self.state['goal_contract']['body']['initial_task'] = initial
         util.validate_schema(self.state['goal_contract']['body'], goals.PLANNING_BODY_SCHEMA)
-        self.state['current_task'] = {**deepcopy(initial), 'id': 'T1', 'criterion_ids': ['C1', 'C2']}
+        self.state['current_task'] = {**deepcopy(initial), 'id': 'T1'}
         self.state['stages'] = []
         self.approve()
 
@@ -270,11 +576,80 @@ class VisualRuntimeTests(unittest.TestCase):
         self.assertEqual(util.digest(self.state['goal_contract']['approval_event']), source['approval_event_sha256'])
         self.assertTrue(visual.completion_allowed(self.state, current_snapshot=self.snapshot()))
 
+    def test_original_lifecycle_validation_assignment_reaches_operator_visual_preparation(self):
+        # Public original domain assignment, then public visual boundary. The
+        # original assignment is not mocked or manually given a criteria alias.
+        # Existing capture/config hooks remain controlled, not native authority.
+        self.operator_source()
+        initial = deepcopy(self.state['goal_contract']['body']['initial_task'])
+        self.state['current_task'] = {}
+        decision = {'status': 'CONTINUE', 'next_objective': initial['objective'],
+                    'affected_paths': list(initial['affected_paths']),
+                    'next_task': {key: value for key, value in initial.items()
+                                  if key not in ('objective', 'affected_paths')}}
+        self.assertEqual('validate', lifecycle.assign_task(self.state, decision, self.snapshot()))
+        context, _, _, _ = self.prepare()
+        self.assertEqual('READY', context['status'], context)
+        self.assertEqual('operator_supplied_source', context['producer']['kind'])
+        self.assertEqual(self.state['current_task']['id'], context['producer']['task_id'])
+        self.assertIsNone(context['producer']['model'])
+        self.assertIsNone(context['producer']['session_id'])
+        self.assertEqual(self.snapshot()['revision'], context['producer']['source_revision'])
+
+    def test_operator_source_reads_equal_aliases_or_retained_legacy_alias_without_mutation(self):
+        self.operator_source()
+        original = deepcopy(self.state)
+        for legacy_only in (False, True):
+            self.state = deepcopy(original)
+            task = self.state['current_task']
+            task['criterion_ids'] = list(task['acceptance_criteria'])
+            if legacy_only:
+                del task['acceptance_criteria']
+            before = deepcopy(task)
+            context, _, _, _ = self.prepare()
+            self.assertEqual('READY', context['status'], context)
+            self.assertEqual('operator_supplied_source', context['producer']['kind'])
+            self.assertEqual(before, task)
+
+    def test_operator_source_refuses_conflicting_duplicate_empty_or_malformed_criteria(self):
+        self.operator_source()
+        original = deepcopy(self.state)
+        variants = [
+            {'acceptance_criteria': None, 'criterion_ids': ['C1', 'C2']},
+            {'acceptance_criteria': [], 'criterion_ids': ['C1', 'C2']},
+            {'acceptance_criteria': 'C1,C2'},
+            {'acceptance_criteria': {'C1': True, 'C2': True}},
+            {'acceptance_criteria': ['C1', 'C2', 'C2']},
+            {'acceptance_criteria': ['C1', 2]},
+            {'acceptance_criteria': ['C1', ' ']},
+            {'criterion_ids': ['C2', 'C1']},
+            {'criterion_ids': []}, {'criterion_ids': None},
+            {'criterion_ids': ['C1', 'C2', 'C2']},
+        ]
+        for fields in variants:
+            self.state = deepcopy(original)
+            self.state['current_task'].update(deepcopy(fields))
+            before = deepcopy(self.state['current_task'])
+            with self.subTest(fields=fields):
+                context, command, env, prompt = self.prepare()
+                self.assertEqual('NOT_READY', context['status'])
+                self.assertIn('Visual task', context['reason'])
+                self.assertEqual((self.command, self.env, 'Validate the implementation'), (command, env, prompt))
+                self.assertEqual(before, self.state['current_task'])
+
+    def test_operator_source_without_either_criteria_field_refuses(self):
+        self.operator_source()
+        del self.state['current_task']['acceptance_criteria']
+        context, _, _, _ = self.prepare()
+        self.assertEqual('NOT_READY', context['status'])
+        self.assertIn('Visual task has no acceptance criteria', context['reason'])
+
     def test_operator_source_requires_approved_validation_and_no_hidden_writer(self):
         self.operator_source()
         original = deepcopy(self.state)
         changes = [
             lambda: self.state['current_task'].update(kind='implement'),
+            lambda: self.state['current_task'].update(acceptance_criteria=['C1']),
             lambda: self.state['current_task'].update(criterion_ids=['C1']),
             lambda: self.state['stages'].append({**self.builder, 'task_id': 'earlier-task', 'rejected': True}),
             lambda: self.state.update(parent_run='some-parent'),
@@ -892,6 +1267,75 @@ fixture.main()
     def launched_stages(self):
         return [json.loads(line)['stage'] for line in self.probe.read_text().splitlines()]
 
+    def test_public_plan_approval_reaches_visual_readiness_with_projected_criteria(self):
+        # Exercise the normal CLI install/approval path, never synthesize its
+        # contract or read state.json. Synthetic image/config fixtures qualify
+        # prepare only; the fake provider still has no visual acceptance authority.
+        probe = self.root / 'visual-readiness.jsonl'
+        bootstrap = Path(self.command[1])
+        source = bootstrap.read_text()
+        hook = '''
+sys.path.insert(0, ''' + repr(str(Path(__file__).resolve().parents[1] / 'tools')) + ''')
+import json
+import autocode_util as util
+import autocode_source_scope as source_scope
+import autocode_visual_runtime as visual
+from tests.visual_capture_fixtures import make_capture
+from unittest.mock import patch
+original_prepare = visual.prepare
+def observe_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options):
+    if stage != 'sol':
+        return original_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options)
+    record = state['settings']['design_manifest']
+    snapshot = source_scope.snapshot(workspace, state)
+    for case in record['body']['cases']:
+        make_capture(workspace, record['manifest_hash'], case)
+    proof = Path(run_dir) / 'offline-visual-config.json'
+    proof.write_text('{"test_only":true}')
+    def qualified(**kwargs):
+        environment = dict(kwargs['env'])
+        audit = json.loads(environment['AUTOCODE_IMAGE_AUDIT'])
+        audit['max_requests'] = visual.delivery.SESSION_MAX_REQUESTS
+        environment['AUTOCODE_IMAGE_AUDIT'] = json.dumps(audit)
+        return {'evidence_hashes': {str(proof): util.file_hash(proof)},
+                'image_limits': {'width':2, 'height':1, 'pixels':2, 'bytes':4096},
+                'environment':environment}
+    context, argv, environment, _ = original_prepare(state, stage, workspace, run_dir, base,
+        command, env, prompt, launch_authority=qualified, current_snapshot=snapshot)
+    row = {'status':context['status'], 'reason':context.get('reason'),
+           'criteria':state['acceptance_criteria'],
+           'approved_criteria':state['goal_contract']['body']['acceptance_criteria'],
+           'bound_criteria':context.get('current', {}).get('criteria')}
+    if context['status'] == 'READY':
+        visual.verify_prelaunch(context, state, run_dir=run_dir, current_snapshot=snapshot,
+                                command=argv, env=environment)
+        row['prelaunch_verified'] = True
+    with Path(''' + repr(str(probe)) + ''').open('a') as output:
+        output.write(json.dumps(row) + '\\n')
+    # Discard test-only readiness; the functional fake CLI receives no images
+    # and cannot mint native transport or visual-acceptance receipts.
+    return original_prepare(state, stage, workspace, run_dir, base, command, env, prompt,
+                            launch_authority=None, current_snapshot=snapshot)
+with patch.object(visual, 'prepare', observe_prepare):
+    fixture.main()
+'''
+        self.assertEqual(1, source.count('fixture.main()\n'))
+        bootstrap.write_text(source.replace('fixture.main()\n', hook))
+        run = self.approved_run('standard')
+        view = run.advance_until_input()
+        rows = [json.loads(line) for line in probe.read_text().splitlines()]
+        self.assertTrue(rows, view)
+        for row in rows:
+            with self.subTest(stage=row):
+                self.assertEqual('READY', row['status'], row)
+                self.assertTrue(row['prelaunch_verified'])
+                self.assertEqual(row['approved_criteria'], row['bound_criteria'])
+                self.assertTrue(all(set(item) == {'id', 'criterion', 'status', 'evidence'}
+                                    for item in row['criteria']), row)
+        self.assertFalse(view['done'], view)
+        self.assertIsNone(view['design']['current_visual_acceptance'])
+        self.assertEqual(0, view['efficiency']['delivery']['verified_deliveries'])
+
     def test_public_taskrun_advances_functional_milestones_but_refuses_unverified_visual_completion(self):
         run = self.approved_run('milestones')
         view = run.advance_until_input()
@@ -921,5 +1365,131 @@ fixture.main()
         self.assertTrue(any(report.get('verdict') == 'PASS' for report in validations), validations)
         self.assertIn('Current independent image-delivery and visual-acceptance evidence is required', view['stop_reason'])
         self.assertEqual(['empty', 'filled'], view['design']['not_passing'])
+        self.assertIsNone(view['design']['current_visual_acceptance'])
+        self.assertEqual(0, view['efficiency']['delivery']['verified_deliveries'])
+
+
+    def test_public_taskrun_initial_operator_validation_reaches_transport_qualification_without_alias(self):
+        # This existing source belongs to the operator before the first run.
+        # Its discoverable tests are real; no Builder or private state edit is used.
+        goal_fixtures.seed_greeting_workspace(self.project)
+        seeded = {name: util.file_hash(self.project / name)
+                  for name in ('greet.py', 'test_greeting.py')}
+        subprocess.run(['git', '-C', str(self.project), 'add', 'greet.py', 'test_greeting.py'], check=True)
+        subprocess.run(['git', '-C', str(self.project), '-c', 'user.name=Fixture', '-c',
+                        'user.email=fixture@example.test', 'commit', '-q', '-m', 'operator source'], check=True)
+
+        # Extend only this test's private copied fake plan, then update the exact
+        # bootstrap hash. Every client is still checked before metadata and Popen.
+        variant = Path(self.env['PATH'].split(os.pathsep)[0]) / 'codex'
+        previous_hash = util.file_hash(variant)
+        copied = variant.read_text()
+        marker = 'Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))'
+        self.assertEqual(1, copied.count(marker))
+        initial_validation = r"""
+if 'contract' in result:
+    first = result['contract'].get('initial_task')
+    if first and first['kind'] != 'none':
+        result['contract']['initial_task'] = dict(first,
+            kind='validate', objective='Validate the existing greeting CLI')
+"""
+        variant.write_text(copied.replace(marker, initial_validation + marker))
+        bootstrap = Path(self.command[1])
+        source = bootstrap.read_text()
+        self.assertEqual(1, source.count(repr(previous_hash)))
+        source = source.replace(repr(previous_hash), repr(util.file_hash(variant)), 1)
+
+        # Observe the public prepare call made by the actual CLI. Acquisition
+        # inputs are the existing synthetic capture fixture, not image judgment.
+        # The next real native transport qualification deliberately rejects:
+        # this test never supplies a qualified config, READY or delivery receipt.
+        probe = self.root / 'operator-visual-boundary.jsonl'
+        transport_hold = 'TEST-ONLY offline CLI: native image transport qualification unavailable'
+        hook = '''
+sys.path.insert(0, ''' + repr(str(Path(__file__).resolve().parents[1] / 'tools')) + ''')
+import json
+import autocode_util as util
+import autocode_source_scope as source_scope
+import autocode_visual_runtime as visual
+from tests.visual_capture_fixtures import make_capture
+from unittest.mock import patch
+original_prepare = visual.prepare
+TRANSPORT_HOLD = ''' + repr(transport_hold) + '''
+def observe_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options):
+    if stage != 'sol':
+        return original_prepare(state, stage, workspace, run_dir, base, command, env, prompt, **options)
+    task = state['current_task']
+    initial = state['goal_contract']['body']['initial_task']
+    stable = util.digest({'task': task, 'contract': state['goal_contract']})
+    record = state['settings']['design_manifest']
+    snapshot = source_scope.snapshot(workspace, state)
+    for case in record['body']['cases']:
+        make_capture(workspace, record['manifest_hash'], case)
+    calls = []
+    def unavailable_transport(**kwargs):
+        # Reached only after the unchanged operator-producer predicate succeeds.
+        # No evidence, transformed images or authority object is returned.
+        calls.append(len(kwargs['images']))
+        raise RuntimeError(TRANSPORT_HOLD)
+    context, argv, environment, returned_prompt = original_prepare(state, stage,
+        workspace, run_dir, base, command, env, prompt,
+        launch_authority=unavailable_transport, current_snapshot=snapshot)
+    row = {'status': context['status'], 'reason': context.get('reason'),
+           'task_kind': task['kind'], 'initial_kind': initial['kind'],
+           'canonical_criteria': task.get('acceptance_criteria'),
+           'has_legacy_alias': 'criterion_ids' in task,
+           'initial_criteria': initial['acceptance_criteria'],
+           'approved_criteria': [item['id'] for item in state['goal_contract']['body']['acceptance_criteria']],
+           'transport_calls': calls,
+           'inputs_unchanged': (argv, environment, returned_prompt) == (command, env, prompt),
+           'task_and_contract_unchanged': stable == util.digest({'task': task, 'contract': state['goal_contract']}),
+           'no_builder': not any(item.get('stage') == 'terra' or item.get('role') in ('terra', 'builder')
+                                 for item in state.get('stages', [])),
+           'no_visual_receipts': not state.get('visual_acceptance_receipts')}
+    with Path(''' + repr(str(probe)) + ''').open('a') as output:
+        output.write(json.dumps(row) + '\\n')
+    # Keep the actual unqualified result. The functional fake client gets no
+    # image attachments and cannot satisfy independent visual completion.
+    return context, argv, environment, returned_prompt
+with patch.object(visual, 'prepare', observe_prepare):
+    fixture.main()
+'''
+        self.assertEqual(1, source.count('fixture.main()\n'))
+        bootstrap.write_text(source.replace('fixture.main()\n', hook))
+
+        self.env['AUTOCODE_FIXTURE_MODE'] = 'standard'
+        run = taskrun.TaskRun.start(self.project, 'Build a greeting tool', command=self.command,
+            options=self.options, start_options=('--figma-manifest', str(self.manifest)),
+            env=self.env, timeout=120)
+        view = run.status()
+        self.assertEqual('answer', view['needs']['kind'], view)
+        run.answer('Q1', 'CLI')
+        view = run.advance_until_input()
+        self.assertEqual('approve_plan', view['needs']['kind'], view)
+        displayed = run.show_goal()
+        self.assertIn(view['needs']['token'], displayed)
+        self.assertIn('Validate the existing greeting CLI', displayed)
+        # No alias, task or contract is edited after ordinary displayed approval.
+        run.approve_plan(view['needs']['token'])
+        view = run.advance_until_input()
+
+        rows = [json.loads(line) for line in probe.read_text().splitlines()]
+        self.assertTrue(rows, view)
+        first = rows[0]
+        self.assertEqual(('validate', 'validate'), (first['initial_kind'], first['task_kind']), first)
+        self.assertFalse(first['has_legacy_alias'], first)
+        self.assertEqual(['C1'], first['canonical_criteria'], first)
+        self.assertEqual(first['approved_criteria'], first['canonical_criteria'], first)
+        self.assertEqual(first['initial_criteria'], first['canonical_criteria'], first)
+        self.assertTrue(first['no_builder'], first)
+        self.assertEqual([4], first['transport_calls'], first)
+        self.assertEqual('NOT_READY', first['status'], first)
+        self.assertIn(transport_hold, first['reason'])
+        self.assertTrue(first['inputs_unchanged'], first)
+        self.assertTrue(first['task_and_contract_unchanged'], first)
+        self.assertTrue(first['no_visual_receipts'], first)
+        self.assertNotIn('terra', self.launched_stages())
+        self.assertEqual(seeded, {name: util.file_hash(self.project / name) for name in seeded})
+        self.assertFalse(view['done'], view)
         self.assertIsNone(view['design']['current_visual_acceptance'])
         self.assertEqual(0, view['efficiency']['delivery']['verified_deliveries'])

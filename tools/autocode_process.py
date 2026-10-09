@@ -12,12 +12,12 @@ import time
 try:
     from . import autocode_process_children as process_children, autocode_process_receipts as process_receipts
     from . import autocode_util as util
-    from .autocode_activity import idle_timeout_reason
+    from .autocode_activity import POLL_SAMPLED_MONOTONIC, idle_timeout_reason
 except ImportError:
     import autocode_process_children as process_children
     import autocode_process_receipts as process_receipts
     import autocode_util as util
-    from autocode_activity import idle_timeout_reason
+    from autocode_activity import POLL_SAMPLED_MONOTONIC, idle_timeout_reason
 
 try:
     import psutil
@@ -317,9 +317,19 @@ class ProcessTree:
                     return
                 time.sleep(.05)
             raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
-        except ProcessError:
-            # A failed discovery pass must not strand recorded workers stopped.
-            self.signal(list(self.known.values()), signal.SIGKILL)
+        except (ProcessError, subprocess.TimeoutExpired) as error:
+            # A failed discovery or reap must not strand recorded workers.
+            owned = list(self.known.values())
+            try:
+                self.signal(owned, signal.SIGKILL)
+            except ProcessError as cleanup_error:
+                cleanup_error.processes = owned
+                raise
+            if isinstance(error, subprocess.TimeoutExpired):
+                failure = ProcessError("Cannot verify child exit after cleanup; the workspace remains blocked")
+                failure.processes = owned
+                raise failure from error
+            error.processes = owned
             raise
         finally:
             self.signal(list(frozen.values()), signal.SIGCONT)
@@ -418,7 +428,7 @@ def interruption_handler():
 
 
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,
-                   startup_grace=0):
+                   startup_grace=0, on_root=None):
     receipts = process_receipts.ReceiptWorker()
     tree = ProcessTree(child.pid, receipts.record)
     deadline = time.monotonic() + timeout if timeout else None
@@ -477,9 +487,23 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     def observe():
         nonlocal latest_activity, latest_observation
         try:
-            while not stopped.is_set() and not watchdog_fired.is_set() and child.poll() is None:
+            while not stopped.is_set() and not watchdog_fired.is_set():
+                # Event observation may run during native inspection, but an
+                # ordinary poll must not reap the root before capture.
+                if root_captured.is_set() and child.poll() is not None:
+                    return
                 observed_at = time.monotonic()
-                observed = activity.poll(processes=live, root_pid=child.pid)
+                observed = dict(activity.poll(processes=live, root_pid=child.pid))
+                returned_at = time.monotonic()
+                if POLL_SAMPLED_MONOTONIC in observed:
+                    sampled_at = observed.pop(POLL_SAMPLED_MONOTONIC)
+                    if (type(sampled_at) not in (int, float) or not math.isfinite(sampled_at)
+                            or not observed_at <= sampled_at <= returned_at):
+                        raise ProcessError("Invalid activity sampling instant")
+                    # Do not add a lock wait to elapsed values that already
+                    # include it, or forgive I/O time after the sample. Legacy
+                    # monitors retain the conservative invocation-time binding.
+                    observed_at = sampled_at
                 with firing:
                     if stopped.is_set() or watchdog_fired.is_set():
                         return
@@ -519,6 +543,36 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 return
             if stopped.wait(.05):
                 return
+
+    def release_writer_token(fd, token):
+        # Native fsync/authentication runs outside this lock. Only this bounded
+        # nonblocking write is synchronized with the original timeout decision.
+        if (type(fd) is not int or fd < 3 or not isinstance(token, bytes)
+                or not 0 < len(token) <= 512 or os.get_blocking(fd)
+                or len(token) > os.fpathconf(fd, 'PC_PIPE_BUF')):
+            raise ProcessError("Invalid blocked writer release transport")
+        reason = None
+        with firing:
+            current = time.monotonic()
+            if stopped.is_set() or watchdog_fired.is_set():
+                raise ProcessError("Writer admission ended before release")
+            if deadline is not None and current >= deadline:
+                reason = {"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"}
+            elif activity is not None and current >= startup_deadline:
+                observed_at, snapshot = latest_observation
+                lag = max(0, current - observed_at)
+                tool_elapsed = snapshot.get("tool_elapsed_seconds")
+                kind = "tool" if tool_elapsed is not None else "idle"
+                elapsed = tool_elapsed if kind == "tool" else snapshot.get("idle_seconds", 0)
+                limit = snapshot.get(kind + "_limit_seconds", 0)
+                if limit and elapsed + lag >= limit:
+                    reason = {"kind": kind, "reason": "Writer admission exceeded its existing activity deadline"}
+            if reason is None:
+                return os.write(fd, token)
+        # Do not reacquire firing recursively or hold it across signaling and
+        # cleanup. There was no write; use the existing deadline path exactly.
+        stop_at_deadline(reason)
+        raise ProcessError("Writer admission deadline expired before release")
 
     def publish_activity(*, force=False):
         nonlocal last_publish, last_activity_key
@@ -572,12 +626,18 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             hard_timer.start()
         if watchdog:
             watchdog.start()
-        # Capture before ordinary observer/watchdog polling, after independent
-        # deadline enforcement starts. This publishes in memory, without I/O.
-        tree.capture_root()
-        root_captured.set()
         if observer:
             observer.start()
+        # Observe queued provider activity while native inspection runs, with
+        # independent deadline enforcement and ordinary reaping still gated.
+        # Root capture publishes in memory, without I/O.
+        tree.capture_root()
+        if on_root is not None:
+            # This callback uses the original ProcessTree and existing
+            # deadline/cleanup scope. It may seal and release a blocked
+            # trusted root; it supplies no independent launch permission.
+            on_root(tree, release_writer_token)
+        root_captured.set()
         receipts.start(own_processes)
         while not receipts.done.is_set():
             receipts.flush(checkpoint)

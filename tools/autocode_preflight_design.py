@@ -67,9 +67,9 @@ def check(settings, configuration, workspace, scratch, inputs, *, phase='plannin
         return []
     declared = {item["path"] for item in inputs}
     path = configuration["manifest"]
-    source = design.load(Path(workspace) / path)
-    copied = design.load(Path(scratch) / path)
     retained = settings.get("design_manifest")
+    source = design.reload_public(retained, Path(workspace) / path) if retained else design.load(Path(workspace) / path)
+    copied = design.reload_public(retained, Path(scratch) / path) if retained else design.load(Path(scratch) / path)
     if retained and (design.verify(retained)["manifest_hash"] != source["manifest_hash"]):
         raise ValueError("Public design bundle differs from the approved retained Figma manifest")
     if copied["manifest_hash"] != source["manifest_hash"]:
@@ -81,7 +81,7 @@ def check(settings, configuration, workspace, scratch, inputs, *, phase='plannin
         if source["body"]["version"] == 1:
             nodes = {file["key"]: file["nodes"] for file in source["body"]["files"]}
         else:
-            frames = design.inventory.catalog(source["body"], source["root"])["screen_frames"]
+            frames = design.inventory.catalog(source["body"], source["root"], admission=design.admitted_scope(retained) if retained else None)["screen_frames"]
             nodes = {file["key"]: [] for file in source["body"]["files"]}
             for frame in frames:
                 nodes[frame["file_key"]].append(frame["node_id"])

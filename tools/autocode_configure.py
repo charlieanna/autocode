@@ -100,10 +100,16 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', None)):
         raise ValueError('Adaptive planning is a new-run policy; a saved run keeps its planning flow')
     manifest_input = None
+    scope_arguments = {"approved_scope": getattr(args, "figma_approved_scope", None),
+                       "approved_scope_sha256": getattr(args, "figma_approved_scope_sha256", None)}
+    if bool(scope_arguments["approved_scope"]) != bool(scope_arguments["approved_scope_sha256"]) or (
+            scope_arguments["approved_scope"] and not
+            (getattr(args, "figma_manifest", None) or getattr(args, "revise_figma_manifest", None))):
+        raise ValueError("Approved scope requires external path, trusted pin and --figma-manifest or stopped --revise-figma-manifest")
     if getattr(args, "figma_manifest", None):
         if started:
             raise ValueError("--figma-manifest is a new-run input; saved references are immutable")
-        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(args.figma_manifest)
+        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(args.figma_manifest, **scope_arguments)
     if started and not getattr(args, "status", False):
         design_manifest.context(state.get("settings") or {})
     saved_provider = dict(state.get("settings") or {})
@@ -365,9 +371,11 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                        "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
                        "max_findings_per_task": getattr(args, "max_findings_per_task", None),
                         "automatic_retries": 0}}
-    if manifest_input:
+    scoped_readonly = bool(scope_arguments["approved_scope"] and
+                           (getattr(args, "dry_run", False) or getattr(args, "status", False)))
+    if manifest_input and not scoped_readonly:
         settings["design_manifest"] = (manifest_input if getattr(args, "dry_run", False) or getattr(args, "status", False)
-                                       else design_manifest.retain(manifest_input, state["workspace"]))
+                                       else design_manifest.retain(manifest_input, state["workspace"], **scope_arguments))
     if figma_file:
         figma.require_chatgpt(local)
         for config in settings["roles"].values():

@@ -166,7 +166,7 @@ class StopFixture(unittest.TestCase):
     hold_stage = "requirements_gather"
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(dir=Path.cwd())
+        temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
         self.project = self.make_project("project")

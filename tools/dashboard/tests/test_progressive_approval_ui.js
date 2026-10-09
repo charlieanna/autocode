@@ -11,6 +11,8 @@ function range(start,end){
   assert.ok(first>=0&&last>first,`Missing shipped function range: ${start}`);
   return source.slice(first,last);
 }
+const basenameDeclaration=source.match(/^const basename = .+$/m);
+assert.ok(basenameDeclaration,'Missing shipped basename helper');
 
 // Generate disclosure anew, before the real Resolver fixture hashes the body.
 // No implementation_sequence, saved details state or nested UI-only map is supplied.
@@ -66,7 +68,7 @@ function harness(){
     taskActionPending:new Set(),taskChatPending:new Map(),
     post:async(url,payload)=>{calls.push({url,payload:JSON.parse(JSON.stringify(payload))});return {id:'approval-1',status:'queued'};},
   });
-  vm.runInContext(range('function conversationStatus(', 'function icon(')
+  vm.runInContext(basenameDeclaration[0]+'\n'+range('function conversationStatus(', 'function icon(')
     +range('function focusKey(', 'function captureControls(')
     +range('function disclosure(', 'async function api(')
     +range('function concise(', 'function badge(')

@@ -95,6 +95,9 @@ TABLE: dict[str, tuple[str, str]] = {
     "PAUSED_PLANNING_BUDGET": (
         "The planning budget is exhausted.",
         "--feedback or --resume-paused continues with the next planning step."),
+    "PAUSED_PLANNING_ROUTE": (
+        "A v2 planning stage has no saved route for its required role; AutoCode will not substitute another role.",
+        "--resume-paused re-checks the saved routes. Start a new run with --joint-planning --planning-v2 to configure the required roles."),
     "PAUSED_PROGRESSIVE_BUDGET": (
         "A progressive run's budget is exhausted.",
         "--resume-paused raises the bound and continues."),

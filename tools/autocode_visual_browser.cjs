@@ -13,6 +13,7 @@ async function main() {
   const fixture = localRequire(path.resolve(config.fixture));
   const result = {status: 'UNAVAILABLE', setup: false, teardown: false, responses: [], ready: [], errors: []};
   let browser, context, page;
+  const native = config.native_transport ? require('./autocode_native_capture_browser.cjs').install(config) : null;
   const responses = [];
   const pending = new Set();
   let sealed = false;
@@ -20,10 +21,13 @@ async function main() {
   try {
     if (typeof fixture.setup !== 'function' || typeof fixture.teardown !== 'function')
       throw new Error('Capture fixture must expose setup and teardown');
-    browser = await chromium.launch({headless: true, ...(config.executable ? {executablePath: config.executable} : {})});
+    browser = native ? await native.connect(chromium) :
+      await chromium.launch({headless: true, ...(config.executable ? {executablePath: config.executable} : {})});
+    if (native) result.native_browser_version = browser.version();
     context = await browser.newContext({viewport: {width: viewport.width, height: viewport.height},
       deviceScaleFactor: viewport.device_scale_factor, serviceWorkers: 'block'});
     page = await context.newPage();
+    if (native) await context.route('**/*', route => native.route(route));
     page.setDefaultTimeout(Math.min(config.timeout_ms, 15000));
     page.on('request', request => {
       pending.add(request);
@@ -40,6 +44,7 @@ async function main() {
     });
     page.on('requestfailed', request => result.errors.push(`Request failed: ${request.url()}`));
     await fixture.setup({page, context});
+    if (native) native.restore();
     result.setup = true;
     for (const condition of config.ready) {
       await page.waitForFunction(c => document.querySelector(c.selector)?.getAttribute(c.attribute) === c.equals,
@@ -74,10 +79,12 @@ async function main() {
     }
     if (config.assets.some(asset => !result.responses.some(row => row.asset === asset.url)))
       throw new Error('A declared asset was not loaded by the browser');
+    if (native) result.native_transport = native.verify();
     fs.writeFileSync(path.join(config.output, 'candidate.png'), png, {flag: 'wx'});
   } catch (error) {
     result.errors.push(String(error.message || error));
   } finally {
+    if (native) native.restore();
     try {
       if (typeof fixture.teardown !== 'function') throw new Error('Capture teardown is missing');
       await fixture.teardown({page, context});

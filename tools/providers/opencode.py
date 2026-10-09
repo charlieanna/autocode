@@ -26,9 +26,11 @@ import uuid
 try:
     from . import env_prep
     from .. import autocode_output_cap as output_cap, autocode_tool_containment as tool_containment
+    from .. import autocode_native_role_isolation as native_isolation
 except ImportError:  # Script-style execution from tools/ remains supported.
     from providers import env_prep
     import autocode_output_cap as output_cap, autocode_tool_containment as tool_containment
+    import autocode_native_role_isolation as native_isolation
 
 
 try:
@@ -200,6 +202,14 @@ def _probe_version(workspace, *, env=None):
 def local_settings(workspace, *, env=None):
     effective = env_prep.snapshot_environment(env)
     executable, version = _probe_version(workspace, env=env)
+    configuration = configuration_identity(workspace, env=effective)
+    return {"engine": "opencode", "identity_version": 2, "executable": executable, "version": version,
+            **configuration}
+
+
+def configuration_identity(workspace, *, env=None):
+    """Pure current local fingerprints; no version/native/model call is added."""
+    effective = env_prep.snapshot_environment(env)
     # Fingerprint configuration, never credentials. OAuth token refreshes must not
     # invalidate a run, and the runner never opens OpenCode's auth.json.
     primary, definitions = _configuration_sources(workspace, env=effective)
@@ -208,8 +218,7 @@ def local_settings(workspace, *, env=None):
     inline = {key: hashlib.sha256(effective[key].encode()).hexdigest() if key in effective else None
               for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR",
                           "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_TEST_MANAGED_CONFIG_DIR")}
-    return {"engine": "opencode", "identity_version": 2, "executable": executable, "version": version,
-            "config_hashes": fingerprints, "environment_config_hashes": inline}
+    return {"config_hashes": fingerprints, "environment_config_hashes": inline}
 
 
 def transport_drift(current, checkpoint):
@@ -326,7 +335,27 @@ def _openai_auth_modes(workspace, env=None):
 
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False,
            report=None, schema=None, prompt_file=None, sandbox=None, env=None, containment=None,
-           opencode_version=None):
+           opencode_version=None, isolation=None, image_preparation=None):
+    if image_preparation is not None and (isolation is None or role != 'sol' or planning or allow_write or session):
+        raise ValueError('Native image staging requires the original fresh readonly Sol isolation')
+    if image_preparation is not None:
+        try:
+            from .. import autocode_native_image as images, autocode_native_calls as calls
+        except ImportError:
+            import autocode_native_image as images, autocode_native_calls as calls
+        if type(image_preparation) is not images.NativeImagePreparation or image_preparation.isolation is not isolation:
+            raise ValueError('Native image staging requires its exact original packet')
+        image_preparation.require_caller(calls.PlanningCalls)
+    if isolation is not None:
+        if type(isolation) is not native_isolation.NativeRoleIsolation or containment is None:
+            raise ValueError("Native role isolation requires its exact CODE owner and native tool boundary")
+        if planning and allow_write:
+            raise ValueError("Native isolated planning must remain readonly")
+        restriction = isolation.containment_request(allow_write=allow_write)
+        if allow_write and containment.get('write_paths') != restriction['write_paths']:
+            raise ValueError("Native isolated writer lacks the exact task footprint before setup")
+        if not allow_write and 'write_paths' in containment:
+            raise ValueError("Readonly native isolation cannot receive writer paths")
     if not model or "/" not in model or "#" in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     if opencode_version is None:
@@ -345,7 +374,7 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     permissions = {"task": "deny", "question": "deny", "plan_enter": "deny", "plan_exit": "deny"}
     if not allow_write:
         permissions["edit"] = "deny"
-    if planning:
+    if planning and isolation is None:
         # An explicit read-tools-only planning agent: no shell, delegation, MCP,
         # plugins' tools or edit escape hatch. The runner persists its report.
         permissions = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
@@ -358,6 +387,7 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     child = env_prep.child_environment(env)
     # OpenCode's own default (32000, reasoning included) truncates large planning reports.
     output_cap.apply(child)
+    configuration = configuration_identity(workspace, env=child) if isolation is not None else None
     inherited = json.loads(child.get("OPENCODE_CONFIG_CONTENT", "{}"))
     if not isinstance(inherited, dict):
         raise ValueError("OPENCODE_CONFIG_CONTENT must be a JSON object")
@@ -393,12 +423,26 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
         command += ["--session", session]
     if major == 1 and effort:
         command += ["--variant", effort]
+    if isolation is not None:
+        command, child = isolation.stage(command=command, environment=child,
+            configuration_identity=configuration, allow_write=allow_write)
+        if image_preparation is not None:
+            command, child = isolation.stage_image(image_preparation, command=command, environment=child)
     if containment is not None:
         child, boundary = tool_containment.configure(command, child, workspace,
-                                                     allow_write=allow_write, request=containment)
+                                                     allow_write=allow_write, request=containment,
+                                                     **({'retain_launch_identity': True} if isolation is not None else {}))
         actual = json.loads(child['OPENCODE_CONFIG_CONTENT'])
         overrides['shell'] = boundary['shell']
         overrides['agent'][agent] = actual['agent'][agent]
+        if isolation is not None:
+            isolation.render_image_prompt(command=command, environment=child, boundary=boundary)
+            descriptor = isolation.finalize(command=command, environment=child, boundary=boundary)
+            boundary['native_role_isolation'] = descriptor
+            child['AUTOCODE_TOOL_CONTAINMENT'] = json.dumps(boundary)
+            child['AUTOCODE_NATIVE_ROLE_ISOLATION'] = json.dumps(descriptor)
+            isolation.freeze_image(command=command, environment=child, descriptor=descriptor)
+            overrides = actual
     return command, child, overrides
 
 

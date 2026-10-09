@@ -1195,6 +1195,9 @@ def report_for(stage: str, data: dict) -> dict:
     if CONFIG.get("fault") == "vacuous_refusal_tests" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
         provider = scripted_fault("vacuous_refusal_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+    if CONFIG.get("fault") == "refund_planted_window" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+        provider = scripted_fault("refund_window_provider.py")
+        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if PROGRESSIVE:
         report = progressive_report(stage, data, common)
         if report is not None:

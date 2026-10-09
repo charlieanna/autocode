@@ -43,6 +43,12 @@
  #task-detail .work-summary{gap:4px}
  #task-detail .work-current{padding-block:8px}
  #task-detail .work-facts{padding-block:4px}
+ /* Short saved role and freshness values can share their label row. The
+    desktop 14em value basis needlessly wrapped these tablet facts and pushed
+    freshness below the pane after its six controls wrapped into two rows. */
+ #task-detail .work-facts .monitor-fact-role>p:last-child,
+ #task-detail .work-facts .monitor-freshness>p:last-child{flex-basis:auto}
+ #task-detail .work-facts .monitor-freshness{margin-top:4px}
  #task-detail .task-now-view{gap:4px}
 }
 @media(max-width:759px){
@@ -98,6 +104,43 @@
 #task-detail #conversation .chat-recovery>h3{display:none}
 #task-detail #conversation .chat-ready .lifecycle-actions{display:flex;flex-wrap:wrap;gap:12px}
 #task-detail #conversation .chat-ready button{min-height:44px;padding-inline:20px}
+/* Current human requests use the approved chat decision-card hierarchy.
+   Keep every actual question, free-text answer and revision-bound action. */
+#task-detail #interview #inline-task-action,
+#task-detail #interview .chat-message.pending{
+ background:var(--m2b-action-tint);border:1px solid var(--m2b-hairline);border-radius:12px;
+ padding:16px;box-sizing:border-box;width:100%;max-width:100%;color:var(--m2b-ink);line-height:20px;
+}
+#task-detail #interview .chat-message.pending>.speaker{color:var(--m2b-ink);font-size:14px;line-height:22px;margin:0 0 8px}
+#task-detail #interview #inline-task-action>strong{font-size:14px;line-height:22px}
+#task-detail #interview .question-context{color:var(--m2b-secondary);font-size:13px;line-height:20px;gap:6px}
+#task-detail #interview .answer-safety{background:var(--surface-subtle);border:1px solid var(--m2b-hairline);border-radius:12px;padding:12px 16px;gap:4px;font-size:12px;line-height:18px;color:var(--text-secondary)}
+#task-detail #interview #inline-task-action .lifecycle-actions{gap:8px;margin-top:12px}
+#task-detail #inline-task-action [data-approval-options]>summary{min-height:44px;display:flex;align-items:center}
+#task-detail .requirements-summary{grid-column:1/-1;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--m2b-bg-app);padding:16px;display:grid;gap:8px;margin:16px 0}
+#task-detail .requirements-summary>h3{font-size:14px;line-height:22px;margin:0;font-weight:500;color:var(--m2b-ink)}
+#task-detail .requirements-summary>p{font-size:13px;line-height:20px;margin:0;color:var(--text-secondary)}
+#task-detail .requirements-summary .work-requirement-list{border:0;border-radius:0;padding:0;margin:0;background:transparent}
+#task-detail .work-checklist>.requirements-summary{padding:12px;gap:4px;margin:8px 0}
+#task-detail .work-checklist>.requirements-summary>h3{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);margin:0}
+#task-detail .work-checklist>.requirements-summary>p:first-of-type{font-weight:500;color:var(--m2b-ink)}
+#task-detail .work-checklist:has(>.requirements-summary)>h3,#task-detail .work-checklist:has(>.requirements-summary)>.work-checklist-counts{display:none}
+#task-detail .plan-delivery-kicker{font-size:12px;line-height:18px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:24px 0 8px}
+#task-detail .plan-outcome-subtitle{font-size:14px;line-height:21px;color:var(--m2b-secondary);margin:0;overflow-wrap:anywhere}
+#task-detail .plan-model-details{margin:16px 0;color:var(--m2b-secondary)}
+#task-detail .plan-model-details>h3{font-size:13px;line-height:20px;color:var(--m2b-ink);margin:0 0 8px;font-weight:600}
+#task-detail .plan-model-details>p{font-size:12px;line-height:18px;margin:0}
+#task-detail .plan-model-details>details{margin:0}
+#task-detail .plan-model-details>details>summary{min-height:44px;display:flex;align-items:center;font-size:12px;line-height:18px;cursor:pointer}
+@media(max-width:1199px){#task-detail .plan-model-details{display:none}}
+@media(max-width:759px){
+ /* The approved Plan sheet has a plain scope line and six 36px rows,
+    rather than repeating the desktop requirements card and kicker. */
+ #task-detail .plan-document>.requirements-summary{background:transparent;border:0;border-radius:0;padding:0;margin:8px 0 12px;gap:0}
+ #task-detail .plan-document>.requirements-summary>h3,#task-detail .plan-document>.requirements-summary>p:last-child,#task-detail .plan-delivery-kicker{display:none}
+ #task-detail .plan-document .plan-milestones{gap:0}
+ #task-detail .plan-document .plan-milestones li{min-height:36px;font-size:13px;line-height:20px}
+}
 #task-detail .plan-milestones{list-style:none;padding:0;margin:0 0 8px;display:grid;gap:4px}
 #task-detail .plan-milestones li{display:flex;align-items:center;gap:12px;min-height:40px;font-size:14px;line-height:21px;color:var(--text-secondary)}
 #task-detail .plan-milestones li>span:first-child{flex:0 0 16px;text-align:center}
@@ -110,3 +153,163 @@
 #task-detail button.primary:not(:disabled):hover{background:#5245ca;border-color:#5245ca}
 #task-detail #pause-run{background:var(--surface-default);border-color:var(--border-control);color:var(--text-primary)}
 #task-detail #pause-run:hover{background:var(--surface-subtle)}
+
+/* Keep real local-preview controls together; setup guidance stays available
+   below the artifact instead of displacing it from the approved pane. */
+#task-detail #preview.inspector-content,#task-detail #changes.inspector-content{padding:4px 0 0}
+#task-detail .artifact-kicker{font-size:11px;line-height:17px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--m2b-secondary);margin:0 0 16px}
+#task-detail #preview-form{margin:0}
+#task-detail #preview .preview-address{display:flex;align-items:center;gap:0;flex-wrap:nowrap;min-height:44px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--m2b-bg-app);padding-left:12px;overflow:visible}
+#task-detail #preview .preview-address input{min-width:0;flex:1;width:0;min-height:44px;height:44px;padding:0 8px 0 0;border:0;background:transparent;border-radius:8px;font-size:12px;color:var(--m2b-secondary)}
+#task-detail #preview .preview-address button,#task-detail #preview .preview-address a{flex:none;display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 8px;border:0;border-radius:10px;background:transparent;font-size:11px;line-height:18px;font-weight:600;text-decoration:none;color:var(--m2b-ink)}
+#task-detail #preview .preview-address [hidden]{display:none}
+#task-detail #preview .preview-address button:disabled{color:var(--text-secondary);opacity:.65}
+#task-detail #preview .preview-address button:hover:not(:disabled),#task-detail #preview .preview-address a:hover{background:var(--m2b-action-tint)}
+#task-detail #preview-error:empty{display:none}
+#task-detail #preview-content .preview-frame{display:block;width:100%;height:410px;max-height:65vh;margin-top:16px;border:1px solid var(--m2b-hairline);border-radius:12px;box-shadow:0 4px 12px #171c2e0a;background:var(--surface-default)}
+#task-detail #preview .preview-caption{font-size:11px;line-height:17px;margin:16px 0 0;color:var(--m2b-secondary)}
+#task-detail #preview .preview-setup{margin:12px 0 0;color:var(--m2b-secondary)}
+#task-detail #preview .preview-setup>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:12px;line-height:18px;border-radius:8px}
+#task-detail #preview .preview-setup>summary:before{content:'▸';margin-right:8px}
+#task-detail #preview .preview-setup[open]>summary:before{content:'▾'}
+#task-detail #preview .preview-setup p{font-size:12px;line-height:20px;margin:8px 0;overflow-wrap:anywhere}
+/* Snapshot facts and complete saved diff are distinct, read-only cards. */
+#task-detail #changes .changes-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;margin:0 0 12px}
+#task-detail #changes .artifact-kicker{font-size:12px;line-height:18px;margin:0}
+#task-detail #refresh-changes{min-height:44px;font-size:11px;line-height:18px;background:transparent;border:0;color:var(--m2b-secondary)}
+#task-detail #changes-content{display:grid;gap:16px;min-width:0}
+#task-detail #changes .diff-stage{margin:0;min-width:0}
+#task-detail #changes .diff-stage>summary{margin:0;min-height:44px;padding:12px 16px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--m2b-bg-app);font-size:14px;line-height:21px;font-weight:400;color:var(--m2b-ink);overflow-wrap:anywhere}
+#task-detail #changes .diff-stage.has-recorded-files[open]>summary{border-radius:12px 12px 0 0}
+#task-detail #changes .diff-content{display:grid;gap:16px;min-width:0}
+#task-detail #changes .snapshot-files{padding:0 16px 12px;border:1px solid var(--m2b-hairline);border-top:0;border-radius:0 0 12px 12px;background:var(--m2b-bg-app);min-width:0}
+#task-detail #changes .changed-file{min-width:0}
+#task-detail #changes .changed-file>button{min-height:44px;max-width:100%;font-size:13px;line-height:20px;font-weight:400;text-align:left;color:var(--m2b-secondary);overflow-wrap:anywhere}
+#task-detail #changes .file-contents:empty{display:none}
+#task-detail #changes .file-contents pre{max-width:100%;overflow:auto}
+#task-detail #changes .saved-diff-card{min-width:0;padding:16px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--m2b-action-tint)}
+#task-detail #changes .saved-diff-card h3{font-size:14px;line-height:21px;font-weight:400;margin:0 0 8px;color:var(--m2b-ink)}
+#task-detail #changes .diff-output{margin:0;padding:0;max-width:100%;background:transparent;font-size:12px;line-height:20px;border-radius:6px}
+#task-detail #changes .diff-line{padding:0 8px;min-height:20px}
+#task-detail #changes .changes-note{font-size:13px;line-height:20px;color:var(--m2b-secondary);margin:16px 0 0}
+@media(max-width:759px){
+ #task-detail #preview.inspector-content,#task-detail #changes.inspector-content{padding-top:0}
+ #task-detail #preview .preview-address{flex-wrap:wrap;padding-left:8px}
+ #task-detail #preview .preview-address input{flex-basis:100%;width:100%;height:44px;min-height:44px}
+ #task-detail #preview .preview-address button,#task-detail #preview .preview-address a{flex:1;min-width:44px}
+ #task-detail #changes .diff-stage>summary{padding:12px}
+ #task-detail #changes .snapshot-files{padding-inline:12px}
+ #task-detail #changes .saved-diff-card{padding:12px}
+}
+
+/* Checks uses the saved coverage in a single summary, followed by compact
+   criterion rows; evidence and planned methods remain available in place. */
+#task-detail #execution{padding:0}
+#task-detail #execution_view>.checks-kicker{font-size:12px;line-height:18px;font-weight:600;letter-spacing:0;margin:16px 0 24px;color:var(--m2b-secondary);text-transform:uppercase}
+#task-detail .execution-summary{display:grid;gap:8px;margin:0 0 24px;padding:16px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--m2b-action-tint);color:var(--m2b-secondary)}
+#task-detail .execution-summary p{margin:0;font-size:13px;line-height:20px}
+#task-detail .execution-summary>p:first-child{font-size:14px;line-height:21px;color:var(--m2b-ink)}
+#task-detail .execution-summary .field-note,#task-detail .execution-summary .verification-freshness{font-size:12px;line-height:18px}
+#task-detail .execution-summary.verification-complete{background:var(--m2b-success-tint,#e8f5ec)}
+#task-detail .check-row{padding:0 0 8px;border:0;font-size:13px;line-height:20px}
+#task-detail .check-row details{margin-top:0}
+#task-detail .check-row details>summary{min-height:44px;display:flex;align-items:baseline;padding:12px 0;font-size:13px;line-height:20px;color:var(--m2b-secondary);cursor:pointer}
+#task-detail .check-row details>summary:before{content:'▸';margin-right:6px;flex:none}
+#task-detail .check-row details[open]>summary:before{content:'▾'}
+#task-detail .check-row[data-check-state=pass]>details>summary{color:var(--m2b-success-text,#15803d)}
+#task-detail .check-row[data-check-state=fail]>details>summary{color:var(--accent-danger)}
+[data-theme=dark] #task-detail .execution-summary.verification-complete{background:#123526}
+[data-theme=dark] #task-detail .check-row[data-check-state=pass]>details>summary{color:#6ddd9b}
+
+@media(max-width:759px){
+  /* The existing conversation's 72px navigation row leaves its buttons at
+     y16. Scoped creation retains its independently matched 60px header. */
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar{height:72px;min-height:72px;padding:16px 16px 11px;flex-wrap:nowrap;row-gap:0;gap:8px}
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar #nav-toggle,
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar #details-drawer-toggle{min-width:96px;height:44px;border-color:var(--m2b-hairline)}
+  #task-detail.conversation-active #interview .chat-message.assistant .message-body{color:var(--m2b-secondary)}
+  #task-detail.conversation-active .composer{border-color:var(--m2b-hairline);background:var(--surface-default)}
+  .app-shell.nav-open #drawer-scrim{top:0;height:100%;background:rgba(18,26,41,.28)}
+  .app-shell:has(#task-detail.conversation-active:not([hidden])) .topbar .breadcrumb strong{font-size:16px;line-height:24px;font-weight:600;color:var(--m2b-ink)}
+  .sidebar{top:var(--dashboard-header-height,72px);padding:24px;gap:8px}
+  .sidebar .sidebar-search{border-color:var(--m2b-hairline)}
+  .sidebar .sidebar-search input{font-size:13px;font-weight:400;color:var(--m2b-secondary)}
+  .sidebar .project-nav .project-group-new{border-color:var(--m2b-hairline)}
+  .sidebar>.drawer-heading,.sidebar>.new-task-button,.sidebar>.sidebar-search,.sidebar>.sidebar-label,.sidebar>.sidebar-bottom{flex-shrink:0}
+  .sidebar .project-nav{min-height:0;flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;padding-bottom:12px;scroll-padding-block:12px}
+  .sidebar .project-group-header{min-height:44px;flex-shrink:0}
+  .sidebar .project-group-new{min-height:44px;height:44px}
+  .sidebar .sidebar-bottom{position:relative;flex-shrink:0;margin-top:0;background:var(--surface-default)}
+}
+
+/* Recorded build boundaries belong in the chronological conversation, not
+   in a generic latest-activity summary after newer testing messages. */
+#task-detail .saved-conversation-checkpoint{display:block;width:100%;max-width:100%;text-align:left;min-height:44px;margin:0 0 24px;padding:16px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--m2b-bg-app);font:inherit;line-height:20px;color:var(--m2b-secondary);white-space:normal}
+#task-detail .saved-conversation-checkpoint strong{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--m2b-ink)}
+#task-detail .saved-conversation-checkpoint p,#task-detail .saved-conversation-checkpoint .checkpoint-link{display:block;margin:0;font-size:13px;line-height:20px}
+#task-detail #interview .chat-message.assistant .message-body{color:var(--m2b-secondary)}
+#task-detail .task-progress-compact{display:none}
+/* The card carries textarea focus as one visible project-colour boundary.
+   A global control shadow must not paint black edges through the draft. */
+#task-detail .composer textarea:focus-visible{outline:0;box-shadow:none}
+#task-detail .composer:has(textarea:focus-visible){outline:2px solid var(--m2b-action-text);outline-offset:2px}
+/* Artifact tabs can touch their scroll container's clipping boundary. Keep
+   keyboard focus inside each existing box without changing pane geometry. */
+#task-detail .context-pane>.detail-tabs>button:focus-visible,
+#task-detail .context-pane>.detail-tabs>button[data-focus-visible-test]{outline-offset:-2px}
+@media(min-width:1200px){
+ #task-detail .context-pane>.detail-tabs{align-items:flex-start;min-height:44px;border-bottom:0;gap:4px}
+ #task-detail .context-pane>.detail-tabs>button{border-bottom:0;padding-block:0;min-height:44px;font-size:11px;line-height:18px}
+ #task-detail .context-pane>.detail-tabs>button[aria-selected=true]{order:-1;margin-right:auto;display:flex;align-items:flex-start;font-size:16px;line-height:24px;font-weight:600;color:var(--m2b-ink)}
+ #task-detail #plan.inspector-content{padding-top:2px}
+}
+@media(max-width:759px){
+ #task-detail.conversation-active{padding-top:6px}
+ #task-detail.conversation-active .detail-grid{padding-top:0}
+ #task-detail.conversation-active .conversation-column>#interview{margin-top:0;padding-top:8px}
+ #task-detail .task-progress-line{flex-direction:row;align-items:center;gap:6px;min-height:34px;padding-block:0}
+ #task-detail #task-status .badge[data-compact-label]{font-size:0;padding:0;border:0;background:transparent}
+ #task-detail #task-status .badge[data-compact-label]:after{content:attr(data-compact-label);font-size:12px;line-height:20px;font-weight:600}
+ #task-detail #task-progress-summary{width:auto;min-height:44px;font-size:12px;line-height:20px;text-align:left}
+ #task-detail .task-progress-full{display:none}
+ #task-detail .task-progress-compact{display:inline}
+ #task-detail #plan{padding-inline:8px}
+ #task-detail .composer{border-color:var(--m2b-hairline)}
+ #task-detail .composer:has(textarea:focus-visible){outline-offset:-2px}
+ #task-detail .composer textarea{min-height:48px;font-size:14px;line-height:20px}
+ #task-detail .composer-models{flex:0 1 78px}
+ #task-detail .composer-models>summary{white-space:nowrap;font-weight:500;border-color:transparent;padding-inline:6px}
+ #task-detail .composer-run-controls #pause-run{flex:0 1 78px;min-width:44px;white-space:normal;overflow-wrap:anywhere}
+ #task-detail .composer-run-controls #stop-run{flex:0 1 48px}
+ #task-detail .composer-bottom button{min-width:92px}
+ #task-detail .saved-conversation-checkpoint{margin-bottom:20px;padding:16px}
+ :root:not([data-theme=dark]) .sidebar .attention-marker{background:#fef3c7;color:#92400e}
+}
+
+.question-answer-options{display:flex;flex-wrap:wrap;gap:8px}
+.question-answer-options button{min-height:44px;padding:8px 14px;margin:0;border-radius:8px;text-align:left}
+.question-decision-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
+#task-detail #interview .question-decision-actions button{min-height:44px;max-width:100%;padding:8px 20px;border-radius:8px;white-space:normal;overflow-wrap:anywhere;margin:0}
+.question-freeform{display:grid;gap:8px;margin-top:12px}
+.question-freeform[hidden],.question-answer-form[hidden]{display:none}
+#task-detail #interview .question-context{margin-top:4px}
+#task-detail .task-progress-line .badge.planning-request{background:var(--m2b-action-tint);color:var(--m2b-action-text)}
+
+/* Tablet artifact views and composer actions wrap inside their own columns;
+   no view or action relies on a clipped horizontal strip to be discovered. */
+@media(min-width:760px) and (max-width:1199px){
+ #task-detail .context-pane>.detail-tabs{flex-wrap:wrap;overflow:visible;gap:4px;align-content:flex-start;flex-shrink:0}
+ #task-detail .context-pane>.detail-tabs>button{min-width:44px;min-height:44px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+ #task-detail .composer-controls{flex-wrap:wrap;min-width:0}
+ #task-detail .composer-run-controls{flex-wrap:wrap;min-width:0}
+ /* A short continuation shares the tablet row so the composer leaves room
+    for the real chat approval disclosure. Long labels still wrap naturally. */
+ #task-detail .composer-run-controls #continue-run{flex:1 1 120px}
+ #task-detail .composer-bottom>#task-delivery{order:3}
+ #task-detail .composer-run-controls button{min-width:44px;min-height:44px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+ #task-detail .composer-models{min-width:0;max-width:100%}
+ #task-detail .composer-models>summary{min-width:44px;min-height:44px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+ #task-detail .composer-bottom{flex-wrap:wrap}
+ #task-detail .composer-bottom>button{min-width:44px;min-height:44px;max-width:100%;margin-left:auto}
+ .sidebar .project-nav{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}

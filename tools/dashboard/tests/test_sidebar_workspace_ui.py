@@ -110,6 +110,9 @@ class SidebarWorkspaceUITests(ConversationScopingFixture):
     def test_ac1_sidebar_groups_conversations_by_project_with_no_project_group(self):
         self.assert_harness('ac1')
 
+    def test_parent_project_navigation_preserves_execution_workspace(self):
+        self.assert_harness('parent_worktree')
+
     def test_ac2_sidebar_search_filters_conversation_rows(self):
         self.assert_harness('ac2')
 

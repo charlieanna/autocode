@@ -29,7 +29,10 @@ def rejection(state) -> str:
     could not tell what was missing or how to ask for it."""
     if not design_coverage.ready(state):
         record = (state.get("settings") or {}).get("design_manifest") or {}
-        inventory_blockers = design_coverage.manifest.blockers(record) if record else []
+        try:
+            inventory_blockers = design_coverage.manifest.delivery_blockers(record) if record else []
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            return f"{REFUSED}. Design references are missing or changed: {error}."
         if inventory_blockers:
             return (f"{REFUSED}. Figma inventory still has unavailable required fonts/assets: "
                     + "; ".join(inventory_blockers))

@@ -25,6 +25,7 @@ try:
     from . import autocode_review_gate as review_gate
     from . import autocode_progressive_state as progressive
     from . import autocode_milestone_replan as replan
+    from . import autocode_visual_checkpoint as visual_checkpoint
 except ImportError:
     import autocode_util as s
     from autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_review_gate as review_gate
     import autocode_progressive_state as progressive
     import autocode_milestone_replan as replan
+    import autocode_visual_checkpoint as visual_checkpoint
 
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
@@ -79,7 +81,7 @@ not ask permission to create that control or claim the user already approved.
 """
 
 
-def route_review_only_request(state, request, origin):
+def route_review_only_request(state, request, origin, *, visual_proof=None):
     """Turn a model's review permission into a runner gate or technical retry."""
     if not enabled(state) or not isinstance(origin, dict) or origin.get("stage") != "astra_review":
         return copy.deepcopy(request)
@@ -99,7 +101,9 @@ def route_review_only_request(state, request, origin):
     if not review_gate.review_only_permission(report, request, required) or not goals.approved(state):
         return copy.deepcopy(request)
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
-    ready = evidence_ready(state, current)
+    if visual_checkpoint.enabled(state) and _functional_evidence_ready(state, current):
+        visual_checkpoint.require_current_ready(state, current, visual_proof)
+    ready = evidence_ready(state, current, visual_proof=visual_proof)
     if not ready:
         fresh = fresh_validation(state, current)
         blockers = findings.blocking_for_milestone(state, scope(state))
@@ -191,7 +195,7 @@ def account(state, record):
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
 
 
-def evidence_ready(state, current):
+def _functional_evidence_ready(state, current):
     if not fresh_validation(state, current):
         return False
     val = state["validation"]
@@ -236,7 +240,18 @@ def evidence_ready(state, current):
         and (flow_ready or (human_only_gap and flow.get("status") == "NOT_VERIFIED")))
 
 
-def release_obsolete_gate_request(state, published):
+def evidence_ready(state, current, *, visual_proof=None):
+    if not _functional_evidence_ready(state, current):
+        return False
+    try:
+        return visual_checkpoint.current_ready(state, current, visual_proof)
+    except s.Paused:
+        # Readiness is a projection. Mutation boundaries retain the concrete
+        # technical hold, rather than minting acceptance or looping reviewers.
+        return False
+
+
+def release_obsolete_gate_request(state, published, *, visual_proof=None):
     """Retire a former gate's permission question after the corrected gate passes.
 
     This does not accept the milestone. The Plan Reviewer must still request
@@ -279,7 +294,7 @@ def release_obsolete_gate_request(state, published):
         current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=s.snapshot)
     except (KeyError, OSError, RuntimeError, ValueError):
         return False
-    if (not evidence_ready(state, current)
+    if (not evidence_ready(state, current, visual_proof=visual_proof)
             or set(current_scope["acceptance_criteria"]).intersection(goals.missing_human_reviews(state))):
         return False
     reason = "The current milestone now has fresh independent passing evidence; runner acceptance needs no permission"
@@ -302,7 +317,11 @@ def approach(task):
                      ("objective", "affected_paths", "requirements", "validation_plan")})
 
 
-def observe_validation(state, current):
+def observe_validation(state, current, *, visual_proof=None):
+    if visual_checkpoint.enabled(state):
+        visual_checkpoint.check(state, current, visual_proof)
+        if _functional_evidence_ready(state, current):
+            visual_checkpoint.require_case_acceptance(state, current, visual_proof)
     if not enabled(state) or not fresh_validation(state, current):
         return
     row = progress(state)
@@ -323,7 +342,7 @@ def observe_validation(state, current):
         verdict = progressive.classify_validation(state, current)
         improved = bool(verdict) and verdict["kind"] == "progress"
     row["best_passed"] = sorted(set(row["best_passed"]) | passed)
-    ready = evidence_ready(state, current)
+    ready = evidence_ready(state, current, visual_proof=visual_proof)
     progresses = improved if progressive.armed(state) else improved or ready
     row["reviews_without_progress"] = 0 if progresses else row["reviews_without_progress"] + 1
     row["last_approach"] = approach(state["current_task"])
@@ -333,7 +352,11 @@ def observe_validation(state, current):
     row["needs_replan"] = bool(stalled_limit and row["reviews_without_progress"] >= stalled_limit)
 
 
-def before_assignment(state, decision, current):
+def before_assignment(state, decision, current, *, visual_proof=None):
+    if visual_checkpoint.enabled(state):
+        visual_checkpoint.require_assignment(state, current, visual_proof, decision)
+        if not enabled(state):
+            raise s.Paused("PAUSED_VISUAL_EVIDENCE", "Serial visual policy requires milestone checkpoints")
     if not enabled(state):
         if (state.get('current_task') and state.get('goal_contract') and state.get('milestone_progress')
                 and state['milestone_progress'].get(key(state), {}).get('builder_reassessment')):
@@ -350,7 +373,9 @@ def before_assignment(state, decision, current):
     if row is None:
         return
     if spec["milestone_id"] not in replan.members(row):  # the members the replan text names
-        if not evidence_ready(state, current):
+        if visual_checkpoint.enabled(state):
+            visual_checkpoint.require_acceptance(state, current, visual_proof)
+        if not evidence_ready(state, current, visual_proof=visual_proof):
             try:
                 from . import autocode_findings as findings_ledger
             except ImportError:
@@ -372,9 +397,10 @@ def before_assignment(state, decision, current):
             import autocode_goals as goals
         if set(row["acceptance_criteria"]).intersection(goals.missing_human_reviews(state)):
             raise s.Paused("PAUSED_MILESTONE_HUMAN_REVIEW", "Current milestone requires the recorded human artifact reviews")
-        accept(state, current)
+        accept(state, current, visual_proof=visual_proof)
         return
-    allowed = set(row["acceptance_criteria"]) | (recheckable(state) if spec["kind"] == "validate" else set())
+    allowed = set(row["acceptance_criteria"]) | (recheckable(state, current=current,
+        visual_proof=visual_proof) if spec["kind"] == "validate" else set())
     if not set(spec["acceptance_criteria"]) <= allowed:
         raise ValueError("A saved milestone cannot silently expand its criteria")
     if spec['kind'] == 'implement':
@@ -395,7 +421,9 @@ def before_assignment(state, decision, current):
         state['no_progress_batches'] = 0
 
 
-def accepted_ids(state):
+def accepted_ids(state, *, current=None, visual_proof=None):
+    if visual_checkpoint.enabled(state):
+        return visual_checkpoint.eligible_ids(state, current, visual_proof)
     contract_hash = state.get("goal_contract", {}).get("hash")
     accepted = {mid for r in state.get("milestone_progress", {}).values()
             if r.get("accepted") and r.get("contract_hash") == contract_hash
@@ -403,28 +431,66 @@ def accepted_ids(state):
     return carryforward.current_ids(state, accepted)
 
 
-def recheckable(state):
+def recheckable(state, *, current=None, visual_proof=None):
     """Criteria of milestones accepted under the current contract. A validate task may check them again:
     final completion needs one validation passing every criterion, and validating changes no code."""
+    if visual_checkpoint.enabled(state):
+        if state.get("current_task") is None and type(visual_proof) is visual_checkpoint.VerifiedInitialAssignment:
+            visual_checkpoint.binding(state, current, initial=True)
+            return set()
+        return visual_checkpoint.recheckable(state, current, visual_proof)
     milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
     return {c for mid in accepted_ids(state) for c in milestones.get(mid, {}).get("acceptance_criteria", [])}
 
 
-def require_prerequisites(state, milestone_id):
+def require_prerequisites(state, milestone_id, *, current=None, visual_proof=None, decision=None):
     """Require current acceptance, including explicitly proven carry-forward."""
+    if visual_checkpoint.enabled(state):
+        if state.get("current_task") is None:
+            visual_checkpoint.require_initial_assignment(state, current, visual_proof, decision)
+        else:
+            visual_checkpoint.check(state, current, visual_proof)
     if not enabled(state):
         return
     milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
-    missing = set(milestones.get(milestone_id, {}).get("depends_on", [])) - accepted_ids(state)
+    if visual_checkpoint.enabled(state):
+        if milestone_id not in milestones:
+            raise s.Paused("PAUSED_VISUAL_EVIDENCE", "Unknown visual milestone prerequisite")
+        if state.get("current_task") is None:
+            if decision is None or decision.get("next_task", {}).get("milestone_id") != milestone_id:
+                raise s.Paused("PAUSED_VISUAL_EVIDENCE", "Initial prerequisite lacks its exact approved assignment")
+            visual_checkpoint.require_initial_assignment(state, current, visual_proof, decision)
+            return
+        visual_checkpoint.check(state, current, visual_proof)
+        task = state.get("current_task") or {}
+        spec = (decision or {}).get("next_task") or {}
+        if (decision is not None and milestone_id == task.get("milestone_id") == spec.get("milestone_id")
+                and (spec.get("kind") == "validate" or
+                     (spec.get("kind") == "implement" and decision.get("status") == "REWORK"))):
+            # The runtime authenticated the exact historical recheck or
+            # original causal admission. This does not release a new owner.
+            visual_checkpoint.require_assignment(state, current, visual_proof, decision)
+            return
+    missing = set(milestones.get(milestone_id, {}).get("depends_on", [])) - accepted_ids(
+        state, current=current, visual_proof=visual_proof)
     if missing:
         raise ValueError(f"Milestone {milestone_id} cannot start until its prerequisites are accepted: "
                          + ", ".join(sorted(missing)))
 
 
-def accept(state, current):
+def accept(state, current, *, visual_proof=None):
+    if visual_checkpoint.enabled(state):
+        visual_checkpoint.require_acceptance(state, current, visual_proof)
+        if not _functional_evidence_ready(state, current):
+            raise s.Paused("PAUSED_MILESTONE_EVIDENCE", "Current milestone lacks fresh independent functional evidence")
     row = progress(state)
     if row is not None:
-        manifest, reason = carryforward.capture(state, row, current) if evidence_ready(state, current) else (None, 'No fresh acceptance evidence')
+        if visual_checkpoint.enabled(state):
+            # Keep original rows; this policy never authorizes visual reuse
+            # across a contract revision through a functional carry manifest.
+            manifest, reason = None, 'Serial visual scheduling is not carried across contract revisions'
+        else:
+            manifest, reason = carryforward.capture(state, row, current) if evidence_ready(state, current) else (None, 'No fresh acceptance evidence')
         row.update(accepted=True, accepted_at=s.now(), accepted_source_revision=current["revision"],
                    accepted_validation=copy.deepcopy(state["validation"]))
         if manifest:
@@ -453,7 +519,11 @@ def check_budget(state):
         raise s.Paused("PAUSED_MILESTONE_BUDGET", "Milestone active-time budget exhausted; verify existing work or explicitly raise --max-milestone-seconds")
 
 
-def dispatch_guard(state, stage):
+def dispatch_guard(state, stage, *, current=None, visual_proof=None):
+    if visual_checkpoint.enabled(state) and stage in ("terra", "orchestrator"):
+        if stage == "orchestrator":
+            raise s.Paused("PAUSED_VISUAL_EVIDENCE", "Serial visual policy requires one supported writer launch identity")
+        visual_checkpoint.require_launch(state, current, visual_proof)
     if not enabled(state):
         if (state.get('current_task') and state.get('goal_contract') and state.get('milestone_progress')
                 and state['milestone_progress'].get(key(state), {}).get('builder_reassessment')):
@@ -630,7 +700,7 @@ def owns_pause(run_dir):
                 and pause.read_text() == 'milestone-checkpoints:' + s.read(request).get('id', ''))
 
 
-def summary(state):
+def summary(state, *, current=None, visual_proof=None):
     """Read-only status; durations are provider-stage elapsed time, not billing."""
     roles = {}
     seen = set()
@@ -653,14 +723,33 @@ def summary(state):
         except (TypeError, ValueError):
             active_seconds = 0
     row = state.get("milestone_progress", {}).get(key(state))
-    return {"enabled": enabled(state), "seconds_by_role": roles, "hours_by_role": {r: round(t / 3600, 3) for r, t in roles.items()},
+    visual = None
+    checkpoint_enabled = False
+    configuration_error = None
+    try:
+        checkpoint_enabled = enabled(state)
+    except (AttributeError, TypeError) as error:
+        configuration_error = str(error)
+    try:
+        if configuration_error is not None:
+            raise s.Paused("PAUSED_VISUAL_EVIDENCE", "Invalid checkpoint settings: " + configuration_error)
+        accepted = sorted(accepted_ids(state, current=current, visual_proof=visual_proof))
+        if visual_checkpoint.enabled(state):
+            visual = {"status": "VERIFIED", "current_scope_accepted": visual_proof.current_scope_accepted,
+                      "historical_milestones": list(visual_proof.historical_milestone_ids),
+                      "eligible_milestones": accepted, "reason": visual_proof.reason}
+    except s.Paused as error:
+        accepted = []
+        visual = {"status": "UNKNOWN", "current_scope_accepted": False,
+                  "historical_milestones": None, "eligible_milestones": None, "reason": str(error)}
+    return {"enabled": checkpoint_enabled, "seconds_by_role": roles, "hours_by_role": {r: round(t / 3600, 3) for r, t in roles.items()},
             "current": copy.deepcopy({k: v for k, v in row.items() if k not in ("accepted_validation", "reviews", "reuse_manifest")} if row else None),
             "carry_forward": copy.deepcopy(next((audit for audit in reversed(state.get('milestone_carry_forward', []))
                                                    if audit['to_contract_hash'] == state.get('goal_contract', {}).get('hash')), None)),
-            "limits": settings(state) if enabled(state) else None,
+            "limits": settings(state) if checkpoint_enabled else None,
             "blocker": state.get("milestone_blocker"),
             "active_stage_role": active.get('role'), "active_stage_elapsed_seconds": active_seconds,
-            "accepted_milestones": sorted(accepted_ids(state))}
+            "accepted_milestones": accepted, **({"visual_checkpoint": visual} if visual is not None else {})}
 
 
 def status_line(state):

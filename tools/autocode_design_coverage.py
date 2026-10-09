@@ -162,7 +162,7 @@ def ready(state):
         return True
     try:
         record = (state.get("settings") or {}).get("design_manifest")
-        if record and manifest.blockers(record):
+        if record and manifest.delivery_blockers(record):
             return False
         refs = report_refs(state, state.get("validation") or {})
         pins = (state.get("validation") or {}).get("evidence_hashes") or {}
@@ -186,8 +186,9 @@ def projection(state):
     if record["body"].get("version") == 2:
         try:
             manifest.verify(record)
-            result["inventory"] = manifest.inventory.catalog(record["body"], record["root"])
+            result["inventory"] = manifest.inventory.catalog(record["body"], record["root"], admission=manifest.admitted_scope(record))
             result["inventory_blockers"] = manifest.blockers(record)
+            result["delivery_blockers"] = manifest.delivery_blockers(record)
         except (ValueError, OSError, KeyError, TypeError) as error:
             result["inventory_error"] = str(error)
             result["inventory_blockers"] = [str(error)]

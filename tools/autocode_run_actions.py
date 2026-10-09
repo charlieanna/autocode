@@ -51,6 +51,7 @@ try:
     from . import autocode_run_records as records
     from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
+    from . import autocode_accepted_source as accepted_source
     from . import autocode_support as support
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
@@ -266,6 +267,9 @@ def revalidate_on_resume(state, workspace, *, review_stage):
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
     args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
+    native = getattr(runner, 'native_calls', None)
+    if native is not None:
+        native.require_supported_action(args, state)
     # An applied durable stop is terminal: no recovery, user action, answer,
     # approval, feedback or resume may relaunch a stopped run or complete it.
     if stop.applied_stop(state) is not None:
@@ -293,8 +297,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             refusal = pause_authority.correction_refusal(state, 'A design reference revision')
             if refusal:
                 raise ValueError(refusal)
-            design_revision.apply(state, design_revision.manifest.load(args.revise_figma_manifest),
-                                  args.expected_design_hash, args.design_change_reason, workspace)
+            scope_arguments = {"approved_scope": getattr(args, "figma_approved_scope", None),
+                               "approved_scope_sha256": getattr(args, "figma_approved_scope_sha256", None)}
+            design_revision.apply(state, design_revision.manifest.load(args.revise_figma_manifest, **scope_arguments),
+                                  args.expected_design_hash, args.design_change_reason, workspace, **scope_arguments)
         except (ValueError, OSError) as error:
             print(f'Input rejected: {error}', file=sys.stderr)
             return 2
@@ -810,7 +816,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
             if args.approve_goal:
-                lifecycle.approve(candidate, args.approve_goal)
+                getattr(runner, 'approve_goal', lifecycle.approve)(candidate, args.approve_goal)
             for criterion in args.approve_review:
                 goals.approve_review(candidate, criterion, args.review_token, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
             if args.reconcile_review:

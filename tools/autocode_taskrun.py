@@ -120,10 +120,16 @@ class TaskRun:
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
 
-    def revise_design(self, manifest: Path, expected_hash: str, reason: str) -> dict:
+    def revise_design(self, manifest: Path, expected_hash: str, reason: str, *,
+                      approved_scope: Path | None = None, approved_scope_sha256: str | None = None) -> dict:
         """Propose a stopped run's design input correction; never approve or dispatch."""
+        scope_flags = []
+        if approved_scope is not None:
+            scope_flags.extend(('--figma-approved-scope', str(approved_scope)))
+        if approved_scope_sha256 is not None:
+            scope_flags.extend(('--figma-approved-scope-sha256', approved_scope_sha256))
         self._act("revise design", "--revise-figma-manifest", str(manifest),
-                  "--expected-design-hash", expected_hash, "--design-change-reason", reason)
+                  "--expected-design-hash", expected_hash, "--design-change-reason", reason, *scope_flags)
         return self.status()
 
     def show_goal(self) -> str:

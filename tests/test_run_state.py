@@ -6,19 +6,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from tests.source_inventory import python_sources
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import autocode_run_state as run_state
 
 
-def touched_keys(source_root: Path = TOOLS) -> set[str]:
-    """Every key runtime source reads or writes on a state dict."""
+def touched_keys(root: Path = TOOLS) -> set[str]:
+    """Every key application source reads or writes on a state dict."""
     keys = set()
     pattern = re.compile(r'''state(?:\[|\.get\(|\.setdefault\()\s*["']([a-z0-9_]+)["']''')
-    for path in source_root.rglob("*.py"):
-        if path.name.startswith("test_"):
-            continue
+    for path in python_sources(root):
         keys.update(pattern.findall(path.read_text(errors="ignore")))
     return keys
 
@@ -37,9 +36,25 @@ class RunStateTests(unittest.TestCase):
             self.assertIn(f"    {key}:", source, f"{key} must be annotated in RunState")
 
     def test_a_new_key_fails_this_test_until_it_is_named(self):
-        # The guard the issue asks for: a key added to tools/ without naming it here fails.
-        self.assertIn("status", touched_keys())
-        self.assertGreater(len(run_state.KEYS), 100)
+        # Exercise the shared production boundary without duplicating its scanner.
+        with tempfile.TemporaryDirectory(prefix="run-state-boundary-") as directory:
+            root = Path(directory)
+            files = {
+                "runtime.py": "state['unlisted_production_key'] = 1\n",
+                "units/planner.py": 'state["status"] = state.get("undeclared_runtime_key")\n',
+                "test_support/runtime.py": "state.setdefault('unlisted_support_key', 0)\n",
+                "test_fixture.py": "state['fixture_only_key'] = 1\n",
+                "units/tests/fixture.py": "state.get('nested_fixture_key')\n",
+                "__pycache__/generated.py": "state.get('generated_fixture_key')\n",
+            }
+            for name, source in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            unknown = {"unlisted_production_key", "undeclared_runtime_key", "unlisted_support_key"}
+            keys = touched_keys(root)
+            self.assertEqual({"status", *unknown}, keys)
+            self.assertEqual(unknown, keys - run_state.KEYS)
 
     def test_test_only_keys_are_excluded_from_runtime_scan(self):
         with tempfile.TemporaryDirectory() as directory:

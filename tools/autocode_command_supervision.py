@@ -60,7 +60,8 @@ def reconcile(metadata):
     return final
 
 
-def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
+def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=None,
+        activity=None, activity_checkpoint=None, deadline_monotonic=None):
     """Execute the existing shell command with durable before-exec ownership."""
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -68,6 +69,8 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
     directory.mkdir(parents=True)
     started = time.monotonic()
     deadline = started + timeout if timeout is not None else None
+    if deadline_monotonic is not None:
+        deadline = min(deadline, deadline_monotonic) if deadline is not None else deadline_monotonic
     process = metadata = None
     exit_code = None
     timed_out = False
@@ -91,20 +94,36 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
             if remaining is not None and remaining <= 0:
                 timed_out = True
             else:
-                with supervision.launch(["/bin/sh", "-c", command],
-                        receipt_path=directory / "supervision.json", timeout=remaining, checkpoint=admit,
-                        cwd=cwd, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                        start_new_session=True, env=env) as process:
-                    remaining = None if deadline is None else max(0, deadline - time.monotonic())
-                    try:
-                        exit_code = process.wait(timeout=remaining)
-                    except subprocess.TimeoutExpired:
-                        timed_out = True
-                        # The keeper owns deadline escalation. Reap only this actual
-                        # child; never substitute its cleanup receipt for waitpid.
-                        process.wait(timeout=8)
-                    if deadline is not None and time.monotonic() >= deadline:
-                        timed_out = True
+                options = dict(cwd=cwd, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                               start_new_session=True, env=env)
+                if held_launch is None:
+                    with supervision.launch(["/bin/sh", "-c", command],
+                            receipt_path=directory / "supervision.json", timeout=remaining,
+                            checkpoint=admit, **options) as process:
+                        remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                        try:
+                            exit_code = process.wait(timeout=remaining)
+                        except subprocess.TimeoutExpired:
+                            timed_out = True
+                            # The keeper owns deadline escalation; collect this actual child.
+                            process.wait(timeout=8)
+                        if deadline is not None and time.monotonic() >= deadline:
+                            timed_out = True
+                else:
+                    # This callback supplies transport, never native authority.
+                    # The concrete original owner seals/releases its actual child
+                    # through the sole ProcessTree's deadline/cleanup callback.
+                    with held_launch(receipt_path=directory / "supervision.json", timeout=remaining,
+                                     checkpoint=admit, options=options) as (process, on_root):
+                        remaining = None if deadline is None else max(0, deadline - time.monotonic())
+                        if remaining is not None and remaining <= 0:
+                            timed_out = True
+                        else:
+                            exit_code, timed_out = processes.wait_for_stage(
+                                process, remaining, lambda _rows: None, on_root=on_root,
+                                activity=activity, activity_checkpoint=activity_checkpoint)
+                        if deadline is not None and time.monotonic() >= deadline:
+                            timed_out = True
     except BaseException as error:
         if metadata is not None:
             final = reconcile(metadata)

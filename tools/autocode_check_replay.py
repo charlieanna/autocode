@@ -25,8 +25,10 @@ from __future__ import annotations
 from functools import partial
 try:
     from . import autocode_source_scope as source_scope
+    from . import autocode_native_check_execution as native_checks
 except ImportError:
     import autocode_source_scope as source_scope
+    import autocode_native_check_execution as native_checks
 
 import datetime as dt
 import json
@@ -109,6 +111,7 @@ def evidence_pins(result):
     pins = {}
     for row in (result or {}).get("checks", []):
         pins.update(command_receipt.pins(row))
+        pins.update(row.get('native_check_pins') or {})
         if row.get("output") and row.get("output_sha256"):
             pins[row["output"]] = row["output_sha256"]
         receipt = row.get("scheduling") or {}
@@ -123,8 +126,20 @@ def evidence_pins(result):
 
 
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
-            required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False, all_risk_observations=False) -> dict:
+            required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False, all_risk_observations=False, native_execution=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    checks = list(checks)
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Original concrete native check owner required')
+        native_execution.require_replay(workspace, run_dir, approved_state, record, checks,
+                                        execution_identity=execution_identity)
+        ordinary_scratch = scratch_run
+        def scratch_run(*args, **kwargs):
+            before = native_execution.checkpoint()
+            receipt = ordinary_scratch(*args, **kwargs, native_execution=native_execution)
+            native_execution.authenticate(receipt, after=before)
+            return receipt
     selected = source_scope.paths(approved_state or {})
     if selected:
         scratch_run = partial(scratch_run, source_paths=selected)
@@ -212,7 +227,10 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                               "purpose": "approved_execution" if command in prescribed else "independent_clean_replay",
                               "scheduling": receipt.get("scheduling"),
                              "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:],
-                             **command_receipt.project(receipt)}
+                             **command_receipt.project(receipt),
+                             **({'native_check': receipt['native_check'],
+                                 'native_check_pins': native_execution.authenticate(receipt)['pins']}
+                                if native_execution is not None else {})}
         rows.append({**seen[key], "reported_exit_code": check.get("exit_code"),
                      "evidence_ref": check.get("evidence_ref")})
     brief = brief_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,

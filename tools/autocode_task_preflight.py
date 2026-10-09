@@ -225,7 +225,7 @@ def guard(state, workspace, run_dir, *, worker=None, persist=lambda _path, _stat
                 design_receipts = design.check(state['settings'], body.get('design'), workspace, tree, body['inputs'], phase=phase)
                 if design_receipts:
                     public = Path(body['design']['manifest']).parent
-                    manifest = design.design.load(Path(workspace) / body['design']['manifest'])
+                    manifest = design.design.reload_public(state['settings']['design_manifest'], Path(workspace) / body['design']['manifest']) if state['settings'].get('design_manifest') else design.design.load(Path(workspace) / body['design']['manifest'])
                     paths = sorted({str(public / case['artifacts']['screenshot']['path']) for case in manifest['body']['cases']}
                         | {path for row in design_receipts for path in row['context_parts']}
                         | {path for row in body['design']['cases'] for path in row['assets']})

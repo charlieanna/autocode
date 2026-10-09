@@ -262,6 +262,131 @@ class DesignManifestTests(unittest.TestCase):
         self.assertEqual(['v1', 'v2'], text['variables'])
         self.assertLess(parts[0]['encoded_length'], parts[0]['receipt_length'])
 
+    def test_native_vector_paths_none_is_valid_without_relaxing_geometry_getters(self):
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        path, body, original, _ = plugin_source_bundle(self.root / 'native-vector-none')
+        source = path.parent / body['files'][0]['pages'][0]['source_json']['path']
+
+        def retain(receipt):
+            source.write_text(json.dumps(receipt))
+            body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(source)
+            path.write_text(json.dumps(body))
+
+        # Native SVG-imported vectors may return NONE for vectorPaths, as the
+        # Plugin API VectorPath type permits. Keep the authored path verbatim.
+        receipt = copy.deepcopy(original)
+        visual = next(row for row in receipt['nodes'] if row['type'] == 'VECTOR')['visual']
+        visual['vectorPaths'][0]['windingRule'] = 'NONE'
+        retain(receipt)
+        loaded = manifest.load(path)
+        self.assertEqual(body, loaded['body'])
+        retained = json.loads((Path(loaded['root']) / loaded['body']['files'][0]['pages'][0]['source_json']['path']).read_text())
+        self.assertEqual(visual['vectorPaths'], next(row for row in retained['nodes'] if row['type'] == 'VECTOR')['visual']['vectorPaths'])
+
+        for field, value in [('fillGeometry', 'NONE'), ('strokeGeometry', 'NONE'),
+                             ('vectorPaths', 'unknown'), ('vectorPaths', 'none'),
+                             ('vectorPaths', None), ('vectorPaths', 0)]:
+            broken = copy.deepcopy(original)
+            target = next(row for row in broken['nodes'] if row['type'] == 'VECTOR')['visual']
+            target[field] = [{'data': visual['vectorPaths'][0]['data'], 'windingRule': value}]
+            retain(broken)
+            with self.subTest(field=field, value=value), self.assertRaisesRegex(ValueError, 'vector getter is malformed'):
+                manifest.load(path)
+
+
+    def test_component_set_beta_motion_refusal_is_retained_and_scoped(self):
+        import autocode_design_sources as sources
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        path, body, original, _ = plugin_source_bundle(self.root / 'beta-motion-source')
+        self.assertEqual(sources.NATIVE_CAPABILITY_PROFILE, original['property_profile'])
+        nodes = {row['id']: row for row in original['nodes']}
+        capability = nodes['1:3']['visual']['motion_capability']
+        self.assertEqual(sources.MOTION_FIELDS, capability['getter_errors'].keys())
+        self.assertFalse(sources.MOTION_FIELDS & nodes['1:3']['visual'].keys())
+        self.assertEqual({'TRANSLATION_X': {'timelineDuration': 100, 'tracks': []}},
+                         nodes['1:4']['visual']['animations'])
+        self.assertEqual('NAVIGATE', nodes['1:4']['transitions'][0]['action']['navigation'])
+        self.assertEqual(body, manifest.load(path)['body'])
+        legacy_path, legacy_body, legacy, _ = plugin_source_bundle(
+            self.root / 'supported-motion-source', component_set_motion='supported')
+        self.assertEqual(sources.PROFILE_NAME, legacy['property_profile'])
+        self.assertEqual(legacy_body, manifest.load(legacy_path)['body'])
+        legacy['property_profile'] = sources.NATIVE_CAPABILITY_PROFILE
+        legacy_source = legacy_path.parent / 'source.json'
+        legacy_source.write_text(json.dumps(legacy))
+        legacy_body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(legacy_source)
+        legacy_path.write_text(json.dumps(legacy_body))
+        with self.assertRaisesRegex(ValueError, 'lacks its original capability evidence'):
+            manifest.load(legacy_path)
+        for change in ('missing_capability', 'partial_refusal', 'different_error', 'wrong_type',
+                       'legacy_profile', 'readable_conflict', 'variant_motion', 'frame_motion',
+                       'null_capability', 'boolean_version', 'unreadable_marker', 'motion_shape'):
+            receipt = copy.deepcopy(original)
+            nodes = {row['id']: row for row in receipt['nodes']}
+            visual = nodes['1:3']['visual']
+            if change == 'missing_capability': visual.pop('motion_capability')
+            elif change == 'partial_refusal': visual['motion_capability']['getter_errors'].pop('timelines')
+            elif change == 'different_error': visual['motion_capability']['getter_errors']['timelines'] = 'permission denied'
+            elif change == 'wrong_type':
+                nodes['1:2']['visual']['motion_capability'] = visual.pop('motion_capability')
+                for field in sources.MOTION_FIELDS: nodes['1:2']['visual'].pop(field)
+            elif change == 'legacy_profile': receipt['property_profile'] = sources.PROFILE_NAME
+            elif change == 'readable_conflict': visual['animations'] = {}
+            elif change == 'variant_motion': nodes['1:4']['visual'].pop('animations')
+            elif change == 'frame_motion': nodes['1:2']['visual'].pop('timelines')
+            elif change == 'null_capability': visual['motion_capability'] = None
+            elif change == 'boolean_version': visual['motion_capability']['version'] = True
+            elif change == 'unreadable_marker': nodes['1:4']['visual']['animations'] = {'__figma_unreadable__': True}
+            elif change == 'motion_shape': nodes['1:4']['visual']['timelines'] = {}
+            target = path.parent / 'source.json'
+            target.write_text(json.dumps(receipt))
+            body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(target)
+            path.write_text(json.dumps(body))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                manifest.load(path)
+
+    def test_section_native_capability_refusal_preserves_children_and_geometry(self):
+        import autocode_design_sources as sources
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        path, body, original, _ = plugin_source_bundle(self.root / 'section-source', include_section=True)
+        self.assertEqual(body, manifest.load(path)['body'])
+        nodes = {row['id']: row for row in original['nodes']}
+        visual = nodes['31:2']['visual']
+        self.assertEqual(sources.SECTION_CAPABILITY_FIELDS, visual['section_capability']['getter_errors'].keys())
+        self.assertFalse(sources.SECTION_CAPABILITY_FIELDS & visual.keys())
+        self.assertEqual(['31:3'], visual['child_ids'])
+        self.assertEqual(100, visual['width'])
+        self.assertEqual('31:2', nodes['31:3']['visual']['parent_id'])
+        self.assertEqual([], nodes['31:3']['visual']['strokeGeometry'])
+        for change in ('missing_capability', 'partial_refusal', 'different_error', 'wrong_type',
+                       'legacy_profile', 'readable_conflict', 'child_geometry', 'section_dimensions',
+                       'child_order', 'boolean_version'):
+            receipt = copy.deepcopy(original)
+            nodes = {row['id']: row for row in receipt['nodes']}
+            visual = nodes['31:2']['visual']
+            if change == 'missing_capability': visual.pop('section_capability')
+            elif change == 'partial_refusal': visual['section_capability']['getter_errors'].pop('strokeGeometry')
+            elif change == 'different_error': visual['section_capability']['getter_errors']['minWidth'] = 'permission denied'
+            elif change == 'wrong_type': nodes['31:3']['visual']['section_capability'] = visual.pop('section_capability')
+            elif change == 'legacy_profile': receipt['property_profile'] = sources.PROFILE_NAME
+            elif change == 'readable_conflict': visual['strokeGeometry'] = []
+            elif change == 'child_geometry': nodes['31:3']['visual'].pop('strokeGeometry')
+            elif change == 'section_dimensions': visual.pop('width')
+            elif change == 'child_order': visual['child_ids'] = []
+            elif change == 'boolean_version': visual['section_capability']['version'] = True
+            target = path.parent / 'source.json'
+            target.write_text(json.dumps(receipt))
+            body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(target)
+            path.write_text(json.dumps(body))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                manifest.load(path)
+
     def test_plugin_transport_refuses_partial_corrupt_noncanonical_and_mixed_receipts(self):
         import base64
         import hashlib
@@ -274,7 +399,7 @@ class DesignManifestTests(unittest.TestCase):
                        'code', 'base64', 'size', 'oversized', 'format'):
             parts = copy.deepcopy(original)
             if change == 'missing': parts.pop()
-            elif change == 'duplicate': parts[-1] = copy.deepcopy(parts[0])
+            elif change == 'duplicate': parts.append(copy.deepcopy(parts[0]))
             elif change == 'truncated': parts[-1]['json_part'] = parts[-1]['json_part'][:-1]
             elif change == 'mixed_hash': parts[-1]['receipt_sha256'] = '0' * 64
             elif change == 'mixed_page': parts[-1]['page_id'] = '9:9'
@@ -303,6 +428,60 @@ class DesignManifestTests(unittest.TestCase):
             sources.reassemble([part])
         with self.assertRaisesRegex(ValueError, 'size bound'):
             sources._lzw_decode(sources._lzw_encode(b'A' * 10000), 20)
+
+    def test_gzip_source_transport_rejects_extra_members_corruption_and_size_bombs(self):
+        import base64
+        import gzip
+        import hashlib
+        import zlib
+        import autocode_design_sources as sources
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        _, _, original, parts = plugin_source_bundle(self.root / 'gzip-source-controls')
+        self.assertEqual('gzip-base64-json-ascii-v1', parts[0]['encoding'])
+        encoded = ''.join(part['json_part'] for part in sorted(parts, key=lambda row: row['part_index']))
+        binary = base64.b64decode(encoded)
+        text = zlib.decompress(binary, wbits=16 + zlib.MAX_WBITS)
+        self.assertEqual(original, json.loads(text))
+        self.assertEqual(text, sources._gzip_decode(binary, len(text)))
+        self.assertEqual(original, sources.reassemble(list(reversed(parts))))
+        # Legacy original receipts remain accepted byte-for-byte.
+        legacy_binary = sources._lzw_encode(text)
+        def packets(payload, *, encoding='gzip-base64-json-ascii-v1', length=len(text), digest=None):
+            value = base64.b64encode(payload).decode()
+            header = {key: parts[0][key] for key in parts[0] if key not in ('part_index', 'part_count', 'json_part')}
+            header.update(encoding=encoding, receipt_length=length, encoded_length=len(value),
+                          receipt_sha256=digest or hashlib.sha256(text).hexdigest())
+            return [dict(header, part_index=index, part_count=(len(value) + 13999) // 14000,
+                         json_part=value[index * 14000:(index + 1) * 14000])
+                    for index in range((len(value) + 13999) // 14000)]
+        self.assertEqual(original, sources.reassemble(packets(legacy_binary, encoding='lzw16-base64-json-ascii-v1')))
+        crc = bytearray(binary)
+        crc[-8] ^= 1
+        isize = bytearray(binary)
+        isize[-4] ^= 1
+        metadata = bytearray(binary)
+        metadata[4] = 1
+        non_ascii = gzip.compress(b'\xff', mtime=0, compresslevel=6)
+        non_ascii = non_ascii[:9] + b'\x03' + non_ascii[10:]
+        for change, altered, length, digest in (
+                ('extra_member', binary + binary, len(text), None),
+                ('extra_byte', binary + b'X', len(text), None),
+                ('truncated', binary[:-1], len(text), None),
+                ('crc', bytes(crc), len(text), None),
+                ('isize', bytes(isize), len(text), None),
+                ('metadata', bytes(metadata), len(text), None),
+                ('wrong_wrapper', zlib.compress(text), len(text), None),
+                ('decoded_bound', binary, len(text) - 1, None),
+                ('non_ascii', non_ascii, 1, hashlib.sha256(b'\xff').hexdigest()),
+                ('oversized', binary, sources.TRANSPORT_LIMIT + 1, None)):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                sources.reassemble(packets(altered, length=length, digest=digest))
+        bomb = gzip.compress(b'A' * (2 * 1024 * 1024), mtime=0, compresslevel=6)
+        bomb = bomb[:9] + b'\x03' + bomb[10:]
+        with self.assertRaisesRegex(ValueError, 'decoded size bound'):
+            sources._gzip_decode(bomb, 20)
 
     def test_plugin_source_cannot_omit_original_getters_ranges_aliases_modes_or_variant_identity(self):
         from tests.figma_inventory_fixtures import plugin_source_bundle

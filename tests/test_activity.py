@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from autocode_activity import ActivityMonitor, JOB_IDLE_LIMIT, idle_timeout_reason
@@ -474,6 +475,46 @@ class ActivityTests(unittest.TestCase):
         self.codex('completed', kind='agent_message', text='first')
         self.now = 5
         self.assertEqual('idle', self.monitor.expired()['kind'])
+
+    def test_poll_sampling_time_is_after_lock_acquisition_and_before_event_io(self):
+        class DelayedLock:
+            entered = False
+            def __enter__(lock):
+                if not lock.entered:
+                    lock.entered = True
+                    self.now = 3
+            def __exit__(lock, *args):
+                pass
+        self.monitor._lock = DelayedLock()
+        self.path.write_text(json.dumps({'type': 'item.started', 'item': {
+            'id': 'sampled-tool', 'type': 'command_execution'}}) + '\n')
+        original_read = self.monitor._read
+        def delayed_read(now):
+            self.assertEqual(3, now)
+            self.now = 6
+            original_read(now)
+        self.now = 1
+        with patch.object(self.monitor, '_read', delayed_read):
+            observed = self.monitor.poll()
+        self.assertEqual(3, observed['_sampled_monotonic'])
+        self.assertEqual(0, observed['idle_seconds'])
+        self.assertEqual(0, observed['tool_elapsed_seconds'])
+        self.assertEqual(3, self.monitor.snapshot()['tool_elapsed_seconds'])
+        self.assertNotIn('_sampled_monotonic', self.monitor.snapshot())
+
+    def test_provider_credit_and_active_tool_age_share_the_sampling_time(self):
+        self.now = 3
+        self.path.write_text(json.dumps({'type': 'item.completed', 'item': {
+            'id': 'provider-text', 'type': 'agent_message', 'text': 'new result'}}) + '\n' +
+            json.dumps({'type': 'item.started', 'item': {
+            'id': 'sampled-tool', 'type': 'command_execution'}}) + '\n')
+        observed = self.monitor.poll()
+        self.assertEqual(3, observed['_sampled_monotonic'])
+        self.assertEqual(0, observed['idle_seconds'])
+        self.assertEqual(0, observed['tool_elapsed_seconds'])
+        self.now = 5
+        self.assertEqual(2, self.monitor.snapshot()['idle_seconds'])
+        self.assertEqual(2, self.monitor.snapshot()['tool_elapsed_seconds'])
 
 
 if __name__ == '__main__':

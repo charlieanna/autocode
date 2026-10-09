@@ -104,13 +104,15 @@ def state_writer(ordinary_write: Callable, persist_stopped: Callable) -> Callabl
     cannot normalize an applied Stop into a resumable resolver state. Persistence
     is injected so this policy module does not import the shared state writer.
     """
-    def write(path, value):
+    def write(path, value, *, before_commit=None, after_commit=None):
         if Path(path).name == "state.json" and isinstance(value, dict):
             value.setdefault("intervention_capability", {}).update(supports_stop=True)
             if applied_stop(value):
                 assert_stopped(value)
-                return persist_stopped(path, value)
-        return ordinary_write(path, value)
+                return (persist_stopped(path, value, before_commit=before_commit, after_commit=after_commit)
+                        if after_commit is not None or before_commit is not None else persist_stopped(path, value))
+        return (ordinary_write(path, value, before_commit=before_commit, after_commit=after_commit)
+                if after_commit is not None or before_commit is not None else ordinary_write(path, value))
     return write
 
 

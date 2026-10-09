@@ -25,8 +25,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_native_check_execution as native_checks
 except ImportError:
     import autocode_source_snapshot as source_snapshot
+    import autocode_native_check_execution as native_checks
 
 import contextlib
 import json
@@ -684,8 +686,12 @@ def test_environment(tree, env=None):
     return environment
 
 
-def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, checkpoint=None) -> dict:
+def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, checkpoint=None, native_execution=None) -> dict:
     """Run one owned shell command and return its collected execution receipt."""
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Original concrete native check owner required')
+        return native_execution.run_command(command, cwd, log_path, timeout=timeout, env=env, checkpoint=checkpoint)
     return command_supervision.run(command, cwd, log_path, timeout=timeout,
                                    env=test_environment(cwd, env), checkpoint=checkpoint)
 
@@ -1599,15 +1605,26 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
             "regression_source": regression_source, "notes": notes}
 
 
-def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
+def run_suite(framework, command, tree, evidence_dir, label, *, timeout, native_execution=None):
     extension = ("node.jsonl" if node_tests.command_words(command) else
                  "vitest.json" if vitest_tests.command_words(command, tree) else "junit.xml")
     xml = Path(evidence_dir) / f"{label}.{extension}"
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Original concrete native check owner required')
+        xml = native_execution.result_path(tree, xml)
     xml.unlink(missing_ok=True)  # never parse a previous run's results
-    receipt = run_command(_with_results(framework, command, xml, tree), tree, Path(evidence_dir) / f"{label}.log",
-                          timeout=timeout)
+    actual = _with_results(framework, command, xml, tree)
+    if native_execution is not None:
+        planned = native_execution.instrument(framework.name if framework else None, command, xml, tree)
+        if planned != actual:
+            raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Native suite instrumentation differs from the runner')
+    receipt = run_command(actual, tree, Path(evidence_dir) / f"{label}.log", timeout=timeout,
+                          native_execution=native_execution)
     receipt["results"] = per_test_results(framework, receipt, xml, tree=tree)
     receipt["results_expected"] = expects_results(framework, command, tree)
+    if native_execution is not None:
+        native_execution.retain_results(receipt)
     return receipt
 
 
@@ -1848,7 +1865,7 @@ def prepare_scratch_tree(workspace, run_dir, *, patch=None, files=None, links=No
 
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
                 files=None, links=None, source_paths=(), dependencies_from=None,
-                generated_record=None, generated_unrecorded=False, ignored_inputs=None) -> dict:
+                generated_record=None, generated_unrecorded=False, ignored_inputs=None, native_execution=None) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
 
     The copy is HEAD plus every uncommitted change (so files a stage just delivered are there),
@@ -1862,25 +1879,39 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
     every target also supplied in the overlay; candidate links are never written through.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
-    parameters = {'patch': str(patch) if patch else None, 'files': files, 'links': links,
-                  'source_paths': list(source_paths), 'dependencies_from': str(dependencies_from) if dependencies_from else None,
-                  'generated_record': generated_record, 'generated_unrecorded': generated_unrecorded,
-                  'ignored_inputs': ignored_inputs}
-    owned_preparation = preparation.active()
-    if owned_preparation:
-        if ignored_inputs is not None:
-            encode = getattr(ignored_inputs, 'to_transport', None)
-            if not callable(encode):
-                raise ValueError('Owned preparation needs explicit launch-input Supply transport')
-            parameters = {**parameters, 'ignored_inputs': encode()}
-        return preparation.launch('execute', workspace, run_dir,
-            {**parameters, 'tests': list(tests), 'command': command, 'timeout': timeout}, timeout=timeout,
-            env=dict(agent_env.scrubbed(os.environ), PYTHONDONTWRITEBYTECODE='1'))
-    try:
-        tree = prepare_scratch_tree(workspace, run_dir, **parameters)
-    except ScratchPatchError as error:
-        return {'error': str(error), 'results': None}
+    native_scope = None
     ownership_uncertain = False
+    if native_execution is not None:
+        if type(native_execution) is not native_checks.NativeCheckExecution:
+            raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Original concrete native check owner required')
+        if preparation.active():
+            raise util.Paused('PAUSED_VISUAL_EVIDENCE',
+                              'Native checks cannot share scheduled preparation ownership')
+        native_scope = native_execution.copy(workspace, run_dir, command=command, patch=patch, tests=tests,
+            files=files, links=links, source_paths=source_paths, dependencies_from=dependencies_from,
+            generated_record=generated_record, generated_unrecorded=generated_unrecorded, ignored_inputs=ignored_inputs)
+        # All unsupported native inputs are checked before the ordinary Git,
+        # dependency, patch or framework probing path can run.
+        tree = native_scope.__enter__()
+    else:
+        parameters = {'patch': str(patch) if patch else None, 'files': files, 'links': links,
+                      'source_paths': list(source_paths),
+                      'dependencies_from': str(dependencies_from) if dependencies_from else None,
+                      'generated_record': generated_record, 'generated_unrecorded': generated_unrecorded,
+                      'ignored_inputs': ignored_inputs}
+        if preparation.active():
+            if ignored_inputs is not None:
+                encode = getattr(ignored_inputs, 'to_transport', None)
+                if not callable(encode):
+                    raise ValueError('Owned preparation needs explicit launch-input Supply transport')
+                parameters = {**parameters, 'ignored_inputs': encode()}
+            return preparation.launch('execute', workspace, run_dir,
+                {**parameters, 'tests': list(tests), 'command': command, 'timeout': timeout}, timeout=timeout,
+                env=dict(agent_env.scrubbed(os.environ), PYTHONDONTWRITEBYTECODE='1'))
+        try:
+            tree = prepare_scratch_tree(workspace, run_dir, **parameters)
+        except ScratchPatchError as error:
+            return {'error': str(error), 'results': None}
     try:
         if command is None:
             python = python_for(workspace)
@@ -1891,14 +1922,14 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
             command = framework.targeted(list(tests)) if framework else None
             if not command:
                 return {"error": "no test command runs these files: " + ", ".join(tests), "results": None}
-            receipt = run_suite(framework, command, tree, run_dir, "scratch-tests", timeout=timeout)
+            receipt = run_suite(framework, command, tree, run_dir, "scratch-tests", timeout=timeout, native_execution=native_execution)
         else:
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
             framework = command_framework(command)
             if framework:
-                receipt = run_suite(framework, command, tree, run_dir, "scratch-command", timeout=timeout)
+                receipt = run_suite(framework, command, tree, run_dir, "scratch-command", timeout=timeout, native_execution=native_execution)
                 if (receipt["exit_code"] == 0 and not receipt["timed_out"]
                         and not schedule.complete_results(receipt)):
                     return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
@@ -1906,7 +1937,7 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
                         and not (receipt["results"]["passed"] or receipt["results"]["failed"])):
                     return {**receipt, "error": "Test command reported only skipped tests"}
             else:
-                receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
+                receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout, native_execution=native_execution)
                 receipt["results"] = None
                 try:
                     words = shlex.split(command)
@@ -1923,7 +1954,9 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
         ownership_uncertain = True
         raise
     finally:
-        if not ownership_uncertain:
+        if native_scope is not None:
+            native_scope.__exit__(*sys.exc_info())
+        elif not ownership_uncertain:
             remove_tree(workspace, tree)
 
 

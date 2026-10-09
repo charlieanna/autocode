@@ -277,22 +277,19 @@ class ProcessTests(unittest.TestCase):
                                  stdin=subprocess.PIPE, text=True, start_new_session=True)
         owned = []
         reaped_before_return = []
-        original_start = threading.Thread.start
-
-        def reaping_start(thread):
-            # Force observer polling before the owner can do its full sample.
-            # The deadline watchdog may start earlier without ordinary polling.
-            if thread._target.__name__ == 'observe' and not reaped_before_return:
-                child.stdin.write('x')
-                child.stdin.flush()
-                reaped_before_return.append(child.wait(timeout=5))
-            return original_start(thread)
+        def exit_after_capture(tree, _release):
+            # Finish before the discovery worker samples, but only after the
+            # actual root identity has been captured. Early observation must
+            # never reap this still-blocked provider.
+            self.assertIn(child.pid, tree.known)
+            child.stdin.write('x')
+            child.stdin.flush()
+            reaped_before_return.append(child.wait(timeout=5))
 
         try:
-            with patch.object(threading.Thread, 'start', reaping_start):
-                code, expired = processes.wait_for_stage(
-                    child, None, lambda rows: owned.__setitem__(slice(None), rows),
-                    activity=QuietMonitor())
+            code, expired = processes.wait_for_stage(
+                child, None, lambda rows: owned.__setitem__(slice(None), rows),
+                activity=QuietMonitor(), on_root=exit_after_capture)
             self.assertEqual(7, code)
             self.assertFalse(expired)
             self.assertEqual([7], reaped_before_return)
@@ -454,50 +451,109 @@ while True:
         self.assertTrue(expired)
 
     def exercise_blocked_monitor(self, *, total, idle=300):
+        # Establish the blocked phase first, then advance the original limit.
+        # Physical waits below are cleanup guards, never the deadline oracle.
         with tempfile.TemporaryDirectory() as temp:
-            entered = threading.Event()
-            release = threading.Event()
-            observed_exit = []
-            child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
-                                     start_new_session=True)
+            entered, release, exited = (threading.Event() for _ in range(3))
+            clock, timers, observed_exit, errors = [0.0], [], [], []
+
+            class Child:
+                pid, returncode = 424242, None
+                def poll(self):
+                    return self.returncode
+                def wait(self, timeout=None):
+                    if not exited.wait(2):
+                        raise subprocess.TimeoutExpired('fixture provider', timeout)
+                    return self.returncode
+                def kill(self):
+                    self.returncode = -signal.SIGKILL
+                    exited.set()
+
+            child = Child()
+            row = {'pid': child.pid, 'birth_identity': 1.0}
+
+            class Tree:
+                def __init__(self, pid, checkpoint):
+                    self.known, self.checkpoint = {}, checkpoint
+                def capture_root(self):
+                    self.known[child.pid] = row
+                    self.checkpoint([row])
+                def sample(self, **kwargs):
+                    return [row]
+                def stop(self, child):
+                    if child.poll() is None:
+                        child.kill()
+
+            class Timer:
+                def __init__(self, interval, function, args=()):
+                    self.interval, self.function, self.args, self.due = interval, function, args, None
+                    timers.append(self)
+                def start(self):
+                    self.due = clock[0] + self.interval
+                def cancel(self):
+                    self.due = None
 
             class BlockedMonitor(ActivityMonitor):
+                holding_lock = False
                 def poll(self, *args, **kwargs):
                     with self._lock:
+                        self.holding_lock = True
                         entered.set()
-                        release.wait(2)  # bounded even if the test assertion fails
-                        return super().poll(*args, **kwargs)
-
-            monitor = BlockedMonitor(Path(temp) / 'events.jsonl', idle_seconds=idle)
-
-            def observe_before_release():
-                try:
-                    if entered.wait(1):
                         try:
-                            observed_exit.append(child.wait(timeout=.8))
-                        except subprocess.TimeoutExpired:
-                            observed_exit.append(None)
+                            if not release.wait(2):
+                                raise RuntimeError('fixture monitor cleanup guard expired')
+                            return super().poll(*args, **kwargs)
+                        finally:
+                            self.holding_lock = False
+
+            monitor = BlockedMonitor(Path(temp) / 'events.jsonl', idle_seconds=idle,
+                                     clock=lambda: clock[0])
+
+            def advance_after_monitor_blocks():
+                try:
+                    if not entered.wait(2):
+                        raise RuntimeError('fixture never entered the blocked monitor phase')
+                    clock[0] = .15
+                    for timer in list(timers):
+                        if timer.due is not None and timer.due <= clock[0]:
+                            timer.due = None
+                            timer.function(*timer.args)
+                    if not exited.wait(2):
+                        raise RuntimeError('independent supervisor did not stop blocked provider')
+                    observed_exit.append((child.returncode, monitor.holding_lock))
+                except Exception as error:
+                    errors.append(error)
                 finally:
                     release.set()
 
-            observer = threading.Thread(target=observe_before_release)
-            observer.start()
+            def terminate(pid, sig):
+                self.assertEqual(child.pid, pid)
+                child.returncode = -sig
+                exited.set()
+
+            advancer = threading.Thread(target=advance_after_monitor_blocks)
+            advancer.start()
             try:
-                code, expired = processes.wait_for_stage(child, total, lambda _rows: None,
-                                                          activity=monitor)
-                self.assertTrue(expired)
-                self.assertNotEqual(0, code)
+                with patch.object(processes.time, 'monotonic', lambda: clock[0]), \
+                     patch.object(processes.threading, 'Timer', Timer), \
+                     patch.object(processes, 'ProcessTree', Tree), \
+                     patch.object(processes.os, 'getpgid', return_value=child.pid), \
+                     patch.object(processes.os, 'killpg', terminate):
+                    code, expired = processes.wait_for_stage(child, total, lambda _rows: None,
+                                                              activity=monitor)
+                advancer.join(timeout=2)
+                self.assertFalse(advancer.is_alive())
+                self.assertEqual([], errors)
                 self.assertTrue(entered.is_set())
-                observer.join(timeout=2)
-                self.assertFalse(observer.is_alive())
-                self.assertEqual([code], observed_exit)
+                self.assertTrue(expired)
+                self.assertEqual(-signal.SIGTERM, code)
+                self.assertEqual([(code, True)], observed_exit)
+                self.assertEqual(.15, clock[0])
                 return monitor.timeout['kind']
             finally:
                 release.set()
-                observer.join(timeout=2)
-                if child.poll() is None:
-                    child.kill()
-                    child.wait()
+                child.kill()
+                advancer.join(timeout=2)
 
     def test_hard_cap_stops_worker_while_monitor_holds_its_lock(self):
         self.assertEqual('stage', self.exercise_blocked_monitor(total=.15))
@@ -947,6 +1003,89 @@ time.sleep(30)
         with processes.interruption_handler():
             self.assertEqual((0, False), self.signal_during_cleanup(signal.SIGHUP, joined))
         self.assertEqual([0], joined)
+
+
+class ProcessCleanupReapTests(unittest.TestCase):
+    def reap_failure(self, *, phase, reused=False, deny_kill=False):
+        """Inject a reap timeout, without real processes or wall-clock waits."""
+        pid = 2 ** 22 - 10
+        owned = {'pid': pid, 'started': 'owned fixture', 'birth_identity': 1.0,
+                 'birth_time': 1.0, 'state': 'sleeping', 'parent': 90, 'group': pid}
+        current = dict(owned)
+        sentinel = {**owned, 'pid': pid + 1, 'group': pid + 1}
+        tree = processes.ProcessTree(pid, lambda _rows: None)
+        tree.known[pid] = owned
+        child = MagicMock(pid=pid)
+        child.poll.return_value = None
+        reap_error = subprocess.TimeoutExpired('controlled child', 1)
+        sent, clock = [], {'now': 0.0}
+
+        def reap(*, timeout):
+            if reused:
+                current['birth_identity'] = 2.0
+            raise reap_error
+        child.wait.side_effect = reap
+
+        def table(selected=None):
+            rows = {pid: current, sentinel['pid']: sentinel}
+            return rows if selected is None else {
+                value: rows[value] for value in selected if value in rows}
+
+        def send(value, sig):
+            sent.append((value, sig))
+            if deny_kill and sig == signal.SIGKILL:
+                raise PermissionError('controlled signal denial')
+
+        def sample(**_kwargs):
+            # Empty discovery plus an unreaped Popen is precisely the disputed
+            # observation: it cannot authorize cleanup success.
+            signal_seen = signal.SIGTERM if phase == 'term' else signal.SIGKILL
+            return [] if (pid, signal_seen) in sent else [owned]
+
+        def advance(seconds):
+            clock['now'] += seconds
+
+        with patch.object(tree, 'sample', side_effect=sample), \
+                patch.object(processes, 'process_table', side_effect=table), \
+                patch.object(processes.os, 'kill', side_effect=send), \
+                patch.object(processes.time, 'monotonic', side_effect=lambda: clock['now']), \
+                patch.object(processes.time, 'sleep', side_effect=advance):
+            with self.assertRaises(processes.ProcessError) as rejected:
+                tree.stop(child)
+        child.wait.assert_called_once_with(timeout=1)
+        self.assertEqual([owned], rejected.exception.processes)
+        self.assertTrue(all(value == pid for value, _sig in sent),
+                        'Cleanup must not signal the unrelated sentinel')
+        return rejected.exception, reap_error, sent, pid
+
+    def test_term_phase_reap_timeout_kills_owned_root_and_remains_typed_uncertainty(self):
+        error, timeout, sent, pid = self.reap_failure(phase='term')
+        self.assertIs(timeout, error.__cause__)
+        self.assertIn('Cannot verify child exit', str(error))
+        self.assertNotIn('controlled child', str(error))
+        self.assertIn((pid, signal.SIGKILL), sent)
+        self.assertEqual((pid, signal.SIGCONT), sent[-1],
+                         'A frozen root must still receive its final resume')
+
+    def test_kill_phase_reap_timeout_retries_owned_cleanup_without_returning_success(self):
+        error, timeout, sent, pid = self.reap_failure(phase='kill')
+        self.assertIs(timeout, error.__cause__)
+        self.assertEqual(2, sent.count((pid, signal.SIGKILL)),
+                         'Reap failure must execute the recorded-worker fallback too')
+        self.assertEqual((pid, signal.SIGCONT), sent[-1])
+
+    def test_reap_timeout_does_not_signal_a_reused_pid(self):
+        error, timeout, sent, pid = self.reap_failure(phase='term', reused=True)
+        self.assertIs(timeout, error.__cause__)
+        self.assertNotIn((pid, signal.SIGKILL), sent,
+                         'Recorded ownership cannot transfer to a different birth')
+
+    def test_reap_timeout_and_denied_force_cleanup_remain_typed_with_owned_receipt(self):
+        error, _timeout, sent, pid = self.reap_failure(phase='term', deny_kill=True)
+        self.assertIn('permission denied', str(error))
+        self.assertIsInstance(error.__cause__, PermissionError)
+        self.assertIn((pid, signal.SIGKILL), sent)
+        self.assertEqual((pid, signal.SIGCONT), sent[-1])
 
 
 if __name__ == '__main__':

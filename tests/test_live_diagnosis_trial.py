@@ -182,6 +182,35 @@ class JudgeFinalVerdictTests(unittest.TestCase):
         json.dumps(verdict)
         self.assertEqual("FAIL", trial.verdict_result(verdict))
 
+    def test_unverified_grader_reap_cannot_return_a_verdict(self):
+        # Exercise judge_final_verdict -> grader.wait -> ProcessTree.stop using
+        # controlled OS observations. No real grader child is launched.
+        (self.project / "convert.py").write_text(trial.REFERENCE_MODULE)
+        (self.project / "test_convert.py").write_text(trial.SEED_TEST)
+        process = Mock(pid=2 ** 22 - 10, returncode=None)
+        process.poll.return_value = None
+        timeout = subprocess.TimeoutExpired('controlled grader', 1)
+        process.wait.side_effect = timeout
+        root = {'pid': process.pid, 'parent': os.getpid(), 'group': process.pid,
+                'started': 'owned grader', 'birth_identity': 1.0,
+                'birth_time': 1.0, 'state': trial.grader_process.psutil.STATUS_ZOMBIE}
+        owned = trial.grader_process.processes.identity(root)
+        with patch.object(trial.subprocess, 'Popen', return_value=process), \
+                patch.object(trial.grader_process, '_leader', return_value=root), \
+                patch.object(trial.grader_process, '_capture_group'), \
+                patch.object(trial.grader_process.processes.ProcessTree, 'sample', return_value=[]), \
+                patch.object(trial.grader_process.processes, 'process_table',
+                             return_value={process.pid: root}), \
+                patch.object(trial.grader_process.processes.os, 'kill') as kill:
+            with self.assertRaisesRegex(trial.TrialError, 'cleanup could not be verified') as rejected:
+                trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
+        cleanup = rejected.exception.__cause__
+        self.assertIsInstance(cleanup, trial.grader_process.processes.ProcessError)
+        self.assertIs(timeout, cleanup.__cause__)
+        self.assertEqual([owned], cleanup.processes)
+        process.wait.assert_called_once_with(timeout=1)
+        kill.assert_called_once_with(process.pid, signal.SIGKILL)
+
     def test_stdout_markers_skips_and_import_failures_cannot_forge_pass(self):
         candidates = [
             "import unittest\nraise unittest.SkipTest('skip everything')\n",

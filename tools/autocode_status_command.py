@@ -3,11 +3,9 @@
 try:
     from . import autocode_source_scope as source_scope
     from . import autocode_launch_inputs as launch_inputs
-    from . import autocode_stop_explanations as explanations
 except ImportError:
     import autocode_source_scope as source_scope
     import autocode_launch_inputs as launch_inputs
-    import autocode_stop_explanations as explanations
 
 import json
 import sys
@@ -17,16 +15,18 @@ try:
     from . import autocode_progress_view as progress_view
     from . import autocode_job_report_recovery as job_report_recovery
     from . import autocode_verification_preparation as preparation
+    from . import autocode_stop_explanations as stop_explanations
 except ImportError:
     import autocode_verification_inspection as verification
     import autocode_progress_view as progress_view
     import autocode_job_report_recovery as job_report_recovery
     import autocode_verification_preparation as preparation
+    import autocode_stop_explanations as stop_explanations
 
 
-def render(runner, state, args, workspace, run_dir):
+def render(runner, state, args, workspace, run_dir, *, design_input_preview=None):
     if getattr(args, "explain", False):
-        text = explanations.explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
+        text = stop_explanations.explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
         print(text["what_happened"])
         print()
         print(text["what_it_means"])
@@ -80,7 +80,8 @@ def render(runner, state, args, workspace, run_dir):
                                        visual_acceptance=visual_acceptance, liveness=liveness,
                                        runner_check_liveness=check_liveness,
                                        verification_obligation=preparation.frontier(run_dir / 'check-replay' / 'obligations', check),
-                                       stale_report_repair=runner.stale_report_repair(state, workspace) is not None)
+                                       stale_report_repair=runner.stale_report_repair(state, workspace) is not None,
+                                       design_input_preview=design_input_preview)
     public_view['job_report_recovery'] = job_report_recovery.offer(runner, state, run_dir, workspace)
     if inspected is not None:
         public_view['verification'] = inspected

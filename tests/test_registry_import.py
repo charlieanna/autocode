@@ -21,7 +21,7 @@ def import_in_process(home, selected_root):
 
 class RegistryImportTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
         self.home = self.root / "registry-home"

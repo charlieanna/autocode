@@ -22,8 +22,12 @@ import copy
 import uuid
 from contextlib import ExitStack
 try:
+    from . import autocode_native_image as native_image, autocode_native_invocation as native_invocation
+except ImportError:
+    import autocode_native_image as native_image, autocode_native_invocation as native_invocation
+try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
@@ -31,7 +35,7 @@ try:
     from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
-    import autocode_launch_inputs as launch_inputs
+    import autocode_launch_inputs as launch_inputs, autocode_parent_boundary as parent_boundary
     import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
@@ -58,13 +62,13 @@ try:
     from . import autocode_recovery_context as recovery_context
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
-    from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
+    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
     from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
+    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
@@ -93,13 +97,13 @@ except ImportError:
     import autocode_recovery_context as recovery_context
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
-    import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
+    import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
     import autocode_output_policy as output_policy, autocode_output_cap as output_cap
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
+    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, completed_provider_report, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
@@ -188,21 +192,9 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     if evidence_record:
         readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
     rework_policy.verify_existing(record)
-    if record.get("engine") == "opencode":
-        # Raw provider events are authoritative, including during recovery.
-        if record.get('output_mode') != 'report_file':
-            record['response_text'] = str(Path(record['output']).with_suffix('.response.txt'))
-        value = opencode.final_report(record["events"], recover_wrapped=bool(record.get("report_only")),
-                                      response_path=None if record.get('output_mode') == 'report_file' else record['response_text'])
-        # Persist rejected reports too, so archival never leaves a missing repair input.
-        if record.get('output_mode') != 'report_file':
-            write_json(Path(record['output']), value)
-    elif record.get("engine") == "qwen":
-        # Qwen events are also authoritative.
-        value = qwen.final_report(record["events"])
-        write_json(Path(record['output']), value)
-    else:
-        value = util.read_object(Path(record["output"]))
+    value = completed_provider_report(record, opencode_report=opencode.final_report,
+                                      qwen_report=qwen.final_report, read_object=util.read_object,
+                                      persist=write_json)
     reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
     value = planning.fill_trace_id(state, str(record.get('stage', '')).removesuffix('_report_repair'), value) if state else value
     value = default_missing_provenance(normalize_plan_challenge_blocking(planning_metadata.normalize_planning_metadata(value, state, record), record), record)
@@ -323,7 +315,11 @@ def run_role(
     *, role: str, prompt: str, sandbox: str, workspace: Path, run_dir: Path,
     state: dict[str, Any], schema: Path, model: str | None, allow_write: bool,
     dry_run: bool, report_only: bool = False, resume_session: str | None = None, retry_authorization=None,
+    persist=None, native=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    save = persist or write_json
+    if native is not None:
+        native.guard(state, state.get('next_stage'), report_only=report_only, allow_write=allow_write)
     if state.get('next_stage') == 'astra_diagnose' and state.get('active_stage'):
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Reconcile the active diagnosis before another provider request')
     if state.get('next_stage') == 'sol' and visual_runtime.requested(state):
@@ -338,7 +334,7 @@ def run_role(
     if state.get("version", 2) >= 3 and stage not in ("astra_discovery", *jobs.STAGES) and not joint_stage:
         goals.execution_guard(state)
         if not report_only:
-            milestones.dispatch_guard(state, stage)
+            native.dispatch_guard(state, stage, milestones.dispatch_guard) if native is not None else milestones.dispatch_guard(state, stage)
     if (joint_stage or stage == "astra_discovery") and (
             role != planning.role_for(state, stage) or allow_write or sandbox != "read-only"):
         raise support.Paused("PAUSED_DISCOVERY_WRITE", "Planning must use its assigned role read-only")
@@ -347,6 +343,8 @@ def run_role(
             planning_artifacts.verify_predecessor(state, original_stage, run_dir)
         except ValueError as error:
             raise support.Paused('PAUSED_INVALID_PREDECESSOR', str(error)) from error
+    route_role = planning.route_for(state, original_stage, role)
+    native_isolation = native.role_isolation(state, route_role) if native is not None else None
     if not dry_run:
         processes.preflight()  # fail before creating an active request
     if report_only:
@@ -360,8 +358,7 @@ def run_role(
     if not report_only and original_stage in ('sol', 'astra_review', 'astra_checkpoint'):
         bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
         schema = base.with_suffix('.schema.json')
-        write_json(schema, bound_schema)
-    route_role = planning.route_for(state, original_stage, role)
+        save(schema, bound_schema)
     fallback_route = reviewer_fallback.pending_route(state, original_stage) if joint_stage and not report_only else None
     if fallback_route:
         route_role = fallback_route['role']
@@ -380,6 +377,24 @@ def run_role(
     idle_limit, idle_origin = idle_policy.effective(
         idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model)
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
+    native_before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot) if native is not None else None
+    native_proof = (regression.complete(state, native_before['revision'])
+                    if native is not None and original_stage == 'sol' and regression.required(state) else False)
+    image_preparation = (native_image.NativeImagePreparation(native=native, isolation=native_isolation,
+        state=state, workspace=workspace, run_dir=run_dir, base=base, snapshot=native_before,
+        prompt=prompt, schema=schema, events=events, adapter=opencode,
+        render_prompt=provider_launch.render_native_image_prompt,
+        regression_proof_current=native_proof, regression_handoff=regression.handoff(state) if native_proof else None)
+        if native is not None and original_stage == 'sol' and visual_runtime.requested(state) else None)
+    native_environment = None
+    native_capture = None
+    if native is not None:
+        native_environment = agent_env.scrubbed(os.environ)
+        native_environment.update(output_policy.environment(state['settings'], workspace, events))
+        if getattr(opencode, 'OUTPUT', 'opencode_events') == 'report_file':
+            native_capture = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
+                              'source_revision': native_before['revision']}
+            native_environment['AUTOCODE_CAPTURE_CONTEXT'] = json.dumps(native_capture)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
@@ -387,10 +402,16 @@ def run_role(
         sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
         source_paths=source_scope.paths(state), settings=state["settings"],  # the launcher applies the saved #413 opt-out
         tool_commands=(lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state)))
-        if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
+        if engine == "opencode" and not dry_run and not (joint_stage or report_only) else (),
+        **({'native_image_preparation': image_preparation} if image_preparation is not None else {}),
+        **({'native_role_isolation': native_isolation, 'native_environment': native_environment}
+           if native is not None else {}))
     session = worker_context.get('provider_session', session)
     child_options = {"start_new_session": True, "env": child_environment}
-    if engine == "opencode":
+    if image_preparation is not None:
+        prompt = image_preparation.prompt
+        save(base.with_suffix('.opencode.json'), overrides)
+    elif engine == "opencode":
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
         current_proof = False
         if original_stage == 'sol' and worker_context.get('tool_containment') and regression.required(state):
@@ -398,14 +419,15 @@ def run_role(
         prompt = provider_launch.containment_prompt(prompt, worker_context, stage=original_stage,
             regression_proof_current=current_proof, regression_handoff=regression.handoff(state) if current_proof else None)
         if not configured_tool:
-            write_json(base.with_suffix(".opencode.json"), overrides)
+            save(base.with_suffix(".opencode.json"), overrides)
     elif engine == "qwen":
         prompt = qwen.prompt_for_schema(prompt, read_json(schema), events)
-    child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
+    if native is None:
+        child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
-        task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
-    visual_context = None
-    if original_stage == 'sol' and visual_runtime.requested(state) and not report_only:
+        task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=save)
+    visual_context = worker_context.get('visual_runtime') if image_preparation is not None else None
+    if original_stage == 'sol' and visual_runtime.requested(state) and not report_only and image_preparation is None:
         if engine != 'opencode' or configured_tool:
             raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Verified visual delivery requires the supported native OpenCode route')
         saved_transport = state['settings'].get('transport_identities', {}).get('opencode', state['settings'].get('transport_identity'))
@@ -418,11 +440,13 @@ def run_role(
         child_options['env'] = child_environment
         worker_context.update(command=command, environment=child_environment)
         if visual_context and visual_context.get('status') == 'READY' and engine == 'opencode' and not configured_tool:
-            write_json(base.with_suffix('.opencode.json'), json.loads(child_environment['OPENCODE_CONFIG_CONTENT']))
+            save(base.with_suffix('.opencode.json'), json.loads(child_environment['OPENCODE_CONFIG_CONTENT']))
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched.'
                              + REPAIR_INPUT_ROUTE)
+    if image_preparation is not None and prompt != image_preparation.prompt:
+        raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Final native image prompt changed after isolation sealing')
     prompt_file.write_text(prompt)
 
     record = {"role": role, "stage": stage, "iteration": iteration, "started_at": now(), "command": command,
@@ -457,13 +481,14 @@ def run_role(
 
     if engine == "opencode" and not configured_tool:
         readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
-    before = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
+    before = native_before or source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
     if record['output_mode'] == 'report_file':
-        record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
-                                     'source_revision': before['revision']}
-        child_options['env'] = dict(child_options.get('env', os.environ))
-        child_options['env']['AUTOCODE_CAPTURE_CONTEXT'] = json.dumps(record['capture_context'])
-    write_json(base.with_suffix(".before.json"), before)
+        record['capture_context'] = native_capture or {'attempt': str(output), 'nonce': uuid.uuid4().hex,
+                                      'source_revision': before['revision']}
+        if native is None:
+            child_options['env'] = dict(child_options.get('env', os.environ))
+            child_options['env']['AUTOCODE_CAPTURE_CONTEXT'] = json.dumps(record['capture_context'])
+    save(base.with_suffix(".before.json"), before)
     record["before_ref"] = str(base.with_suffix(".before.json"))
     record["context"] = state.pop("pending_context_metrics", {})
     job_source.capture(workspace, base, record, before)
@@ -472,15 +497,27 @@ def run_role(
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
-    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout, ExitStack() as provider_guard:
+    native_prepared = None
+    on_root = None
+    stdin_path = image_preparation.prompt_path if image_preparation is not None else prompt_file
+    with processes.interruption_handler(), stdin_path.open("r") as stdin, event_log.open_events(events) as stdout, ExitStack() as provider_guard:
         try:
             with interventions.admission(run_dir):
-                provider_launch.verify_containment(worker_context)
+                native_prepared = native.prepare_writer_launch(state, before, record, worker_context, command,
+                    child_options['env'], native_isolation, report_only=report_only) if native is not None else None
+                provider_launch.verify_containment(worker_context, **({'state': state,
+                    'native_role_isolation': native_isolation, 'command': command,
+                    'environment': child_options['env']} if native is not None else {}))
+                if native is not None and native_prepared is None:
+                    native_prepared = native.context.factory.prepare_launch(state, before, record,
+                        boundary=worker_context['tool_containment'], command=command,
+                        environment=child_options['env'], native_role_isolation=native_isolation)
                 if original_stage == 'sol' and visual_runtime.requested(state):
                     visual_runtime.verify_reference(state)
                 if visual_context and visual_context.get('status') == 'READY':
                     visual_runtime.verify_prelaunch(visual_context, state, run_dir=run_dir,
-                                                   current_snapshot=before, command=command, env=child_environment)
+                        current_snapshot=before, command=command, env=child_environment,
+                        **({'scope_authority': native.context.factory.scope_authority} if native is not None else {}))
                 resolver_recovery.admit_dispatch(state, record, workspace, run_dir, retry_authorization=retry_authorization)
                 if joint_stage and not report_only:
                     planning.charge(state, original_stage, record=record, workspace=workspace)
@@ -496,23 +533,29 @@ def run_role(
                 progressive_state.admit_attempt(state, record, before)
                 job_failure.admit(state, record, workspace)
                 state["active_stage"] = record
-                write_json(run_dir / "state.json", state)
+                save(run_dir / "state.json", state)
                 child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool
                                and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
                 def ownership_checkpoint(metadata):
                     # One writer before exec; status and reconciliation consume
                     # these birth identities and the independent receipt.
                     record.update(pid=metadata['provider']['pid'], owner=metadata['owner'], supervision=metadata)
-                    write_json(run_dir / "state.json", state)
-                child = provider_guard.enter_context(supervision.launch(
-                    command, receipt_path=base.with_suffix('.supervision.json'), timeout=stage_timeout or None,
-                    checkpoint=ownership_checkpoint, cwd=workspace, stdin=child_stdin, stdout=stdout,
-                    stderr=subprocess.STDOUT, text=True,
-                    **checkout_lock.child_options(workspace, child_options)))
+                    save(run_dir / "state.json", state)
+                launch_options = dict(cwd=workspace, stdin=child_stdin, stdout=stdout,
+                    stderr=subprocess.STDOUT, text=True, **checkout_lock.child_options(workspace, child_options))
+                if native is not None:
+                    child, on_root = provider_guard.enter_context(native.context.held_launch(native_prepared,
+                        command=command, environment=child_options['env'], options=launch_options,
+                        receipt_path=base.with_suffix('.supervision.json'), timeout=stage_timeout or None,
+                        checkpoint=ownership_checkpoint))
+                else:
+                    child = provider_guard.enter_context(supervision.launch(command,
+                        receipt_path=base.with_suffix('.supervision.json'), timeout=stage_timeout or None,
+                        checkpoint=ownership_checkpoint, **launch_options))
         except support.Paused:
-            job_source.discard_prepared(record)
+            job_source.discard_prepared(record) if native is None else None
             # Admission lost to a submission: no request or provider was started.
-            for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
+            for prepared in ((prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")) if native is None else ()):
                 prepared.unlink(missing_ok=True)
             raise
         except processes.ProcessError as error:
@@ -533,7 +576,7 @@ def run_role(
                 record["activity"] = {**snapshot, "observed_at": now(),
                                       "elapsed_seconds": round(time.monotonic() - started, 1),
                                       "stage_limit_seconds": stage_timeout}
-                write_json(run_dir / "state.json", state)
+                save(run_dir / "state.json", state)
                 label = (snapshot.get("activity"), snapshot.get("detail"))
                 current = time.monotonic()
                 if label != activity_label or current - last_activity_print >= 60:
@@ -546,11 +589,11 @@ def run_role(
                     activity_label, last_activity_print = label, current
             def checkpoint(owned):
                 record["processes"] = owned
-                write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
-                write_json(run_dir / "state.json", state)
+                save(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
+                save(run_dir / "state.json", state)
             exit_code, timed_out = processes.wait_for_stage(
                 child, stage_timeout, checkpoint, activity=activity, activity_checkpoint=activity_checkpoint,
-                startup_grace=min(5, tool_timeout or 5))
+                startup_grace=min(5, tool_timeout or 5), **({'on_root': on_root} if native is not None else {}))
         except KeyboardInterrupt:
             interrupted = True
             exit_code = child.poll()
@@ -558,7 +601,7 @@ def run_role(
             cleanup_error = str(error)
             exit_code = child.poll()
             record["processes"] = getattr(error, "processes", record.get("processes", []))
-            write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid,
+            save(worker_path, {"run_dir": str(run_dir), "pid": child.pid,
                                     "processes": record.get("processes", []), "cleanup_error": cleanup_error})
         else:
             worker_path.unlink(missing_ok=True)
@@ -591,7 +634,7 @@ def run_role(
         record.update(timeout_kind=timeout["kind"], timeout_reason=timeout["reason"])
     account_stage(state, record)
     if not cleanup_error and exit_code is not None: job_source.stopped(workspace, base, record)
-    write_json(run_dir / "state.json", state)
+    save(run_dir / "state.json", state)
     if cleanup_error:
         raise support.Paused("PAUSED_PROCESS_CLEANUP", cleanup_error)
     if interrupted:
@@ -619,7 +662,7 @@ def run_role(
         refused_at_clean_exit(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
-    write_json(base.with_suffix(".after.json"), after)
+    save(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
     record["source_revision"] = after["revision"]
     record["changed_files"] = support.changed_paths(before, after)
@@ -637,7 +680,14 @@ def run_role(
     except support.Paused:
         raise
     except (ValueError, RuntimeError) as error:
+        if native is not None:
+            record['rejected'] = True
+            if Path(record['output']).is_file():
+                native.context.factory.finish_launch(native_prepared, record, after)
+            native.reject(state, record, error)
         reject_completed_stage(state, run_dir, record, error)
+    if native is not None:
+        native.context.factory.finish_launch(native_prepared, record, after)
     return value, record
 
 
@@ -861,8 +911,9 @@ def execute_report_repair(state, run_dir, workspace):
     accept_repaired_report(state, run_dir, workspace, value, record)
 
 
-def apply_result(state, stage, value, record, workspace, run_dir):
-    result = autopilot.apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
+def apply_result(state, stage, value, record, workspace, run_dir, *, native=None):
+    runtime = native_invocation.runner_view(sys.modules[__name__], native) if native is not None else sys.modules[__name__]
+    result = autopilot.apply_result(runtime, state, stage, value, record, workspace, run_dir)
     job_failure.completed(state, stage)
     return result
 
@@ -1074,34 +1125,8 @@ def migrate_opencode_roles(state, run_dir, workspace):
 
 
 def check_joint_transports(state, workspace):
-    identities = state["settings"]["transport_identities"]
-    if "gocode" in identities:
-        raise support.Paused("PAUSED_TRANSPORT_CHANGED", "This saved run used the gocode engine, which this "
-                             "checkout no longer bundles; resume it from a checkout that has it, or start a "
-                             "new run with --provider gocode and a user-level provider config")
-    roles = {role: config for role, config in state["settings"]["roles"].items()
-             if planning.engine_for(state["settings"], role) == "codex"}
-    codex_changed = False
-    if roles:
-        codex = support.local_settings()
-        check_subscription(codex)
-        codex_changed = support.transport_drift(codex, identities["codex"], roles)
-    opencode_roles = {role: config for role, config in state["settings"]["roles"].items()
-                      if planning.engine_for(state["settings"], role) == "opencode"}
-    opencode_changed = False
-    if opencode_roles:
-        try:
-            opencode.check_subscription_routes(opencode_roles, workspace)
-        except RuntimeError as error:
-            raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
-        opencode_changed = opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])
-    qwen_roles = {role: config for role, config in state["settings"]["roles"].items()
-                  if planning.engine_for(state["settings"], role) == "qwen"}
-    qwen_changed = False
-    if qwen_roles:
-        qwen_changed = qwen.transport_drift(qwen.local_settings(workspace), identities["qwen"])
-    if codex_changed or opencode_changed or qwen_changed:
-        raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")
+    return joint_transport.check(state, workspace, engine_for=planning.engine_for, support=support,
+                                 opencode=opencode, qwen=qwen, check_subscription=check_subscription)
 
 
 def accept_completion(state: dict[str, Any], workspace: Path, *, run_dir=None) -> None:
@@ -1167,57 +1192,42 @@ def intervention_metadata(workspace, run_dir, state):
     return stop_policy.metadata(workspace, run_dir, state)
 
 
-def consume_interventions(state, run_dir, workspace, **options):
-    """Commit receipt effects and identity together before clearing the inbox (options: lock_held, released)."""
-    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, **options)
+def consume_interventions(state, run_dir, workspace, *, lock_held=False, released=False, persist=None):
+    """Commit receipt effects through the selected sink, preserving held-pause authority."""
+    return stop_policy.consume(state, run_dir, workspace, write_json=persist or write_json,
+                               now=now, lock_held=lock_held, released=released)
 
 
-def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False):
-    """Commit a prepared answer/approval without accepting earlier queued input."""
-    if run_dir is None:  # Pure in-memory callers have no concurrent inbox.
-        state.clear()
-        state.update(candidate)
-        return
-    with interventions.admission(run_dir):
-        if require_current_inputs:
-            try:
-                launch_inputs.guard(candidate, Path(candidate['workspace']), run_dir)
-            except ValueError as error:
-                raise support.Paused('PAUSED_STALE_VALIDATION', str(error)) from error
-        planning_artifacts.commit_pending(candidate, run_dir,
-            lambda value: write_json(run_dir / 'state.json', value))
-        state.clear()
-        state.update(candidate)
+def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False, persist=None, native=None):
+    return parent_boundary.commit_user_action(state, candidate, run_dir,
+        require_current_inputs=require_current_inputs, save=persist or write_json,
+        admission=interventions.admission, guard_inputs=launch_inputs.guard,
+        commit_pending=planning_artifacts.commit_pending, native=native)
 
-
-def commit_stage_result(state, stage, value, record, workspace, run_dir):
+def commit_stage_result(state, stage, value, record, workspace, run_dir, *, persist=None, native=None):
     """Preserve a finished report, applying any earlier input before authorization."""
     result_application.commit(state, run_dir, stage,
-        lambda candidate: apply_result(candidate, stage, value, record, workspace, run_dir),
-        lambda candidate: commit_boundary_candidate(state, candidate, run_dir, workspace), persist=write_json)
+        lambda candidate: apply_result(candidate, stage, value, record, workspace, run_dir, native=native),
+        lambda candidate: commit_boundary_candidate(state, candidate, run_dir, workspace,
+            persist=persist, native=native, planning_record=record if native is not None and stage == 'plan_finalize' else None),
+        persist=persist or write_json)
+    if native is not None and stage == 'sol':
+        candidate = native.review_progress(state, record, milestones.observe_validation)
+        commit_boundary_candidate(state, candidate, run_dir, workspace, persist=persist, native=native)
 
 
-def commit_boundary_candidate(state, candidate, run_dir, workspace):
-    """Publish normal and repaired reports through the same intervention boundary."""
-    with interventions.serialized(run_dir):
-        # Validate inbox readability before changing the owner state. A corrupt
-        # inbox leaves the terminal stage available for explicit recovery.
-        interventions.pending(run_dir)
-        original = copy.deepcopy(state)
-        def persist(value):
-            state.clear(); state.update(value)
-            try:
-                if not consume_interventions(state, run_dir, workspace, lock_held=True):
-                    write_json(run_dir / 'state.json', state)
-            except Exception:
-                state.clear(); state.update(original)
-                raise
-        planning_artifacts.commit_pending(candidate, run_dir, persist)
+def commit_boundary_candidate(state, candidate, run_dir, workspace, *, persist=None, native=None, planning_record=None):
+    return parent_boundary.commit_boundary_candidate(state, candidate, run_dir, workspace,
+        save=persist or write_json, serialized=interventions.serialized,
+        pending=interventions.pending, consume=consume_interventions,
+        commit_pending=planning_artifacts.commit_pending, native=native, planning_record=planning_record)
 
-
-def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
+def chat_checkpoint(state: dict[str, Any], run_dir=None, *, persist=None, native=None) -> bool:
     """Collect discovery answers and goal approval in a single terminal conversation."""
     speaker = "AutoResolver"
+    save = persist or write_json
+    if native is not None and state.get('user_request', {}).get('kind') == 'human_review':
+        raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Native image/human artifact review requires later scopes')
     normalize_human_boundary(state, run_dir)
     def action(callback, published=None):
         candidate = copy.deepcopy(state)
@@ -1235,7 +1245,8 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             finish_human_action(candidate, published)
         normalize_human_boundary(candidate, run_dir)
         commit_user_action(state, candidate, run_dir,
-                           require_current_inputs=bool(published and published['scope'] == 'human_review'))
+                           require_current_inputs=bool(published and published['scope'] == 'human_review'),
+                           persist=save, native=native)
 
     if state.get("discovery_summary") and state.get("phase") == "DISCOVERING":
         print(f"\n{speaker}: " + state["discovery_summary"])
@@ -1257,7 +1268,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
             resolver_human.respond_operational(candidate, published['request_id'], published['request_token'],
                 'leave_paused' if reply == '/pause' else 'provide_information', '' if reply == '/pause' else reply)
             resolver_human.review_operational_response(candidate)
-            commit_user_action(state, candidate, run_dir)
+            commit_user_action(state, candidate, run_dir, persist=save, native=native)
             return False
         if state.get("user_request", {}).get("kind") == "human_review":
             print(lifecycle.present(state))
@@ -1327,7 +1338,8 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                 print("\nChat paused; the brief remains available for approval.")
                 return False
             if reply.lower() in ("y", "yes", "/approve"):
-                action(lambda candidate: lifecycle.approve(candidate, state["displayed_goal"]), published)
+                action(lambda candidate: (native.approve(lifecycle.approve, candidate, state["displayed_goal"])
+                    if native is not None else lifecycle.approve(candidate, state["displayed_goal"])), published)
                 return True
             if reply.lower() in ("", "n", "no", "/pause"):
                 print("Brief not approved. Resume this run when you are ready.")
@@ -1343,7 +1355,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
     return state["status"] == "RUNNING"
 
 
-def rotate_if_needed(state, role, run_dir):
+def rotate_if_needed(state, role, run_dir, *, persist=None):
     limit = state["settings"].get("rotation_after_input_tokens")
     latest = next((r for r in reversed(state.get("stages", []))
                    if r.get("route_role", r.get("role", r.get("stage", "").split("_")[0])) == role), None)
@@ -1352,7 +1364,7 @@ def rotate_if_needed(state, role, run_dir):
         old = state["sessions"].pop(role)
         state.setdefault("session_rotations", []).append({"role":role,"old_session":old,"at":now(),
             "reason":"Previous stage cumulative reported input exceeded rotation threshold; not a context-window measurement"})
-        write_json(run_dir / "state.json", state)
+        (persist or write_json)(run_dir / "state.json", state)
 
 
 def main(unit=None) -> int:
@@ -1374,7 +1386,6 @@ def main(unit=None) -> int:
 
 
 def _main_body(unit=None) -> int:
-    global opencode
     try:
         from . import autocode_subcommands as subcommands
     except ImportError:
@@ -1393,55 +1404,11 @@ def _main_body(unit=None) -> int:
         print("Input rejected: Feedback and follow-ups must be nonempty", file=sys.stderr)
         return 2
 
-    resolved = run_setup.resolve(sys.modules[__name__], args, parser)
-    if isinstance(resolved, int):
-        return resolved
-    workspace, run_dir, state_path, state = resolved
-    saved_provider = dict(state.get("settings") or {})
-    if state.get("settings") and "provider" not in saved_provider:
-        saved_provider["provider"] = "opencode"
     try:
-        selected_provider = autocode_providers.select(args.provider, saved_provider,
-                                                      default="opencode" if args.engine == "codex" else None)
-        opencode = autocode_providers.resolve(selected_provider)
-    except (RuntimeError, ValueError) as error:
-        parser.error(str(error))
-    support.assert_no_legacy_process(run_dir, workspace)
-    task_workspaces.keep_out_of_git(workspace)
-    with support.run_lock(run_dir):
-        if stop_policy.applied_stop(state):
-            return stop_policy.refuse_before_configure(write_json, state, state_path)
-        state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
-        try:
-            code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
-            if code is not None:
-                return code
-            code = build_loop.run(sys.modules[__name__], args, state, state_path, run_dir, workspace)
-            if code is not None:
-                return code
-        except (support.Paused, ValueError, RuntimeError, OSError) as error:
-            state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
-            state["phase"] = "PAUSED_OR_BLOCKED"
-            if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
-                resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
-            write_json(state_path, state)
-            print(f"{state['status']}: {error}", file=sys.stderr)
-            return 2
-        if state["status"] == "TASK_COMPLETE":
-            print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
-        else:
-            if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-                if not chat_checkpoint(state, run_dir):
-                    write_json(state_path, state)
-                    return 2
-                write_json(state_path, state)
-                if state["status"] == "TASK_COMPLETE":
-                    print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
-                    return 0
-            rendered = lifecycle.present(state, run_dir)
-            write_json(state_path, state)
-            print(rendered)
-        return 0 if state["status"] == "TASK_COMPLETE" else 2
+        from . import autocode_native_invocation as native_invocation
+    except ImportError:
+        import autocode_native_invocation as native_invocation
+    return native_invocation.resolve_and_run(sys.modules[__name__], args, parser, failure_routing=unit is None)
 
 
 def cli(unit=None):

@@ -43,9 +43,12 @@ except ImportError:
     import autocode_workflows as workflows
 
 
-def run(runner, args, state, state_path, run_dir, workspace):
+def run(runner, args, state, state_path, run_dir, workspace, *, checkout_owned=False):
     """Drive the run's stages until it stops; return the exit code, or None if the loop ends normally."""
     def before_code_stage(current):
+        native = getattr(runner, 'native_calls', None)
+        if native is not None:
+            native.guard(current)
         try:
             if runner.consume_interventions(current, run_dir, workspace):
                 print(f"{current['status']}: {current['stop_reason']}")
@@ -96,6 +99,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if using_opencode:
             current_settings = runner.opencode.local_settings(workspace)
             drifted = runner.opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
+        elif engine == "qwen":
+            current_settings = runner.qwen.local_settings(workspace)
+            drifted = runner.qwen.transport_drift(current_settings, current["settings"]["transport_identity"])
         else:
             current_settings = support.local_settings()
             drifted = support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"])
@@ -116,6 +122,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
             return runner.orchestrator.SKIP
 
     def dispatch_code_stage(current, stage):
+        native = getattr(runner, 'native_calls', None)
+        if native is not None:
+            native.guard(current, stage)
         progressive.guard_dispatch(current, stage)
         autopilot.builder_failure.dispatch_guard(current, stage, workspace)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
@@ -123,8 +132,13 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if stage == "terra":
             autopilot.builder_policy.guard(current)
         try:
-            milestones.dispatch_guard(current, stage)
+            if native is not None:
+                native.dispatch_guard(current, stage, milestones.dispatch_guard)
+            else:
+                milestones.dispatch_guard(current, stage)
         except support.Paused as error:
+            if getattr(runner, 'native_calls', None) is not None:
+                raise  # No automatic authority, allowance or report repair in Scope 3.
             if (error.status != 'PAUSED_MILESTONE_TIME_LIMIT'
                     or not runner.recover_default_budget(current, run_dir, workspace, 'milestone_max_seconds')):
                 raise
@@ -171,6 +185,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except runner.ReportRepairQueued:
             return runner.orchestrator.SKIP
         except support.Paused as error:
+            if getattr(runner, 'native_calls', None) is not None:
+                raise  # Retained native attempts grant no automatic recovery.
             if job_failure.recover(runner, current, run_dir, workspace, error):
                 return runner.orchestrator.SKIP
             if provider_recovery.recover_startup(runner, current, run_dir, workspace, error):
@@ -214,7 +230,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if args.pause_after_stage and current["status"] == "RUNNING":
             raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
     try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
-        with checkout_lock.exclusive(workspace, run_dir, busy=runner.orchestrator.LoopExit(2)):
+        from contextlib import nullcontext
+        with (nullcontext() if checkout_owned else checkout_lock.exclusive(workspace, run_dir, busy=runner.orchestrator.LoopExit(2))):
             if "base_commit" in state and not state["base_commit"] and not any(
                     not row.get("runner_owned") for row in state.get("stages") or []):
                 # Found the checkout busy at launch (autocode_run_setup.launch_base): it starts from here.

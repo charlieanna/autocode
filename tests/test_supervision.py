@@ -743,5 +743,233 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json
         self.keeper_publication_case(deadline_fault=True)
 
 
+class OwnerDeadlineTests(unittest.TestCase):
+    """Setup consumes the inherited launch budget; no real keeper or sleep."""
+
+    def exercise_setup(self, *, timeout=20, deadline=110, pass_deadline=True,
+                       owner_delay=2, launch_delay=4, identity_delay=2):
+        from contextlib import ExitStack
+        from unittest.mock import Mock
+
+        clock = [100.0]
+        owner = {'pid': 4001, 'birth_identity': 1.0}
+        keeper = Mock(spec=['pid', 'returncode', 'poll', 'wait'])
+        keeper.pid, keeper.returncode = 4002, 0
+        keeper.poll.return_value = None
+        keeper.wait.return_value = 0
+        watcher = Mock(spec=['start', 'join'])
+        nonce = 'c' * 32
+
+        def live(rows):
+            clock[0] += owner_delay
+            return rows
+
+        def launch(*args, **kwargs):
+            clock[0] += launch_delay
+            return keeper
+
+        def identity(pid):
+            clock[0] += identity_delay / 2
+            return {'pid': pid, 'birth_identity': 2.0}
+
+        with tempfile.TemporaryDirectory(prefix='owner-deadline-') as temp, ExitStack() as stack:
+            read_fd, write_fd = os.pipe()
+            stack.callback(os.close, read_fd)
+            stack.callback(os.close, write_fd)
+            stack.enter_context(patch.object(supervision.time, 'monotonic', side_effect=lambda: clock[0]))
+            stack.enter_context(patch.object(supervision.processes, 'live_processes', side_effect=live))
+            stack.enter_context(patch.object(supervision, '_identity', side_effect=identity))
+            popen = stack.enter_context(patch.object(supervision.subprocess, 'Popen', side_effect=launch))
+            send = stack.enter_context(patch.object(supervision, '_send'))
+            read = stack.enter_context(patch.object(supervision, '_read_line', return_value={'armed': nonce}))
+            stack.enter_context(patch.object(supervision, 'receipt', side_effect=[
+                {'phase': 'armed', 'cause': None}, {'phase': 'armed', 'cause': None},
+                {'phase': 'discharged', 'cause': 'controller_finished'}]))
+            stack.enter_context(patch.object(supervision.select, 'select', return_value=([], [], [])))
+            stack.enter_context(patch.object(supervision.threading, 'Thread', return_value=watcher))
+            kwargs = {'deadline': deadline} if pass_deadline else {}
+            error = None
+            try:
+                with supervision.protect_owner(read_fd, receipt_path=Path(temp) / 'receipt.json',
+                        timeout=timeout, owner_identity=owner, nonce=nonce, **kwargs):
+                    pass
+            except Exception as caught:
+                error = caught
+            return {'error': error, 'popen': popen, 'send': send, 'read': read,
+                    'keeper': keeper, 'clock': clock[0]}
+
+    def test_authenticated_absolute_deadline_does_not_shift_during_setup(self):
+        result = self.exercise_setup()
+        self.assertIsNone(result['error'])
+        self.assertEqual(108, result['clock'])
+        self.assertEqual(110, result['send'].call_args_list[0].args[1]['deadline'])
+        self.assertEqual(110, result['read'].call_args.args[1])
+        result['keeper'].wait.assert_called_once_with(timeout=8)
+
+    def test_relative_caller_also_consumes_setup_time_and_admission_budget(self):
+        result = self.exercise_setup(pass_deadline=False)
+        self.assertIsNone(result['error'])
+        self.assertEqual(120, result['send'].call_args_list[0].args[1]['deadline'])
+        self.assertEqual(115, result['read'].call_args.args[1])
+
+    def test_relative_bound_is_not_extended_by_a_later_inherited_deadline(self):
+        result = self.exercise_setup(timeout=10, deadline=200)
+        self.assertIsNone(result['error'])
+        self.assertEqual(110, result['send'].call_args_list[0].args[1]['deadline'])
+        self.assertEqual(110, result['read'].call_args.args[1])
+
+    def test_owner_inspection_exhausting_the_budget_refuses_before_launch(self):
+        result = self.exercise_setup(owner_delay=11)
+        self.assertIsInstance(result['error'], supervision.SupervisionError)
+        self.assertIn('expired', str(result['error']))
+        result['popen'].assert_not_called()
+        result['send'].assert_not_called()
+
+    def test_invalid_or_expired_bounds_refuse_before_process_inspection(self):
+        for change in ({'deadline': 100}, {'deadline': 99}, {'deadline': True},
+                       {'deadline': '110'}, {'deadline': float('nan')},
+                       {'deadline': float('inf')}, {'timeout': 0}, {'timeout': True},
+                       {'timeout': float('nan')}, {'timeout': float('inf')}):
+            with self.subTest(change=change):
+                result = self.exercise_setup(**change)
+                self.assertIsInstance(result['error'], supervision.SupervisionError)
+                self.assertEqual(100, result['clock'])
+                result['popen'].assert_not_called()
+
+
+class KeeperDischargeTimeoutTests(unittest.TestCase):
+    """Fault the admitted keeper's exact wait, without a live keeper or sleep."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='keeper-discharge-fault-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def guard_fixture(self, *, timeout=False, interrupted=False,
+                      before_phase='armed', terminal_phase='discharged', returncode=0):
+        from contextlib import ExitStack, contextmanager
+        from unittest.mock import Mock
+
+        @contextmanager
+        def controlled():
+            read_fd, write_fd = os.pipe()
+            self.addCleanup(os.close, read_fd)
+            self.addCleanup(os.close, write_fd)
+            nonce = 'b' * 32
+            owner = {'pid': 4001, 'birth_identity': 1.0}
+            native_keeper = {'pid': 4002, 'birth_identity': 2.0}
+            provider = {'pid': 4003, 'birth_identity': 3.0}
+            keeper = Mock(spec=['pid', 'returncode', 'poll', 'wait', 'kill', 'terminate'])
+            keeper.pid = native_keeper['pid']
+            keeper.returncode = None if timeout else returncode
+            keeper.poll.return_value = None
+            raw_timeout = subprocess.TimeoutExpired(['controlled-keeper'], 8)
+            keeper.wait.side_effect = raw_timeout if timeout else None
+            keeper.wait.return_value = returncode
+            watcher = Mock(spec=['start', 'join'])
+            armed = {'phase': 'armed', 'cause': None}
+            before = {'phase': before_phase, 'cause': None}
+            terminal = None if terminal_phase is None else {'phase': terminal_phase, 'cause': 'controller_finished'}
+            path = self.root / 'receipt.json'
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(supervision.processes, 'live_processes', return_value=[owner]))
+                stack.enter_context(patch.object(supervision, '_identity', side_effect=[native_keeper, provider]))
+                popen = stack.enter_context(patch.object(supervision.subprocess, 'Popen', return_value=keeper))
+                send = stack.enter_context(patch.object(supervision, '_send'))
+                stack.enter_context(patch.object(supervision, '_read_line', return_value={'armed': nonce}))
+                observe = stack.enter_context(patch.object(supervision, 'receipt', side_effect=[armed, before, terminal]))
+                stack.enter_context(patch.object(supervision.select, 'select',
+                                                side_effect=[([], [], []), ([read_fd] if interrupted else [], [], [])]))
+                stack.enter_context(patch.object(supervision.threading, 'Thread', return_value=watcher))
+                stop = stack.enter_context(patch.object(supervision, '_stop_direct'))
+                kill = stack.enter_context(patch.object(supervision.os, 'kill'))
+                publish = stack.enter_context(patch.object(supervision.util, 'atomic_json'))
+                yield {'context': supervision.protect_owner(read_fd, receipt_path=path, timeout=30,
+                             owner_identity=owner, nonce=nonce), 'keeper': keeper, 'raw_timeout': raw_timeout,
+                       'popen': popen, 'send': send, 'observe': observe, 'stop': stop, 'kill': kill,
+                       'publish': publish, 'watcher': watcher, 'receipt_path': path, 'nonce': nonce}
+        return controlled()
+
+    def assert_no_keeper_replacement_or_signal(self, fixture):
+        fixture['popen'].assert_called_once()
+        fixture['stop'].assert_not_called()
+        fixture['kill'].assert_not_called()
+        fixture['keeper'].kill.assert_not_called()
+        fixture['keeper'].terminate.assert_not_called()
+        fixture['publish'].assert_not_called()
+        fixture['watcher'].join.assert_called_once_with(timeout=1)
+
+    def test_discharge_timeout_is_typed_and_leaves_admitted_keeper_responsible(self):
+        retained = b'{"fixture":"armed receipt retained unchanged"}\n'
+        with self.guard_fixture(timeout=True) as fixture:
+            with self.assertRaisesRegex(supervision.SupervisionError, 'discharge did not finish') as caught:
+                with fixture['context']:
+                    fixture['receipt_path'].write_bytes(retained)
+            self.assertIs(fixture['raw_timeout'], caught.exception.__cause__)
+            self.assertIsInstance(caught.exception, processes.ProcessError)
+            fixture['keeper'].wait.assert_called_once_with(timeout=8)
+            self.assertEqual(retained, fixture['receipt_path'].read_bytes())
+            self.assertEqual({'finished': fixture['nonce']}, fixture['send'].call_args_list[-1].args[1])
+            self.assert_no_keeper_replacement_or_signal(fixture)
+
+    def test_discharge_receipt_cannot_substitute_for_timed_out_actual_wait(self):
+        with self.guard_fixture(timeout=True, before_phase='discharged') as fixture:
+            with self.assertRaises(supervision.SupervisionError) as caught:
+                with fixture['context']:
+                    pass
+            self.assertIs(fixture['raw_timeout'], caught.exception.__cause__)
+            fixture['keeper'].wait.assert_called_once_with(timeout=8)
+            self.assertEqual(2, fixture['observe'].call_count)
+            self.assert_no_keeper_replacement_or_signal(fixture)
+
+    def test_owner_loss_does_not_wait_for_or_discharge_its_keeper(self):
+        with self.guard_fixture(interrupted=True) as fixture:
+            with fixture['context'] as metadata:
+                self.assertEqual(fixture['nonce'], metadata['nonce'])
+            fixture['keeper'].wait.assert_not_called()
+            self.assertEqual(1, fixture['send'].call_count)
+            self.assert_no_keeper_replacement_or_signal(fixture)
+
+    def test_verified_discharge_preserves_normal_and_nonzero_body_exit(self):
+        for code in (0, 7):
+            with self.subTest(code=code), self.guard_fixture() as fixture:
+                if code:
+                    with self.assertRaises(SystemExit) as caught:
+                        with fixture['context']:
+                            raise SystemExit(code)
+                    self.assertEqual(code, caught.exception.code)
+                else:
+                    with fixture['context']:
+                        pass
+                fixture['keeper'].wait.assert_called_once_with(timeout=8)
+                self.assertEqual(3, fixture['observe'].call_count)
+                self.assert_no_keeper_replacement_or_signal(fixture)
+
+    def test_wait_success_still_requires_verified_discharge_receipt_and_exit(self):
+        for terminal, code in ((None, 0), ('stopped', 0), ('discharged', 4)):
+            with self.subTest(terminal=terminal, code=code), self.guard_fixture(
+                    terminal_phase=terminal, returncode=code) as fixture:
+                with self.assertRaisesRegex(supervision.SupervisionError, 'cleanup was uncertain'):
+                    with fixture['context']:
+                        pass
+                fixture['keeper'].wait.assert_called_once_with(timeout=8)
+                self.assert_no_keeper_replacement_or_signal(fixture)
+
+    def test_public_cli_reports_typed_discharge_timeout_without_traceback(self):
+        import io
+        import autocode as runner
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with self.guard_fixture(timeout=True) as fixture:
+            def guarded_main():
+                with fixture['context']:
+                    return 0
+            with patch.object(runner, 'main', side_effect=guarded_main), \
+                 patch.object(runner.sys, 'stdout', stdout), patch.object(runner.sys, 'stderr', stderr):
+                self.assertEqual(2, runner.cli())
+            self.assertIn('autocode: Harness keeper discharge did not finish within its bound', stderr.getvalue())
+            self.assertNotIn('Traceback', stderr.getvalue())
+            fixture['keeper'].wait.assert_called_once_with(timeout=8)
+            self.assert_no_keeper_replacement_or_signal(fixture)
+
+
 if __name__ == '__main__':
     unittest.main()

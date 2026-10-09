@@ -135,7 +135,8 @@ const fetch = async (url, options = {}) => {
   if (url.startsWith('/api/run?')) {
     const query = new URLSearchParams(url.slice('/api/run?'.length));
     const runPath = query.get('run') || '';
-    const base = (serverState.data.runs || []).find(row => row.run === runPath)
+    const base = (serverState.runViews || []).find(row => row.run === runPath)
+      || (serverState.data.runs || []).find(row => row.run === runPath)
       || {workspace: query.get('workspace') || '', run: runPath, task: 'Missing task'};
     return {ok: true, json: async () => JSON.parse(JSON.stringify(base))};
   }
@@ -150,6 +151,11 @@ const fetch = async (url, options = {}) => {
     serverState.data.conversations.push(doc);
     serverState.lastCreation = doc;
     return {ok: true, json: async () => doc};
+  }
+  if (url === '/api/projects' && serverState.onProject) {
+    const body = JSON.parse(options.body || '{}');
+    serverState.onProject(body);
+    return {ok: true, json: async () => ({workspace: body.workspace, action: body.action, removed: body.action === 'remove'})};
   }
   if (url === '/api/action') {
     const body = JSON.parse(options.body || '{}');
@@ -290,6 +296,198 @@ const CASES = {
     const expanded = sidebarGroups().find(group => textOf(groupToggle(group)).includes('AutoCode'));
     assert.equal(false, findFirst(expanded, 'project-group-rows').hidden, 'toggling again expands the group');
     assert.equal(2, groupRows(expanded).length, 'the expanded group still shows its conversation rows');
+  },
+  async parent_worktree() {
+    const variants = [
+      {name: 'explicit', workspace: AUTOCODE + '/.autocode/worktrees/explicit', parent: AUTOCODE, linkedParent: IDLECAMPUS},
+      {name: 'attachment', workspace: AUTOCODE + '/.autocode/worktrees/attachment', linkedParent: AUTOCODE},
+      {name: 'legacy', workspace: AUTOCODE},
+      {name: 'missing', workspace: AUTOCODE + '/.autocode/worktrees/missing', parent: AUTOCODE, linkedParent: AUTOCODE, missing: true},
+    ];
+    for (const variant of variants) {
+      const run = {workspace: variant.workspace, run: variant.workspace + '/.autocode/runs/' + variant.name,
+        task: 'Linked ' + variant.name, status: 'RUNNING', active_stage: {stage: 'terra'},
+        monitor: {live: {state: 'alive'}}, interventions: {mode: 'capable', stop_capable: true, entries: []},
+        ...(variant.parent ? {project_workspace: variant.parent} : {}),
+        ...(variant.missing ? {workspace_cleanup: {eligible: true, reason: 'confirmed_missing'}} : {})};
+      const attachment = {status: 'linked', workspace: run.workspace, run: run.run,
+        ...(variant.linkedParent ? {project_workspace: variant.linkedParent} : {})};
+      const doc = {...projectDoc('linked-' + variant.name, run.task, AUTOCODE), attachment};
+      const data = baseData({workspaces: [...new Set([AUTOCODE, IDLECAMPUS, run.workspace])],
+        runs: [run], conversations: [doc, projectDoc('planning-' + variant.name, 'Scoped draft', AUTOCODE)]});
+      serverState.data = data;
+      app.setData(data);
+      app.setActiveProject(run.workspace);
+      app.renderTasks(data);
+      assert.equal(AUTOCODE, app.readActiveProject(), 'a stored worktree selection returns to its parent');
+      if (variant.missing) {
+        assert.ok(document.querySelector('#project-filter').children.some(option => option.value === AUTOCODE),
+          'a missing child preserves the registered parent as an actual project-filter choice');
+        assert.equal('New conversation in AutoCode', document.querySelector('#new-task-scope-label').textContent,
+          'a missing child preserves the actual top New conversation parent scope');
+      }
+      const groups = sidebarGroups();
+      const group = groups.find(candidate => candidate.dataset.project === AUTOCODE);
+      assert.ok(group, 'the parent project stays in the sidebar: ' + variant.name);
+      const rowKey = variant.missing ? 'doc:' + doc.id : 'run:' + run.run;
+      assert.ok(groupRows(group).some(row => row.dataset.conversationKey === rowKey),
+        'the linked task belongs to the parent project, not a temporary execution worktree');
+      assert.ok(run.workspace === AUTOCODE || !groups.some(candidate => candidate.dataset.project === run.workspace),
+        'a task execution worktree is not offered as a separate project');
+      assert.equal(1, groups.flatMap(groupRows).filter(row => row.dataset.conversationKey === rowKey).length,
+        'the linked conversation is shown exactly once');
+      document.querySelector('#project-filter').onchange({target: {value: AUTOCODE}});
+      if (variant.missing) document.querySelector('#task-status-filter').onchange({target: {value: 'other'}});
+      assert.ok(findAll(document.querySelector('#runs'), 'task-row').some(row => textOf(row).includes(run.task)),
+        'the parent project filter includes its isolated task');
+      document.querySelector('#task-status-filter').onchange({target: {value: 'all'}});
+      assert.ok(findAll(document.querySelector('#runs'), 'conversation-row').some(row => textOf(row).includes('Scoped draft')),
+        'the same project filter includes an unattached scoped draft');
+      if (variant.missing) {
+        await groupCreate(group).onclick();
+        const creation = JSON.parse([...fetchLog].reverse().find(entry => entry.url === '/api/conversations').options.body);
+        assert.equal(AUTOCODE, creation.workspace, 'a missing child never removes parent creation scope');
+        assert.equal(true, creation.empty, 'missing child recovery creates only an empty saved conversation');
+        assert.ok(serverState.data.runs.includes(run) && serverState.data.conversations.includes(doc),
+          'creating at the parent preserves the missing child and linked history');
+        continue;
+      }
+      groupRows(group).find(row => row.dataset.conversationKey === rowKey).onclick();
+      assert.equal(run.workspace, app.state().chosen.workspace, 'opening retains the execution workspace');
+      assert.equal(run.run, app.state().chosen.run, 'opening retains the exact execution run');
+      for (const id of ['task-project', 'breadcrumb-title']) {
+        assert.equal('AutoCode', document.querySelector('#' + id).textContent,
+          'opening displays the parent project in ' + id);
+        assert.equal(AUTOCODE, document.querySelector('#' + id).title,
+          'opening exposes the parent path in ' + id);
+      }
+      await app.refresh();
+      for (const id of ['task-project', 'breadcrumb-title']) {
+        assert.equal('AutoCode', document.querySelector('#' + id).textContent,
+          'refresh preserves the parent project in ' + id);
+        assert.equal(AUTOCODE, document.querySelector('#' + id).title,
+          'refresh preserves the parent path in ' + id);
+      }
+      const read = [...fetchLog].reverse().find(entry => entry.url.startsWith('/api/run?'));
+      const query = new URLSearchParams(read.url.slice('/api/run?'.length));
+      assert.equal(run.workspace, query.get('workspace'), 'status reads target the execution workspace');
+      assert.equal(run.run, query.get('run'));
+      assert.equal(AUTOCODE, app.readActiveProject(), 'opening the task keeps the parent as active project');
+      assert.equal('New conversation in AutoCode', document.querySelector('#new-task-scope-label').textContent);
+      await document.querySelector('#stop-run').onclick();
+      const action = JSON.parse([...fetchLog].reverse().find(entry => entry.url === '/api/action').options.body);
+      assert.equal('stop', action.action);
+      assert.equal(run.workspace, action.workspace, 'Stop targets the unchanged execution workspace');
+      assert.equal(run.run, action.run);
+      app.showNewTask();
+      const created = await submitCreation('Parent-scoped followup ' + variant.name);
+      assert.equal(AUTOCODE, created.body.workspace, 'New conversation uses the parent project');
+      assert.equal(AUTOCODE, serverState.lastCreation.project_workspace);
+      assert.ok(!serverState.lastCreation.attachment, 'creation does not attach or replace the existing task');
+      run.status = 'PAUSED_INVALID_OUTPUT';
+      run.active_stage = {};
+      run.interventions.recovery = {version: 1, status: run.status, token: 'saved-pause-' + variant.name,
+        title: 'Saved pause', what_happened: 'The fixture task is paused.', retained: 'Original task retained.',
+        actions: [{kind: 'new_conversation', id: 'new-parent', label: 'Start a new conversation', effect: 'Keep this task paused.'}]};
+      app.openRun(run);
+      await app.refresh();
+      const recovery = buttonsIn(document.querySelector('#task-attention')).find(control => control.dataset.recoveryAction === 'new-parent');
+      assert.ok(recovery, 'the original recovery card offers its New conversation action');
+      const actionCount = fetchLog.filter(entry => entry.url === '/api/action').length;
+      await recovery.onclick();
+      const recoveryCreation = JSON.parse([...fetchLog].reverse().find(entry => entry.url === '/api/conversations').options.body);
+      assert.equal(AUTOCODE, recoveryCreation.workspace, 'the actual recovery action uses the parent project');
+      assert.equal(true, recoveryCreation.empty);
+      assert.equal(actionCount, fetchLog.filter(entry => entry.url === '/api/action').length,
+        'recovery New does not resume or mutate the original execution');
+    }
+    const legacy = {workspace: IDLECAMPUS, run: IDLECAMPUS + '/.autocode/runs/missing-legacy', task: 'Legacy missing',
+      status: 'PAUSED_INTERVENTION', workspace_cleanup: {eligible: true, reason: 'confirmed_missing'}};
+    const legacyData = baseData({runs: [legacy], conversations: []});
+    serverState.data = legacyData;
+    app.setData(legacyData);
+    app.renderTasks(legacyData);
+    assert.ok(!sidebarGroups().some(group => group.dataset.project === IDLECAMPUS),
+      'the original confirmed-missing legacy execution workspace stays hidden');
+    assert.ok(legacyData.runs.includes(legacy), 'hiding a missing legacy workspace preserves its history');
+    const copied = [];
+    context.navigator.clipboard = {writeText: async value => { copied.push(value); }};
+    for (const childRemoved of [false, true]) {
+      const workspace = AUTOCODE + '/.autocode/worktrees/' + (childRemoved ? 'legacy-excluded' : 'parent-removal');
+      const run = {workspace, project_workspace: AUTOCODE, run: workspace + '/.autocode/runs/task',
+        task: 'Project removal task', status: 'RUNNING', active_stage: {stage: 'terra'},
+        monitor: {live: {state: 'alive'}}, interventions: {mode: 'capable', stop_capable: true, entries: []}};
+      const doc = {...projectDoc('project-removal-' + childRemoved, run.task, AUTOCODE),
+        attachment: {status: 'linked', workspace, project_workspace: AUTOCODE, run: run.run}};
+      const removed = new Set(childRemoved ? [workspace] : []);
+      const snapshot = () => {
+        const hidden = removed.has(workspace) || removed.has(AUTOCODE);
+        serverState.data = baseData({workspaces: [AUTOCODE, IDLECAMPUS].filter(path => !removed.has(path)),
+          runs: hidden ? [] : [run], conversations: removed.has(AUTOCODE) ? [] : [doc],
+          removed_projects: [...removed].map(path => ({workspace: path}))});
+        // Match the existing public backend: child exclusion is returned first
+        // without a parent field; parent exclusion explicitly names the parent.
+        serverState.runViews = hidden ? [{project_removed: true, workspace, run: run.run, task: 'Removed project',
+          ...(!removed.has(workspace) ? {project_workspace: AUTOCODE} : {})}] : [run];
+      };
+      serverState.onProject = body => {
+        assert.ok(['remove', 'restore'].includes(body.action), 'only reversible project actions are sent');
+        if (body.action === 'remove') removed.add(body.workspace); else removed.delete(body.workspace);
+        snapshot();
+      };
+      snapshot();
+      app.setData(serverState.data);
+      app.renderTasks(serverState.data);
+      app.openRun(run);
+      await app.refresh();
+      const actionsBefore = fetchLog.filter(entry => ['/api/action', '/api/tasks', '/api/tasks/delete-preview', '/api/tasks/delete'].includes(entry.url)).length;
+      if (!childRemoved) {
+        const actions = document.querySelector('#task-project-actions');
+        assert.equal(AUTOCODE, findFirst(actions, 'project-path').textContent, 'the task project path names the parent');
+        await buttonsIn(actions).find(control => control.getAttribute('aria-label') === 'Copy project path').onclick();
+        assert.equal(AUTOCODE, copied.at(-1), 'Copy project path copies the parent, not the execution worktree');
+        buttonsIn(actions).find(control => control.getAttribute('aria-label') === 'Remove project AutoCode').onclick();
+        assert.equal(AUTOCODE, document.querySelector('#project-removal-path').textContent,
+          'the existing removal confirmation names the parent project');
+        document.querySelector('#project-removal-confirm').onclick();
+        await app.refresh();
+        const removal = JSON.parse([...fetchLog].reverse().find(entry => entry.url === '/api/projects').options.body);
+        assert.equal('remove', removal.action);
+        assert.equal(AUTOCODE, removal.workspace, 'actual Remove project posts only the parent');
+        assert.ok(removed.has(AUTOCODE) && !removed.has(workspace), 'the child is not separately excluded');
+      }
+      const target = childRemoved ? workspace : AUTOCODE;
+      assert.equal(target, document.querySelector('#task-project').title,
+        'the removed public response determines the actual exclusion identity');
+      const banner = document.querySelector('#task-removed-banner');
+      assert.equal(false, banner.hidden, 'the actual removed response offers restoration');
+      assert.equal(target, findFirst(banner, 'project-path').textContent);
+      await buttonsIn(document.querySelector('#task-project-actions')).find(control => control.getAttribute('aria-label') === 'Copy project path').onclick();
+      assert.equal(target, copied.at(-1), 'removed-project Copy preserves the exact excluded identity');
+      assert.equal(workspace, app.state().chosen.workspace, 'removal never changes the execution address');
+      assert.equal(run.run, app.state().chosen.run);
+      await buttonsIn(banner).find(control => control.getAttribute('aria-label')?.startsWith('Restore project ')).onclick();
+      await app.refresh();
+      const restoration = JSON.parse([...fetchLog].reverse().find(entry => entry.url === '/api/projects').options.body);
+      assert.equal('restore', restoration.action);
+      assert.equal(target, restoration.workspace, 'Restore posts the actual parent or legacy child exclusion');
+      assert.equal(0, removed.size, 'the actual exclusion is cleared');
+      assert.equal(false, serverState.runViews[0].project_removed === true, 'the public task is visible after restoration');
+      assert.ok(serverState.data.runs.includes(run) && serverState.data.conversations.includes(doc),
+        'the original task and linked conversation return without deletion or replacement');
+      assert.equal(AUTOCODE, document.querySelector('#task-project').title, 'the visible task returns to its parent project');
+      assert.equal(workspace, app.state().chosen.workspace);
+      assert.equal(run.run, app.state().chosen.run);
+      assert.equal(actionsBefore, fetchLog.filter(entry => ['/api/action', '/api/tasks', '/api/tasks/delete-preview', '/api/tasks/delete'].includes(entry.url)).length,
+        'project removal and restoration do not mutate, archive, or delete the task');
+      const read = [...fetchLog].reverse().find(entry => entry.url.startsWith('/api/run?'));
+      const query = new URLSearchParams(read.url.slice('/api/run?'.length));
+      assert.equal(workspace, query.get('workspace'));
+      assert.equal(run.run, query.get('run'));
+    }
+    delete serverState.onProject;
+    delete serverState.runViews;
+    delete context.navigator.clipboard;
   },
   async ac2() {
     const data = baseData();

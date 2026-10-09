@@ -165,7 +165,11 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     builder_failure.dispatch_guard(state, stage, workspace)
     if stage == 'terra':
         builder_policy.guard(state)
-    runtime.milestones.dispatch_guard(state, stage)
+    native = getattr(runtime, 'native_calls', None)
+    if native is not None:
+        native.dispatch_guard(state, stage, runtime.milestones.dispatch_guard)
+    else:
+        runtime.milestones.dispatch_guard(state, stage)
     runtime.workflow.dispatch_guard(state, stage, workspace)
     admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
@@ -595,11 +599,13 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
         row["status"] == "PASS" for row in value.get("criterion_results", []))
     if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
         raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
+    native = getattr(runtime, "native_calls", None)
+    native_execution = native.verification_execution(state, record) if native is not None else None
     replay_context = progressive_state.context(state)
-    clean_run, clean_identity = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run, verify.execution_identity)
+    clean_run, clean_identity = launch_inputs.runners(state, workspace, run_dir, verify.scratch_run, verify.execution_identity if native is None else None)
     validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, clean_run,
                                                    approved_state=state, progressive_context=replay_context,
-                                                   execution_identity=clean_identity,
+                                                   execution_identity=clean_identity, native_execution=native_execution,
                                                    all_brief_observations=human_pending or brief_obligations.whole_product_claim(
                                                        state, value, progressive_context=replay_context),
                                                    all_risk_observations=human_pending or brief_obligations.whole_product_claim(
@@ -609,7 +615,9 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
     if stage == 'sol' and (record.get('visual_runtime') or visual_runtime.requested(state)):
         visual_receipt = visual_runtime.accept_review(record.get('visual_runtime'), state, record, run_dir=run_dir,
-                                                       current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), accepted_validation=validation)
+                                                       current_snapshot=source_scope.snapshot(workspace, state, base_snapshot=support.snapshot), accepted_validation=validation,
+                                                       **({'scope_authority': native.context.factory.scope_authority,
+                                                           'native_history': native.context.factory.history} if native is not None else {}))
         if visual_receipt:
             validation['evidence_hashes'].update(visual_receipt['evidence_hashes'])
     if progressive_state.enabled(state):
@@ -628,7 +636,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     else:
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
-    milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
+    if native is None:
+        milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
@@ -846,6 +855,10 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
         findings_ledger.record_decision(state, value, record)
         if (milestones.progress(state) or {}).get('builder_reassessment'):
             queue_resolution(state, value, record)
+        elif getattr(runtime, 'native_calls', None) is not None:
+            # Native correction keeps the existing independent Resolver and its
+            # genuine recovery/retry gates; no direct-assignment shortcut.
+            queue_resolution(state, value, record)
         elif not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
             resolver_recovery.route_known_change(runtime, state, value, record, run_dir=run_dir, retry_policy=builder_policy)
         save_record(state, record)
@@ -890,7 +903,10 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
             save_record(state, record)
             return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
-            visual_runtime.require_completion(state, current_snapshot=current)
+            native = getattr(runtime, "native_calls", None)
+            prepared_completion = native.completion(state, current, record, value) if native is not None else None
+            visual_runtime.require_completion(state, current_snapshot=current,
+                **({'scope_authority': prepared_completion.scope_authority} if prepared_completion is not None else {}))
             progressive_state.prepare_completion(state, current, record,
                                                   product_findings=findings_ledger.blocking_entries(state))
             if modern and findings_ledger.blocking_entries(state):
@@ -904,9 +920,12 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                 raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.rejection(state))
             state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)
             if milestones.enabled(state):
-                milestones.accept(state, current)
+                milestones.accept(state, current,
+                    **({'visual_proof': prepared_completion.proof} if prepared_completion is not None else {}))
             if modern:
                 state["phase"] = "COMPLETE"
+            if prepared_completion is not None:
+                prepared_completion.publication(state)
         elif value["status"] == "BLOCKED":
             if modern:
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")
@@ -978,7 +997,10 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir, *, c
                     return
             current = source_scope.snapshot(workspace, state, base_snapshot=support.snapshot)
             try:
-                kind = lifecycle.assign_task(state, value, current) if modern else "implement"
+                native = getattr(runtime, 'native_calls', None)
+                kind = (native.assign_task(lifecycle.assign_task, state, value, current, record)
+                        if modern and native is not None else lifecycle.assign_task(state, value, current)
+                        if modern else 'implement')
             except support.Paused as error:
                 if not error.status.startswith("PAUSED_MILESTONE_"):
                     raise

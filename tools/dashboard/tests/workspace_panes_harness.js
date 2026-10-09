@@ -796,8 +796,12 @@ const CASES = {
     assert.equal(false, section.hidden, 'the composer section is part of the conversation view');
     const pause = pane('#pause-run');
     assert.equal(false, pause.hidden, 'the pause control shows for a running conversation');
-    assert.equal('Pause after current step', pause.textContent,
-      'the beside-composer pause control keeps its after-current-step label');
+    assert.equal('Pause', pause.textContent,
+      'the beside-composer pause control uses the approved compact label');
+    assert.equal('Pause after current step', pause.getAttribute('aria-label'),
+      'the accessible pause label keeps its after-current-step semantics');
+    assert.equal('Pause after current step', pause.title,
+      'the pause tooltip names the after-current-step boundary');
     assert.equal(false, pause.disabled, 'the beside-composer pause control is actionable');
     const stop = pane('#stop-run');
     assert.equal(false, stop.hidden, 'the stop control shows for a running conversation');
@@ -867,14 +871,18 @@ const CASES = {
     assert.ok(textOf(pane('#change-history')).includes('Stopped after the current step finished and saved.'),
       'the live region announces the applied durable stop');
   },
-  // AC16 guard: the pause labels predate the relayout and must survive it.
+  // AC16 guard: compact Pause retains after-current-step semantics and pending-state labels.
   async ac16() {
     const run = runningWorkRun();
     await openRun(run);
     const pause = pane('#pause-run');
     assert.equal(false, pause.hidden, 'a running conversation shows its pause control');
-    assert.equal('Pause after current step', pause.textContent,
-      'the control labels the pause as taking effect after the current step');
+    assert.equal('Pause', pause.textContent,
+      'the control uses the approved compact Pause label');
+    assert.equal('Pause after current step', pause.getAttribute('aria-label'),
+      'the accessible pause label names the after-current-step boundary');
+    assert.equal('Pause after current step', pause.title,
+      'the pause tooltip names the after-current-step boundary');
     await pause.onclick();
     const actions = fetchLog.filter(entry => entry.url === '/api/action').map(entry => JSON.parse(entry.options.body || '{}'));
     assert.ok(actions.some(body => body.action === 'pause'), 'activating the control posted the pause request');

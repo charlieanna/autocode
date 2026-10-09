@@ -57,8 +57,8 @@ QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
 def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False, liveness=None,
-         runner_check_liveness=None, verification_obligation=None) -> dict:
-    """Caller supplies fresh completion, evidence, repair and supervision inspections."""
+         runner_check_liveness=None, verification_obligation=None, design_input_preview=None) -> dict:
+    """Caller supplies fresh completion, evidence, repair, supervision and design-input inspections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
     active = state.get("active_stage")
@@ -148,6 +148,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
+    if design_input_preview is not None:
+        # Verified new-run dry-run input: never persisted as settings or model evidence.
+        result["design_input_preview"] = deepcopy(design_input_preview)
     if state.get("task_preflight"):
         result["task_preflight"] = {key: deepcopy(state["task_preflight"].get(key)) for key in
             ("kind", "execution_context", "execution_identity", "phase", "status", "checked_at", "manifest_hash", "binding",

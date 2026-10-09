@@ -3583,6 +3583,181 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                 self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
 
 
+class RefundWindowFakeControls(unittest.TestCase):
+    """No controller calls: exercise fixture source, checks and read-only reports directly."""
+
+    def setUp(self):
+        from harness import refund_window_provider
+        self.provider = refund_window_provider
+        self.scenario = catalog.load("feature-refund-window")
+        self.temporary = tempfile.TemporaryDirectory(prefix="refund-fake-control-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.project = self.root / "project"
+        shutil.copytree(self.scenario.seed, self.project)
+        self.config = {"reference": str(self.scenario.reference), "paths":
+                       ["shop/clock.py", "shop/refunds.py", "tests/test_refunds.py"],
+                       "check": self.scenario.fake_check}
+        self.common = {"task_id": "controlled-task", "contract_revision": 1, "contract_hash": "controlled-contract"}
+        self.criteria = [{"id": "C1", "criterion": "The unchanged refund rules and existing behavior pass"}]
+        self.data = {"current_task": {"id": "controlled-task", "kind": "implement", "milestone_id": "M1",
+                     "affected_paths": list(self.config["paths"]), "acceptance_criteria": ["C1"]},
+                     "goal_contract": {"body": {"acceptance_criteria": self.criteria}},
+                     "source_revision": "controlled-source", "validation": {"verdict": "FAIL"}}
+        previous = Path.cwd()
+        os.chdir(self.project)
+        self.addCleanup(os.chdir, previous)
+        environment = patch.dict(os.environ, {"SCENARIO_FAKE_CONFIG": str(self.root / "fake-config.json"),
+                                             "SCENARIO_FAKE_REFUND_DIAGNOSIS": "specific",
+                                             "PYTHONDONTWRITEBYTECODE": "1"})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.executed = []
+
+    def check(self):
+        completed = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+                                   cwd=self.project, capture_output=True, text=True, timeout=30)
+        self.executed.append(completed)
+        return completed.returncode
+
+    def call(self, stage):
+        return self.provider.report_for(stage, self.data, self.common, self.config, self.check,
+                                        lambda: [{"text": self.scenario.brief}])
+
+    def tree(self):
+        return {str(path.relative_to(self.project)): path.read_bytes()
+                for path in self.project.rglob("*") if path.is_file()}
+
+    def test_first_build_retains_complete_tests_and_exposes_real_store_window_failure(self):
+        report = self.call("terra")
+        self.assertEqual(["exit 1"], report["results"])
+        self.assertIn("test_window_ends_after_the_30th_store_day", self.executed[-1].stderr)
+        self.assertEqual((self.scenario.reference / "tests/test_refunds.py").read_bytes(),
+                         Path("tests/test_refunds.py").read_bytes())
+        self.assertEqual((self.scenario.seed / "tests/test_orders.py").read_bytes(),
+                         Path("tests/test_orders.py").read_bytes())
+
+    def test_validator_measures_failure_and_leaves_exit_code_attachment_to_runner(self):
+        self.call("terra")
+        report = self.call("sol")
+        self.assertEqual(1, self.executed[-1].returncode)
+        self.assertEqual("FAIL", report["verdict"])
+        self.assertIsNone(report["checks"][0]["exit_code"])
+        self.assertEqual(["check:1"], report["criterion_results"][0]["evidence_refs"])
+
+    def test_owner_defers_incomplete_task_and_resolver_supplies_same_bounded_task_read_only(self):
+        self.call("terra")
+        before = self.tree()
+        review = self.call("astra_review")
+        self.assertEqual("REWORK", review["status"])
+        self.assertEqual([], review["next_task"]["validation_plan"])
+        resolved = self.call("astra_resolve")
+        self.assertIn("UTC-8", resolved["diagnosis"])
+        self.assertEqual([self.scenario.fake_check], resolved["next_task"]["validation_plan"])
+        self.assertEqual(self.data["current_task"]["affected_paths"], resolved["affected_paths"])
+        self.assertEqual(["C1"], resolved["next_task"]["acceptance_criteria"])
+        self.assertEqual(self.criteria, [{"id": row["id"], "criterion": row["criterion"]}
+                                        for row in resolved["acceptance_criteria"]])
+        self.assertEqual(before, self.tree())
+
+    def test_repair_and_independent_recheck_pass_without_modifying_tests_or_criteria(self):
+        self.call("terra")
+        self.call("astra_resolve")
+        tests = Path("tests/test_refunds.py").read_bytes()
+        repair = self.call("terra")
+        self.assertEqual(["exit 0"], repair["results"])
+        self.data["review_identity_policy"] = {"own_open_finding_ids": ["controlled-finding"]}
+        checked = self.call("sol")
+        self.assertEqual("PASS", checked["verdict"])
+        self.assertEqual(0, self.executed[-1].returncode)
+        self.data["validation"] = {"verdict": "PASS"}
+        complete = self.call("astra_review")
+        self.assertEqual("COMPLETE", complete["status"])
+        self.assertEqual("controlled-finding", complete["finding_dispositions"][0]["id"])
+        self.assertEqual(tests, Path("tests/test_refunds.py").read_bytes())
+
+    def test_vague_diagnosis_negative_stays_read_only_and_keeps_product_repair(self):
+        self.call("terra")
+        before = self.tree()
+        with patch.dict(os.environ, {"SCENARIO_FAKE_REFUND_DIAGNOSIS": "vague"}):
+            report = self.call("astra_resolve")
+        self.assertEqual("The implementation has a bug; fix it and rerun the tests.", report["diagnosis"])
+        self.assertEqual(before, self.tree())
+        self.assertEqual(["exit 0"], self.call("terra")["results"])
+
+    def test_fixed_source_or_passing_validation_cannot_be_claimed_as_planted_failure(self):
+        self.call("terra")
+        self.call("terra")
+        with self.assertRaisesRegex(ValueError, "not called on a planted"):
+            self.call("astra_resolve")
+        self.data["validation"] = {"verdict": "PASS"}
+        with self.assertRaisesRegex(ValueError, "actual failing Validator"):
+            self.call("astra_resolve")
+
+    def test_selected_broken_cap_repair_remains_an_actual_failure_and_not_complete(self):
+        self.call("terra")
+        tests = Path("tests/test_refunds.py").read_bytes()
+        self.config["reference"] = str(self.scenario.dir / "broken/per-refund-cap")
+        self.assertEqual(["exit 1"], self.call("terra")["results"])
+        self.assertEqual(tests, Path("tests/test_refunds.py").read_bytes())
+        self.assertEqual("FAIL", self.call("sol")["verdict"])
+        self.assertEqual("REWORK", self.call("astra_review")["status"])
+        # The unchanged hidden product oracle also rejects the running-cap defect.
+        # Diagnosis cannot rescue a wrong product or weaken its complete tests.
+        product = verdict.evaluate(self.scenario, self.project)
+        self.assertFalse(product.passed)
+        self.assertFalse(next(row.ok for row in product.checks if row.name == "hidden_tests_pass"))
+        self.assertIn("running total", self.provider._diagnosis())
+
+    def test_unassigned_path_is_refused_before_any_source_write(self):
+        before = self.tree()
+        self.config["paths"].append("unassigned.py")
+        with self.assertRaisesRegex(ValueError, "only the assigned"):
+            self.call("terra")
+        self.assertEqual(before, self.tree())
+
+    def test_partial_scope_is_refused_before_any_source_write(self):
+        before = self.tree()
+        self.config["paths"] = ["shop/clock.py"]
+        self.data["current_task"]["affected_paths"] = ["shop/clock.py"]
+        with self.assertRaisesRegex(ValueError, "only the assigned"):
+            self.call("terra")
+        self.assertEqual(before, self.tree())
+
+
+class RefundWindowRunTests(unittest.TestCase):
+    """Actual target CLI coverage; run only after the exact fault diff is reviewed."""
+
+    def run_fake(self, diagnosis="specific"):
+        with tempfile.TemporaryDirectory(prefix="refund-window-run-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out),
+                                      autocode=None, max_steps=None, timeout_minutes=None)
+            return run.run_one(catalog.load("feature-refund-window"), args,
+                               extra_env={"SCENARIO_FAKE_REFUND_DIAGNOSIS": diagnosis})
+
+    def test_real_failed_tester_reaches_resolver_on_planted_source_and_repairs(self):
+        result = self.run_fake()
+        self.assertEqual((verdict.PASS, "TASK_COMPLETE"), (result["verdict"], result["runner_status"]), result["summary"])
+        self.assertTrue(result["oracle_passed"])
+        self.assertEqual((verdict.CORRECT, 1), (result["diagnosis"]["verdict"],
+                                              result["diagnosis"]["resolver_calls_on_failure"]))
+        stages = result["metrics"]["model_stage_names"]
+        self.assertEqual(2, stages.count("terra"))
+        self.assertEqual(2, stages.count("sol"))
+        self.assertEqual(1, stages.count("astra_resolve"))
+        self.assertLess(stages.index("sol"), stages.index("astra_resolve"))
+        self.assertLess(stages.index("astra_resolve"), max(i for i, stage in enumerate(stages) if stage == "terra"))
+
+    def test_real_resolver_vague_diagnosis_is_incorrect_even_with_correct_final_product(self):
+        result = self.run_fake("vague")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertTrue(result["oracle_passed"])
+        self.assertEqual((verdict.INCORRECT, 1), (result["diagnosis"]["verdict"],
+                                                result["diagnosis"]["resolver_calls_on_failure"]))
+        self.assertEqual(["resolver_named_a_planted_defect"],
+                         [row["name"] for row in result["diagnosis"]["checks"] if not row["ok"]])
+
+
 class RefundWindowDiagnosisTests(unittest.TestCase):
     """feature-refund-window's diagnosis() on synthetic run records (issue #59): a Resolver call is on the
     planted failure when the source it saw fails the hidden WindowTests or CapTests, rebuilt from the runner's

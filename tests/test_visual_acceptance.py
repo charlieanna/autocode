@@ -207,7 +207,7 @@ def native_request_probe(root, config_dir=None):
 
 class VisualAcceptanceTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1])
+        self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name).resolve()
         self.run = self.root / '.autocode' / 'runs' / 'visual'
@@ -314,6 +314,268 @@ class VisualAcceptanceTests(unittest.TestCase):
                    'verified_capture_hashes': [row['capture_sha256'] for row in self.results]}
         return visual.summary(receipts, **(options | overrides))
 
+
+    def install_controlled_scope(self, *, integration=False, second_slice=False):
+        # Structural fixtures only: no native review, ownership or live qualification.
+        self.current['criteria'] = [
+            {'id': 'C1', 'criterion': 'Empty matches', 'verification_method': 'Independent image review'},
+            {'id': 'C2', 'criterion': 'Populated matches', 'verification_method': 'Independent image review'}]
+        self.current['case_criteria'] = {'empty': ['C1'], 'populated': ['C2']}
+        second = integration or second_slice
+        self.current['visual_scope'] = {
+            'policy': 'complete-cases-v1', 'mode': 'integration' if integration else 'slice',
+            'milestone_ids': ['M2' if second else 'M1'],
+            'required_case_ids': ['empty', 'populated'] if integration else ['populated' if second else 'empty'],
+            'current_case_ids': ['populated' if second else 'empty'],
+            'recheck_case_ids': ['empty'] if integration else [],
+            'out_of_scope_case_ids': [] if integration else ['empty' if second else 'populated'],
+            'case_criteria': deepcopy(self.current['case_criteria']),
+            'case_owners': {'empty': 'M1', 'populated': 'M2'},
+            'task_criterion_ids': ['C1', 'C2'] if integration else ['C2' if second else 'C1'],
+            'affected_paths': ['app.html'], 'changed_paths': [],
+            'accepted_milestone_ids': ['M1'] if second else [],
+            'case_input_paths': {'empty': ['app.html']} if second else {}}
+        required = set(self.current['visual_scope']['required_case_ids'])
+        # Reuse the existing synthetic captures; these are not native image proof.
+        self.results = []
+        for case in self.state['settings']['design_manifest']['body']['cases']:
+            cid = case['id']
+            ref = str(self.root / '.autocode' / 'captures' / cid / 'manifest.json')
+            candidate = self.root / self.captures[ref]['artifacts']['candidate']['path']
+            comparison = self.run / (cid + '-controlled-comparison.json')
+            comparison.write_text(json.dumps({'fixture': True, 'case_id': cid}))
+            self.results.append({'id': cid, 'status': 'PASS' if cid in required else 'NOT_VERIFIED',
+                                 'criterion_ids': deepcopy(self.current['case_criteria'][cid]),
+                                 'capture_ref': ref if cid in required else '',
+                                 'capture_sha256': util.file_hash(ref) if cid in required else '',
+                                 'candidate_ref': str(candidate) if cid in required else '',
+                                 'comparison_ref': str(comparison) if cid in required else ''})
+        self.report['design_results'] = self.results
+        self.save_report()
+
+    def rehash_scoped_receipt(self, receipt):
+        receipt['receipt_sha256'] = util.digest({key: value for key, value in receipt.items()
+                                                if key != 'receipt_sha256'})
+
+    def test_scoped_m1_releases_only_scope_and_does_not_capture_future_case(self):
+        self.install_controlled_scope()
+        calls = []
+        def capture(ref, sha, **kwargs):
+            calls.append(kwargs['case']['id'])
+            return self.capture(ref, sha, **kwargs)
+        receipt = self.accept(verify_capture=capture)
+        self.assertEqual(calls, ['empty'])
+        self.assertEqual(receipt['version'], 2)
+        self.assertEqual([row['id'] for row in receipt['cases']], ['empty', 'populated'])
+        outside = receipt['cases'][1]
+        self.assertEqual(outside['verdict'], 'NOT_VERIFIED')
+        self.assertIsNone(outside['capture_sha256'])
+        self.assertEqual([row['case_id'] for row in receipt['delivery']['images']], ['empty', 'empty'])
+        # Expected complete reference pins come from the public manifest, not
+        # the implementation helper being checked. This fixture is version 1.
+        manifest = self.state['settings']['design_manifest']
+        reference_pins = {str(Path(manifest['root']) / artifact['path']): artifact['sha256']
+                          for case in manifest['body']['cases']
+                          for artifact in case['artifacts'].values()}
+        self.assertTrue(all(receipt['evidence_hashes'][path] == sha for path, sha in reference_pins.items()))
+        result = self.summary()
+        self.assertTrue(result['scope_all_accepted'])
+        self.assertTrue(result['scope_coverage_complete'])
+        self.assertFalse(result['current_all_accepted'])
+        self.assertFalse(result['coverage_complete'])
+        self.assertIsNone(result['cases'][1]['current_accepted'])
+        self.current['visual_scope']['changed_paths'].append('app.html')
+        self.assertEqual(receipt['binding']['visual_scope']['changed_paths'], [])
+        self.assertFalse(self.summary()['scope_all_accepted'])
+
+    def test_scope_absence_retains_version_one_opt_out(self):
+        receipt = self.accept()
+        self.assertEqual(receipt['version'], 1)
+        self.assertNotIn('visual_scope', receipt['binding'])
+        self.assertNotIn('scope_verdict', receipt)
+        self.assertNotIn('scope_all_accepted', self.summary())
+        self.assertTrue(self.summary()['current_all_accepted'])
+
+    def test_scoped_outside_claims_are_refused_before_capture_or_ledger(self):
+        for field, value in [('status', 'PASS'), ('status', 'FAIL'), ('capture_ref', 'forged'),
+                             ('capture_sha256', util.digest('forged')), ('candidate_ref', 'forged'),
+                             ('comparison_ref', 'forged')]:
+            with self.subTest(field=field, value=value):
+                self.install_controlled_scope()
+                self.results[1][field] = value
+                self.save_report()
+                with self.assertRaisesRegex(ValueError, 'Out-of-scope'):
+                    self.accept()
+                self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_summary_refuses_outside_pass_fail_and_reference_claim(self):
+        self.install_controlled_scope()
+        original = self.accept()
+        for changes in ({'verdict': 'PASS'}, {'verdict': 'FAIL'},
+                        {'reference_sha256': self.state['settings']['design_manifest']['body']['cases'][1]['artifacts']['screenshot']['sha256']}):
+            with self.subTest(changes=changes):
+                receipt = deepcopy(original)
+                receipt['cases'][1].update(changes)
+                self.rehash_scoped_receipt(receipt)
+                self.state['visual_acceptance_receipts'] = [receipt]
+                self.assertFalse(self.summary()['scope_all_accepted'])
+                self.assertFalse(self.summary()['current_all_accepted'])
+
+    def test_scoped_report_cannot_hide_an_extra_reference_claim(self):
+        self.install_controlled_scope()
+        self.results[1]['reference_ref'] = str(self.root / 'populated-reference.png')
+        self.save_report()
+        with self.assertRaisesRegex(ValueError, 'Invalid scoped report fields'):
+            self.accept()
+        self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_required_capture_identity_refuses_before_callbacks_or_ledger(self):
+        for field, value in [('capture_ref', ''), ('capture_ref', '   '),
+                             ('capture_ref', None), ('capture_ref', 42),
+                             ('capture_sha256', ''), ('capture_sha256', None),
+                             ('capture_sha256', 'not-sha256'),
+                             ('capture_sha256', 'A' * 64), ('capture_sha256', 42)]:
+            with self.subTest(field=field, value=value):
+                self.install_controlled_scope()
+                self.results[0][field] = value
+                self.save_report()
+                calls = []
+                def unexpected_callback(*args, **kwargs):
+                    calls.append((args, kwargs))
+                    self.fail('Malformed required capture reached a verification callback')
+                with self.assertRaisesRegex(ValueError, 'Required visual case lacks capture evidence'):
+                    self.accept(verify_capture=unexpected_callback, verify_delivery=unexpected_callback)
+                self.assertEqual([], calls)
+                self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_required_capture_and_exact_delivery_remain_mandatory(self):
+        self.install_controlled_scope()
+        self.results[0]['capture_ref'] = ''
+        self.save_report()
+        with self.assertRaises((ValueError, KeyError)):
+            self.accept()
+        self.install_controlled_scope()
+        self.delivery_changes = {'images': []}
+        with self.assertRaisesRegex(ValueError, 'exact image payloads'):
+            self.accept()
+        self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_summary_requires_fresh_required_capture_and_every_reference_pin(self):
+        self.install_controlled_scope()
+        self.accept()
+        self.assertFalse(self.summary(verified_capture_hashes=[])['scope_all_accepted'])
+        future_ref = self.root / 'populated-reference.png'
+        future_ref.write_bytes(png((1, 2, 3)))
+        self.assertFalse(self.summary()['scope_all_accepted'])
+
+    def test_scoped_summary_requires_manifest_and_transport_pins_and_exact_delivery(self):
+        self.install_controlled_scope()
+        original = self.accept()
+        for change in ('manifest', 'transport', 'delivery'):
+            with self.subTest(change=change):
+                receipt = deepcopy(original)
+                if change == 'manifest':
+                    receipt['evidence_hashes'].pop(receipt['manifest_ref'])
+                elif change == 'transport':
+                    receipt['evidence_hashes'].pop(receipt['delivery']['evidence_ref'])
+                else:
+                    receipt['delivery']['images'].pop()
+                self.rehash_scoped_receipt(receipt)
+                self.state['visual_acceptance_receipts'] = [receipt]
+                self.assertFalse(self.summary()['scope_all_accepted'])
+
+    def test_scoped_binding_and_roster_drift_do_not_release_scope(self):
+        self.install_controlled_scope()
+        original = self.accept()
+        for change in ('version', 'roster', 'mapping', 'scope'):
+            with self.subTest(change=change):
+                receipt = deepcopy(original)
+                if change == 'version':
+                    receipt['version'] = 1
+                elif change == 'roster':
+                    receipt['cases'].pop()
+                elif change == 'mapping':
+                    receipt['cases'][0]['criterion_ids'] = ['C2']
+                else:
+                    receipt['binding']['visual_scope']['affected_paths'] = ['other.html']
+                self.rehash_scoped_receipt(receipt)
+                self.state['visual_acceptance_receipts'] = [receipt]
+                self.assertFalse(self.summary()['scope_all_accepted'])
+        self.state['visual_acceptance_receipts'] = [original]
+        self.current['case_criteria']['empty'] = ['C2']
+        with self.assertRaises(ValueError):
+            self.summary()
+
+    def test_scoped_current_binding_cannot_union_prior_slice_passes(self):
+        self.install_controlled_scope()
+        first = self.accept()
+        self.run = self.run.parent / 'second-slice'
+        self.run.mkdir()
+        self.record['events'] = str(self.run / 'events.jsonl')
+        self.record['output'] = str(self.run / 'report.json')
+        self.record['finished_at'] = '2026-10-04T02:00:00+00:00'
+        self.stage['finished_at'] = self.record['finished_at']
+        self.install_controlled_scope(second_slice=True)
+        second = self.accept()
+        self.assertNotEqual(first['id'], second['id'])
+        result = self.summary()
+        self.assertTrue(result['scope_all_accepted'])
+        self.assertIsNone(result['cases'][0]['current_accepted'])
+        self.assertIsNotNone(result['cases'][0]['historical_accepted_at'])
+        self.assertFalse(result['current_all_accepted'])
+        self.install_controlled_scope(integration=True)
+        self.assertFalse(self.summary()['scope_all_accepted'])
+        self.assertFalse(self.summary()['current_all_accepted'])
+
+    def test_scoped_final_integration_needs_one_matching_all_case_receipt(self):
+        self.install_controlled_scope(integration=True)
+        receipt = self.accept()
+        self.assertEqual(receipt['scope_verdict'], 'PASS')
+        self.assertEqual(len(receipt['delivery']['images']), 4)
+        result = self.summary()
+        self.assertTrue(result['scope_all_accepted'])
+        self.assertTrue(result['current_all_accepted'])
+        self.assertTrue(result['coverage_complete'])
+        self.assertFalse(self.summary(verified_capture_hashes=[self.results[0]['capture_sha256']])['current_all_accepted'])
+
+    def test_all_case_slice_still_cannot_claim_whole_completion(self):
+        self.install_controlled_scope(integration=True)
+        self.current['visual_scope']['mode'] = 'slice'
+        self.accept()
+        result = self.summary()
+        self.assertTrue(result['scope_all_accepted'])
+        self.assertFalse(result['current_all_accepted'])
+
+    def test_scoped_required_pass_refuses_an_empty_comparison_file(self):
+        self.install_controlled_scope()
+        Path(self.results[0]['comparison_ref']).write_bytes(b'')
+        with self.assertRaisesRegex(ValueError, 'nonempty comparison evidence'):
+            self.accept()
+        self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_scoped_summary_refuses_a_rehashed_empty_comparison_claim(self):
+        self.install_controlled_scope()
+        receipt = self.accept()
+        path = receipt['cases'][0]['comparison_ref']
+        Path(path).write_bytes(b'')
+        empty_hash = hashlib.sha256(b'').hexdigest()
+        receipt['cases'][0]['comparison_sha256'] = empty_hash
+        receipt['evidence_hashes'][path] = empty_hash
+        self.rehash_scoped_receipt(receipt)
+        self.state['visual_acceptance_receipts'] = [receipt]
+        self.assertFalse(self.summary()['scope_all_accepted'])
+        self.assertFalse(self.summary()['current_all_accepted'])
+
+    def test_scoped_summary_is_pure_and_saved_boolean_cannot_replace_evidence(self):
+        from unittest.mock import patch
+        self.install_controlled_scope()
+        receipt = self.accept()
+        with patch.object(Path, 'open', side_effect=AssertionError('summary read a file')):
+            result = visual.summary([receipt], current=self.current,
+                                    manifest=self.state['settings']['design_manifest'])
+        self.assertFalse(result['scope_all_accepted'])
+        self.assertFalse(result['current_all_accepted'])
+
     def test_controlled_delivery_accepts_once_and_is_not_a_native_qualification(self):
         receipt = self.accept()
         self.assertEqual(receipt, self.accept())
@@ -326,6 +588,217 @@ class VisualAcceptanceTests(unittest.TestCase):
         self.assertTrue(projected['current_all_accepted'])
         projected['cases'][0]['criterion_ids'].append('foreign')
         self.assertEqual(['C1'], self.summary()['cases'][0]['criterion_ids'])
+
+    def version2_binding_inputs(self):
+        # Complete two-file source inventory; synthetic exports qualify binding
+        # only, never real Figma inspection or native image acceptance.
+        import autocode_design_manifest as design
+        from tests.test_design_manifest import inventory_bundle
+        path, body = inventory_bundle(self.root / 'version2-exports')
+        manifest = design.load(path)
+        current = deepcopy(self.current)
+        current.update(manifest_body_hash=manifest['manifest_hash'],
+                       manifest_file_sha256=util.file_hash(path),
+                       case_criteria={case['id']: ['C1'] for case in body['cases']})
+        return current, manifest
+
+    def install_version2_acceptance_inputs(self):
+        # Controlled normalized callbacks only; this is not native/Figma proof.
+        import autocode_design_manifest as design
+        from tests.test_design_manifest import inventory_bundle
+        from tests.test_design_scope import authority
+        path, body = inventory_bundle(self.root / 'version2-accepted-exports')
+        # The Details frame has no dependencies; all full source facts remain.
+        body['cases'] = [body['cases'][1]]
+        body['cases'][0]['inventory_refs'] = {key: [] for key in
+                                            ('components', 'variables', 'fonts', 'assets', 'transitions')}
+        path.write_text(json.dumps(body))
+        raw, pin, _, _ = authority(body['cases'], util.digest(body))
+        approved = self.root / 'controlled-approved-scope.json'
+        approved.write_bytes(raw)
+        arguments = {'approved_scope': approved, 'approved_scope_sha256': pin}
+        manifest = design.retain(design.load(path, **arguments), self.root, **arguments)
+        self.manifest_path = Path(manifest['manifest_path'])
+        current = deepcopy(self.current)
+        current.update(manifest_body_hash=manifest['manifest_hash'],
+                       manifest_file_sha256=util.file_hash(self.manifest_path),
+                       case_criteria={case['id']: ['C1'] for case in body['cases']})
+        self.current = current
+        self.state['settings']['design_manifest'] = manifest
+        self.captures, self.results = {}, []
+        for case in manifest['body']['cases']:
+            capture_root = self.root / '.autocode' / 'captures' / case['id']
+            capture_root.mkdir(parents=True)
+            candidate = capture_root / 'candidate.png'
+            candidate.write_bytes(png((10, 40, 230), width=case['viewport']['width'], height=case['viewport']['height']))
+            capture = {'version': 1, 'reference_hash': manifest['manifest_hash'], 'source_revision': self.source,
+                       'case': {key: deepcopy(case[key]) for key in ('id', 'route', 'state', 'viewport')},
+                       'artifacts': {'candidate': {'path': str(candidate.relative_to(self.root)),
+                                                   'sha256': util.file_hash(candidate)}}}
+            path = capture_root / 'manifest.json'
+            path.write_text(json.dumps(capture))
+            self.captures[str(path)] = capture
+            self.results.append({'id': case['id'], 'status': 'PASS', 'criterion_ids': ['C1'],
+                                 'capture_ref': str(path), 'capture_sha256': util.file_hash(path),
+                                 'candidate_ref': str(candidate)})
+        self.report.update(design_manifest_hash=manifest['manifest_hash'], design_results=self.results)
+        self.save_report()
+        return manifest
+
+    def test_version2_summary_invalidates_complete_retained_reference_drift(self):
+        manifest = self.install_version2_acceptance_inputs()
+        receipt = self.accept()
+        self.assertEqual(1, self.summary()['accepted_cases'])
+        file = manifest['body']['files'][0]
+        artifacts = [file['pages'][0]['source_json'], file['metadata_xml'],
+                     file['fonts'][0]['artifact'], file['assets'][0]['artifact'], manifest['scope_admission']]
+        paths = [Path(manifest['root']) / artifact['path'] for artifact in artifacts]
+        paths.append(Path(manifest['manifest_path']))
+        ledger = deepcopy(self.state['visual_acceptance_receipts'])
+        for path in paths:
+            with self.subTest(path=path.name):
+                original = path.read_bytes()
+                self.assertEqual(util.file_hash(path), receipt['evidence_hashes'][str(path)])
+                try:
+                    path.write_bytes(original + b'\n')
+                    result = self.summary()
+                    self.assertEqual((0, 0), (result['accepted_cases'], result['accepted_frames']))
+                    self.assertFalse(result['current_all_accepted'])
+                    self.assertFalse(result['coverage_complete'])
+                    for row in result['cases']:
+                        self.assertEqual('NOT_VERIFIED', row['verdict'])
+                        self.assertIsNone(row['current_accepted'])
+                        self.assertIsNone(row['accepted_at'])
+                        self.assertEqual(self.record['finished_at'], row['historical_accepted_at'])
+                    self.assertEqual(ledger, self.state['visual_acceptance_receipts'])
+                finally:
+                    path.write_bytes(original)
+
+    def test_version2_acceptance_keeps_original_noncase_reference_pins(self):
+        manifest = self.install_version2_acceptance_inputs()
+        artifact = manifest['body']['files'][0]['assets'][0]['artifact']
+        path = Path(manifest['root']) / artifact['path']
+        original_capture = self.capture
+        def change_reference(ref, sha, **options):
+            path.write_bytes(path.read_bytes() + b'\n')
+            return original_capture(ref, sha, **options)
+        with self.assertRaisesRegex(ValueError, 'Visual evidence changed during acceptance'):
+            self.accept(verify_capture=change_reference)
+        self.assertNotIn('visual_acceptance_receipts', self.state)
+
+    def test_version2_summary_keeps_projection_free_of_path_reads(self):
+        from unittest.mock import patch
+        import autocode_design_manifest as design
+        manifest = self.install_version2_acceptance_inputs()
+        self.accept()
+        receipts = deepcopy(self.state['visual_acceptance_receipts'])
+        hashes = {path: util.file_hash(path) for receipt in receipts for path in receipt['evidence_hashes']}
+        captures = [row['capture_sha256'] for row in self.results]
+        before = deepcopy(self.state)
+        with patch.object(Path, 'open', side_effect=AssertionError('Summary must not read files')), \
+             patch.object(design, 'verify', side_effect=AssertionError('Summary must not verify files')), \
+             patch.object(design, 'admitted_scope', side_effect=AssertionError('Summary must not read authority')):
+            result = visual.summary(receipts, current=self.current, manifest=manifest,
+                                    evidence_hashes=hashes, verified_capture_hashes=captures)
+            self.assertEqual(1, result['accepted_cases'])
+            unknown = visual.summary(receipts, current=self.current, manifest=manifest)
+            self.assertEqual(0, unknown['accepted_cases'])
+            self.assertFalse(unknown['coverage_complete'])
+        self.assertEqual(before, self.state)
+
+    def test_version2_summary_invalidates_changed_retained_metadata(self):
+        manifest = self.install_version2_acceptance_inputs()
+        receipt = self.accept()
+        hashes = {path: util.file_hash(path) for path in receipt['evidence_hashes']}
+        captures = [row['capture_sha256'] for row in self.results]
+        changed_pin = {'path': 'approval/approved-scope-' + '0' * 64 + '.json', 'sha256': '0' * 64}
+        variants = [manifest | {'scope_admission': changed_pin},
+                    manifest | {'manifest_path': str(Path(manifest['root']) / manifest['scope_admission']['path'])}]
+        for field in ('scope_admission', 'manifest_path'):
+            changed = deepcopy(manifest)
+            changed.pop(field)
+            variants.append(changed)
+        for changed in variants:
+            with self.subTest(metadata=changed.get('scope_admission'), index=changed.get('manifest_path')):
+                result = visual.summary([receipt], current=self.current, manifest=changed,
+                                        evidence_hashes=hashes, verified_capture_hashes=captures)
+                self.assertEqual((0, 0), (result['accepted_cases'], result['accepted_frames']))
+                self.assertFalse(result['coverage_complete'])
+                self.assertIsNone(result['cases'][0]['current_accepted'])
+                self.assertEqual(self.record['finished_at'], result['cases'][0]['historical_accepted_at'])
+        # Older v2 bindings without this identity remain history, never upgraded.
+        old = deepcopy(receipt)
+        old['binding'].pop('reference_input_identity')
+        old['receipt_sha256'] = util.digest({key: value for key, value in old.items() if key != 'receipt_sha256'})
+        result = visual.summary([old], current=self.current, manifest=manifest,
+                                evidence_hashes=hashes, verified_capture_hashes=captures)
+        self.assertEqual(0, result['accepted_cases'])
+        self.assertEqual(self.record['finished_at'], result['cases'][0]['historical_accepted_at'])
+
+    def test_version2_summary_refuses_an_incomplete_reference_seal(self):
+        manifest = self.install_version2_acceptance_inputs()
+        receipt = self.accept()
+        hashes = {path: util.file_hash(path) for path in receipt['evidence_hashes']}
+        # Negative control for an older receipt without a complete source seal.
+        incomplete = deepcopy(receipt)
+        artifact = manifest['body']['files'][0]['assets'][0]['artifact']
+        incomplete['evidence_hashes'].pop(str(Path(manifest['root']) / artifact['path']))
+        incomplete['receipt_sha256'] = util.digest({key: value for key, value in incomplete.items()
+                                                   if key != 'receipt_sha256'})
+        result = visual.summary([incomplete], current=self.current, manifest=manifest,
+                                evidence_hashes=hashes,
+                                verified_capture_hashes=[row['capture_sha256'] for row in self.results])
+        self.assertEqual(0, result['accepted_cases'])
+        self.assertFalse(result['coverage_complete'])
+        self.assertEqual(self.record['finished_at'], result['cases'][0]['historical_accepted_at'])
+
+    def test_version2_image_binding_uses_retained_bundle(self):
+        current, manifest = self.version2_binding_inputs()
+        bound = visual.binding(current, manifest)
+        self.assertEqual(manifest['body']['cases'], bound['cases'])
+        self.assertEqual(current['case_criteria'], bound['case_criteria'])
+        self.assertEqual(manifest['manifest_hash'], bound['manifest_body_hash'])
+
+    def test_version2_image_binding_refuses_missing_or_wrong_bundle(self):
+        current, manifest = self.version2_binding_inputs()
+        wrong = self.root / 'empty-bundle'
+        wrong.mkdir()
+        for root in (None, str(wrong)):
+            with self.subTest(root=root):
+                modified = deepcopy(manifest)
+                if root is None:
+                    modified.pop('root')
+                else:
+                    modified['root'] = root
+                with self.assertRaises((ValueError, OSError)):
+                    visual.binding(current, modified)
+
+    def test_version2_image_binding_refuses_changed_source_inventory(self):
+        current, manifest = self.version2_binding_inputs()
+        artifact = manifest['body']['files'][0]['pages'][0]['source_json']
+        path = Path(manifest['root']) / artifact['path']
+        receipt = json.loads(path.read_text())
+        receipt['complete'] = False
+        path.write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, 'incomplete, unreadable or has the wrong identity'):
+            visual.binding(current, manifest)
+
+    def test_version2_visual_launch_refuses_source_inventory_byte_drift(self):
+        import autocode_visual_runtime as runtime
+        _, manifest = self.version2_binding_inputs()
+        state = {'workspace': str(self.root), 'settings': {'design_manifest': manifest}}
+        runtime.verify_reference(state)
+        artifact = manifest['body']['files'][0]['pages'][0]['source_json']
+        path = Path(manifest['root']) / artifact['path']
+        path.write_text(path.read_text() + '\n')
+        with self.assertRaisesRegex(util.Paused, 'Missing or changed design reference'):
+            runtime.verify_reference(state)
+
+    def test_version2_image_binding_refuses_case_omission(self):
+        current, manifest = self.version2_binding_inputs()
+        current['case_criteria'].pop(next(iter(current['case_criteria'])))
+        with self.assertRaisesRegex(ValueError, 'Incomplete approved case mapping'):
+            visual.binding(current, manifest)
 
     def test_native_debug_attachment_bytes_do_not_prove_delivery(self):
         # Actual 1.18.33 debug read shape, observed model-free on these PNG bytes.
@@ -579,6 +1052,45 @@ class VisualAcceptanceTests(unittest.TestCase):
             return delivery.verify(*args, **kwargs, audit_path=path, attempt_id='attempt-1',
                                    plugin_sha256=util.digest('pinned-plugin'))
         return verify
+
+    def test_retained_original_delivery_bytes_do_not_read_later_mutable_audit(self):
+        # Controlled audit data tests only; this grants no kernel/image authority.
+        callback = self.audited_delivery(self.audit_rows())
+        receipt = self.accept(verify_delivery=callback)
+        path = Path(receipt['delivery']['evidence_ref'])
+        original = path.read_bytes()
+        events = Path(self.record['events']).read_bytes()
+        report = Path(self.record.get('reported_output') or self.record['output']).read_bytes()
+        path.write_bytes(b'changed later mutable audit\n')
+        with self.assertRaises(ValueError):
+            delivery.verify(self.record, events=events, report=report, images=receipt['delivery']['images'],
+                binding=receipt['binding'], audit_path=path, attempt_id='attempt-1',
+                plugin_sha256=util.digest('pinned-plugin'))
+        path.unlink()
+        proof = delivery.verify_retained(self.record, events=events, report=report, images=receipt['delivery']['images'],
+            binding=receipt['binding'], audit_path=path, audit_bytes=original, attempt_id='attempt-1',
+            plugin_sha256=util.digest('pinned-plugin'))
+        self.assertEqual(receipt['delivery'], proof)
+        self.assertFalse(path.exists())
+
+    def test_retained_delivery_rejects_foreign_attempt_plugin_native_finish_and_payload(self):
+        callback = self.audited_delivery(self.audit_rows())
+        receipt = self.accept(verify_delivery=callback)
+        path = Path(receipt['delivery']['evidence_ref'])
+        original = path.read_bytes()
+        events = Path(self.record['events']).read_bytes()
+        report = Path(self.record.get('reported_output') or self.record['output']).read_bytes()
+        base = {'events': events, 'report': report, 'images': receipt['delivery']['images'],
+            'binding': receipt['binding'], 'audit_path': path, 'audit_bytes': original,
+            'attempt_id': 'attempt-1', 'plugin_sha256': util.digest('pinned-plugin')}
+        wrong_images = deepcopy(base['images'])
+        wrong_images[0]['sha256'] = '0' * 64
+        wrong_events = events.replace(b'"finish"', b'"foreign-finish"')
+        self.assertNotEqual(events, wrong_events)
+        for overrides in ({'attempt_id': 'foreign'}, {'plugin_sha256': '0' * 64},
+                {'events': wrong_events}, {'images': wrong_images}, {'audit_bytes': original[:-1]}):
+            with self.subTest(fields=list(overrides)), self.assertRaises(ValueError):
+                delivery.verify_retained(self.record, **{**base, **overrides})
 
     def test_normalized_transport_contract_drives_single_receipt(self):
         callback = self.audited_delivery(self.audit_rows())

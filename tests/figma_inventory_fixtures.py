@@ -134,7 +134,7 @@ def native_bundle(root, file_key, implementation_path):
     return path
 
 
-def plugin_source_bundle(root):
+def plugin_source_bundle(root, *, component_set_motion='unsupported', include_section=False):
     """Independent metadata/declarations for the frozen native-getter connector.
 
     This exports production collector fixtures, not test results or real Figma
@@ -150,7 +150,8 @@ def plugin_source_bundle(root):
     node = shutil.which('node')
     if not node:
         raise RuntimeError('Node is required for the offline connector fixture')
-    result = subprocess.run([node, str(Path(__file__).parents[1] / 'tools/test_figma_inventory_page.cjs'), '--fixture'],
+    mode = '--fixture-with-section' if include_section else '--fixture-supported-motion' if component_set_motion == 'supported' else '--fixture'
+    result = subprocess.run([node, str(Path(__file__).parents[1] / 'tools/test_figma_inventory_page.cjs'), mode],
                             text=True, capture_output=True, timeout=20, check=True)
     collected = json.loads(result.stdout)
     receipt, parts = collected['receipt'], collected['parts']
@@ -168,6 +169,10 @@ def plugin_source_bundle(root):
         <COMPONENT id="1:4" name="Type=primary" width="100" height="20"/>
       </COMPONENT_SET>
     </CANVAS>'''
+    if include_section:
+        xml = xml.replace('</CANVAS>', '''<SECTION id="31:2" name="Grouping section" width="100" height="20">
+          <RECTANGLE id="31:3" name="Section child" width="100" height="20"/>
+        </SECTION></CANVAS>''')
     (root / 'page.xml').write_text(xml)
     (root / 'file.xml').write_text('<DOCUMENT>' + xml + '</DOCUMENT>')
     png(root / 'screen.png', 1440, 900)

@@ -17,6 +17,7 @@ from unittest.mock import patch
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_run_actions as run_actions
+import autocode_source_snapshot as source_snapshot
 import autocode_util as util
 import autocode_captured_process as captured_process
 import autocode_process as processes
@@ -541,6 +542,45 @@ class TaskRunTests(unittest.TestCase):
         # which the fixture provider never does: this guards against writing it unconditionally.
         self.assertFalse((run.run_dir / "progressive").exists())
         self.assertNotIn("progressive", view)
+
+    def test_plan_approval_assigns_the_selected_ignored_source_revision(self):
+        # Existing deliverables must enter the assignment inventory only after
+        # the real CLI approval; no saved state or approval flags are injected.
+        originals = {"README.md": b"Existing documentation\n", "greet.py": b"# Existing greeting implementation\n"}
+        for name, raw in originals.items():
+            (self.workspace / name).write_bytes(raw)
+        (self.workspace / "test_greet.py").write_text("# Existing regression tests\n")
+        (self.workspace / "private-note.txt").write_text("Outside the approved deliverables\n")
+        with (self.workspace / ".git/info/exclude").open("a") as exclude:
+            exclude.write("/README.md\n/greet.py\n/private-note.txt\n")
+        ignored = subprocess.check_output(["git", "-C", str(self.workspace), "check-ignore", *originals], text=True)
+        self.assertEqual(set(originals), set(ignored.splitlines()))
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"],
+                         {key: view[key] for key in ("status", "needs")})
+        self.assertIsNone(view["current_task"])
+        raw_source = util.snapshot(self.workspace)
+        expected = source_snapshot.snapshot(self.workspace, paths=["greet.py", "test_greet.py", "README.md"])
+        self.assertEqual(["README.md", "greet.py", "test_greet.py"], expected["source_paths"])
+        for name in originals:
+            self.assertNotIn(name, raw_source["files"])
+            self.assertEqual(util.file_hash(self.workspace / name), expected["files"][name])
+        self.assertNotIn("private-note.txt", expected["files"])
+        self.assertNotEqual(raw_source["revision"], expected["revision"])
+
+        approved = run.approve_plan(view["needs"]["token"])
+        self.assertEqual("READY_TO_EXECUTE", approved["phase"], approved)
+        # The public CLI status includes the complete bounded assignment.
+        result = subprocess.run([*run.command, "--workspace", str(self.workspace), "--run-dir", str(run.run_dir),
+                                 "--status"], env={**os.environ, **self.env},
+                                capture_output=True, text=True, timeout=60, check=True)
+        status = json.loads(result.stdout)
+        task = status["current_task"]
+        self.assertEqual(view["needs"]["token"], status["contract_token"])
+        self.assertEqual(set(expected["source_paths"]), set(task["affected_paths"]))
+        self.assertEqual(expected["revision"], task["source_revision"])
+        self.assertEqual(originals, {name: (self.workspace / name).read_bytes() for name in originals})
 
     def use_question_preserving_planner(self, *, genuine_questions=0):
         # Reproduce the live Planner faithfully carrying a question from its handoff.

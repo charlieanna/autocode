@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import uuid
 
@@ -32,6 +33,42 @@ def _identity(path):
 
 def _inventory(root, source_paths=()):
     return source.inventory(root, paths=source_paths)
+
+
+GIT_SETUP_ARGUMENTS = (
+    ('init', '-q'), ('config', 'maintenance.auto', 'false'), ('config', 'gc.auto', '0'),
+    ('add', '-f', '--all'),
+    ('-c', 'user.name=AutoCode verification', '-c', 'user.email=verification@localhost',
+     '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'Verification source'),
+)
+
+
+def native_git_setup(scratch):
+    """Read exact native setup inputs without executing a tool or selecting PATH.
+
+    Apple's /usr/bin/git is a developer selector. Only the canonical installed
+    Git receives a setup-only read; its libraries use the existing OS policy.
+    Empty owned template/exec directories avoid granting the CLT installation.
+    The original native owner calls this again before seal, release and finish.
+    """
+    scratch = Path(scratch).absolute()
+    executable = Path('/Library/Developer/CommandLineTools/usr/bin/git')
+    if executable.resolve(strict=True) != executable or not executable.is_file():
+        raise ValueError('Native Git setup requires the canonical installed executable')
+    identity = executable.stat()
+    if identity.st_uid != 0 or identity.st_mode & 0o022 or not identity.st_mode & 0o111:
+        raise ValueError('Native Git setup requires a root-owned nonwritable executable')
+    empty = scratch / 'native-git-empty'
+    if (scratch.resolve(strict=True) != scratch or empty.resolve(strict=True) != empty
+            or not empty.is_dir() or stat.S_IMODE(empty.stat().st_mode) != 0o500
+            or any(empty.iterdir())):
+        raise ValueError('Native Git setup requires its unchanged empty resource directory')
+    environment = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': str(scratch),
+                   'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
+                   'GIT_TEMPLATE_DIR': str(empty), 'GIT_EXEC_PATH': str(empty)}
+    return {'executable': str(executable), 'sha256': util.file_hash(executable),
+            'environment': environment,
+            'commands': [[str(executable), *args] for args in GIT_SETUP_ARGUMENTS]}
 
 
 def _run_directory(root, run_dir):
@@ -68,7 +105,7 @@ def allocate(workspace, run_dir, *, source_paths=()):
         raise
 
 
-def create(workspace, scratch, *, source_paths=(), run_dir=None):
+def create(workspace, scratch, *, source_paths=(), setup_executor=None, run_dir=None):
     root, scratch = Path(workspace).resolve(), Path(scratch).resolve()
     if not scratch.is_relative_to(root / '.autocode'):
         raise ValueError('Verification copy must be inside the owned task scratch')
@@ -103,12 +140,17 @@ def create(workspace, scratch, *, source_paths=(), run_dir=None):
     # that stops every other repository starting detached maintenance (#515)
     # never reaches it; write the keys into the repository instead, or a repack
     # under .git/objects after the manifest walk reads as a changed input.
-    for args in [('init', '-q'), ('config', 'maintenance.auto', 'false'), ('config', 'gc.auto', '0'),
-                 ('add', '-f', '--all'),
-                 ('-c', 'user.name=AutoCode verification', '-c', 'user.email=verification@localhost',
-                  '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'Verification source')]:
-        subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    for args in GIT_SETUP_ARGUMENTS:
+        command = ['/usr/bin/git', *args]
+        if setup_executor is None:
+            subprocess.run(command, cwd=tree, env=env, check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        else:
+            # The concrete native owner executes these fixed setup commands
+            # through its original journal/held root, before sealing the copy.
+            result = setup_executor(command, cwd=tree, env=env, timeout=30)
+            if result.get('exit_code') != 0 or result.get('timed_out') or result.get('error'):
+                raise ValueError('Owned verification Git setup failed: ' + str(result))
     # Match the clean replay's read-only task-local dependency lookup. These
     # links grant no new authority. A contained provider's sandbox also keeps
     # their originals read-only; an uncontained provider gets no such claim.

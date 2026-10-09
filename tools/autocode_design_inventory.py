@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import copy
 try:
-    from . import autocode_design_sources as sources
+    from . import autocode_design_sources as sources, autocode_design_topology as topology, autocode_design_scope as scope, autocode_util as util
 except ImportError:
-    import autocode_design_sources as sources
+    import autocode_design_sources as sources, autocode_design_topology as topology, autocode_design_scope as scope, autocode_util as util
 import re
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -47,8 +47,19 @@ def _file_metadata_pages(file, root):
 
 
 def _metadata_nodes(page, root):
-    """Read a complete get_metadata page response and return its node table."""
+    """Read complete native or explicitly same-source derived page topology."""
     metadata = _parse_metadata_artifact(page["metadata_xml"], root, page.get("id", "<unknown>"))
+    if 'metadata_kind' in metadata.attrib or 'source_sha256' in metadata.attrib:
+        if metadata.attrib.get('metadata_kind') != topology.KIND:
+            raise ValueError('Unsupported Figma page metadata provenance')
+        bundle = Path(root).resolve()
+        source = page.get('source_json', {})
+        candidate = bundle / source.get('path', '')
+        if (candidate.is_symlink() or not candidate.is_file() or not candidate.resolve().is_relative_to(bundle)
+                or any(parent.is_symlink() for parent in candidate.parents if parent.is_relative_to(bundle))):
+            raise ValueError('Derived Figma topology needs its regular source artifact inside the bundle')
+        metadata = topology.verify((Path(root) / page['metadata_xml']['path']).read_bytes(),
+                                   candidate.read_bytes(), source.get('sha256'))
     root_id = metadata.attrib.get("id")
     if root_id and root_id != page["id"]:
         raise ValueError(f"Figma page metadata identity differs from page {page['id']}")
@@ -189,8 +200,10 @@ def _validate_bindings(body, case, refs, node_tables, source_facts):
                 raise ValueError(f"Design case omits source-bound {section}: {case['id']}")
 
 
-def validate(body, root):
+def validate(body, root, *, admission=None, _partition=None):
     """Enforce source-derived frame/state coverage and reference integrity."""
+    if admission is not None and admission.manifest_hash != util.digest(body):
+        raise ValueError("Approved scope differs from the complete source body")
     frames, node_tables, source_facts = set(), {}, {}
     frame_owners = {}
     for file in body["files"]:
@@ -253,18 +266,23 @@ def validate(body, root):
             for file_key, identity in identities:
                 mapped_inventory[file_key][section].add(identity)
         _validate_bindings(body, case, refs, node_tables, source_facts)
-    if coverage != frames:
+    if admission is None:
+        app_frames, retained_frames = tuple(sorted(frames)), ()
+    else:
+        app_frames, retained_frames = scope.partition(sorted(frames), body["cases"], admission)
+    if coverage != set(app_frames):
         missing = sorted(frames - coverage)
         raise ValueError(f"Discovered Figma screen frames lack a case: {missing}")
 
-    for file in body["files"]:
-        for section, key_name in (("components", "key"), ("variables", "key"), ("fonts", "id"),
-                                  ("assets", "id"), ("transitions", "id")):
-            declared = {row[key_name] for row in file[section]}
-            missing = declared - mapped_inventory[file["key"]][section]
-            if missing:
-                raise ValueError(f"Figma {section} inventory has no case mapping in {file['key']}: "
-                                 f"{sorted(missing)}")
+    if admission is None:
+        for file in body["files"]:
+            for section, key_name in (("components", "key"), ("variables", "key"), ("fonts", "id"),
+                                      ("assets", "id"), ("transitions", "id")):
+                declared = {row[key_name] for row in file[section]}
+                missing = declared - mapped_inventory[file["key"]][section]
+                if missing:
+                    raise ValueError(f"Figma {section} inventory has no case mapping in {file['key']}: "
+                                     f"{sorted(missing)}")
 
     for file in body["files"]:
         seen_components = set()
@@ -356,20 +374,54 @@ def validate(body, root):
                 if page_id is None:
                     raise ValueError(f"Prototype transition references an unknown Figma node: {node_id}")
                 frame = frame_owners[(file["key"], page_id)].get(node_id)
-                if frame and (file["key"], page_id, frame) in cases_by_frame:
+                if frame and (admission is not None or (file["key"], page_id, frame) in cases_by_frame):
                     continue
                 parents = node_tables[(file["key"], page_id)][1]
                 component_keys = {component["key"] for component in file["components"]
                                   if component["source_page_id"] == page_id
                                   and _under(node_id, component["source_node_id"], parents)}
+                if admission is not None and component_keys:
+                    continue
                 if not any(component_keys.intersection(case["inventory_refs"]["components"])
                            and (file["key"], transition["id"]) in case_references(body, case)["transitions"]
                            for case in body["cases"]):
                     raise ValueError(f"Prototype transition lacks a covered screen/component endpoint: {transition['id']}")
 
+    if admission is not None:
+        parents = {(key, page, node): (key, page, parent) if parent is not None else None
+                   for (key, page), (_, local) in node_tables.items() for node, parent in local.items()}
+        resources = {section: {(file["key"], row["key"] if section in ("components", "variables") else row["id"]): row
+                               for file in body["files"] for row in file[section]} for section in scope.SECTIONS}
+        owners = {}
+        for identity, row in source_facts.items():
+            if row["type"] == "COMPONENT":
+                owners.setdefault(row.get("component_key"), []).append(identity)
+        uses = scope.compute_use({"nodes": source_facts, "parents": parents, "resources": resources},
+                                 owners, body["cases"])
+        partitions = scope.require_exact_use({case["id"]: case_references(body, case) for case in body["cases"]},
+                                             uses, {section: tuple(entries) for section, entries in resources.items()})
+        if _partition is not None:
+            pages = {(file["key"], page["id"]): page for file in body["files"] for page in file["pages"]}
+            _partition.update(app_frames=[_frame_fact(identity, node_tables, pages, retained=False) for identity in app_frames],
+                              retained_frames=[_frame_fact(identity, node_tables, pages) for identity in retained_frames],
+                              used_resources={section: [{"file_key": key, **copy.deepcopy(resources[section][(key, rid)]), "source_artifacts": [{"page_id": page, "sha256": item["source_json"]["sha256"]} for (file_key, page), item in pages.items() if file_key == key]}
+                                                        for key, rid in partitions["used"][section]] for section in scope.SECTIONS},
+                              retained_resources={section: [{"file_key": key, **copy.deepcopy(resources[section][(key, rid)]),
+                                                             "source_artifacts": [{"page_id": page, "sha256": item["source_json"]["sha256"]} for (file_key, page), item in pages.items() if file_key == key],
+                                                             "scope_reason": "outside approved product scope"}
+                                                            for key, rid in partitions["retained"][section]] for section in scope.SECTIONS})
     # An unavailable source asset/font is valid intake only as an explicit blocker.
     # It cannot silently disappear from the manifest or earn overall acceptance.
     return body
+
+
+def _frame_fact(identity, node_tables, pages, *, retained=True):
+    key, page, node = identity
+    result = {"file_key": key, "page_id": page, **copy.deepcopy(node_tables[(key, page)][0][node]),
+              "source_sha256": pages[(key, page)]["source_json"]["sha256"]}
+    if retained:
+        result["scope_reason"] = "outside approved product scope"
+    return result
 
 
 def blockers(body):
@@ -397,9 +449,9 @@ def path_intersects(case_path, affected_path):
             or affected_path.startswith(case_path + "/"))
 
 
-def builder_slice(body, root, affected_paths):
+def builder_slice(body, root, affected_paths, *, admission=None):
     """Project the approved catalog onto cases owned by one Builder task."""
-    full = catalog(body, root)
+    full = catalog(body, root, admission=admission)
     affected = sorted({str(path).strip("/") for path in affected_paths if str(path).strip("/")})
     cases = [copy.deepcopy(case) for case in body["cases"]
              if any(path_intersects(implementation_path, path)
@@ -486,9 +538,10 @@ def _variable_value(value, variables):
     return {key: _variable_value(row, variables) for key, row in value.items()}
 
 
-def catalog(body, root):
+def catalog(body, root, *, admission=None):
     """Return a sorted, de-duplicated public design-system view."""
-    validate(body, root)
+    partition = {}
+    validate(body, root, admission=admission, _partition=partition)
     components = {}
     variables = {}
     fonts = {}
@@ -531,7 +584,7 @@ def catalog(body, root):
                                       key=lambda row: (row["file_key"], row["page_id"], row["node_id"]))
         unique = {(row["file_key"], row["page_id"], row["node_id"]): row for row in component["variants"]}
         component["variants"] = [unique[key] for key in sorted(unique)]
-    return {
+    result = {
         "files": [{"key": file["key"], "revision": file["revision"],
                    "pages": [{"id": page["id"], "name": page["name"]} for page in file["pages"]]}
                   for file in sorted(body["files"], key=lambda row: row["key"])],
@@ -555,3 +608,13 @@ def catalog(body, root):
         "transitions": [transitions[key] for key in sorted(transitions)],
         "blockers": blockers(body),
     }
+
+    if admission is not None:
+        result["scope_partition"] = partition
+        result["full_source_screen_frames"] = [{"file_key": key, "page_id": page, "node_id": node}
+                                                for key, page, node in screen_frames(body, root)]
+        result["full_source_frame_count"] = len(result["full_source_screen_frames"])
+        result["app_case_count"] = len(body["cases"])
+        result["delivery_blockers"] = sorted(f"{row['file_key']} {section[:-1]} {row['id']}: {row['reason']}"
+            for section in ("fonts", "assets") for row in partition["used_resources"][section] if row["status"] == "missing")
+    return result
