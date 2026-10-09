@@ -196,7 +196,6 @@ class KernelReceiptTests(unittest.TestCase):
             ('exit_zero', lambda r: {**r, 'result': {**r['result'], 'metadata': {'exit': 7}}}, {}),
             ('scratch_created', lambda r: r, {'scratch': False}),
             ('sentinel_untouched', lambda r: r, {'sentinel': False}),
-            ('denial_present', lambda r: {**r, 'result': {**r['result'], 'output': ''}}, {}),
         ]
         for predicate, change, kwargs in cases:
             with self.subTest(predicate=predicate):
@@ -209,12 +208,30 @@ class KernelReceiptTests(unittest.TestCase):
             ('input_object', lambda r: {**r, 'input': 'not an object'}),
             ('result_object', lambda r: {**r, 'result': None}),
             ('metadata_object', lambda r: {**r, 'result': {**r['result'], 'metadata': []}}),
-            ('output_string', lambda r: {**r, 'result': {**r['result'], 'output': {'secret': 'value'}}}),
         ]
         for predicate, change in cases:
             with self.subTest(predicate=predicate):
                 self.setUp()
                 self.failure(predicate, change)
+
+    def test_missing_or_malformed_display_output_does_not_replace_direct_evidence(self):
+        for output, kind, omit in (('', 'string', False), (None, 'null', False),
+                                   ({'secret': 'SECRET'}, 'object', False), (None, 'null', True)):
+            with self.subTest(kind=kind, omit=omit):
+                self.setUp()
+                self.configure(lambda r: {**r, 'result': {
+                    **{key: value for key, value in r['result'].items() if key != 'output'},
+                    **({} if omit else {'output': output})}})
+                self.assertEqual(1, self.verification_calls)
+                self.assertFalse((self.control / 'conformance-failure.json').exists())
+                proof_text = (self.control / 'conformance.json').read_text()
+                self.assertNotIn('SECRET', proof_text)
+                receipt = json.loads(proof_text)['native_receipt']
+                self.assertEqual('passed', receipt['status'])
+                self.assertEqual([], receipt['failed_predicates'])
+                self.assertFalse(receipt['checks']['denial_present'])
+                self.assertEqual(kind == 'string', receipt['checks']['output_string'])
+                self.assertEqual(kind, receipt['types']['output'])
 
     def test_adversarial_text_and_extra_keys_never_enter_receipt_or_exception(self):
         secret = 'SECRET-https://user:password@private.invalid/token'
@@ -264,8 +281,8 @@ class KernelReceiptTests(unittest.TestCase):
                 raise OSError('SECRET credentials')
             return original(path, *args, **kwargs)
         with patch.object(containment.os, 'open', side_effect=open_file):
-            with self.assertRaisesRegex(RuntimeError, 'denial_present; diagnostic unavailable') as caught:
-                self.configure(lambda r: {**r, 'result': {**r['result'], 'output': ''}})
+            with self.assertRaisesRegex(RuntimeError, 'scratch_created; diagnostic unavailable') as caught:
+                self.configure(scratch=False)
         self.assertNotIn('SECRET', str(caught.exception))
         self.assertFalse((self.control / 'conformance.json').exists())
         self.assertEqual(0, self.verification_calls)
@@ -292,7 +309,7 @@ class KernelReceiptTests(unittest.TestCase):
         outside.write_text('untouched\n')
         (self.control / 'conformance-failure.json').symlink_to(outside)
         with self.assertRaisesRegex(RuntimeError, 'diagnostic unavailable'):
-            self.configure(lambda r: {**r, 'result': {**r['result'], 'output': ''}})
+            self.configure(scratch=False)
         self.assertEqual('untouched\n', outside.read_text())
         self.assertFalse((self.control / 'conformance.json').exists())
 

@@ -305,7 +305,7 @@ def configure(command, environment, workspace, *, allow_write, request):
     response = debug(['--tool', 'bash', '--params', json.dumps({
         'command': probe, 'description': 'AutoCode kernel containment conformance (no model)',
         'workdir': str(Path(workspace).resolve()), 'timeout': 10000})])
-    _check_kernel_receipt(response, probe, control, scratch, sentinel)
+    native_receipt = _check_kernel_receipt(response, probe, control, scratch, sentinel)
     result = response['result']
     tool_receipts = []
     for tool_probe in tools_ready['probes']:
@@ -320,7 +320,8 @@ def configure(command, environment, workspace, *, allow_write, request):
                                + '; ' + str(checked.get('output', ''))[-2000:])
         tool_receipts.append({'command': tool_probe, 'exit': 0, 'output': checked.get('output')})
     proof = {'toolchain_checks': tool_receipts, 'command': probe, 'tool': 'bash', 'exit': result['metadata']['exit'],
-             'output': result.get('output'), 'native_version': SUPPORTED_VERSION,
+             'output': result.get('output') if isinstance(result.get('output'), str) else None,
+             'native_receipt': native_receipt, 'native_version': SUPPORTED_VERSION,
              'profile_sha256': hashlib.sha256(Path(boundary['profile']).read_bytes()).hexdigest(),
              'shell_sha256': hashlib.sha256(Path(boundary['shell']).read_bytes()).hexdigest()}
     proof_path = control / 'conformance.json'
@@ -334,7 +335,7 @@ def configure(command, environment, workspace, *, allow_write, request):
 
 
 def _check_kernel_receipt(response, probe, control, scratch, sentinel):
-    """Retain only fixed predicates and hashes when native proof is rejected."""
+    """Require direct containment evidence; tool display text is informational."""
     document = response if isinstance(response, dict) else {}
     input_value, result_value = document.get('input'), document.get('result')
     input_record = input_value if isinstance(input_value, dict) else {}
@@ -366,14 +367,17 @@ def _check_kernel_receipt(response, probe, control, scratch, sentinel):
         'denial_present': isinstance(output, str) and bool(re.search(
             r'Operation not permitted|Permission denied', output)),
     }
-    failed = [name for name, passed in checks.items() if not passed]
-    if not failed:
-        return
+    # OpenCode can omit tool display text. It cannot replace the command/exit
+    # identity and direct filesystem witnesses required for containment.
+    required = ('response_object', 'input_object', 'result_object', 'metadata_object',
+                'input_command_match', 'metadata_exit_int', 'exit_zero',
+                'scratch_created', 'sentinel_untouched')
+    failed = [name for name in required if not checks[name]]
     # JSON value types are an allowlist, never provider-controlled names or text.
     names = {dict: 'object', list: 'array', str: 'string', int: 'integer',
              float: 'number', bool: 'boolean', type(None): 'null'}
     receipt = {
-        'schema': 1, 'category': 'native_kernel_receipt', 'status': 'rejected',
+        'schema': 1, 'category': 'native_kernel_receipt', 'status': 'rejected' if failed else 'passed',
         'checks': checks, 'failed_predicates': failed,
         'types': {name: names.get(type(value), 'other') for name, value in (
             ('response', response), ('input', input_value), ('result', result_value),
@@ -384,6 +388,8 @@ def _check_kernel_receipt(response, probe, control, scratch, sentinel):
                                     if isinstance(command, str) and len(command) <= 16384 else None),
         'scratch_io_error': scratch_io_error, 'sentinel_io_error': sentinel_io_error,
     }
+    if not failed:
+        return receipt
     retained = False
     try:
         descriptor = os.open(control / 'conformance-failure.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
@@ -394,7 +400,7 @@ def _check_kernel_receipt(response, probe, control, scratch, sentinel):
     except OSError:
         pass
     raise RuntimeError('The actual native bash tool did not demonstrate kernel containment; '
-                       + 'failed predicates: ' + ', '.join(failed)
+                       + 'failed required predicates: ' + ', '.join(failed)
                        + '; diagnostic ' + ('retained' if retained else 'unavailable'))
 
 
