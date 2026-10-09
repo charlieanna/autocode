@@ -51,9 +51,12 @@ class CommandSupervisionTests(unittest.TestCase):
         self.assertEqual(command, admission["command"])
         self.assertEqual(str(Path(result["output"]).resolve()), admission["output"])
         self.assertEqual(result["supervision"], admission["supervision"])
+        self.assertFalse((self.root / "normal.log").exists())
 
     def test_repeated_log_path_retains_each_real_commands_output_and_receipt(self):
         latest = self.root / "scratch-command.log"
+        legacy = b"retained legacy command evidence\n"
+        latest.write_bytes(legacy)
         admitted = []
         def checkpoint(command, output, metadata):
             admitted.append((command, Path(output), metadata))
@@ -61,13 +64,13 @@ class CommandSupervisionTests(unittest.TestCase):
             self.command("import sys; print('first stdout'); "
                          "print('first stderr',file=sys.stderr); sys.exit(7)"),
             self.root, latest, checkpoint=checkpoint)
-        self.assertEqual(Path(first["output"]).read_bytes(), latest.read_bytes())
+        self.assertEqual(legacy, latest.read_bytes())
         second = verify.run_command(self.command("pass"), self.root, latest,
                                     checkpoint=checkpoint)
         self.assertEqual(7, first["exit_code"])
         self.assertEqual(0, second["exit_code"])
         self.assertNotEqual(first["output"], second["output"])
-        self.assertEqual(b"", latest.read_bytes())
+        self.assertEqual(legacy, latest.read_bytes())
         latest.write_bytes(b"changed latest view\n")
         for result, expected in ((first, b"first stdout\nfirst stderr\n"), (second, b"")):
             output = Path(result["output"])

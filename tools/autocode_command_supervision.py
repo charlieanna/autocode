@@ -61,7 +61,7 @@ def reconcile(metadata):
 
 
 def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
-    """Execute the existing shell command with durable before-exec ownership."""
+    """Execute with durable ownership; return the exclusive capture path in output."""
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     directory = log_path.parent / "command-supervision" / uuid.uuid4().hex
@@ -136,13 +136,4 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None):
         result["error"] = ownership_error
         result["exit_code"] = None
     util.atomic_json(directory / "result.json", result)
-    # Existing callers read this latest view directly. It must never share an
-    # inode with a retained capture: later writes must not change old evidence.
-    latest = capture.with_name(capture.name + ".latest")
-    try:
-        with latest.open("xb") as stream:
-            stream.write(data)
-        latest.replace(log_path)
-    finally:
-        latest.unlink(missing_ok=True)
     return result
