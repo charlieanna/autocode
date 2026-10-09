@@ -9,9 +9,11 @@ import sys
 try:
     from . import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_verification_copy as verification_copy
 except ImportError:
     import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
     import autocode_containment_policy as containment_policy
+    import autocode_verification_copy as verification_copy
 
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
@@ -25,12 +27,18 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
     ``tool_commands`` (a list, or a callable returning one) is then not computed, and a
     non-planning OpenCode worker carries ``uncontained_tools`` for its stage record (stage_record).
     """
+    # The incoming flag distinguishes native launch from admission/dry-run.
+    # #413's OpenCode kernel opt-out must not disable Codex capture isolation.
+    native_launch = enforce_tool_boundary
     uncontained = containment_policy.accepted(settings)
     if uncontained:
         enforce_tool_boundary, tool_commands = False, ()
     elif callable(tool_commands):
         tool_commands = tool_commands()
     environment = agent_env.scrubbed(os.environ)
+    for name in ('AUTOCODE_VERIFICATION_COPY', 'AUTOCODE_VERIFICATION_COPY_SHA256'):
+        environment.pop(name, None)  # Never inherit another stage's authority.
+    copy = None
     overrides = None
     prior_session = session
     if engine == "opencode":
@@ -52,7 +60,7 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         try:
             command, child, overrides = adapter.launch(route_role, workspace, run_dir, session,
                 model, effort, allow_write, planning=planning, report=report, schema=schema,
-                prompt_file=prompt_file, sandbox=sandbox, **launch_kwargs)
+                prompt_file=prompt_file, sandbox=sandbox, env=environment, **launch_kwargs)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 raise
@@ -61,6 +69,9 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
                               "this run's non-planning stages with OpenCode's own permission checks only") from error
         if child:
             environment = agent_env.scrubbed(child)
+            if not containment or allow_write:
+                for name in ('AUTOCODE_VERIFICATION_COPY', 'AUTOCODE_VERIFICATION_COPY_SHA256'):
+                    environment.pop(name, None)
     elif engine == "codex":
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
         if chatgpt:
@@ -77,6 +88,18 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
     else:
         raise RuntimeError(f"engine {engine!r} is not bundled in this checkout; providers live in "
                            "~/.config/autocode/providers/ and run with --provider")
+    # Judging stages use workspace-write for evidence, but may not change
+    # source. Scratch-owning jobs retain their existing capture CWD contract.
+    # Built-in contained OpenCode already supplies its own native copy.
+    if (native_launch and not planning and not allow_write and sandbox == 'workspace-write'
+            and (engine == 'codex' or getattr(adapter, 'CONFIGURED', False))):
+        try:
+            copy = verification_copy.allocate(workspace, run_dir, source_paths=source_paths)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            raise util.Paused('PAUSED_STALE_VALIDATION',
+                              'Verification copy was not prepared: ' + str(error)) from error
+        environment.update(AUTOCODE_VERIFICATION_COPY=copy['manifest'],
+                           AUTOCODE_VERIFICATION_COPY_SHA256=copy['sha256'])
     worker = {"engine": engine, "provider": getattr(adapter, "NAME", "opencode") if engine == "opencode" else provider or engine,
               "configured": bool(getattr(adapter, "CONFIGURED", False)), "role": route_role,
               "sandbox": sandbox, "planning": planning, "model": model,
@@ -87,6 +110,8 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         worker['uncontained_tools'] = True
     if environment.get('AUTOCODE_TOOL_CONTAINMENT'):
         worker['tool_containment'] = json.loads(environment['AUTOCODE_TOOL_CONTAINMENT'])
+    if copy:
+        worker['verification_copy'] = copy
     if engine == "opencode" and not worker["configured"]:
         # Read from the scrubbed environment: the cap the process will actually get.
         worker['output_token_cap'] = output_cap.recorded(os.environ, environment)
@@ -94,7 +119,12 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
 
 
 def stage_record(worker):
-    """The launch facts a built-in OpenCode stage record carries: isolation, tool boundary, output cap."""
+    """Launch facts, distinguishing capture isolation from a kernel boundary."""
+    if worker.get('verification_copy'):
+        checks = ('Codex sandbox' if worker['engine'] == 'codex'
+                  else 'Configured-provider permission checks')
+        return {'verification_copy': dict(worker['verification_copy']),
+                'isolation': checks + ' and workspace snapshot checks; captured commands use a source-bound copy'}
     record = {'isolation': "Kernel-constrained native shell; other tools disabled" if worker.get('tool_containment')
               else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
               'tool_containment': worker.get('tool_containment'), 'output_token_cap': worker.get('output_token_cap')}
@@ -155,6 +185,17 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
 
 
 def verify_containment(worker):
+    copy = worker.get('verification_copy')
+    if copy:
+        try:
+            environment = worker['environment']
+            if (environment.get('AUTOCODE_VERIFICATION_COPY') != copy['manifest']
+                    or environment.get('AUTOCODE_VERIFICATION_COPY_SHA256') != copy['sha256']):
+                raise ValueError('Verification copy launch authority changed')
+            verification_copy.execution(copy['manifest'], copy['sha256'], copy['workspace'])
+        except (OSError, ValueError, RuntimeError) as error:
+            raise util.Paused('PAUSED_STALE_VALIDATION',
+                              'Verification copy changed before launch: ' + str(error)) from error
     policy = worker.get('tool_containment')
     if policy:
         try:

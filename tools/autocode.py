@@ -443,6 +443,8 @@ def run_role(
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")
+    if worker_context.get('verification_copy'):
+        record.update(provider_launch.stage_record(worker_context))
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):

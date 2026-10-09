@@ -45,7 +45,7 @@ from urllib.parse import unquote, urlparse
 try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
-    from . import autocode_python_tests as python_tests
+    from . import autocode_python_tests as python_tests, autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_verification_schedule as schedule
     from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
@@ -59,6 +59,7 @@ except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
     import autocode_python_tests as python_tests
+    import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_verification_schedule as schedule
     import autocode_node_tests as node_tests
@@ -691,7 +692,7 @@ def run_command(command, cwd, log_path, *, timeout=DEFAULT_TIMEOUT, env=None, ch
 
 def _go_test(command):
     """A plain `go test ...` command the runner can ask for per-test JSON events (not a shell pipeline)."""
-    return command.startswith("go test ") and not re.search(r"[;&|<>`$()]", command)
+    return go_tests.parse(command) is not None
 
 
 def _with_results(framework, command, xml_path, tree=None):
@@ -701,10 +702,10 @@ def _with_results(framework, command, xml_path, tree=None):
         return vitest_tests.instrument(command, xml_path, tree)
     if framework and framework.name == "pytest" and " -m pytest" in command:
         return f"{command} --junitxml={shlex.quote(str(xml_path))}"
-    if framework and framework.name == "go" and _go_test(command) and " -json" not in command:
+    if framework and framework.name == "go" and (invocation := go_tests.parse(command)):
         # Go reports per-test results only as `go test -json` events (a live Go port could not be
         # proven without them, 2026-09-29). The flag goes before the packages, where go test reads it.
-        return "go test -json " + command[len("go test "):]
+        return invocation.instrument()
     # Unittest names each test only at -v. A quiet or default command still runs
     # the same tests; the proof needs those names to tell a passing baseline
     # from a count with no identities.
@@ -787,6 +788,9 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     if not framework or not framework.per_test or framework.name in ("node", "vitest"):
         return None
     if framework.name == "go":
+        invocation = go_tests.parse(receipt.get("command") or framework.suite)
+        if invocation is None or invocation.json_disabled:
+            return None
         output = receipt.get("output")
         return _go_results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
     passed, failed, skipped, collection = set(), set(), set(), set()
@@ -1898,6 +1902,9 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
                 if (receipt["exit_code"] == 0 and not receipt["timed_out"]
                         and not schedule.complete_results(receipt)):
                     return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
+                if (receipt["exit_code"] == 0 and not receipt["timed_out"]
+                        and not (receipt["results"]["passed"] or receipt["results"]["failed"])):
+                    return {**receipt, "error": "Test command reported only skipped tests"}
             else:
                 receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
                 receipt["results"] = None

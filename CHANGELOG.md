@@ -9,7 +9,15 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Bug investigations receive the configured Python test interpreter, including
+  external virtualenvs, for scratch checks and clean replay (#778).
+- Codex and configured-provider judging captures run in a source-bound copy
+  inside the owning run, keeping generated test output out of the project;
+  original-source and clean-replay checks still apply (#782).
+- Literal absolute Go commands collect native test results before proving a
+  reproduction. Empty and skipped-only test probes no longer qualify (#783).
 
 ## [0.7.1] — 2026-10-09
 
