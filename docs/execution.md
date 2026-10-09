@@ -963,4 +963,26 @@ not a general-purpose OS policy compiler. The Codex sandbox/approval system rema
 responsible for individual tool permissions; custom MCP/connector write permissions
 should be configured accordingly. This is intended for trusted local repositories.
 
+## Secret redaction
+
+Evidence is meant to be shared: pull request bodies, exported reports, bug
+bundles. A user's project can still print a token from a config file, a `.env`
+the Builder reads, or a test fixture, and the check replay captures the end of
+output. Redaction is applied **where text leaves the run directory** — the raw
+capture in `.autocode/` is never rewritten, and evidence hashes keep covering
+the raw bytes (#712).
+
+What is replaced with `[REDACTED]`:
+
+- GitHub, OpenAI, Anthropic and AWS token shapes (`ghp_…`, `github_pat_…`,
+  `sk-…`, `sk-ant-…`, `AKIA…`)
+- `Authorization: Bearer …` runs
+- Generic `api_key=` / `secret:` / `token=` / `password=` assignments
+- Any value the provider launch marked secret
+
+What is **not** redacted: ordinary command output, test names, file paths and
+diagnostics that do not match those shapes. A canary scenario plants a secret
+in the seed and asserts it appears in no exported artifact
+(`tests/test_secret_redaction.py`).
+
 See also: [Workflow](workflow.md) · [Models](models.md) · [Testing](testing.md)
