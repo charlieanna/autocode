@@ -19,7 +19,14 @@
         "acceptance_oracle",
         "no_false_completion"
       ],
-      "attempts": []
+      "attempts": [
+        {
+          "report": "reports/bugfix-587-attempt-1.json",
+          "sha256": "2ca2936c661a92d575889e57ca826b93b04d2f746c6d7a11bbce431cc498ee03",
+          "assistance": "assisted",
+          "human_seconds": 120
+        }
+      ]
     },
     {
       "id": "build-924",
@@ -34,7 +41,14 @@
         "acceptance_oracle",
         "no_false_completion"
       ],
-      "attempts": []
+      "attempts": [
+        {
+          "report": "reports/build-924-attempt-1.json",
+          "sha256": "1ad93914d8690ab35499df187131f4c21f01e1032eda6cc1798500320e1a35b3",
+          "assistance": "assisted",
+          "human_seconds": 180
+        }
+      ]
     },
     {
       "id": "review-102",

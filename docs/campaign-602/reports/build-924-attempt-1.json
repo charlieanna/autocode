@@ -1,0 +1,43 @@
+{
+  "report_version": 2,
+  "attempt_id": "build-924-attempt-1",
+  "run_identity": "d405545f150c5613a6beb430c02e07860d2ddac8ecfe040da867941054fbb7e8",
+  "profile": "glm53-mimo",
+  "profile_detail": {
+    "provider": "opencode"
+  },
+  "scenario": "build:pytest-dev/pytest-asyncio#924",
+  "oracle_sha256": "90ad5c5e644034ebe9637cdd3895f2344924de6116fc2988360ef49ea4c4239c",
+  "candidate_revision": "84f9d94fa759d33718152241e72b60da68e797a4ef9c2feff76b0b219b39569f",
+  "runner_status": "RESOLVER_PENDING",
+  "verdict": "HONEST_BLOCKER",
+  "checks": [
+    {
+      "name": "workflow_pinned",
+      "ok": true
+    },
+    {
+      "name": "acceptance_oracle",
+      "ok": false
+    },
+    {
+      "name": "no_false_completion",
+      "ok": true
+    }
+  ],
+  "measurement": {
+    "schema_version": 1,
+    "execution_kind": "live",
+    "workload_kind": "repository",
+    "baseline_content_sha256": "a0e172b520658505dfc5261a50b4e944b402d24c23fd5a88579fbf786faa5ef8",
+    "task_sha256": "0eb6ad491fe1c87b12c5cc4096e2b624b85761bad1f05bb5c46470a800472168",
+    "elapsed_seconds": 7200,
+    "usage": {
+      "estimated_api_equivalent_usd": null,
+      "known_estimated_api_equivalent_usd": null,
+      "pricing_basis": {
+        "kind": "unknown"
+      }
+    }
+  }
+}

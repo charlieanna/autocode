@@ -1,0 +1,43 @@
+{
+  "report_version": 2,
+  "attempt_id": "bugfix-587-attempt-1",
+  "run_identity": "6b2da66b981b0c6e25d03db3a263f871e5ba01744203ba61919ad9d00ca25925",
+  "profile": "glm53-mimo",
+  "profile_detail": {
+    "provider": "opencode"
+  },
+  "scenario": "bugfix:charlieanna/autocode#587",
+  "oracle_sha256": "053dff7e290dae8403cdc3cf048fb46914f38d894b455892576c205c9a773e9b",
+  "candidate_revision": "8533833f352f7e2b0cf25699721d8d536d84451b24e6caa6c9aee8df1e61fbb9",
+  "runner_status": "PAUSED_JOB_FAILURE",
+  "verdict": "DEFERRED",
+  "checks": [
+    {
+      "name": "workflow_pinned",
+      "ok": true
+    },
+    {
+      "name": "acceptance_oracle",
+      "ok": false
+    },
+    {
+      "name": "no_false_completion",
+      "ok": true
+    }
+  ],
+  "measurement": {
+    "schema_version": 1,
+    "execution_kind": "live",
+    "workload_kind": "repository",
+    "baseline_content_sha256": "acb2134cf66f0aba2ced29f86ff09c996884e30dffb48e71094d9fd23765198c",
+    "task_sha256": "193eb4832dd6042bf7f647d0c8c9130147fc5f844da51ed30e3ded9891f6b514",
+    "elapsed_seconds": 29600,
+    "usage": {
+      "estimated_api_equivalent_usd": null,
+      "known_estimated_api_equivalent_usd": null,
+      "pricing_basis": {
+        "kind": "unknown"
+      }
+    }
+  }
+}
