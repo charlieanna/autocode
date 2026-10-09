@@ -240,7 +240,7 @@ class ProgramDriver:
         if isinstance(shared, dict) and isinstance(shared.get("interfaces"), list):
             shared["interfaces"] = [renamed(row, self.ids) if isinstance(row, dict) else row
                                     for row in shared["interfaces"]]
-        for step, record in zip(self.scripted, self.changes):
+        for step, record in zip(self.scripted, self.changes, strict=False):
             step["by"] = self.ids.get(step["by"], step["by"])
             after = step["after"].removeprefix("merged:")
             step["after"] = "merged:" + self.ids.get(after, after)
@@ -326,7 +326,7 @@ class ProgramDriver:
     def raise_due_change(self, summary: dict) -> bool:
         """Raise the next scripted change request whose moment has come (``after = "merged:<id>"``)."""
         merged = {row["id"] for row in summary["workstreams"] if row["status"] == "MERGED"}
-        for record, step in zip(self.changes, self.scripted):
+        for record, step in zip(self.changes, self.scripted, strict=False):
             if record["request"] is None and step["after"].removeprefix("merged:") in merged:
                 proc = self.on_manifest("program-request-change", "request-change", "--interface", step["interface"],
                                         "--by", step["by"], "--reason", step["reason"])
@@ -343,7 +343,7 @@ class ProgramDriver:
         if summary["status"] != "WAITING_CHANGE_REQUEST":
             return False
         open_ids = {row["id"] for row in summary.get("change_requests") or [] if row.get("status") == "open"}
-        for record, step in zip(self.changes, self.scripted):
+        for record, step in zip(self.changes, self.scripted, strict=False):
             if record["request"] not in open_ids or record["decided"]:
                 continue
             if step["decide"] == "reject":

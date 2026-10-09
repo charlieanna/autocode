@@ -177,14 +177,14 @@ def _timing(attempts, observations, now):
     durations.extend(None for _ in conflicts)
     boundaries = sorted({time for interval in intervals for time in interval[:2]})
     allocated = dict.fromkeys((*CATEGORIES, "parallel_overlap"), 0.0)
-    for start, end in zip(boundaries, boundaries[1:]):
+    for start, end in zip(boundaries, boundaries[1:], strict=False):
         categories = {kind for left, right, kind in intervals if left < end and right > start}
         if categories:
             allocated[next(iter(categories)) if len(categories) == 1 else "parallel_overlap"] += end - start
     known_sum = sum(value for value in durations if value is not None)
     def union(spans):
         points = sorted({value for span in spans for value in span})
-        return sum(right - left for left, right in zip(points, points[1:])
+        return sum(right - left for left, right in zip(points, points[1:], strict=False)
                    if any(start < right and end > left for start, end in spans))
     native, incomplete_native = {}, False
     for row in attempts:

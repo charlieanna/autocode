@@ -91,7 +91,7 @@ def run(command: list[str], prompt: str | None, env: dict) -> int:
 
 def main(argv: list[str]) -> int:
     route = json.loads(Path(argv[0]).read_text())
-    values = dict(zip(VALUES, argv[1:]))
+    values = dict(zip(VALUES, argv[1:], strict=False))
     if len(values) != len(VALUES):
         print(f"hybrid_stage: expected {len(VALUES)} values after the route, got {len(argv) - 1}", file=sys.stderr)
         return 2

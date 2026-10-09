@@ -246,7 +246,7 @@ def inventory(sources, *, version=VERSION):
 def _match_argv(arguments, pattern):
     return len(arguments) == len(pattern) and all(
         _PLACEHOLDER.fullmatch(expected) or actual == expected
-        for actual, expected in zip(arguments, pattern))
+        for actual, expected in zip(arguments, pattern, strict=False))
 
 
 _INTERPRETER = re.compile(r'python(?:\d+(?:\.\d+)*)?|py\Z')
@@ -329,7 +329,7 @@ def _supplied(observation):
         command = next((pattern for pattern in declaration['commands'] if _match_argv(step['argv'], pattern)), None)
         if command is None:
             raise ValueError('Invocation must uniquely match a source-declared successful CLI command')
-        for word, value in zip(command, step['argv']):
+        for word, value in zip(command, step['argv'], strict=False):
             if word in variables:
                 supplied.setdefault(word, set()).add(value)
     return declaration, supplied
@@ -405,13 +405,13 @@ def output_reason(output, pattern, line, required=(), absent=(), exact=False):
         return 'CLI output is not UTF-8 text in this bounded slice'
     rows = text.split('\r\n' if crlf else '\n')
     items = [re.fullmatch(pattern, row) is not None for row in rows]
-    if any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items)):
+    if any('\r' in row or '\n' in row or not (item or re.fullmatch(line, row)) for row, item in zip(rows, items, strict=False)):
         return 'CLI output differs from the original brief format'
     # The bound item alone is always a listing; once the observation names its
     # items (#644), those names are the authority instead of that one item.
     if not any(items) and not required:
         return 'CLI output differs from the original brief format'
-    ids = [row.split(' ', 1)[0] for row, item in zip(rows, items) if item or re.fullmatch(line, row)]
+    ids = [row.split(' ', 1)[0] for row, item in zip(rows, items, strict=False) if item or re.fullmatch(line, row)]
     if len(set(ids)) != len(ids):
         return 'CLI listing repeats an ID'
     if any(ident in ('ID', 'TEXT') for ident in ids):
@@ -419,11 +419,11 @@ def output_reason(output, pattern, line, required=(), absent=(), exact=False):
     for value in absent or ():
         needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
         if any((item or re.fullmatch(line, row)) and needle.search(row)
-               for row, item in zip(rows, items)):
+               for row, item in zip(rows, items, strict=False)):
             return 'CLI output still lists an item the observation removed'
     for value in required or ():
         needle = re.compile(r'(?<!\S)' + re.escape(value) + r'(?!\S)')
-        hits = sum(1 for row, item in zip(rows, items)
+        hits = sum(1 for row, item in zip(rows, items, strict=False)
                    if (item or re.fullmatch(line, row)) and needle.search(row))
         if hits == 0:
             return 'CLI output omits an item the observation introduced'

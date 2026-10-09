@@ -31,12 +31,17 @@ except ImportError:
     from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
     from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report  # noqa: F401 - compatibility API
-    import autocode_output_filter as output_filter, autocode_request_usage as request_usage  # noqa: F401 - compatibility API
+    import autocode_output_filter as output_filter
+    import autocode_request_usage as request_usage  # noqa: F401 - compatibility API
     import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
-    import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
-    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    import autocode_receipts as receipts
+    import autocode_usage as token_usage
+    import autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
+    import autocode_event_matching as event_matching
+    import autocode_event_metrics as event_summary
+    import autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
     from autocode_event_matching import same_command  # noqa: F401 - compatibility API
 # fmt: on
 # isort: on
@@ -241,7 +246,7 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             raise ValueError("No independently executed Validator tool event matches receipt")
         check['exit_code'] = receipt['exit_code']
     # Failed or ambiguous normalization must not partly repair the caller's report.
-    for original, derived in zip(checks, normalized):
+    for original, derived in zip(checks, normalized, strict=False):
         original.update(derived)
 
 

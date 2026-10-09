@@ -225,7 +225,7 @@ def _argv_runner(words) -> bool:
         return command[:1] == [RUNNER_COMMANDS[executable]]
     if executable in ("node", "nodejs"):  # node --test, node --run test, node node_modules/vitest/vitest.mjs
         options = rest[:len(rest) - len(command)]
-        return ("--test" in options or any(flag == "--run" and _test_script(value) for flag, value in zip(options, options[1:]))
+        return ("--test" in options or any(flag == "--run" and _test_script(value) for flag, value in zip(options, options[1:], strict=False))
                 or bool(command and RUNNER_PATH.search(command[0])))
     if executable in ("npx", "bunx", "pnpx"):  # npx vitest run, but not npx tsx cli.ts
         return _argv_runner(command)
@@ -239,7 +239,7 @@ def _argv_runner(words) -> bool:
             return _argv_runner(_after_options(command[1:]))
         return verb in TEST_COMMANDS or _argv_runner(command)  # npm test, yarn vitest, pnpm playwright test
     if executable in ("sh", "bash", "zsh", "dash", "cmd"):
-        return any(flag in ("-c", "-lc", "/c") and _shell_runner(script) for flag, script in zip(rest, rest[1:]))
+        return any(flag in ("-c", "-lc", "/c") and _shell_runner(script) for flag, script in zip(rest, rest[1:], strict=False))
     return False
 
 

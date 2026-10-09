@@ -499,7 +499,7 @@ def projection(state, *, current_snapshot):
         result = acceptance.summary(eligible, current=current, manifest=manifest, evidence_hashes=hashes,
                                     verified_capture_hashes=[row['capture_sha256'] for row in selected['current']])
         history = acceptance.summary(receipts, current=current, manifest=manifest)
-        for row, old in zip(result['cases'], history['cases']):
+        for row, old in zip(result['cases'], history['cases'], strict=False):
             row['historical_accepted_at'] = old['historical_accepted_at']
         return {**result, 'status': 'VERIFIED' if result['coverage_complete'] else 'NOT_VERIFIED'}
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as error:

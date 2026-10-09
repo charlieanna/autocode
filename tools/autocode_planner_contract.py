@@ -130,7 +130,7 @@ def _json_equal(left: object, right: object) -> bool:
         return (isinstance(left, (int, float)) and isinstance(right, (int, float))
                 and left == right)
     if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right, strict=False))
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(_json_equal(left[key], right[key]) for key in left)
     return type(left) is type(right) and left == right

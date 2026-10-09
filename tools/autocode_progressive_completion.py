@@ -85,7 +85,7 @@ def _receipt(receipt, check, token, source, *, current):
     commands = plan.check_commands(check)
     if type(executions) is not list or len(executions) != len(commands):
         raise ValueError("incomplete command replay")
-    for command, execution in zip(commands, executions):
+    for command, execution in zip(commands, executions, strict=False):
         if (type(execution) is not dict or execution.get("command") != command
                 or execution.get("status") != "PASS" or type(execution.get("exit_code")) is not int
                 or execution["exit_code"] != 0):

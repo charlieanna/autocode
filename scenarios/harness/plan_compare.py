@@ -211,11 +211,11 @@ def write_blind(out: Path, cases: list[Case], records: dict) -> None:
         if all(record.get("feedback_round") for record in pair):
             # Judge the plan each variant showed after the feedback, against the plan it showed before.
             text += ["## Feedback on the first plan", "", case.feedback, ""]
-            for label, record in zip("AB", pair):
+            for label, record in zip("AB", pair, strict=False):
                 text += [f"## Plan {label}", "", "### Before the feedback", "", render_plan(record["contract"]),
                          "### After the feedback", "", render_plan(record["feedback_round"]["contract"])]
         else:
-            for label, record in zip("AB", pair):
+            for label, record in zip("AB", pair, strict=False):
                 text += [f"## Plan {label}", "", render_plan(record["contract"])]
         (blind / f"{case.id}.md").write_text("\n".join(text))
     (blind / "key.json").write_text(json.dumps(key, indent=2))

@@ -354,38 +354,5 @@ class CommandProviderTests(unittest.TestCase):
             provider.final_report(trailing, recover_wrapped=True)
 
 
-    def test_event_final_report_forwards_wrapped_recovery(self):
-        write_config(self.home, "events2", 'name = "events2"\ncommand = ["kilo", "run"]\n'
-                     'output = "opencode_events"\nresume = ["--session", "{session}"]\nmodels = ["demo"]\n' + ROLES)
-        provider = command.load("events2")
-
-        def events_file(final_text):
-            folder = self.home / f"stage{abs(hash(final_text)) % 1000}"
-            folder.mkdir(exist_ok=True)
-            path = folder / "sol-01.jsonl"
-            rows = [
-                {"type": "text", "sessionID": "ses", "part": {"id": "p1", "messageID": "m1", "text": final_text}},
-                {"type": "step_finish", "sessionID": "ses", "part": {"id": "p2", "messageID": "m1", "reason": "stop"}},
-                {"type": "turn.completed", "sessionID": "ses", "usage": {}},
-            ]
-            path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
-            return path
-
-        report = json.dumps({"summary": "Repaired fixture report"})
-        wrapped = events_file("Brief commentary; the repaired report follows twice.\n" + report + report)
-        # The default stays strict: wrapped prose is never accepted implicitly.
-        with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
-            provider.final_report(wrapped)
-        self.assertEqual({"summary": "Repaired fixture report"},
-                         provider.final_report(wrapped, recover_wrapped=True))
-        # Conflicting duplicates and trailing content stay rejected even in recovery.
-        conflicting = events_file("Commentary.\n" + report + json.dumps({"summary": "Different"}))
-        with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
-            provider.final_report(conflicting, recover_wrapped=True)
-        trailing = events_file("Commentary.\n" + report + report + " trailing prose")
-        with self.assertRaisesRegex(RuntimeError, "not a JSON report"):
-            provider.final_report(trailing, recover_wrapped=True)
-
-
 if __name__ == "__main__":
     unittest.main()

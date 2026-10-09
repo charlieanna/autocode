@@ -23,7 +23,7 @@ def write(workspace, destination, source, *, prefix=""):
         env = {**os.environ, 'GIT_INDEX_FILE': str(Path(directory) / 'index')}
         def git(*args, data=None):
             return subprocess.run(['git', *args], cwd=workspace, env=env, input=data,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True).stdout
+                                  capture_output=True, check=True).stdout
         git('read-tree', '--empty')
         names = [name for name, value in source['files'].items() if value != 'deleted']
         if names:

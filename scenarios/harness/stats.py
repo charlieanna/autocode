@@ -104,7 +104,7 @@ def format_table(rows: list[dict]) -> str:
                          *(_show(row.get(key)) for key in ("diagnosed", "correct", "incorrect", "unscored")))
                         for row in rows]
     widths = [max(len(line[column]) for line in lines) for column in range(len(header))]
-    text = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths)).rstrip() for line in lines]
+    text = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=False)).rstrip() for line in lines]
     return "\n".join([text[0], "(medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
                       *text[1:]])
 

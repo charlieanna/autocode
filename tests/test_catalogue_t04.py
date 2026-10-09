@@ -175,7 +175,7 @@ class ReviewCase(t06.SolControllerCase):
         self.apply_sol(report)
         complete = self.complete_decision()
         named = [cid for cid, row in zip((c["id"] for c in self.state["acceptance_criteria"]),
-                                         self.state["validation"]["criterion_results"])
+                                         self.state["validation"]["criterion_results"], strict=False)
                  if row["status"] != "PASS"]
         self.check("unverified_criterion_named", ["C1"], named)
         with self.forbid_real_launches(runner):

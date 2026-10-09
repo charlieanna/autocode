@@ -535,7 +535,7 @@ def _same(expected, actual) -> bool:
                 and all(_same(value, actual[key]) for key, value in expected.items()))
     if isinstance(expected, list):
         return (isinstance(actual, list) and len(expected) == len(actual)
-                and all(_same(e, a) for e, a in zip(expected, actual)))
+                and all(_same(e, a) for e, a in zip(expected, actual, strict=False)))
     if isinstance(expected, bool) or isinstance(actual, bool):
         return type(expected) is type(actual) and expected == actual
     if expected is None or actual is None:

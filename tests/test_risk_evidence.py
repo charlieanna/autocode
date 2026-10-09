@@ -76,7 +76,7 @@ class RiskEvidenceTests(RiskFixture, unittest.TestCase):
         self.assertEqual(self.revision, util.snapshot(self.workspace)['revision'])
         self.assertTrue(evidence.ready(self.state(), self.revision))
         self.assertEqual(2, len(self.actual['checks']))
-        for row, case in zip(self.actual['checks'], obligations.observations(self.original_state, all_observations=True)):
+        for row, case in zip(self.actual['checks'], obligations.observations(self.original_state, all_observations=True), strict=False):
             with self.subTest(protocol=case['protocol']):
                 raw = Path(row['output']).read_bytes()
                 self.assertEqual(hashlib.sha256(raw).hexdigest(), row['output_sha256'])

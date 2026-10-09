@@ -431,7 +431,7 @@ def translate(oracle, state, source, report):
     """Map production finding ids in a report to oracle ids (T05 convention)."""
     production = [row["id"] for row in findings.open_entries(state, source)]
     oracle_ids = [row["id"] for row in oracle.open(source)]
-    mapping = dict(zip(production, oracle_ids))
+    mapping = dict(zip(production, oracle_ids, strict=False))
     for row in report.get("findings", []):
         if row.get("id"):
             row["id"] = mapping.get(row["id"], row["id"])

@@ -547,7 +547,7 @@ def entry_stage(state):
 
 def next_after(state, stage):
     if state.get("settings", {}).get("planning_flow") == "v2":
-        return dict(zip(V2_STAGES, V2_STAGES[1:])).get(stage)
+        return dict(zip(V2_STAGES, V2_STAGES[1:], strict=False)).get(stage)
     return {"requirements_gather": "astra_discovery", "astra_discovery": "astra_challenge",
             "astra_challenge": "glm_revise", "glm_revise": "astra_finalize"}.get(stage)
 

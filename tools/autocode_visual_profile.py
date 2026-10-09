@@ -236,7 +236,7 @@ def authority(state, worker, workspace, run_dir):
                  'Visual command differs from the actual worker')
         args = {}
         _require(len(base[2:]) % 2 == 0, 'Unsupported visual command arguments')
-        for key, value in zip(base[2::2], base[3::2]):
+        for key, value in zip(base[2::2], base[3::2], strict=False):
             _require(key in ('--dir', '--format', '--agent', '--model', '--title', '--variant') and key not in args,
                      'Unsupported, resumed or duplicate visual command option')
             args[key] = value

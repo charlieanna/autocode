@@ -181,7 +181,7 @@ class VisualRuntimeTests(unittest.TestCase):
         self.report.update(verdict='PASS', design_manifest_hash=self.state['settings']['design_manifest']['manifest_hash'],
                            design_results=[{'id': cid, 'status': status,
                                             'criterion_ids': context['current']['case_criteria'][cid], **self.captures[cid]}
-                                           for cid, status in zip(('empty', 'filled'), statuses)])
+                                           for cid, status in zip(('empty', 'filled'), statuses, strict=False)])
         self.save_report()
         for key in ('before_ref', 'after_ref'):
             util.atomic_json(Path(self.record[key]), self.snapshot())

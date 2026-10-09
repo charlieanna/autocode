@@ -57,7 +57,7 @@ def plan(methods):
     body = goal_fixtures.body()
     body["acceptance_criteria"] = [{"id": f"AC{n}", "criterion": criterion, "verification_method": method,
                                     "human_review": False}
-                                   for n, (criterion, method) in enumerate(zip(CRITERIA, methods), start=1)]
+                                   for n, (criterion, method) in enumerate(zip(CRITERIA, methods, strict=False), start=1)]
     body["milestones"][0].update(acceptance_criteria=["AC1", "AC2", "AC3"],
                                  affected_paths=["product.go", "product_test.go"])
     return body

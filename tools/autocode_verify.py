@@ -308,7 +308,7 @@ def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
         tokens = _git(workspace, "diff-index", "--cached", "--name-status", "-z", "--no-renames", base, "--",
                       env=env).split("\0")
         changes = {path: {"A": "added", "D": "deleted"}.get(status[:1], "modified")
-                   for status, path in zip(tokens[0::2], tokens[1::2]) if path}
+                   for status, path in zip(tokens[0::2], tokens[1::2], strict=False) if path}
         changes.update(dict.fromkeys(repositories, "added"))
         for path in _git(workspace, "diff-files", "--name-only", "-z", "--diff-filter=M", env=env).split("\0"):
             if path and Path(workspace, path).is_dir():  # a submodule with uncommitted work, as `git diff` shows it

@@ -53,7 +53,7 @@ PLAIN = re.compile(r"\b(?:stdout|stderr|outputs?|files?|contents?|messages?|line
 def wrapped(commands: list[str], codes: list[int]) -> list[str]:
     return [command if code == 0 else "sh -c " + shlex.quote(
         f'({command}); autocode_plan_exit=$?; test "$autocode_plan_exit" -eq {code}')
-        for command, code in zip(commands, codes)]
+        for command, code in zip(commands, codes, strict=False)]
 
 
 def assertion_commands(method: str, commands: list[str]) -> list[str]:
@@ -96,7 +96,7 @@ def is_run_list(method: str, snippets: list, commands: list[str]) -> bool:
         return False
     start = snippets[-len(commands) - 1].end() if len(snippets) > len(commands) else 0
     return bool(RUN_VERB.search(method[start:trailing[0].start()])) and all(
-        method[left.end():right.start()].strip().lower() in RUN_LIST for left, right in zip(trailing, trailing[1:]))
+        method[left.end():right.start()].strip().lower() in RUN_LIST for left, right in zip(trailing, trailing[1:], strict=False))
 
 
 def plain_clauses(method: str, start: int) -> bool:

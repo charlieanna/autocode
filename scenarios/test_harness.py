@@ -4277,7 +4277,7 @@ class PhaseEnvironmentTests(unittest.TestCase):
     def test_ac4_phase_records_list_roots_identity_and_requests(self):
         sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac4"))
         record = sequence.finish()
-        for phase_record, identity in zip(record["phases"], ("synthetic-stats", "synthetic-compat")):
+        for phase_record, identity in zip(record["phases"], ("synthetic-stats", "synthetic-compat"), strict=False):
             for key in ("credential_root", "config_root", "state_root", "cache_root"):
                 self.assertIn(key, phase_record)
                 self.assertTrue(Path(phase_record[key]).is_dir(), (key, phase_record[key]))

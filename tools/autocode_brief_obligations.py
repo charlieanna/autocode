@@ -271,4 +271,4 @@ def commands(state, *, python='python3', timeout=15, progressive_context=None, a
     inactive, _, _ = _amendments(state, wrapper['amendments'])
     generated = acceptance.commands(sources(state), wrapper['manifest'], inactive=inactive, python=python, timeout=timeout)
     wanted = {row['hash'] for row in selected}
-    return [command for row, command in zip(wrapper['manifest']['observations'], generated) if row['hash'] in wanted]
+    return [command for row, command in zip(wrapper['manifest']['observations'], generated, strict=False) if row['hash'] in wanted]

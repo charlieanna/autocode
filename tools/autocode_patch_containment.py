@@ -55,7 +55,7 @@ def applied_files(workspace, base, patch):
         git("apply", "--cached", "--whitespace=nowarn", "-", data=patch)
         raw = git("diff", "--cached", "--raw", "--no-ext-diff", "--no-renames", "--no-abbrev", "-z", base, "--")
         fields, changes = raw.split(b"\0"), []
-        for header, name in zip(fields[0::2], fields[1::2]):
+        for header, name in zip(fields[0::2], fields[1::2], strict=False):
             old_mode, new_mode, old_id, new_id, _ = header.decode("ascii").lstrip(":").split()
             if any(mode not in ("000000", "100644", "100755", "120000") for mode in (old_mode, new_mode)):
                 raise ValueError(f"unsupported base-patch file type: {os.fsdecode(name)}")

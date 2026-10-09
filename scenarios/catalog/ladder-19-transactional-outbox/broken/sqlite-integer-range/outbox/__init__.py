@@ -34,7 +34,7 @@ class Store:
     def pending(self,limit=100):
         if type(limit) is not int or limit<=0: raise ValueError('invalid limit')
         with self._db() as db:
-            return [dict(zip(('event_id','order_id','amount'),row)) for row in db.execute('SELECT event_id,order_id,amount FROM events WHERE published=0 ORDER BY seq LIMIT ?',(limit,))]
+            return [dict(zip(('event_id','order_id','amount'),row, strict=False)) for row in db.execute('SELECT event_id,order_id,amount FROM events WHERE published=0 ORDER BY seq LIMIT ?',(limit,))]
     def publish(self,sink,limit=100):
         count=0
         for event in self.pending(limit):

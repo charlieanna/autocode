@@ -220,7 +220,7 @@ def _eligible(state, decision, record, previous_criteria, prior_request, pending
     # New verified/other statuses still require the ordinary diagnosis path.
     status_safe = all(new.get('status') == old.get('status') or new.get('status') in
                       ('unverified', 'blocked')
-                      for old, new in zip(previous_criteria, reviewed))
+                      for old, new in zip(previous_criteria, reviewed, strict=False))
     approved = body.get('acceptance_criteria') or []
     if (identity(previous_criteria) != identity(reviewed) or not status_safe
             or {row['id']: row['criterion'] for row in previous_criteria} != {row['id']: row['criterion'] for row in approved}
