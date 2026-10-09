@@ -68,7 +68,7 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual([1] * (len(validators) - 1) + [0], [row["exit_code"] for row in validators])
         self.assertEqual(len(validators), len({row["task_id"] for row in validators}))
         self.assertEqual(len(validators), len({row["source_revision"] for row in validators}))
-        for validator, owner in zip(validators, owners):
+        for validator, owner in zip(validators, owners, strict=False):
             self.assertEqual(validator["task_id"], owner["validation_task_id"])
             self.assertEqual(validator["source_revision"], owner["source_revision"])
             self.assertEqual(validator["status"], owner["validation_verdict"])

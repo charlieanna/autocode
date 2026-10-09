@@ -58,7 +58,7 @@ def go_evidence(executed, command, project, identity):
             rows = [json.loads(line) for line in event.get('aggregated_output', '').splitlines()]
             if len(rows) != 3:
                 continue
-            for row, tld in zip(rows, ('de', 'com', 'org')):
+            for row, tld in zip(rows, ('de', 'com', 'org'), strict=False):
                 run = row['execution']
                 if (row['candidate'] != identity or run['command'] != ['go', 'run', '.', tld]
                         or run.get('scope') != 'probe'

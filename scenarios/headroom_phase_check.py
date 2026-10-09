@@ -212,7 +212,7 @@ def qualify(source, python, output, *, isolate=True, bind=True, inject=None):
     finally:
         usage.shutdown();usage_thread.join(timeout=5);usage.server_close()
     results=[result_of(child) for child in children]
-    for phase,child in zip(('stats','compat'),children):
+    for phase,child in zip(('stats','compat'),children, strict=False):
         (output/(phase+'-stdout.log')).write_text(child.stdout)
         (output/(phase+'-stderr.log')).write_text(child.stderr)
     record=sequence.finish()

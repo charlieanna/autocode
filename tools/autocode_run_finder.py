@@ -508,7 +508,7 @@ def _entry(run: Candidate, flags: str = "") -> str:
 def _entries(runs: list[Candidate], flags: str | list[str] = "") -> list[str]:
     """One entry per run, each with ``flags`` (or its own flags, given as a list)."""
     each = flags if isinstance(flags, list) else [flags] * len(runs)
-    lines = [_entry(run, run_flags) for run, run_flags in list(zip(runs, each))[:LIST_LIMIT]]
+    lines = [_entry(run, run_flags) for run, run_flags in list(zip(runs, each, strict=False))[:LIST_LIMIT]]
     if len(runs) > LIST_LIMIT:
         lines.append(f"  ... and {len(runs) - LIST_LIMIT} older (not shown)")
     return lines

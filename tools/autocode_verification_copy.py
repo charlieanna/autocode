@@ -83,7 +83,7 @@ def _pack_source_blobs(tree, scratch, copied, env):
         stream.seek(0)
         subprocess.run(['/usr/bin/git', 'fast-import', '--quiet', '--done', '--depth=0'],
                        cwd=tree, env=env, stdin=stream, check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+                       capture_output=True, timeout=30)
 
 
 def _inventory(root, source_paths=()):
@@ -163,13 +163,13 @@ def create(workspace, scratch, *, source_paths=(), run_dir=None):
     # under .git/objects after the manifest walk reads as a changed input.
     for args in [('init', '-q'), ('config', 'maintenance.auto', 'false'), ('config', 'gc.auto', '0')]:
         subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+                       capture_output=True, timeout=30)
     _pack_source_blobs(tree, scratch, copied, env)
     for args in [('add', '-f', '--all'),
                  ('-c', 'user.name=AutoCode verification', '-c', 'user.email=verification@localhost',
                   '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'Verification source')]:
         subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+                       capture_output=True, timeout=30)
     # Match the clean replay's read-only task-local dependency lookup. These
     # links grant no new authority. A contained provider's sandbox also keeps
     # their originals read-only; an uncontained provider gets no such claim.

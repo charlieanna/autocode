@@ -188,7 +188,7 @@ def native_request_probe(root, config_dir=None):
         verified = False
         if code == 0:
             expected = [{'case_id': 'fixture', 'kind': kind, 'sha256': util.file_hash(path), 'mime': 'image/png'}
-                        for kind, path in zip(('reference', 'candidate'), images)]
+                        for kind, path in zip(('reference', 'candidate'), images, strict=False)]
             proof = delivery.verify({}, events=stdout.encode(), report=b'{"verdict":"PASS"}', images=expected,
                                     binding=probe_binding, audit_path=directory / 'audit.jsonl',
                                     attempt_id='offline-conformance', plugin_sha256=util.file_hash(root / 'tools' / 'autocode_image_delivery.mjs'))
@@ -548,7 +548,7 @@ class VisualAcceptanceTests(unittest.TestCase):
         message = {'session_id': 'ses_reviewer', 'message_id': 'msg_reviewer', 'user_message_id': 'user-1',
                    'model': context['model'], 'agent': 'validator', 'finish': None}
         images = []
-        for case, result in zip(bound['cases'], self.results):
+        for case, result in zip(bound['cases'], self.results, strict=False):
             for path in (self.root / case['artifacts']['screenshot']['path'], Path(result['candidate_ref'])):
                 images.append({'sha256': util.file_hash(path), 'mime': 'image/png', 'bytes': path.stat().st_size})
         rows = [
@@ -723,7 +723,7 @@ class VisualAcceptanceTests(unittest.TestCase):
         '''
         bound = visual.binding(self.current, self.state['settings']['design_manifest'])
         files = []
-        for case, result in zip(bound['cases'], self.results):
+        for case, result in zip(bound['cases'], self.results, strict=False):
             files.extend([self.root / case['artifacts']['screenshot']['path'], Path(result['candidate_ref'])])
         payloads = ['data:image/png;base64,' + base64.b64encode(path.read_bytes()).decode() for path in files]
         passing = ('happy', 'sse_missing_type', 'sse_wrong_type', 'sse_responses', 'json', 'json_chat',
@@ -1002,7 +1002,7 @@ class VisualAcceptanceTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         bound = visual.binding(self.current, self.state['settings']['design_manifest'])
         paths = []
-        for case, result in zip(bound['cases'], self.results):
+        for case, result in zip(bound['cases'], self.results, strict=False):
             paths.extend([self.root / case['artifacts']['screenshot']['path'], Path(result['candidate_ref'])])
         payloads = ['data:image/png;base64,' + base64.b64encode(path.read_bytes()).decode() for path in paths]
         for wire_format in ('json_chat', 'sse_chat', 'json_responses', 'sse_responses'):

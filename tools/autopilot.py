@@ -147,7 +147,7 @@ def unit_module(stage):
         from .units import autocode, autoplanner, autoresolver, autoreview
     except ImportError:
         from units import autocode, autoplanner, autoresolver, autoreview
-    return dict(zip(UNITS, (autoplanner, autocode, autoreview, autoresolver)))[unit_for(stage)]
+    return dict(zip(UNITS, (autoplanner, autocode, autoreview, autoresolver), strict=False))[unit_for(stage)]
 
 
 def pending_unit(state):

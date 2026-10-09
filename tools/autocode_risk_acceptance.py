@@ -214,7 +214,7 @@ def inventory(sources, public_targets):
     for source in _sources(sources):
         text = source['text']
         constructors = list(_CONSTRUCTOR.finditer(text))
-        for constructor, (start, end) in zip(constructors, _declaration_ranges(text, constructors)):
+        for constructor, (start, end) in zip(constructors, _declaration_ranges(text, constructors), strict=False):
             if _negated_constructor(text, constructor.start()):
                 continue
             quote = text[start:end]

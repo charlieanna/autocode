@@ -71,7 +71,7 @@ class ReviewReportSchemaTests(unittest.TestCase):
         before = copy.deepcopy(self.report)
         result = hydrate_review_report(self.report, self.state, {"stage": "astra_review"})
         self.assertEqual(before, self.report)
-        for row, raw in zip(result["acceptance_criteria"], before["acceptance_criteria"]):
+        for row, raw in zip(result["acceptance_criteria"], before["acceptance_criteria"], strict=False):
             self.assertEqual(raw, {key: value for key, value in row.items() if key != "criterion"})
 
     def test_other_stages_do_not_get_an_id_only_shape(self):

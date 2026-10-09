@@ -153,7 +153,7 @@ def _verify_session(rows, native, finish, final_phase, images, binding, report, 
     require(len(native_phases) == len(audit_phases) and all(
         part.get('id') == row.get('part_id') and part.get('messageID') == row.get('message_id')
         and part.get('sessionID') == row.get('session_id') and part.get('reason') == row.get('reason')
-        for part, row in zip(native_phases, audit_phases)), 'native session phases differ from transport audit')
+        for part, row in zip(native_phases, audit_phases, strict=False)), 'native session phases differ from transport audit')
     contexts, messages, requests, identity = {}, {}, [], None
     route = ('provider', 'model', 'agent', 'image_capable', 'wire_model')
     context_fields = ('session_id', 'user_message_id', *route)

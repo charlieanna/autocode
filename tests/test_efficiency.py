@@ -366,7 +366,7 @@ class CurrentCompletionTests(unittest.TestCase):
     def test_aggregate_mixed_current_proof_retains_all_usage_but_not_a_partial_denominator(self):
         states = [self.state(f"/root{n}", identity=str(n)) for n in range(4)]
         states[3]["status"] = "RUNNING"
-        views = [run_view.view(state, completion_current=current) for state, current in zip(states, (True, False, None, True))]
+        views = [run_view.view(state, completion_current=current) for state, current in zip(states, (True, False, None, True), strict=False)]
         result = efficiency.aggregate(views)
         self.assertEqual(3, result["completed_tasks"])
         self.assertEqual({"verified": 1, "not_verified": 2, "unknown": 1}, result["current_completion_counts"])
@@ -446,7 +446,7 @@ class InjectedVisualProjectionTests(unittest.TestCase):
                            "current_accepted": {"PASS": True, "FAIL": False, "NOT_VERIFIED": None}[verdict],
                            "accepted_at": "1970-01-01T00:00:20+00:00" if verdict == "PASS" else None,
                            "historical_accepted_at": "1970-01-01T00:00:10+00:00"}
-                          for index, (case, verdict) in enumerate(zip(state["settings"]["design_manifest"]["body"]["cases"], verdicts))],
+                          for index, (case, verdict) in enumerate(zip(state["settings"]["design_manifest"]["body"]["cases"], verdicts, strict=False))],
                 # These deliberately misleading precomputed values must be ignored.
                 "current_all_accepted": True, "accepted_cases": 999, "accepted_frames": 999, "coverage_complete": True}
 
@@ -565,7 +565,7 @@ class InjectedVisualProjectionTests(unittest.TestCase):
         self.assertIsNone(after["visual"]["accepted_states"])
         self.assertIsNone(after["delivery"]["verified_deliveries"])
         self.assertEqual(0, after["visual"]["known_accepted_states"])
-        for prior, row in zip(before["visual"]["cases"], after["visual"]["cases"]):
+        for prior, row in zip(before["visual"]["cases"], after["visual"]["cases"], strict=False):
             self.assertEqual(prior["key"], row["key"])
             self.assertEqual(prior["first_accepted_at"], row["first_accepted_at"])
             self.assertIsNone(row["current_accepted_at"])

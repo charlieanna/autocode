@@ -75,7 +75,7 @@ def _observation(data, expected):
             or len(observed['steps']) != len(expected['proposal']['steps'])):
         raise ValueError('Original-brief runner did not return a complete passing observation for this exact case')
     outputs = []
-    for row, invocation in zip(observed['steps'], expected['proposal']['steps']):
+    for row, invocation in zip(observed['steps'], expected['proposal']['steps'], strict=False):
         if (not isinstance(row, dict)
                 or set(row) != {'argv', 'exit_code', 'stdout_base64', 'stderr_base64'}
                 or row['argv'] != invocation['argv'] or type(row['exit_code']) is not int
@@ -154,7 +154,7 @@ def replay(state, workspace, out, scratch_run, *, timeout, source_revision, prog
     directory = Path(out) / 'brief-acceptance' / uuid.uuid4().hex
     directory.mkdir(parents=True, exist_ok=False)
     checks = []
-    for index, (case, command) in enumerate(zip(cases, commands), 1):
+    for index, (case, command) in enumerate(zip(cases, commands, strict=False), 1):
         receipt = scratch_run(workspace, directory / f'case-{index:02d}', command=command, timeout=timeout)
         row = {'observation_hash': case['hash'], 'command': command,
                'command_sha256': hashlib.sha256(command.encode()).hexdigest(),
@@ -209,7 +209,7 @@ def ready(state, current_revision):
                 key: value for key, value in result.items() if key not in ('summary', 'summary_sha256')}:
             return False
         outputs = set()
-        for row, case, command in zip(checks, cases, commands):
+        for row, case, command in zip(checks, cases, commands, strict=False):
             if (not isinstance(row, dict)
                     or set(row) not in (_CHECK_KEYS, _CHECK_KEYS | set(command_receipt.OWNERSHIP_FIELDS))
                     or not command_receipt.completed(row)

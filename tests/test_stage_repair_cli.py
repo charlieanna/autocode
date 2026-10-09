@@ -284,7 +284,7 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual([identities[0], identities[0], identities[1], identities[1]],
                          [row["stuck_identity"] for row in investigation_calls], observed)
         repairs = [row for row in investigation_calls if row["repair"]]
-        for repair, diagnosis in zip(repairs, diagnoses):
+        for repair, diagnosis in zip(repairs, diagnoses, strict=False):
             self.assertTrue(repair["has_scratch_map"])
             self.assertFalse(any(ref.startswith("event:") for ref in repair["evidence_refs"]))
             self.assertEqual("retried", diagnosis["outcome"])

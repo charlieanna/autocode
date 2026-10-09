@@ -58,7 +58,7 @@ def review_validation_schema(schema, state, record, value):
     has_text = ["criterion" in row for row in rows]
     if any(has_text) and not all(has_text):
         raise ValueError("Review report mixes ID-only and legacy criterion rows")
-    if all(has_text) and any(row["criterion"] != approved["criterion"] for row, approved in zip(rows, criteria)):
+    if all(has_text) and any(row["criterion"] != approved["criterion"] for row, approved in zip(rows, criteria, strict=False)):
         raise ValueError("Review report criterion text conflicts with the approved contract; repair the copied text")
     result = copy.deepcopy(schema)
     item = result["properties"]["acceptance_criteria"]["items"]
@@ -84,6 +84,6 @@ def hydrate_review_report(value, state, record):
     if not rows or any("criterion" in row for row in rows):
         return value
     result = copy.deepcopy(value)
-    for row, approved in zip(result["acceptance_criteria"], state["acceptance_criteria"]):
+    for row, approved in zip(result["acceptance_criteria"], state["acceptance_criteria"], strict=False):
         row["criterion"] = approved["criterion"]
     return result

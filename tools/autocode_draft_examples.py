@@ -55,7 +55,7 @@ def integers_only(before, after):
     if isinstance(before, dict):
         return before.keys() == after.keys() and all(integers_only(before[k], after[k]) for k in before)
     if isinstance(before, list):
-        return len(before) == len(after) and all(integers_only(a, b) for a, b in zip(before, after))
+        return len(before) == len(after) and all(integers_only(a, b) for a, b in zip(before, after, strict=False))
     return type(before) is int or before == after
 
 
@@ -101,7 +101,7 @@ def numeric_stdout(before, after):
         old_rows = [pattern.fullmatch(row) for row in spelling(before).splitlines()]
         new_rows = [pattern.fullmatch(row) for row in spelling(after).splitlines()]
         return bool(old_rows) and len(old_rows) == len(new_rows) and all(
-            a and b and a[1] == b[1] for a, b in zip(old_rows, new_rows))
+            a and b and a[1] == b[1] for a, b in zip(old_rows, new_rows, strict=False))
     return isinstance(old, (dict, list)) and old != new and integers_only(old, new)
 
 
@@ -114,8 +114,8 @@ def layout_padding(before, after):
     old, new = spelling(before).splitlines(), spelling(after).splitlines()
     if old == new or len(old) != len(new):
         return False
-    return all(a.split() == b.split() for a, b in zip(old, new)) and all(
-        any(ch.isdigit() for ch in a) for a, b in zip(old, new) if a != b)
+    return all(a.split() == b.split() for a, b in zip(old, new, strict=False)) and all(
+        any(ch.isdigit() for ch in a) for a, b in zip(old, new, strict=False) if a != b)
 
 
 def user_protected(state, row, user_basis):

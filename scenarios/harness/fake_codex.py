@@ -339,7 +339,7 @@ def progressive_report(stage, data, common):
                 "findings": [], "finding_dispositions": [],
                 "unverified_criteria": ["C1"] if product == "NOT_VERIFIED" else [],
                 "checks": [{"command": cmd, "exit_code": 0 if fabricated else code, "evidence_ref": ref}
-                           for cmd, (code, ref) in zip(selected, results)],
+                           for cmd, (code, ref) in zip(selected, results, strict=False)],
                 "criterion_results": [{"id": "C1", "status": "PASS" if fabricated else product,
                                        "evidence_refs": [ref for _, ref in results]}],
                 "end_to_end_result": {"status": "PASS" if fabricated else product,

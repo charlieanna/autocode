@@ -345,7 +345,7 @@ class PhaseSequence:
         """
         phase_records = [phase.record() for phase in self.phases]
         checks = []
-        for phase, phase_record in zip(self.phases, phase_records):
+        for phase, phase_record in zip(self.phases, phase_records, strict=False):
             for index, result in enumerate(phase.results, start=1):
                 checks.append({"name": f"{phase.name}: subprocess {index} exit",
                                "ok": result.returncode == 0,

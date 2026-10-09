@@ -56,7 +56,7 @@ class EveryOrderAgrees(unittest.TestCase):
             self.assertEqual(D(invoice.total), sum(D(line.amount) + D(line.tax) for line in invoice.lines), cart)
             self.assertEqual(D(invoice.total), charged, cart)
             self.assertEqual(charged, sum(refunds), cart)
-            for line, refund in zip(invoice.lines, refunds):
+            for line, refund in zip(invoice.lines, refunds, strict=False):
                 self.assertEqual(D(line.amount) + D(line.tax), refund, cart)
 
 

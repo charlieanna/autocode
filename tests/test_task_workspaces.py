@@ -200,7 +200,7 @@ class IsolatedCli(unittest.TestCase):
         self.assertEqual(2, len(runs), "\n---\n".join(outputs))
         states = [json.loads(path.read_text()) for path in runs]
         self.assertEqual(2, len({s['workspace'] for s in states}))
-        for path, state in zip(runs, states):
+        for path, state in zip(runs, states, strict=False):
             self.assertEqual(str(flow.project), state['project_workspace'])
             result = subprocess.run([*flow.entry, '--workspace', str(flow.project), '--run-dir', str(path.parent), '--status'],
                                     cwd=flow.root, env=env, capture_output=True, text=True, timeout=10)

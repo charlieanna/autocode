@@ -69,7 +69,7 @@ def with_requirements(value):
     """The demo program with requirements: a inherits C2, b inherits C3, the skeleton C1."""
     value["requirements"] = [{"id": "C1", "criterion": "Contracts exist"}, {"id": "C2", "criterion": "a answers"},
                              {"id": "C3", "criterion": "b answers"}]
-    for row, cid in zip(value["workstreams"], ("C1", "C2", "C3")):
+    for row, cid in zip(value["workstreams"], ("C1", "C2", "C3"), strict=False):
         row["acceptance_criteria"] = [cid]
     value["shared"]["interfaces"][0].update(producer="contracts", consumers=["a", "b"])
     return value

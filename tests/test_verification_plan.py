@@ -311,7 +311,7 @@ class CommandsTests(unittest.TestCase):
                              "use an explicit zero-exit assertion check for more complex expectations")
         return [command if code == 0 else "sh -c " + shlex.quote(
             f'({command}); autocode_plan_exit=$?; test "$autocode_plan_exit" -eq {code}')
-            for command, code in zip(commands, codes)]
+            for command, code in zip(commands, codes, strict=False)]
 
     def test_every_method_reads_as_before_or_gains_only_the_narrow_wrapping(self):
         # Skeptic probes (g2skeptic, gatecheck, 2026-10-06) and this module's own cases: never a new error, and
@@ -334,7 +334,7 @@ class CommandsTests(unittest.TestCase):
                     continue
                 after = plan.commands(method)
                 self.assertEqual(len(before), len(after))
-                for old, new in zip(before, after):
+                for old, new in zip(before, after, strict=False):
                     self.assertIn(new, [old] + [self.wrapped(old, code) for code in range(1, 256)])
                 if before != after:
                     changed.add(method)

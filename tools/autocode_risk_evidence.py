@@ -83,7 +83,7 @@ def replay(state, workspace, out, scratch_run, *, timeout, source_revision,
     directory.mkdir(parents=True, exist_ok=False)
     checks = []
     deadline = time.monotonic() + budget
-    for index, (case, command) in enumerate(zip(cases, commands), 1):
+    for index, (case, command) in enumerate(zip(cases, commands, strict=False), 1):
         remaining = deadline - time.monotonic()
         row = {'observation_hash': case['hash'], 'command': command,
                'command_sha256': hashlib.sha256(command.encode()).hexdigest(), 'exit_code': None,
@@ -154,7 +154,7 @@ def ready(state, current_revision):
                 key: value for key, value in result.items() if key not in ('summary', 'summary_sha256')}:
             return False
         outputs = set()
-        for row, case, command in zip(checks, cases, commands):
+        for row, case, command in zip(checks, cases, commands, strict=False):
             if (not isinstance(row, dict)
                     or set(row) not in (_CHECK_KEYS, _CHECK_KEYS | set(command_receipt.OWNERSHIP_FIELDS))
                     or not command_receipt.completed(row)

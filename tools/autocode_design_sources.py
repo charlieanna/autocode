@@ -452,7 +452,7 @@ def _validate_plugin(receipt, metadata, parents, file):
         transitions = _transitions(visual)
         if len(transitions) != len(node['transitions']):
             raise ValueError('Figma source transitions omit original reactions')
-        for original, derived in zip(transitions, node['transitions']):
+        for original, derived in zip(transitions, node['transitions'], strict=False):
             if any(original[key] != derived[key] for key in ('id', 'target_node_id', 'action')) or original['trigger'] != json.loads(derived['trigger']):
                 raise ValueError('Figma source transitions differ from original reactions')
         _variants(node, nodes)

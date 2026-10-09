@@ -81,7 +81,7 @@ def _additions(repo, before, after, protected, prefixes):
     fields = raw.split(b'\0')
     if not raw or fields[-1] or len(fields) % 2 != 1:
         return False
-    for header, encoded in zip(fields[0:-1:2], fields[1:-1:2]):
+    for header, encoded in zip(fields[0:-1:2], fields[1:-1:2], strict=False):
         parts = header.split()
         if len(parts) != 5 or parts[0] != b':000000' or parts[1] not in (b'100644', b'100755') or parts[4] != b'A':
             return False

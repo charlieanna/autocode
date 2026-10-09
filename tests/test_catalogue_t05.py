@@ -83,7 +83,7 @@ class FindingCase(kit.CatalogueCase):
         report = copy.deepcopy(report)
         production = [row["id"] for row in findings.open_entries(state, source)]
         oracle = [row["id"] for row in self.oracle.open(source)]
-        mapping = dict(zip(production, oracle))
+        mapping = dict(zip(production, oracle, strict=False))
         for raw in report.get("findings", []):
             if raw.get("id"):
                 raw["id"] = mapping.get(raw["id"], raw["id"])
