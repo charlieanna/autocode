@@ -53,6 +53,22 @@ class CommandReceiptTests(unittest.TestCase):
         self.assertTrue(policy.cleanup_complete(self.metadata))
         self.assertEqual(before, self.path.read_bytes())
 
+    def test_legacy_receipts_require_a_normal_collected_exit(self):
+        for code in (0, 1, -15):
+            with self.subTest(code=code):
+                self.assertTrue(policy.completed({'exit_code': code}))
+        malformed = (
+            {},
+            {'exit_code': None}, {'exit_code': False}, {'exit_code': True},
+            {'exit_code': '0'}, {'exit_code': 0.0},
+            {'exit_code': 0, 'timed_out': True},
+            {'exit_code': 0, 'interrupted': True},
+            {'exit_code': 0, 'error': 'provider stopped before collection'},
+        )
+        for receipt in malformed:
+            with self.subTest(receipt=receipt):
+                self.assertFalse(policy.completed(receipt))
+
     def test_absent_supervision_preserves_legacy_but_invalid_presence_does_not(self):
         self.assertTrue(policy.completed({'exit_code': 0}))
         for supervision in (None, {}, False, 'missing'):
