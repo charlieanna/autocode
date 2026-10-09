@@ -7,11 +7,14 @@ the independent clean-source replay before a PASS counts.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -29,6 +32,58 @@ def _identity(path):
     if path.is_file():
         return ('executable:' if path.stat().st_mode & 0o111 else '') + util.file_hash(path)
     return 'deleted' if not path.exists() else 'directory'
+
+
+
+def _pack_source_blobs(tree, scratch, copied, env):
+    """Prime this standalone repository from verified copied bytes only.
+
+    Blob commands create no commits or refs. The ordinary add still applies
+    Git attributes and records file modes before the original baseline commit.
+    """
+    with tempfile.TemporaryFile(dir=scratch) as stream:
+        for name, expected in copied.items():
+            path = tree / name
+            if _identity(path) != expected:
+                raise ValueError('Source changed while packing: ' + name)
+            if path.is_symlink():
+                data = os.fsencode(os.readlink(path))
+                observed = 'symlink:' + os.fsdecode(data)
+                stream.write(b'blob\ndata ' + str(len(data)).encode('ascii') + b'\n')
+                stream.write(data)
+            else:
+                before = path.lstat()
+                if not stat.S_ISREG(before.st_mode):
+                    raise ValueError('Unsupported copied source while packing: ' + name)
+                digest, count = hashlib.sha256(), 0
+                with path.open('rb') as source_stream:
+                    opened = os.fstat(source_stream.fileno())
+                    if (opened.st_dev, opened.st_ino, opened.st_mode, opened.st_size) != (
+                            before.st_dev, before.st_ino, before.st_mode, before.st_size):
+                        raise ValueError('Source changed while opening pack input: ' + name)
+                    stream.write(b'blob\ndata ' + str(before.st_size).encode('ascii') + b'\n')
+                    for chunk in iter(lambda: source_stream.read(1024 * 1024), b''):
+                        count += len(chunk)
+                        if count > before.st_size:
+                            raise ValueError('Source grew while packing: ' + name)
+                        digest.update(chunk)
+                        stream.write(chunk)
+                    finished = os.fstat(source_stream.fileno())
+                current = path.lstat()
+                if count != before.st_size or (finished.st_mode, finished.st_size) != (
+                        before.st_mode, before.st_size) or (current.st_dev, current.st_ino,
+                        current.st_mode, current.st_size) != (before.st_dev, before.st_ino,
+                        before.st_mode, before.st_size):
+                    raise ValueError('Source changed while streaming pack input: ' + name)
+                observed = ('executable:' if before.st_mode & 0o111 else '') + digest.hexdigest()
+            if observed != expected or _identity(path) != expected:
+                raise ValueError('Source changed while packing: ' + name)
+            stream.write(b'\n')
+        stream.write(b'done\n')
+        stream.seek(0)
+        subprocess.run(['/usr/bin/git', 'fast-import', '--quiet', '--done', '--depth=0'],
+                       cwd=tree, env=env, stdin=stream, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
 
 
 def _inventory(root, source_paths=()):
@@ -81,6 +136,7 @@ def create(workspace, scratch, *, source_paths=(), run_dir=None):
     tree.mkdir()  # Never reuse a previous stage's outputs.
     before = source.snapshot(root, paths=source_paths)
     inputs = _inventory(root, source_paths)
+    copied = {}
     for name, identity in inputs.items():
         original, target = root / name, tree / name
         if identity == 'deleted':
@@ -96,6 +152,7 @@ def create(workspace, scratch, *, source_paths=(), run_dir=None):
         expected = 'symlink:' + link if original.is_symlink() else identity
         if _identity(original) != identity or _identity(target) != expected:
             raise ValueError('Source changed while copying: ' + name)
+        copied[name] = expected
     # A real standalone Git repository avoids accidentally inspecting the
     # parent task's index when a check invokes Git from the copy.
     env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': str(scratch),
@@ -104,8 +161,11 @@ def create(workspace, scratch, *, source_paths=(), run_dir=None):
     # that stops every other repository starting detached maintenance (#515)
     # never reaches it; write the keys into the repository instead, or a repack
     # under .git/objects after the manifest walk reads as a changed input.
-    for args in [('init', '-q'), ('config', 'maintenance.auto', 'false'), ('config', 'gc.auto', '0'),
-                 ('add', '-f', '--all'),
+    for args in [('init', '-q'), ('config', 'maintenance.auto', 'false'), ('config', 'gc.auto', '0')]:
+        subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    _pack_source_blobs(tree, scratch, copied, env)
+    for args in [('add', '-f', '--all'),
                  ('-c', 'user.name=AutoCode verification', '-c', 'user.email=verification@localhost',
                   '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'Verification source')]:
         subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
