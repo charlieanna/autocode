@@ -3,9 +3,11 @@
 try:
     from . import autocode_source_scope as source_scope
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_stop_explanations as explanations
 except ImportError:
     import autocode_source_scope as source_scope
     import autocode_launch_inputs as launch_inputs
+    import autocode_stop_explanations as explanations
 
 import json
 import sys
@@ -24,8 +26,7 @@ except ImportError:
 
 def render(runner, state, args, workspace, run_dir):
     if getattr(args, "explain", False):
-        from autocode_stop_explanations import explain
-        text = explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
+        text = explanations.explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
         print(text["what_happened"])
         print()
         print(text["what_it_means"])

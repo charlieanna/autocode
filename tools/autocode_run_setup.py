@@ -159,7 +159,7 @@ def resolve(runner, args, parser):
             # second hidden worktree so users can find the generated files.
             args.in_place = created = True
             print(f"Created task project: {workspace}", flush=True)
-        if not args.in_place and not args.dry_run and not args.status:
+        if not args.in_place and not (args.dry_run or args.status or args.explain):
             isolated = task_workspaces.create(workspace, task)
             workspace, fresh = Path(isolated["workspace"]), True
             print(f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.", flush=True)
@@ -194,7 +194,7 @@ def resolve(runner, args, parser):
         print(json.dumps({'queued': True, 'run_dir': str(run_dir), 'request': request,
                           'effect': 'Pause at the next boundary; next launch applies checkpoints without starting a provider'}, indent=2))
         return 0
-    if args.status or args.dry_run:
+    if args.status or args.dry_run or args.explain:
         status_command.render(runner, state, args, workspace, run_dir)
         return 0
     return workspace, run_dir, state_path, state

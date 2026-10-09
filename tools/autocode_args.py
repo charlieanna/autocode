@@ -37,7 +37,7 @@ NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manife
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
 # migrates and saves the run. --follow-up has its own rule (autocode_run_finder).
-READ_ACTIONS = ("--status", "--dry-run")
+READ_ACTIONS = ("--status", "--explain", "--dry-run")
 # `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
 COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
@@ -395,12 +395,12 @@ def parse(unit, argv, default_models):
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
-    actions = list(user_actions(args).values())
+    actions = user_actions(args)
     if args.close_finding and not args.run_dir:
         parser.error("--close-finding requires --run-dir")
-    if sum(bool(a) for a in actions) > 1:
+    if sum(bool(a) for a in actions.values()) > 1:
         parser.error("Choose one action per invocation; answering and approving are separate events")
-    if args.retry_builder and any(actions):
+    if args.retry_builder and any(actions.values()):
         parser.error("--retry-builder is a resume action; do not combine it with another action")
     if (args.delegate_all or args.reject_assumption) and not args.review_token:
         parser.error("--delegate-all and --reject-assumption require --review-token with the displayed goal token")
@@ -410,7 +410,8 @@ def parse(unit, argv, default_models):
                      "or --reject-assumption")
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")
-    if not args.run_dir and any(actions[2:]):
+    if not args.run_dir and any(present for flag, present in actions.items()
+                               if flag not in ("--status", "--explain", "--dry-run")):
         parser.error("User actions require an existing --run-dir")
     if notice:
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
