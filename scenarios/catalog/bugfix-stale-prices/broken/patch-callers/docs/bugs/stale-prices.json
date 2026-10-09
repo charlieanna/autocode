@@ -1,0 +1,9 @@
+{
+  "observed": "After the nightly supplier import or a promotion, checkout keeps charging the old price until the workers restart; an admin price change reaches one checkout worker but not the others.",
+  "reproduction": "Warm two PriceCache workers over one ProductStore, then bulk_import / apply_discount / set_price on 'A': total() still returns the old price (tests/test_price_visibility.py, failing before the fix).",
+  "root_cause": "Cache invalidation is left to each write path: bulk_import and apply_discount write the store without invalidating any cache, and set_price invalidates only the one cache it is handed, so every other worker's PriceCache keeps serving the stale price. Any new write path will repeat the mistake.",
+  "affected_paths": ["shop/store.py", "shop/cache.py", "shop/pricing.py", "shop/imports.py", "shop/promotions.py"],
+  "invariant": "After any write to a product's price, through any path, every checkout worker charges the new price, while unchanged prices stay cached.",
+  "fix_size": "large",
+  "fix": "Make the store the single place that announces writes: put/put_many notify subscribers, every PriceCache subscribes and drops the changed SKU, and callers no longer invalidate by hand."
+}

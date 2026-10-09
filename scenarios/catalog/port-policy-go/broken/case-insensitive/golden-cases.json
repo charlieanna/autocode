@@ -1,0 +1,10 @@
+[
+  {"input": "de", "days": 7},
+  {"input": "com", "days": 30},
+  {"input": "org", "days": 30},
+  {"input": "fr", "days": 30},
+  {"input": "", "days": 30},
+  {"input": "DE", "days": 7},
+  {"input": "de.com", "days": 30},
+  {"input": "exception", "days": 1}
+]

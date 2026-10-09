@@ -1,0 +1,29 @@
+{
+  "verdict": "request_changes",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocking",
+      "file": "regclient/client.py",
+      "lines": [26, 28],
+      "summary": "On Timeout the new loop resends without checking the transaction's status, so a command can be executed twice.",
+      "evidence": "ScriptedTransport(['timeout-after', 'ok']) executes txn-1 twice with the patch."
+    },
+    {
+      "id": "F2",
+      "severity": "blocking",
+      "file": "regclient/policies.py",
+      "lines": [33, 39],
+      "summary": "The .de policy is gone; .de is now retried.",
+      "evidence": "policy_for('de') is DEFAULT with the patch."
+    },
+    {
+      "id": "F3",
+      "severity": "blocking",
+      "file": "regclient/policies.py",
+      "lines": [18, 25],
+      "summary": "_errors is inefficient: quadratic membership test on a list.",
+      "evidence": "Code reading."
+    }
+  ]
+}

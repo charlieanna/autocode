@@ -8,6 +8,11 @@ except ImportError:  # Support direct execution from this source directory.
     from dashboard_projects import ProjectStore
 
 
+def conversation_workspace(doc):
+    attachment = doc.get('attachment') or {}
+    return attachment.get('project_workspace') or doc.get('project_workspace') or attachment.get('workspace')
+
+
 def compact_run(row):
     """Project only the fields used by task lists; detail has its own endpoint."""
     if not isinstance(row, dict) or not row.get('run'):
@@ -19,9 +24,12 @@ def compact_run(row):
                   'exit_code', 'rejected', 'interrupted', 'timed_out')
     keep = ('workspace', 'project_workspace', 'task_branch', 'run', 'created_at', 'task', 'phase',
             'status', 'stage', 'iteration', 'state_error', 'error', 'stop_reason', 'goal_token',
-            'questions', 'user_request', 'review_token', 'review_criteria', 'human_reviews',
+            'questions', 'user_request', 'human_request_authorized', 'human_escalation',
+            'review_token', 'review_criteria', 'human_reviews',
             'model_settings', 'monitor')
     result = {key: row.get(key) for key in keep if key in row}
+    if row.get('human_request_authorized') is not True:
+        result.update(human_request_authorized=False, human_escalation=None, questions=[], user_request=None)
     result['goal'] = {key: goal.get(key) for key in ('origin', 'revision', 'approval_status') if key in goal}
     if 'intended_outcome' in body:
         result['goal']['body'] = {'intended_outcome': body['intended_outcome']}
@@ -112,13 +120,13 @@ class ProjectRemovalMixin:
             return {
                 'workspaces': [str(path) for path in workspaces],
                 'workspace_ids': workspace_ids,
-                'runs': [compact_run(row) for row in super().discover() if visible(row.get('workspace'))],
+                'runs': [compact_run(row) for row in super().discover() if visible(row.get('project_workspace') or row.get('workspace')) and visible(row.get('workspace'))],
                 'workspace_actions': {str(path): self.action_log(path) for path in workspaces},
                 'watch_roots': self.watch_root_rows(),
                 'registry': self.registry_status(),
                 'zai': bool(self.zai_probe()),
                 'conversations': [doc for doc in super().conversation_list()
-                                  if visible((doc.get('attachment') or {}).get('workspace'))],
+                                  if visible(conversation_workspace(doc))],
                 'removed_projects': removed,
             }
 
@@ -148,30 +156,47 @@ class ProjectRemovalMixin:
 
     def discover(self):
         removed = self.removed_projects()
-        return [row for row in super().discover() if not self.removed_project(row.get('workspace'), removed)]
+        return [row for row in super().discover() if not self.removed_project(row.get('project_workspace') or row.get('workspace'), removed)
+                and not self.removed_project(row.get('workspace'), removed)]
 
     def conversation_list(self):
         removed = self.removed_projects()
         return [doc for doc in super().conversation_list()
-                if not self.removed_project((doc.get('attachment') or {}).get('workspace'), removed)]
+                if not self.removed_project(conversation_workspace(doc), removed)]
 
     def conversation_get(self, ident):
         doc = self.conversations.get(ident)
-        if self.removed_project((doc.get('attachment') or {}).get('workspace')):
+        if self.removed_project(conversation_workspace(doc)):
             return {**doc, 'project_removed': True}
         return super().conversation_get(ident)
 
     def task_view(self, workspace, run):
         if self.removed_project(workspace):
             return {'project_removed': True, 'workspace': str(workspace), 'run': str(run), 'task': 'Removed project'}
-        return super().task_view(workspace, run)
+        view = super().task_view(workspace, run)
+        if self.removed_project(view.get('project_workspace')):
+            return {'project_removed': True, 'workspace': str(workspace), 'project_workspace': view['project_workspace'], 'run': str(run), 'task': 'Removed project'}
+        return view
+
+    def require_visible_task(self, data):
+        self._require_visible_project(data.get('workspace'))
+        if data.get('run'):
+            workspace = self.workspace_for(data.get('workspace'))
+            run = self.run_for(workspace, data['run']) if workspace else None
+            if not run:
+                raise ValueError('Choose a task connected to this dashboard')
+            # The existing lightweight public projection suffices for project
+            # identity. Full proof inspection can outlast an in-flight action
+            # and must not delay its duplicate-submission guard.
+            view = self.view(workspace, run)
+            self._require_visible_project(view.get('project_workspace'))
 
     def mutate(self, data):
-        self._require_visible_project(data.get('workspace'))
+        self.require_visible_task(data)
         return super().mutate(data)
 
     def chat(self, data):
-        self._require_visible_project(data.get('workspace'))
+        self.require_visible_task(data)
         return super().chat(data)
 
     def create(self, data):
@@ -183,5 +208,5 @@ class ProjectRemovalMixin:
     def conversation_attach(self, data):
         self._require_visible_project(data.get('project') or data.get('workspace'))
         doc = self.conversations.get(data.get('id'))
-        self._require_visible_project((doc.get('attachment') or {}).get('workspace'))
+        self._require_visible_project(conversation_workspace(doc))
         return super().conversation_attach(data)

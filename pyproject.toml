@@ -5,22 +5,45 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "autocode-supervisor"
 version = "0.7.1"
-description = "Conversation-first Astra/Terra/Sol runner for Codex and OpenCode"
+description = "AutoCode runs your coding agent and won't say 'done' without evidence: independent checks, exact-version approval, and a record of what was verified."
 requires-python = ">=3.11"
 readme = "README.md"
+license = {text = "Apache-2.0"}
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+]
 dependencies = ["psutil>=7.0,<8"]
 
+[project.optional-dependencies]
+visual = ["Pillow>=11.3,<13"]
+visual-test = ["Pillow>=11.3,<13", "playwright>=1.56,<2"]
+
 [project.scripts]
+autopilot = "autocode_cli.autocode:cli"
 autocode = "autocode_cli.autocode:cli"
+autocode-orchestrator = "autocode_cli.autocode_orchestrator:cli"
+autoplanner = "autocode_cli.autoplanner:cli"
+autocode-build = "autocode_cli.autocode_build:cli"
+autoreview = "autocode_cli.autoreview:cli"
+autoresolver = "autocode_cli.autoresolver:cli"
 autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
 autocode-ui = "autocode_cli.autocode_ui:cli"
 autocode-tasks = "autocode_cli.autocode_tasks:cli"
-hello-world = "autocode_cli.hello:main"
+autocode-components = "autocode_cli.autocode_components:cli"
+autocode-unattended = "autocode_cli.autocode_unattended:cli"
+autocode-program = "autocode_cli.autocode_program:cli"
+autocode-issue = "autocode_cli.autocode_issue:cli"
+autocode-arena = "autocode_cli.autocode_arena:cli"
 
 [tool.setuptools]
-packages = ["autocode_cli", "autocode_cli.dashboard"]
+packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]
-autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json"]
-"autocode_cli.dashboard" = ["*.html", "*.css", "*.js"]
+autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json", "autocode_preflight_browser.cjs", "autocode_visual_browser.cjs", "autocode_image_delivery.mjs", "autocode_node_reporter.cjs", "autocode_vitest_reporter.cjs", "figma_inventory_page.js"]
+"autocode_cli.dashboard" = ["*.html", "*.css", "*.js", "assets/fonts/*.woff2", "assets/fonts/*.txt", "assets/*.svg"]
+"autocode_cli.providers" = ["configs/*.toml", "*.mjs"]

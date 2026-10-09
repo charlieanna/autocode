@@ -1,0 +1,13 @@
+{
+  "satisfied": ["Exactly once for a single consumer", "Admin CLI unchanged", "No schema change"],
+  "concerns": [
+    {
+      "id": "F1",
+      "area": "concurrency",
+      "severity": "blocking",
+      "summary": "If two consumers pick the same event, both record a charge, so the event is charged twice.",
+      "evidence": "Design step 3 records the charge before marking the event processed."
+    }
+  ],
+  "questions": []
+}

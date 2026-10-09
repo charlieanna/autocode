@@ -1,0 +1,9 @@
+title = "Recoverable queue leases with fencing and deterministic time"
+category = "system"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[run]
+max_steps = 50
+timeout_minutes = 60

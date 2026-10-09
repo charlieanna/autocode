@@ -1,0 +1,13 @@
+title = "Review a sound design without inventing blockers"
+category = "design"
+# The negative control for design reviews: a small design, small enough to verify
+# completely against about 60 lines of code. It makes the charge and the
+# "processed" mark one transaction in the database they already share, keeps the
+# admin CLI's committing charge() unchanged, and answers the tempting objections
+# (two consumers, a notification inside the transaction, rollback) in the
+# document itself. Advisory notes and questions are fine; a blocking concern is
+# an invented one. (Revisions of a Kafka migration were tried first as this
+# control; a live Architect found real gaps in each, so it was replaced.)
+
+[fake]
+check = "python3 -c \"import json; json.load(open('review/design-review.json')); print('ok')\""

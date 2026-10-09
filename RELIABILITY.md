@@ -48,3 +48,63 @@ A case passes when its agreed criteria and complete user flow pass, required hum
 reviews are satisfied, and the dashboard reflects the saved result. Missing evidence
 stays unverified. Claims of dependable project completion require these live trials;
 passing fixture tests alone does not establish model effectiveness.
+
+On the default profile (2026-10-07, master 4e7e6895, profile `glm53-openai`: GLM-5.3 producers, GPT-6
+verifiers, one run of each case; details in docs/bugs/2026-10-07-default-profile-reliability-cases.md):
+all three deliveries were correct and none completed falsely. The bug-fix and to-do cases completed
+with no person (18 and 35 minutes, no Validator report sent back). The feature case stopped honestly:
+the Requirements stage had derived an exact-output example from the brief's layout rule and miscounted
+its padding, the Plan Reviewer approved it, and the Resolver proved the contradiction and asked (#676).
+The person's approval of the Resolver's own recommendation then had no named path: the view pointed to
+`--answer`, which the CLI refused; `--resolver-response` was accepted and held forever; `--edit-goal`,
+which finished the run (oracle 6/6), was named nowhere (#675).
+
+On Claude models (2026-10-04, master e8366ad, profile `claude-tiers`, three runs of each case;
+details in docs/bugs/2026-10-04-claude-reliability-cases.md): 8 of 9 runs passed and none completed
+falsely. The feature and bug-fix cases passed 3 of 3. The to-do case passed 2 of 3: one run stopped
+with correct code because the Validator kept citing event IDs, which a report-file provider rejects;
+its generic instructions said to, and they now defer to the provider's receipt rule. In three re-runs
+of the to-do case on that fix, no report was rejected for event IDs and 2 of 3 passed. The third
+stopped honestly because AutoResolver wrote a plan check with a note in parentheses that the runner
+replayed as a shell command. The runner now leaves such a line to the Validator as prose; no live
+re-run has confirmed it yet.
+
+Re-run of the two failed cases (2026-10-01, master fba6e738, same profile, 90/130-minute
+budgets; same note for details):
+
+- Bug fix (bugfix-iso-weeks): **passed** — TASK_COMPLETE, oracle 5/5, one pass through the
+  whole pipeline (investigate → plan → build → regression proof → validate → complete), no
+  repairs, no rework, no interventions. The first attempt had only lacked time.
+- Small new application (greenfield-todo-cli): **failed as a false completion** — the run
+  reported TASK_COMPLETE, oracle 7/10. A second attempt had stopped earlier at requirements
+  (OpenCode output-token truncation, nondeterministic). Root cause of the false completion:
+  the Requirements stage's worked examples transcribed the brief's literal `ID TEXT
+  [open|done]` output format without the brackets; the Builder, tests, Validator and
+  completion gate then all worked from the corrupted criteria, each honestly. The
+  brief-to-criteria transcription is the one handoff with no independent check.
+
+After the fixes (prompt rules for criteria-vs-brief tracing and in-workspace scratch, the
+bug-fix budget, all in commit f001e317), the greenfield case **passed** on the same profile:
+TASK_COMPLETE, oracle 10/10, no permission recoveries, criteria carrying the brief's
+literals. One passing sample does not prove the prompt rules caused it; the next sweep
+should watch the same boundaries. Standing tally after the fixes: all three cases pass end
+to end; the one observed false completion came through the requirements boundary, and its
+guard is now model-dependent — verified by live runs, not mechanically. Since 2026-10-04 one part is
+mechanical (`tools/autocode_brief_literals.py`): a planner draft that drops a literal the brief writes in
+backticks goes back to the planner. Whether every worked example agrees with that literal is still the
+Plan Reviewer's check.
+
+First run of the three cases (2026-10-01, master 68e89aa4, profile glm53-openai:
+GLM-5.3 producers on the Z.AI plan, GPT-6 verifiers on OpenCode's ChatGPT login;
+details in docs/bugs/2026-10-01-reliability-live-cases.md):
+
+- Feature in an existing project (feature-timesheet-by-project): **passed** —
+  TASK_COMPLETE, oracle 6/6, two report repairs recovered automatically.
+- Small new application (greenfield-todo-cli): **not passed** — the deliverable was
+  correct (oracle 10/10) but the run never completed: OpenCode's external_directory
+  permission stopped the validator three times, the recovery budget ran out, and the
+  run paused for a person. Blocker recorded; validator evidence paths must stay
+  workspace-contained.
+- Bug fix (bugfix-iso-weeks): **not passed** — the fix was correct (oracle 5/5) but the
+  scenario's 60-minute budget expired while AutoResolver's rework loop was still
+  running. Budget, not correctness, ended it.

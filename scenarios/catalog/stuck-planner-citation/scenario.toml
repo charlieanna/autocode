@@ -1,0 +1,19 @@
+title = "A stage that gets stuck is unstuck by the Investigator (real model)"
+category = "bugfix"
+# Every stage is scripted except the stuck-stage Investigator, which is a real
+# OpenAI model (--investigator-model). The scripted Planner cites the nonexistent
+# docs/bugs/word-count.json.missing sibling, so its report is rejected
+# until repairs run out and the stage is stuck. The run passes only if the real
+# Investigator reads the rejected attempts, names the actual cause, and its guidance
+# gets the retried Planner through: the script corrects itself only when the guidance
+# names code_refs or the exact note path. A successful run needs a real Investigator
+# call; rejected outputs or provider interruptions can cause additional calls.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+flags = ["--investigator-model", "openai/gpt-6-sol", "--investigator-reasoning-effort", "high"]
+fault = "planner_citation"
+live_investigator = true
+
+[run]
+timeout_minutes = 30

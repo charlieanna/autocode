@@ -1,0 +1,126 @@
+"""Automatic reasoning/model escalation tests; no provider calls."""
+from copy import deepcopy
+from pathlib import Path
+import sys
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+import autocode_escalation as escalation
+
+
+class EscalationTests(unittest.TestCase):
+    def state(self, role, model, effort, *, engine="opencode", provider=None):
+        return {"settings": {"engine": engine, "roles": {role: {
+                    "engine": engine, "provider": provider, "model": model,
+                    "reasoning_effort": effort}}},
+                "sessions": {role: "old-session"}}
+
+    def test_exact_role_ladders(self):
+        expected = {
+            "astra": ["GPT-6 Astra High", "GPT-6 Astra XHigh", "GPT-6 Astra Max"],
+            "terra": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
+            "sol": ["GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
+            "completion": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol Max"],
+        }
+        self.assertEqual(expected, {role: [row[2] for row in ladder]
+                                    for role, ladder in escalation.LADDERS.items()})
+
+    def test_advance_changes_one_rung_and_rotates_session(self):
+        state = self.state("astra", "openai/gpt-6-astra", "high")
+        event = escalation.advance(state, "astra", trigger="rejected_output", detail="bad report")
+        self.assertEqual("GPT-6 Astra XHigh", event["selected"]["profile"])
+        self.assertEqual("xhigh", state["settings"]["roles"]["astra"]["reasoning_effort"])
+        self.assertEqual({}, state["sessions"])
+        self.assertEqual("old-session", state["session_rotations"][0]["old_session"])
+        self.assertEqual([event], state["reasoning_escalations"])
+
+    def test_second_sol_failure_climbs_to_sol_max(self):
+        state = self.state("sol", "openai/gpt-6-sol", "xhigh")
+        event = escalation.advance(state, "sol", trigger="validation_rework")
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("max", state["settings"]["roles"]["sol"]["reasoning_effort"])
+        self.assertEqual("GPT-6 Sol Max", event["selected"]["profile"])
+
+    def test_only_the_resolver_climbs_astra_and_glm_roles_never_escalate(self):
+        """Astra is only for the Resolver (user 2026-09-28); GLM roles, including the default
+        Builder, are on no ladder (its stronger attempt is the Builder retry policy's)."""
+        cases = [("sol", "openai/gpt-6-astra", "high"), ("completion", "openai/gpt-6-astra", "medium"),
+                 ("sol", "zai-coding-plan/glm-5.3", "high"), ("completion", "zai-coding-plan/glm-5.3", "medium"),
+                 ("terra", "zai-coding-plan/glm-5.3", "medium"), ("plan_reviewer", "openai/gpt-6-sol", "high")]
+        for role, model, effort in cases:
+            with self.subTest(role=role, model=model):
+                state = self.state(role, model, effort)
+                self.assertIsNone(escalation.advance(state, role, trigger="validation_rework"))
+                self.assertEqual(model, state["settings"]["roles"][role]["model"])
+        self.assertEqual({"astra"}, {role for role, ladder in escalation.LADDERS.items()
+                                     if any("astra" in row[0] for row in ladder)})
+
+    def test_same_failed_iteration_advances_only_one_rung(self):
+        state = self.state("terra", "openai/gpt-6-sol", "medium")
+        escalation.advance(state, "terra", trigger="no_progress", struggle_id="iteration:7")
+        self.assertIsNone(escalation.advance(
+            state, "terra", trigger="validation_rework", struggle_id="iteration:7"))
+        self.assertEqual("high", state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual(1, len(state["reasoning_escalations"]))
+
+    def test_codex_routes_keep_bare_model_names(self):
+        state = self.state("completion", "gpt-6-sol", "high", engine="codex")
+        escalation.advance(state, "completion", trigger="rejected_output")
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["completion"]["model"])
+        self.assertEqual("max", state["settings"]["roles"]["completion"]["reasoning_effort"])
+
+    def test_custom_provider_custom_profile_and_final_rung_are_stable(self):
+        cases = [
+            self.state("terra", "other/model", "medium"),
+            self.state("terra", "openai/gpt-6-sol", "medium", provider="custom"),
+            self.state("terra", "openai/gpt-6-sol", "max"),
+            # MiMo is no longer on any ladder (user 2026-09-27): a MiMo route never escalates.
+            self.state("terra", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "medium"),
+        ]
+        for state in cases:
+            before = state["settings"]["roles"]["terra"].copy()
+            self.assertIsNone(escalation.advance(state, "terra", trigger="no_progress"))
+            self.assertEqual(before, state["settings"]["roles"]["terra"])
+            self.assertEqual("old-session", state["sessions"]["terra"])
+
+    def test_pinned_role_keeps_requested_model_after_a_struggle(self):
+        state = self.state("astra", "openai/gpt-6-astra", "high")
+        state["settings"]["roles"]["astra"]["model_pinned"] = True
+        self.assertIsNone(escalation.advance(state, "astra", trigger="rejected_output"))
+        self.assertEqual("openai/gpt-6-astra", state["settings"]["roles"]["astra"]["model"])
+        self.assertEqual("high", state["settings"]["roles"]["astra"]["reasoning_effort"])
+        self.assertEqual("old-session", state["sessions"]["astra"])
+
+    def test_continuous_profile_suppresses_promotion_without_changing_legacy_routes(self):
+        for role, model, effort in (("terra", "openai/gpt-6-sol", "high"),
+                                    ("astra", "openai/gpt-6-astra", "high")):
+            with self.subTest(role=role):
+                state = self.state(role, model, effort)
+                state["settings"]["conversation_profile"] = "continuous-v1"
+                before = deepcopy(state)
+                self.assertIsNone(escalation.advance(state, role, trigger="rejected_output"))
+                self.assertEqual(before, state)
+                # The same saved role outside the opt-in profile keeps its ladder.
+                del state["settings"]["conversation_profile"]
+                self.assertIsNotNone(escalation.advance(state, role, trigger="rejected_output"))
+                self.assertEqual("xhigh", state["settings"]["roles"][role]["reasoning_effort"])
+
+
+    def test_planning_roles_without_ladders_never_escalate(self):
+        cases = [
+            self.state("requirements_planner", "zai-coding-plan/glm-5.3", None),
+            self.state("technical_planner", "zai-coding-plan/glm-5.3", None),
+            self.state("plan_reviewer", "cursor-acp/claude-opus-5-5-high", None),
+        ]
+        cases[-1]["settings"]["roles"]["plan_reviewer"]["model_pinned"] = True
+        for state in cases:
+            role = next(iter(state["settings"]["roles"]))
+            with self.subTest(role=role):
+                before = state["settings"]["roles"][role].copy()
+                self.assertIsNone(escalation.advance(state, role, trigger="rejected_output"))
+                self.assertEqual(before, state["settings"]["roles"][role])
+                self.assertEqual("old-session", state["sessions"][role])
+
+
+if __name__ == "__main__":
+    unittest.main()

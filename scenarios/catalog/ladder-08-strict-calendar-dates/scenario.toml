@@ -1,0 +1,5 @@
+title = "Add strict calendar date parsing and inclusive ranges"
+category = "feature"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "steps": [
+    {"name":"create link", "service":"link-service", "method":"POST", "path":"/links", "body":{"code":"demo","destination":"https://example.test/destination"}, "expect_status":201},
+    {"name":"resolve link", "service":"link-service", "method":"GET", "path":"/r/demo", "expect_status":302},
+    {"name":"collect clicks", "service":"analytics-service", "method":"POST", "path":"/collect", "body":{}, "expect_status":200},
+    {"name":"query analytics", "service":"analytics-service", "method":"GET", "path":"/stats?code=demo", "expect_status":200, "expect_json":{"code":"demo","clicks":1}}
+  ]
+}

@@ -1,0 +1,4 @@
+Implement `app.migrate(path)` to upgrade an existing SQLite database from user_version 1 to 2. Version 1 has `people(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)` and may contain unrelated tables. Version 2 keeps IDs and names, makes email NOT NULL and UNIQUE, and stores each email stripped and lowercase. Missing or empty emails, or normalized emails that collide, must raise ValueError and leave the original schema, rows, unrelated tables, and user_version unchanged. Apply all DDL/data changes and user_version together atomically. Calling migrate on version 2 is an idempotent no-op. Any other version raises ValueError without changing data. Return 2 on success. Do not use external migration packages.
+
+
+Use only the Python standard library. Preserve the seed test, add meaningful tests under tests/, and document the public interface and test command in README.md. No external services or real-time sleeps.

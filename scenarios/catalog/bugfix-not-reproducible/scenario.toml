@@ -1,0 +1,13 @@
+title = "A bug report that does not reproduce on this code"
+category = "bugfix"
+# The exporter already writes None cells as empty fields and a test proves it.
+# The right outcome is to say so (reproduced: false, with the evidence and the
+# questions for the reporter) or to stop and ask; the wrong outcome is a
+# "defensive" change to code that is not broken. Stopping with a question or
+# completing with a not-reproduced note are both acceptable endings.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[run]
+expected = "any"

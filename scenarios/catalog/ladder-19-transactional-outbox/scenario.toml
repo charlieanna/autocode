@@ -1,0 +1,9 @@
+title = "Transactional outbox with replay after publisher failure"
+category = "system"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[run]
+max_steps = 50
+timeout_minutes = 60

@@ -82,6 +82,27 @@ class RegistryInterventionTests(unittest.TestCase):
     def action(self, kind, **fields):
         return self.console.mutate({'workspace': str(self.workspace), 'run': str(self.run), 'action': kind, **fields})
 
+    def test_work_summary_uses_checked_cli_progress_and_refuses_prior_contract(self):
+        self.state['goal_contract'] = {'revision': 2, 'hash': 'current', 'body': {
+            'milestones': [{'id': 'M1', 'objective': 'Build the form'}]}}
+        # Deliberately contradictory private rows must not override the CLI.
+        self.state['milestone_progress'] = {'old:M1': {'id': 'M1', 'accepted': True}}
+        self.write_state()
+        self.status.update(contract_token='r2:current', milestone_checkpoint={'accepted_milestones': []})
+        self.save('status.json', self.status)
+        view = self.console.task_view(self.workspace, self.run)
+        self.assertEqual('waiting', view['work_summary']['tasks'][0]['state'])
+        self.status['milestone_checkpoint']['accepted_milestones'] = ['M1']
+        self.save('status.json', self.status)
+        self.console.status_cache.clear()
+        self.assertEqual('done', self.console.task_view(self.workspace, self.run)['work_summary']['tasks'][0]['state'])
+        self.status['contract_token'] = 'r1:old'
+        self.save('status.json', self.status)
+        self.console.status_cache.clear()
+        result = self.console.task_view(self.workspace, self.run)['work_summary']
+        self.assertFalse(result['task_progress_known'])
+        self.assertEqual('unknown', result['tasks'][0]['state'])
+
     def test_registry_only_discovery_dedupes_and_rejects_unregistered_run(self):
         self.assertEqual([self.workspace], self.console.workspaces)
         self.assertEqual([str(self.run)], [r['run'] for r in self.console.discover()])

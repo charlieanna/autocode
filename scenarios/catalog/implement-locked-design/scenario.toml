@@ -1,0 +1,10 @@
+title = "Implement an approved design without redesigning it"
+category = "feature"
+# The design is a constraint, not a suggestion. Hidden tests go through the
+# specified modules and signatures with a fake clock; structural checks read
+# the AST. A single-class "simplification" and a bucket that reads
+# time.monotonic both fail. Run checks: no requirements gathering and no
+# questions, because the document settles everything.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

@@ -10,10 +10,10 @@ import time
 from typing import Any
 
 try:
-    from . import autocode_goals as goals, autocode_support as support
+    from . import autocode_goals as goals, autocode_util as util
 except ImportError:
     import autocode_goals as goals
-    import autocode_support as support
+    import autocode_util as util
 
 
 INBOX_VERSION = 1
@@ -77,7 +77,7 @@ def _read_inbox(inbox: Path) -> dict[str, Any]:
     seen_ids = set()
     for request in value["requests"]:
         if (not isinstance(request, dict) or not isinstance(request.get("id"), str) or not request["id"]
-                or request.get("kind") not in {"feedback", "pause"} or not isinstance(request.get("text"), str)
+                or request.get("kind") not in {"feedback", "pause", "stop"} or not isinstance(request.get("text"), str)
                 or not isinstance(request.get("order"), int) or isinstance(request["order"], bool) or request["order"] < 1
                 or not isinstance(request.get("submitted_at"), str)
                 or request.get("observed_goal_token") is not None and not isinstance(request["observed_goal_token"], str)
@@ -114,12 +114,14 @@ def _locked_inbox(lock: Path) -> Any:
 def _payload(request_id: str, kind: str, text: str) -> dict[str, str]:
     if not isinstance(request_id, str) or not request_id:
         raise InterventionError("invalid_request_id", "Request ID must be a nonempty string")
-    if kind not in {"feedback", "pause"}:
-        raise InterventionError("invalid_kind", "Intervention kind must be feedback or pause")
+    if kind not in {"feedback", "pause", "stop"}:
+        raise InterventionError("invalid_kind", "Intervention kind must be feedback, pause or stop")
     if not isinstance(text, str) or (kind == "feedback" and not text):
         raise InterventionError("invalid_text", "Feedback text must be a nonempty string")
     if kind == "pause" and text:
         raise InterventionError("invalid_text", "Pause requests do not accept feedback text")
+    if kind == "stop" and text:
+        raise InterventionError("invalid_text", "Stop requests do not accept feedback text")
     return {"id": request_id, "kind": kind, "text": text}
 
 
@@ -161,11 +163,11 @@ def submit(workspace: Path, run_dir: Path, *, request_id: str, kind: str, text: 
         history = document["requests"] + current_state.get("applied_interventions", [])
         order = 1 + max((item.get("order", 0) for item in history
                          if isinstance(item, dict) and type(item.get("order")) is int), default=0)
-        receipt = {**payload, "order": order, "submitted_at": support.now(), "observed_goal_token": token,
+        receipt = {**payload, "order": order, "submitted_at": util.now(), "observed_goal_token": token,
                    "boundary_pause_requested": True}
         document["requests"].append(receipt)
         try:
-            support.atomic_json(inbox, document)
+            util.atomic_json(inbox, document)
         except OSError as error:
             raise InterventionError("write_failed", f"Intervention inbox update failed: {error}") from error
     return {"version": INBOX_VERSION, "operation": "submit", "accepted": True,
@@ -203,11 +205,11 @@ def admission(run_dir: Path):
         with serialized(run_dir):
             inbox, _ = _paths(run_dir)
             if _read_inbox(inbox)["requests"]:
-                raise support.Paused("PAUSED_INTERVENTION_PENDING",
+                raise util.Paused("PAUSED_INTERVENTION_PENDING",
                                      "Queued intervention must be applied before this action; explicitly continue.")
             yield
     except InterventionError as error:
-        raise support.Paused("PAUSED_INTERVENTION_PENDING", str(error)) from error
+        raise util.Paused("PAUSED_INTERVENTION_PENDING", str(error)) from error
 
 
 def consume(run_dir: Path, state: dict[str, Any], *, write_state: Any, apply_feedback: Any,
@@ -227,7 +229,7 @@ def consume(run_dir: Path, state: dict[str, Any], *, write_state: Any, apply_fee
         new = [item for item in requests if item["id"] not in applied_ids]
         if new:
             for receipt in new:
-                applied_receipt = {**receipt, "applied_at": support.now()}
+                applied_receipt = {**receipt, "applied_at": util.now()}
                 if receipt["kind"] == "feedback":
                     apply_feedback(receipt, applied_receipt)
                 applied.append(applied_receipt)
@@ -238,7 +240,7 @@ def consume(run_dir: Path, state: dict[str, Any], *, write_state: Any, apply_fee
         if requests:
             document["requests"] = []
             try:
-                support.atomic_json(inbox, document)
+                util.atomic_json(inbox, document)
             except OSError as error:
                 raise InterventionError("acknowledgement_failed", f"Intervention acknowledgement failed: {error}") from error
             state.pop("intervention_ack_pending", None)
@@ -259,7 +261,7 @@ def cli(argv: list[str]) -> int:
     submit_parser.add_argument("--workspace", required=True, type=Path)
     submit_parser.add_argument("--run-dir", required=True, type=Path)
     submit_parser.add_argument("--request-id", required=True)
-    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause"))
+    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause", "stop"))
     submit_parser.add_argument("--text", default="")
     submit_parser.add_argument("--json", action="store_true")
     inspect_parser = commands.add_parser("inspect")

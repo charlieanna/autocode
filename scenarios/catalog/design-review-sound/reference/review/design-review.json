@@ -1,0 +1,18 @@
+{
+  "satisfied": [
+    "Exactly once, including the deploy: charge and guarded processed_at update commit in one transaction; record_charge skips an event_id that already has a charge, so a charge the old code committed before a hard stop is not repeated; the deploy replaces the replica, so old and new never run at the same time.",
+    "Notifications: sent before the commit, so a crash repeats a send (ignored per event_id) and never loses one; the 2-second timeout bounds lock time; the outage stall is a stated tradeoff.",
+    "Other callers: charge() keeps committing; manual charges have a NULL event_id and are never looked up, so the admin CLI is unchanged.",
+    "Rollback: no column or data change; the one additive index is ignored by the previous version."
+  ],
+  "concerns": [
+    {
+      "id": "S1",
+      "area": "operations",
+      "severity": "advisory",
+      "summary": "While the notification service is down the queue stalls (as today). A metric on the age of the oldest unprocessed event would make that visible.",
+      "evidence": "'Questions we expect': the notification-outage paragraph."
+    }
+  ],
+  "questions": []
+}

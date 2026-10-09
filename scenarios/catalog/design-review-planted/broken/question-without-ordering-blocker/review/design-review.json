@@ -1,0 +1,40 @@
+{
+  "satisfied": [
+    "Throughput: the partitioner spreads each kind over its six partitions, so all 24 carry traffic; ~400 events/s each covers the 5,000/s peak, and no kind (at most 1,500/s) exceeds its six partitions' 2,400/s.",
+    "Replay: 7-day retention on the topic lets a consumer re-read after a fix.",
+    "Independent consumers: one consumer group per service isolates their pace."
+  ],
+  "concerns": [
+    {
+      "id": "F2",
+      "area": "duplicate processing",
+      "severity": "blocking",
+      "summary": "Delivery is at-least-once with up to 5 retries, but no consumer defines an idempotency boundary. A renew redelivered after a crash between charge() and the offset commit is charged twice.",
+      "evidence": "Design, Consumers paragraph. Code: billing.charge(domain, event_id) charges once per call; nothing records processed event_ids."
+    },
+    {
+      "id": "F3",
+      "area": "migration",
+      "severity": "blocking",
+      "summary": "Dual-write has no rollback or reconciliation: if a service switched to Kafka must switch back, events consumed only from Kafka are re-consumed from the table (or missed if the table write failed). Nothing says how the two sides are compared before the table is dropped.",
+      "evidence": "Design, Migration section: feature flag forward only; no rollback, no reconciliation step."
+    },
+    {
+      "id": "S1",
+      "area": "operations",
+      "severity": "advisory",
+      "summary": "DLQ handling is unspecified: who drains registry-events.dlq and in what order relative to the live stream, given F1.",
+      "evidence": "Design, Consumers and Retention paragraphs."
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "How should per-domain sequence be preserved?",
+      "options": [
+        "domain partition key",
+        "ordered dispatch"
+      ]
+    }
+  ]
+}

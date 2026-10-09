@@ -1,0 +1,8 @@
+{
+  "observed": "After a timeout, the same domain is occasionally renewed twice: expiry advances by two years and the customer is billed twice.",
+  "reproduction": "FakeRegistry.fail_next('timeout-after'); RenewClient(registry).renew('example.com') -> expiries advance by 2 and registry.mutations has two entries (tests/test_client.py::test_timeout_after_processing_does_not_renew_twice, failing before the fix).",
+  "root_cause": "RenewClient.renew treats a Timeout as 'not sent' and resends immediately with a fresh cl_trid. A timeout only means the reply was lost; the registry may already have processed the renew. Because each attempt uses a new cl_trid the registry cannot recognize the retry as the same command, so it renews again.",
+  "affected_paths": ["epp/client.py"],
+  "invariant": "One logical renew must produce at most one mutation at the registry; a retry after an uncertain outcome must first reconcile (poll the transaction) and must reuse the same cl_trid.",
+  "fix": "Generate cl_trid once per logical renew; on Timeout, poll(cl_trid) and return the stored result if the registry processed it; otherwise resend with the same cl_trid."
+}

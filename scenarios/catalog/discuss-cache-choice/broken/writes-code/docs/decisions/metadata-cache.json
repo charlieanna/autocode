@@ -1,0 +1,25 @@
+{
+  "recommendation": "shared-file",
+  "decisive_facts": [
+    {"fact": "The service runs as 4 gunicorn worker processes that share nothing, and each worker is recycled after about 2000 requests, starting with an empty cache.", "source": "deploy/gunicorn.conf.py"},
+    {"fact": "The upstream registry API allows 60 metadata requests per hour per account and returns 429 for the rest of the hour once exceeded.", "source": "app/metadata.py"},
+    {"fact": "Every request handler needs metadata, so a 429 takes the whole service down until the hour resets.", "source": "app/server.py"},
+    {"fact": "Metadata changes a few times a day at most, so a long TTL is safe.", "source": "app/metadata.py"}
+  ],
+  "tradeoffs": [
+    {
+      "option": "in-process",
+      "pros": ["No I/O on a hit", "No shared state to corrupt or lock", "Already implemented (functools.lru_cache)"],
+      "cons": ["Each of the 4 workers fetches every TLD itself: 4x the upstream calls", "Every worker recycle (every ~2000 requests) restarts from cold and refetches; with a few dozen TLDs, two or three recycles in an hour exceed the 60/hour budget", "No TTL: a worker that lives long serves stale metadata indefinitely"]
+    },
+    {
+      "option": "shared-file",
+      "pros": ["One fetch per TLD per TTL for the whole host, independent of worker count and recycling", "Survives worker restarts and deploys", "A TTL can be enforced in one place"],
+      "cons": ["Needs atomic writes (write-then-rename) and a lock or single-flight so 4 workers do not all fetch on a miss", "Disk read on every hit unless paired with a short in-process layer", "Cache lives per host; multiple hosts still fetch separately"]
+    }
+  ],
+  "open_questions": [
+    "How many hosts run this service? If more than one, the per-account budget is shared across hosts too and a shared file per host may still not be enough.",
+    "Is a stale read of up to an hour acceptable when metadata changes?"
+  ]
+}

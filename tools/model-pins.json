@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "pinned_at": "2026-09-29",
+  "source": "live opencode models search; user confirmed shortlist",
+  "rules": [
+    "verifier != producer: OpenAI GPT checks GLM work and GLM checks OpenAI GPT work",
+    "start on the ladder medium rung where docs say medium; escalate reasoning in-stage when needed",
+    "cheap model does the volume, expensive model judges (user 2026-09-29): GLM plans and builds, GPT-6 Sol reviews and checks",
+    "pins are defaults: all configured model routes may be selected"
+  ],
+  "roles": {
+    "requirements": {
+      "model": "zai-coding-plan/glm-5.3",
+      "effort": "medium"
+    },
+    "planner": {
+      "model": "zai-coding-plan/glm-5.3",
+      "effort": "high"
+    },
+    "reviewer": {
+      "model": "openai/gpt-6-sol",
+      "effort": "high"
+    },
+    "builder": {
+      "model": "zai-coding-plan/glm-5.3",
+      "effort": "medium"
+    },
+    "validator": {
+      "model": "openai/gpt-6-sol",
+      "effort": "high"
+    },
+    "completion": {
+      "model": "openai/gpt-6-sol",
+      "effort": "medium"
+    },
+    "resolver": {
+      "model": "openai/gpt-6-astra",
+      "effort": "high"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "link-service",
+    "description": "Owns short-code to destination-URL lookup and redirects. Publishes a click event whenever it resolves a code.",
+    "requirements": ["R1", "R4"],
+    "depends_on": [],
+    "publishes_contracts": ["click_event"],
+    "consumes_contracts": []
+  },
+  {
+    "id": "analytics-service",
+    "description": "Owns click storage and analytics queries. Also consumes a rate-limit contract that no component publishes.",
+    "requirements": ["R2", "R3", "R4"],
+    "depends_on": ["link-service"],
+    "publishes_contracts": [],
+    "consumes_contracts": ["click_event", "rate_limit_status"]
+  }
+]

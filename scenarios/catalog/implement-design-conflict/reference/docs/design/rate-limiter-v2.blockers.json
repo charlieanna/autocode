@@ -1,0 +1,14 @@
+{
+  "conflicts": [
+    {
+      "design_says": "TokenBucket.try_acquire raises RateLimited on denial and returns None on success, shipped as ratelimit 1.4 with no external callers affected.",
+      "conflicts_with": "README.md freezes the 1.x public API: try_acquire returns a bool and never raises for a denied request, and three other services depend on it. Changing the return contract is a 2.0 by the repository's own rule, and tests/test_handler.py::test_try_acquire_returns_false_when_denied pins the current behavior.",
+      "files": ["README.md", "ratelimit/bucket.py", "api/handler.py", "tests/test_handler.py"],
+      "options": [
+        "Ship the change as ratelimit 2.0 with a migration plan for the three external callers (the design's versioning section is wrong, not its mechanism).",
+        "Keep try_acquire as is and add a new method (e.g. acquire_or_raise) that raises RateLimited; api/handler.py switches to it. Compatible with 1.x, but it is not the approved design.",
+        "Re-review the design with the compatibility constraint on the table."
+      ]
+    }
+  ]
+}

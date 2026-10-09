@@ -1,0 +1,23 @@
+title = "Discuss, then design, then build: three jobs in one conversation"
+category = "conversation"
+# Issue #185. Turn 1 is discuss-cache-choice: in-process or a shared file cache,
+# decided by four shared-nothing gunicorn workers against a 60/hour upstream
+# limit. Turn 2 accepts the recommendation and asks for a design, which must
+# follow the decision and write no code. Turn 3 says only "Build it.": the build
+# must implement that design (AutoCode checks it as an approved design) and pass
+# hidden tests that run separate worker processes against one cache directory.
+# Each turn follows a completed one: --follow-up continues only a finished run.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+# The solution is the end state of the conversation: the decision note is turn 1's,
+# the design turn 2's, the code and tests turn 3's.
+turn_paths = [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
+
+[[turn]]
+after = "complete"
+say = "Shared it is; design it. Settle freshness in the design: TTL is caller-configurable with a 3600-second default. Use an injectable clock; an entry expires when elapsed clock time >= TTL, including at equality. Never serve stale metadata. On expiration fetch new metadata once, publish it atomically, and let the other workers reuse it; propagate upstream errors rather than returning expired data. Record these decisions in the approved design so the later build needs no freshness-policy question. The design turn must write only docs/design/. The later build must edit only app/ and tests/; preserve the decision note, approved design and root README.md. Prescribe socket-free test fixtures: controlled urllib.request.urlopen responses and process synchronization using pipes or file barriers, not a local HTTP server or socket-backed manager. Tests must not require network or loopback binding permission."
+
+[[turn]]
+after = "complete"
+say = "Build it."

@@ -1,22 +1,33 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
-build/
-dist/
 .venv/
+.pytest_cache/
+
+# Local run state (large, live)
 .autocode/
-
-# Nested target workspaces used for local Autocode runs
-.tmp-*/
-learner-loop/
-engineering-readiness-cli/
-
 .autocode-ui/
 .DS_Store
+
+# Local Codex config and hooks
+.codex/config.toml
+.codex/hooks.json
 
 # October desktop — local canvas state
 .october/
 
-# October (generated — context bus / browser MCP)
-.codex/config.toml
-.codex/hooks.json
+# Build output
+build/
+dist/
+
+# Other agents' local state and worktrees
+.kilo/
+.zcode/
+.zcodeignore
+
+# Scratch workspaces and evidence from test and harness runs
+.tmp-*/
+.scenario-runs/
+# Default artifact directory written by tools/autopilot_testkit.py during test runs
+.tmp-autopilot-testkit/

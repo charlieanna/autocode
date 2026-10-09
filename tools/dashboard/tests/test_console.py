@@ -2,12 +2,22 @@ import http.client,json,os,subprocess,sys,tempfile,threading,time,unittest
 from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parents[1]))
-from agent_console import Console,Handler,ThreadingHTTPServer,configured_zai
+
+from agent_console import Console,Handler,LoopbackHTTPServer,ThreadingHTTPServer,configured_zai
+from tools.dashboard.tests.test_pending_decisions import publish,resolver_human
+
 class Tests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();isolation=patch.dict(os.environ,{'AUTOCODE_HOME':str(Path(self.tmp.name)/'registry-home')});isolation.start();self.addCleanup(isolation.stop);self.ws=Path(self.tmp.name)/'w';(self.ws/'.git').mkdir(parents=True);self.run=self.ws/'.autocode/runs/r';self.run.mkdir(parents=True);self.fake=Path(self.tmp.name)/'fake.py';self.fake.write_text('import sys\nprint("o"*3000);print("e"*3000,file=sys.stderr)')
   self.state={'task':'<unsafe>','phase':'WAITING_FOR_USER','status':'WAITING_FOR_USER','iteration':1,'active_stage':{'stage':'terra'},'pending_questions':[{'id':'Q1','question':'what','options':['a'],'proposed_default':'a','why':'why'}],'answers':{'Q0':{'text':'saved'}},'displayed_goal':'r3:abc','displayed_review':'review','goal_contract':{'body':{'intended_outcome':'out','acceptance_criteria':[{'id':'C1','criterion':'one'},{'id':'C11','criterion':'eleven','human_review':True}]}},'initial_plan':['approved first step'],'initial_plan_approval':'approved','plan':['current plan\nwith recorded line break'],'current_task':{'id':'current','objective':'current <unsafe>\nobjective','requirements':['current requirement'],'validation_plan':['current validation'],'assigned_at':'2026-09-19T22:14:47Z','contract_revision':3,'decision':'CONTINUE','owner':'Terra','next_role':'Sol'},'task_archive':[{'id':'older','objective':'older assignment','requirements':['old requirement'],'validation_plan':['old validation'],'assigned_at':'2026-09-19T20:00:00Z','contract_revision':1,'decision':'CONTINUE'},'malformed'],'decisions':[{'at':'2026-09-19T20:00:00Z','current_task':{'id':'older','objective':'older assignment','requirements':['old requirement'],'validation_plan':['old validation'],'assigned_at':'2026-09-19T20:00:00Z','contract_revision':1,'decision':'CONTINUE'}},{'at':'2026-09-19T21:00:00Z','current_task':{'id':'rework','objective':'rework assignment','contract_revision':2,'decision':'REWORK'},'reason':'recorded rationale\nonly'}],'stages':[{'stage':'astra','duration_seconds':2,'metrics':{'provider_tokens':{'input_tokens':3}}}],'validation':{'criterion_results':[{'id':'C1','status':'PASS'}]},'user_request':{'question':'choose'}};(self.run/'state.json').write_text(json.dumps(self.state));self.c=Console([self.ws],self.fake,lambda:'ZAI')
  def tearDown(self):self.tmp.cleanup()
+ def test_runner_check_is_shown_before_the_queued_validator(self):
+  self.state.update(status='RUNNING',active_stage=None,next_stage='sol',active_runner_check={
+    'stage':'regression_proof','summary':'Testing the original code before comparing the change'})
+  view=self.c.view(self.ws,self.run,self.state)
+  self.assertEqual('RUNNING',view['status'])
+  self.assertEqual('Testing the original code before comparing the change',view['stage'])
+  self.assertEqual({},view['active_stage'])
  def wait(self,run=True):
   for _ in range(300):
    x=self.c.action_log(self.ws,self.run if run else None)
@@ -16,6 +26,12 @@ class Tests(unittest.TestCase):
   self.fail('timed out')
  def test_v3_adapter(self):
    v=self.c.view(self.ws,self.run);self.assertEqual('saved',v['answers']['Q0']['text']);self.assertEqual('terra',v['stage']);self.assertEqual(1,len(v['stages']));self.assertEqual(1,v['counts']['pass']);self.assertEqual(['current plan\nwith recorded line break'],v['plan']);self.assertEqual('review',v['review_token'])
+ def test_completion_timestamp_projection_is_optional_and_not_derived(self):
+  completion='2026-09-22T12:44:00Z';polling='2026-09-22T13:07:00Z';stage='2026-09-22T12:48:00Z';evidence='2026-09-22T12:51:00Z'
+  self.state.update(status='TASK_COMPLETE',completed_at=completion,updated_at=polling,stages=[{'stage':'sol','role':'sol','finished_at':stage,'exit_code':0}],validation={'recorded_at':evidence,'criterion_results':[{'id':'C1','status':'PASS'}]})
+  view=self.c.view(self.ws,self.run,self.state);self.assertEqual(completion,view['completed_at']);self.assertNotIn(polling,[view['completed_at']]);self.assertNotIn(stage,[view['completed_at']]);self.assertNotIn(evidence,[view['completed_at']])
+  self.state['completed_at']='not-a-completion-timestamp';self.assertEqual('not-a-completion-timestamp',self.c.view(self.ws,self.run,self.state)['completed_at'])
+  self.state.pop('completed_at');self.assertIsNone(self.c.view(self.ws,self.run,self.state)['completed_at'])
  def test_astra_plan_history_is_defensive_chronological_and_deduplicated(self):
    self.state['goal_contract']['approval_status']='approved';self.state['contract_history']=[{'revision':1,'approval_status':'proposed','created_at':'2026-09-19T19:00:00Z'},{'revision':2,'approval_status':'approved','approval_event':{'at':'2026-09-19T20:00:00Z'}}];(self.run/'state.json').write_text(json.dumps(self.state));history=self.c.view(self.ws,self.run)['astra_plan'];self.assertEqual(['approved first step'],history['initial_plan']);self.assertEqual('approved',history['initial_plan_approval']);self.assertEqual('approved',history['current_plan_approval']);self.assertEqual([1,2],[entry['revision'] for entry in history['revision_history']]);self.assertEqual(['current plan\nwith recorded line break'],history['current_plan']);self.assertEqual('current',history['current_assignment']['id']);self.assertEqual(['older','rework','current'],[entry['id'] for entry in history['history']]);self.assertEqual('recorded rationale\nonly',history['history'][1]['reason']);self.assertIsNone(history['history'][0]['owner'])
    self.state['task_archive']=[None,{'id':['malformed']}];self.state['current_task']='legacy';self.state['plan']='legacy';(self.run/'state.json').write_text(json.dumps(self.state));history=self.c.view(self.ws,self.run)['astra_plan'];self.assertEqual([],history['current_plan']);self.assertIsNone(history['current_assignment'])
@@ -23,8 +39,8 @@ class Tests(unittest.TestCase):
    from agent_console import APP,STYLE
    self.assertIn("function renderAstraPlan(run)",APP);self.assertIn("textContent = text ?? ''",APP);self.assertIn("Initial approved plan (recorded)",APP);self.assertIn("Initial historically approved plan (inactive)",APP);self.assertIn("historically approved/inactive",APP);self.assertIn("awaiting its own approval",APP);self.assertIn("Initial plan (approval unavailable)",APP);self.assertIn("Current plan approval status",APP);self.assertIn("not proof of completion",APP);self.assertIn("No current assigned step is recorded.",APP);self.assertIn("planLines(lines)",APP);self.assertIn("#create select,#create input,#watch-root input{display:block;width:100%;max-width:100%;min-width:0}",STYLE)
  def test_waiting_request_fields_are_preserved(self):
-  request={'decision_needed':'Choose a safety boundary','discovered':'runner lock exists','impact':'cannot continue','options':['wait','use another workspace'],'proposed_delta':'defer continuation'}
-  self.state['user_request']=request;(self.run/'state.json').write_text(json.dumps(self.state));self.assertEqual(request,self.c.view(self.ws,self.run)['user_request'])
+   request={'kind':'permission','decision_needed':'Choose a safety boundary','discovered':'runner lock exists','impact':'cannot continue','options':['wait','use another workspace'],'proposed_delta':'defer continuation'}
+   publish(self.state,'permission',questions=[],request=request);(self.run/'state.json').write_text(json.dumps(self.state));self.assertEqual(request,self.c.view(self.ws,self.run)['user_request'])
  def test_discovery_summary_and_author_follow_saved_successful_planning_stage(self):
   self.state.update(settings={'joint_planning':True},discovery_summary='The draft needs a decision.',goal_contract={'origin':'glm_draft'},stages=[{'stage':'astra_discovery','role':'glm','exit_code':0}])
   def view():return self.c.view(self.ws,self.run,self.state)
@@ -44,7 +60,7 @@ class Tests(unittest.TestCase):
   rows=console.discover();self.assertEqual(1,len(rows));self.assertIn('escapes watched workspace',rows[0]['error'])
   with self.assertRaises(ValueError):console.mutate({'workspace':str(watched),'run':str(escaped),'action':'continue'})
  def test_selected_run_disappearance_api_and_ui_invalidation_regression(self):
-  s=ThreadingHTTPServer(('127.0.0.1',0),Handler);s.console=self.c;s.hosts={'127.0.0.1:'+str(s.server_port)};threading.Thread(target=s.serve_forever,daemon=True).start()
+  s=LoopbackHTTPServer(('127.0.0.1',0),Handler);s.console=self.c;s.hosts={'127.0.0.1:'+str(s.server_port)};threading.Thread(target=s.serve_forever,daemon=True).start()
   def get():
    h=http.client.HTTPConnection('127.0.0.1',s.server_port);h.request('GET','/api/run?workspace='+str(self.ws).replace('/','%2F')+'&run='+str(self.run).replace('/','%2F'));reply=h.getresponse();status=reply.status;body=json.loads(reply.read());h.close();return status,body
   try:
@@ -57,16 +73,23 @@ class Tests(unittest.TestCase):
   from agent_console import APP
   self.assertIn("function unavailableRun(message)",APP);self.assertIn("$('#continue').disabled=true",APP);self.assertIn("$('#continue').disabled=false",APP);self.assertIn("unavailableRun('Selected run unavailable: '+run.state_error)",APP);self.assertIn("unavailableRun('Selected run unavailable: '+error.message)",APP);self.assertIn("selected=currentView==='task-detail'?chosen:null",APP)
  def test_actions_exact_and_no_implicit_continue(self):
-  x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'answer','id':'Q1','text':'hi'});self.assertIn('Q1=hi',x['command']);self.wait();self.assertEqual(1,len(self.c.action_log(self.ws,self.run)))
-  self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'delegate','id':'Q1'});self.wait();x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_goal','token':'r3:abc','confirmation':'r3:abc'});self.assertIn('--approve-goal',x['command']);self.wait();x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_review','id':'C11','token':'review'});self.assertEqual(['--approve-review','C11','--review-token','review'],x['command'][-4:]);self.wait()
-  with self.assertRaises(ValueError):self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_goal','token':'stale','confirmation':'stale'})
+  fields=publish(self.state);(self.run/'state.json').write_text(json.dumps(self.state))
+  x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),**fields,'action':'answer','id':'Q1','text':'hi'});self.assertIn('Q1=hi',x['command']);self.assertIn(fields['resolver_token'],x['command']);self.wait();self.assertEqual(1,len(self.c.action_log(self.ws,self.run)))
+  self.c.mutate({'workspace':str(self.ws),'run':str(self.run),**fields,'action':'delegate','id':'Q1'});self.wait()
+  fields=publish(self.state,'goal_approval',questions=[]);token=self.state['displayed_goal'];(self.run/'state.json').write_text(json.dumps(self.state))
+  x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),**fields,'action':'approve_goal','token':token,'confirmation':token});self.assertIn('--approve-goal',x['command']);self.wait()
+  self.state['workspace']=str(self.ws.resolve())
+  with patch.object(resolver_human.support,'snapshot',return_value={'revision':'fixture-source'}):
+   fields=publish(self.state,'human_review',questions=[],request={'kind':'human_review','criteria':['C11'],'decision_needed':'Review interface'});(self.run/'state.json').write_text(json.dumps(self.state))
+   x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),**fields,'action':'approve_review','id':'C11','token':'artifact-token'});self.assertEqual(['--approve-review','C11','--review-token','artifact-token'],x['command'][-4:]);self.wait()
+   with self.assertRaises(ValueError):self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_goal','token':'stale','confirmation':'stale'})
  def test_explicit_codex_provider_and_capture_serialization(self):
   p=Path(self.tmp.name)/'c.toml';p.write_text('# zai\n[model_providers.ZAI]\nx=1\n');self.assertEqual('ZAI',configured_zai(p));p.write_text('# [model_providers.ZAI]\n');self.assertIsNone(configured_zai(p));x=self.c.create({'workspace':str(self.ws),'goal':'x','engine':'codex','astra_model':'glm-5.3'});self.assertIn('--astra-provider',x['command']);self.assertIn('--astra-reasoning-effort',x['command']);self.wait(False)
   self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'continue'})
   with self.assertRaises(ValueError):self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'continue'})
   x=self.wait();self.assertEqual(0,x['exit_status']);self.assertGreater(len(x['stdout']),1000);self.assertGreater(len(x['stderr']),1000)
  def test_http_security(self):
-  s=ThreadingHTTPServer(('127.0.0.1',0),Handler);s.console=self.c;authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start()
+  s=LoopbackHTTPServer(('127.0.0.1',0),Handler);s.console=self.c;authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start()
   def post(headers=None,missing_host=False):
    body=json.dumps({'workspace':str(self.ws),'run':str(self.run),'action':'continue'});h=http.client.HTTPConnection('127.0.0.1',s.server_port)
    if missing_host:
@@ -84,7 +107,7 @@ class Tests(unittest.TestCase):
   self.assertEqual(1,INDEX.count('id="change-text"'))
   self.assertEqual(1,INDEX.count('id="question-target"'))
   self.assertNotIn('question-form',APP)
-  self.assertIn("api('/api/chat'",APP)
+  self.assertIn("api(request.resolver_response?'/api/action':'/api/chat'",APP)
   self.assertIn("question_id",APP)
   self.assertIn("focus.version !== focusVersion",APP)
   self.assertIn("setSelectionRange(focus.start, focus.end, focus.direction)",APP)
@@ -112,7 +135,7 @@ class Tests(unittest.TestCase):
   flat=str(rows);self.assertNotIn(str(d4),flat);self.assertNotIn(str(ng),flat)
   c1=Console([],self.fake,lambda:'ZAI',watch_roots=[root],watch_depth=1)
   self.assertEqual({str(d1)},{r['workspace'] for r in c1.discover() if r.get('run')})
-  s=ThreadingHTTPServer(('127.0.0.1',0),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port)};threading.Thread(target=s.serve_forever,daemon=True).start()
+  s=LoopbackHTTPServer(('127.0.0.1',0),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port)};threading.Thread(target=s.serve_forever,daemon=True).start()
   try:
    h=http.client.HTTPConnection('127.0.0.1',s.server_port);h.request('GET','/api/runs');reply=h.getresponse();payload=json.loads(reply.read());h.close()
    self.assertIn(str(d1),payload['workspaces']);self.assertIn(str(d3),payload['workspaces']);self.assertNotIn(str(d4),payload['workspaces']);self.assertNotIn(str(ng),payload['workspaces'])
@@ -174,12 +197,12 @@ class Tests(unittest.TestCase):
   self.assertIn('already queued or running',str(ctx.exception));self.wait_done(c,shared,run)
  def test_discovered_workspace_supports_create_and_actions(self):
   root=Path(self.tmp.name).resolve()/'dw';dw=self.make_ws(root/'disc');c=Console([],self.fake,lambda:'ZAI',watch_roots=[root])
-  x=c.create({'workspace':str(dw),'goal':'build it'});self.assertEqual(['--workspace',str(dw)],x['command'][2:4]);self.assertEqual(['build it','--engine','opencode','--joint-planning','--no-chat'],x['command'][4:]);self.assertEqual(0,self.wait_done(c,dw)['exit_status'])
+  x=c.create({'workspace':str(dw),'goal':'build it'});self.assertEqual(['--workspace',str(dw)],x['command'][2:4]);self.assertEqual(['build it','--engine','opencode','--provider','opencode','--joint-planning','--no-chat'],x['command'][4:]);self.assertEqual(0,self.wait_done(c,dw)['exit_status'])
   run=dw/'.autocode/runs/r';y=c.mutate({'workspace':str(dw),'run':str(run),'action':'continue'});self.assertEqual([sys.executable,c.runner,'--workspace',str(dw),'--run-dir',str(run),'--no-chat'],y['command']);self.wait_done(c,dw,run)
  def test_opencode_creation_accepts_entered_git_worktree_and_preserves_actions(self):
   external=Path(self.tmp.name).resolve()/'external';external.mkdir();(external/'.git').write_text('gitdir: /tmp/worktree')
   fake=Path(self.tmp.name)/'creator.py';fake.write_text("import json,sys\nfrom pathlib import Path\na=sys.argv[1:];w=Path(a[a.index('--workspace')+1]);r=w/'.autocode/runs/new';r.mkdir(parents=True,exist_ok=True);defaults={'glm':'zai-coding-plan/glm-5.3','astra':'gpt-6-astra','terra':'zai-coding-plan/glm-5.3','sol':'gpt-5.6-sol'};assert not any(x.endswith('-model') for x in a);(r/'state.json').write_text(json.dumps({'task':'new','phase':'WAITING_FOR_USER','models':defaults}));(w/'argv.json').write_text(json.dumps(a))")
-  c=Console([],fake,lambda:None);x=c.create({'project':str(external),'goal':'make it','engine':'opencode'});self.assertEqual([sys.executable,str(fake.resolve()),'--workspace',str(external),'make it','--engine','opencode','--joint-planning','--no-chat'],x['command']);self.assertNotIn('--reasoning-effort',x['command']);self.assertFalse(any('provider' in arg for arg in x['command']));self.wait_done(c,external,False)
+  c=Console([],fake,lambda:None);x=c.create({'project':str(external),'goal':'make it','engine':'opencode'});self.assertEqual([sys.executable,str(fake.resolve()),'--workspace',str(external),'make it','--engine','opencode','--provider','opencode','--joint-planning','--no-chat'],x['command']);self.assertNotIn('--reasoning-effort',x['command']);self.assertFalse(any(arg.endswith('-provider') and arg!='--provider' for arg in x['command']));self.wait_done(c,external,False)
   self.assertEqual({'glm':'zai-coding-plan/glm-5.3','astra':'gpt-6-astra','terra':'zai-coding-plan/glm-5.3','sol':'gpt-5.6-sol'},json.loads((external/'.autocode/runs/new/state.json').read_text())['models']);self.assertEqual([str(external)],[str(w) for w in c.workspaces]);self.assertEqual([str(external/'.autocode/runs/new')],[r['run'] for r in c.discover() if r.get('run')]);y=c.mutate({'workspace':str(external),'run':str(external/'.autocode/runs/new'),'action':'continue'});self.assertEqual([sys.executable,str(fake.resolve()),'--workspace',str(external),'--run-dir',str(external/'.autocode/runs/new'),'--no-chat'],y['command']);self.wait_done(c,external,external/'.autocode/runs/new')
  def test_create_rejects_non_git_or_missing_entered_project_without_authority(self):
   c=Console([],self.fake,lambda:None);missing=Path(self.tmp.name)/'missing';plain=Path(self.tmp.name)/'plain';plain.mkdir()
@@ -188,7 +211,7 @@ class Tests(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,'existing Git workspace'):c.create({'project':['not','a','path'],'goal':'x','engine':'opencode'})
   self.assertEqual([],c.workspaces);self.assertFalse(missing.exists());self.assertEqual({},c.actions)
  def test_create_api_requires_same_origin_and_authorizes_only_valid_entered_project(self):
-  external=Path(self.tmp.name).resolve()/'api-worktree';external.mkdir();(external/'.git').write_text('gitdir: /tmp/worktree');s=ThreadingHTTPServer(('127.0.0.1',0),Handler);s.console=Console([],self.fake,lambda:None);authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start()
+  external=Path(self.tmp.name).resolve()/'api-worktree';external.mkdir();(external/'.git').write_text('gitdir: /tmp/worktree');s=LoopbackHTTPServer(('127.0.0.1',0),Handler);s.console=Console([],self.fake,lambda:None);authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start()
   def post(body,headers):
    h=http.client.HTTPConnection('127.0.0.1',s.server_port);h.request('POST','/api/create',json.dumps(body),headers);reply=h.getresponse();status=reply.status;reply.read();h.close();return status
   try:
@@ -196,9 +219,14 @@ class Tests(unittest.TestCase):
   finally:s.shutdown();s.server_close()
  def test_unavailable_watch_root_reports_error_row_only_for_that_root(self):
   base=Path(self.tmp.name).resolve();ok=self.make_ws(base/'ok');missing=base/'missing';bad=base/'bad';bad.mkdir();bad.chmod(0)
-  c=Console([],self.fake,lambda:'ZAI',watch_roots=[missing,ok,bad])
+  c=Console([],self.fake,lambda:'ZAI',watch_roots=[missing,ok,bad]);scandir=os.scandir
+  # Root ignores mode 0, so deny the unreadable root the way the OS denies every other user.
+  def denied(path='.'):
+   if Path(path)==bad:raise PermissionError(13,'Permission denied',str(bad))
+   return scandir(path)
   try:
-   rows=c.discover();errs={r['workspace']:r['error'] for r in rows if 'error' in r and not r.get('run')}
+   with patch.object(os,'scandir',denied):rows=c.discover()
+   errs={r['workspace']:r['error'] for r in rows if 'error' in r and not r.get('run')}
    self.assertEqual({str(missing),str(bad)},set(errs))
    for e in errs.values():self.assertIn('watch root unavailable',e)
    self.assertEqual([str(ok)],[r['workspace'] for r in rows if r.get('run')])
@@ -258,7 +286,7 @@ class RuntimeWatchRootTests(unittest.TestCase):
   self.assertEqual([str(project)],[str(w) for w in c.workspaces])
   self.assertEqual([{'path':str(cli_root),'runtime':False,'removable':False}],c.watch_root_rows())
  def test_runtime_root_api_rejects_hostile_origin_and_invalid_paths(self):
-  cli_root=self.base/'cli-root';cli_root.mkdir();explicit=self.workspace(self.base/'explicit');c=Console([explicit],self.fake,lambda:None,watch_roots=[cli_root]);s=ThreadingHTTPServer(('127.0.0.1',0),Handler);s.console=c;authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start();root=self.workspace(self.base/'runtime'/'project').parent
+  cli_root=self.base/'cli-root';cli_root.mkdir();explicit=self.workspace(self.base/'explicit');c=Console([explicit],self.fake,lambda:None,watch_roots=[cli_root]);s=LoopbackHTTPServer(('127.0.0.1',0),Handler);s.console=c;authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start();root=self.workspace(self.base/'runtime'/'project').parent
   def post(body,headers):
    h=http.client.HTTPConnection('127.0.0.1',s.server_port);h.request('POST','/api/watch-roots',json.dumps(body),headers);reply=h.getresponse();status=reply.status;reply.read();h.close();return status
   try:
@@ -266,7 +294,7 @@ class RuntimeWatchRootTests(unittest.TestCase):
    self.assertEqual(403,post({'action':'add','path':str(root)},{'Host':'evil.example','Content-Type':'application/json'}));self.assertEqual(400,post({'action':'add','path':str(root/'missing')},headers));self.assertEqual(400,post({'action':'remove','path':str(cli_root)},headers));self.assertEqual(400,post({'action':'remove','path':str(explicit)},headers));self.assertEqual(202,post({'action':'add','path':str(root)},headers));self.assertIn(str(root/'project'),[str(w) for w in c.workspaces]);self.assertEqual(202,post({'action':'remove','path':str(root)},headers));self.assertEqual([str(cli_root)],[row['path'] for row in c.watch_root_rows()])
   finally:s.shutdown();s.server_close()
  def test_runtime_root_api_removes_disappeared_source_by_returned_canonical_path(self):
-  cli_root=self.base/'cli-root';project=self.workspace(cli_root/'project');c=Console([],self.fake,lambda:None,watch_roots=[cli_root],watch_ttl=0);s=ThreadingHTTPServer(('127.0.0.1',0),Handler);s.console=c;authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start();root=self.base/'runtime-root';root.mkdir()
+  cli_root=self.base/'cli-root';project=self.workspace(cli_root/'project');c=Console([],self.fake,lambda:None,watch_roots=[cli_root],watch_ttl=0);s=LoopbackHTTPServer(('127.0.0.1',0),Handler);s.console=c;authority='127.0.0.1:'+str(s.server_port);s.hosts={authority};threading.Thread(target=s.serve_forever,daemon=True).start();root=self.base/'runtime-root';root.mkdir()
   def request(method,path,body=None):
    h=http.client.HTTPConnection('127.0.0.1',s.server_port);headers={'Host':authority,'Origin':'http://'+authority,'Content-Type':'application/json'};h.request(method,path,json.dumps(body) if body is not None else None,headers if body is not None else {'Host':authority});reply=h.getresponse();status=reply.status;payload=json.loads(reply.read());h.close();return status,payload
   try:
@@ -280,7 +308,10 @@ class RuntimeWatchRootTests(unittest.TestCase):
   self.assertIn("function syncWorkspaces(list)",APP)
   self.assertIn("syncWorkspaces(data.workspaces || []);",APP)
   self.assertIn("if (keep && (list.includes(keep)||keep==='__custom__')) select.value=keep",APP)
-  self.assertIn("renderDocument(brief)",APP);self.assertIn("lines.join('\\n')",APP);self.assertIn("Approve plan",APP);self.assertIn("confirmation:run.goal_token",APP);self.assertIn("renderDocument(run.criteria||[])",APP);self.assertIn("Technical details",APP);self.assertIn("Autocode dashboard",INDEX);self.assertIn("No project needed yet.",INDEX);self.assertIn("Attach a project",INDEX);self.assertIn("conversationPayload(text,models,conversationRequest.id)",APP)
+  self.assertIn("renderDocument(brief)",APP);self.assertIn("lines.join('\\n')",APP);self.assertIn("Approve plan",APP);self.assertIn("confirmation:run.goal_token",APP);self.assertIn("renderDocument(run.criteria||[])",APP);self.assertIn("Technical details",APP);self.assertIn("Autocode dashboard",INDEX);self.assertIn("No project needed yet.",INDEX);self.assertIn("Choose a project and review",INDEX)
+  # M1 chat workspace: the create submit still routes through conversationPayload
+  # with the saved request id and now carries the authorized project scope field.
+  self.assertIn("conversationPayload(text,models,conversationRequest.id,newTaskProject)",APP)
  def test_literal_user_backslash_n_is_not_decoded_by_rendering(self):
   from agent_console import APP
   literal=r'first line\nsecond line';payload={'task':literal};self.assertEqual(literal,payload['task']);self.assertIn("element.textContent = text ?? ''",APP);self.assertNotIn("replaceAll('\\\\n'",APP)

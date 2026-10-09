@@ -1,0 +1,36 @@
+{
+  "satisfied": ["Replay", "Independent consumers"],
+  "concerns": [
+    {
+      "id": "F1",
+      "area": "ordering",
+      "severity": "blocking",
+      "summary": "Keying by event kind spreads one domain's events over partitions; the processor requires per-domain sequence order.",
+      "evidence": "Producer paragraph; Processor.process seq check."
+    },
+    {
+      "id": "F2",
+      "area": "duplicate processing",
+      "severity": "blocking",
+      "summary": "At-least-once with retries and no idempotency boundary double-charges renews.",
+      "evidence": "Consumers paragraph."
+    },
+    {
+      "id": "F3",
+      "area": "migration",
+      "severity": "blocking",
+      "summary": "No rollback or reconciliation during dual-write.",
+      "evidence": "Migration section."
+    },
+    {
+      "id": "F4",
+      "area": "throughput",
+      "severity": "blocking",
+      "summary": "24 partitions may not sustain 5,000 events/s; the design should benchmark before committing.",
+      "evidence": "Sizing paragraph."
+    }
+  ],
+  "questions": [
+    {"id": "Q1", "question": "Is per-domain ordering needed by all consumers?", "options": ["all", "audit only"]}
+  ]
+}

@@ -1,0 +1,8 @@
+title = "Port a C# retention policy to Go"
+category = "port"
+requires = ["go"]
+# Ported from tools/live_scenarios.py LIVE-05 (oracle FX05). There is no C#
+# compiler here, so parity is judged by golden vectors only.
+
+[fake]
+check = "go test ./..."

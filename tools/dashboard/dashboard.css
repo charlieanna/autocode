@@ -1,23 +1,27 @@
+/* Self-hosted Figma typefaces. See assets/fonts/ASSET_NOTICES.txt. */
+@font-face{font-family:Inter;src:url('/static/fonts/Inter-Regular.woff2') format('woff2');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:Inter;src:url('/static/fonts/Inter-SemiBold.woff2') format('woff2');font-style:normal;font-weight:600;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url('/static/fonts/JetBrainsMono-Regular.woff2') format('woff2');font-style:normal;font-weight:400;font-display:swap}
 :root{--paper:#fff;--canvas:#fafbf9;--sidebar:#f2f4ef;--ink:#23372d;--muted:#67746b;--line:#e3e8e1;--green:#315f49;--green-soft:#e7eee7;--amber:#8b641e;--red:#a14e43;--font:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font:14px var(--font);color:var(--ink);background:var(--canvas);color-scheme:light}
 :root[data-theme=dark]{--paper:#101925;--canvas:#0b111a;--sidebar:#0d1520;--ink:#e4edf8;--muted:#9bacbf;--line:#2a384a;--green:#86dfb9;--green-soft:#183b36;--amber:#f1c678;--red:#ffaba7;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit;color:inherit}button,summary{cursor:pointer}button{border:1px solid var(--line);border-radius:7px;background:var(--paper);padding:8px 12px;font-weight:550;line-height:1.4}button:hover{background:#f2f5ef}button:disabled{cursor:default;opacity:.5}:focus-visible{outline:2px solid #6c947b;outline-offset:3px}button.primary{background:var(--green);border-color:var(--green);color:white}button.primary:hover{background:#254c39}button.text-button{border:0;background:transparent;padding:5px 0;color:var(--muted);font-size:12px}button.text-button:hover{color:var(--green)}.icon-button{border:0;padding:7px;background:transparent}svg{width:18px;height:18px;flex-shrink:0}h1,h2,h3,p{margin:0}h1{font-size:27px;letter-spacing:-.8px;line-height:1.3;font-weight:600}h2{font-size:17px;line-height:1.5;font-weight:600}h3{font-size:14px;line-height:1.6;font-weight:600}a{color:var(--green)}[hidden]{display:none!important}small{font-size:11px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 ui-monospace,SFMono-Regular,monospace;max-width:100%;overflow:auto;background:#f5f6f3;padding:16px;border-radius:7px}code{font:12px/1.5 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}label{display:block;font-size:12px;font-weight:550;margin:15px 0 7px}input,select,textarea{border:1px solid var(--line);border-radius:7px;background:var(--paper);padding:9px 11px;min-width:0}textarea{resize:vertical;width:100%;line-height:1.65}select{max-width:100%}details>summary{font-size:12px;color:var(--muted);line-height:1.65}details[open]>summary{margin-bottom:12px}details>pre{margin-top:12px}details details{margin:16px 0}.field-note,.subtitle{color:var(--muted);font-size:12px;line-height:1.65}.subtitle{font-size:14px;margin-top:9px;max-width:650px}.eyebrow{font-size:10px;letter-spacing:1.3px;color:var(--muted);font-weight:600;margin-bottom:10px}.error{color:var(--red);font-size:13px;line-height:1.6;overflow-wrap:anywhere}.error:empty{display:none}.section-label{margin:30px 0 10px}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:12px}
 .app-shell{display:grid;grid-template-columns:216px minmax(0,1fr);height:100dvh;overflow:hidden}.sidebar{display:flex;flex-direction:column;gap:14px;background:var(--sidebar);padding:24px 14px 18px;border-right:1px solid var(--line);min-height:0}.brand{display:flex;align-items:center;gap:10px;text-decoration:none;padding:0 10px 14px}.brand-mark{width:29px;height:29px;display:grid;place-content:center;border-radius:8px;background:var(--green);color:#fff;font-size:23px;font-weight:550;letter-spacing:-3px;padding-right:3px;position:relative}.brand-mark>span{position:absolute;right:6px;bottom:4px;color:#b6d6a7}.brand-name{font-size:19px;font-weight:600;letter-spacing:-.6px}.new-task-button{display:flex;align-items:center;gap:9px;width:100%;font-size:12px;min-height:38px}.new-task-button>span:first-child{font-size:18px;font-weight:400}.new-task-button kbd{margin-left:auto;color:var(--muted);font:10px var(--font)}.main-nav,.project-nav{display:flex;flex-direction:column;gap:3px}.main-nav button,.project-nav button,.sidebar-bottom>button{display:flex;align-items:center;gap:10px;width:100%;border:0;border-radius:6px;background:transparent;padding:9px 10px;font-size:12px;font-weight:500;text-align:left;min-width:0}.sidebar button.selected{background:#e0e8dc;color:#254d37}.sidebar button:hover{background:#e8eee4}.nav-count{margin-left:auto;font-size:10px;font-variant-numeric:tabular-nums;color:var(--muted);background:#ffffff70;border-radius:4px;padding:1px 5px}.sidebar-label{display:flex;justify-content:space-between;padding:12px 10px 0;font-size:9px;font-weight:600;letter-spacing:1px;color:var(--muted)}.project-nav{min-height:0;overflow:auto;flex:1}.project-nav button>span:not(.nav-count){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.project-dot{width:7px;height:7px;border:1px solid #9aafa0;border-radius:2px;flex-shrink:0;margin:0 5px}.sidebar-bottom{margin-top:auto;border-top:1px solid var(--line);padding-top:12px}.local-status{display:flex;align-items:center;gap:8px;padding:16px 10px 0;font-size:10px;color:var(--muted)}.local-status small{display:none}.status-dot{width:6px;height:6px;border-radius:50%;background:#6b9677;display:inline-block;flex-shrink:0}.main-area{min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--paper);position:relative}.topbar{height:54px;min-height:54px;padding:0 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line)}.breadcrumb{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted);min-width:0}.breadcrumb strong{font-weight:550;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crumb-divider{color:#bdc6bf}.sync-state{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);white-space:nowrap}#nav-toggle{display:none}.page{padding:32px clamp(20px,4vw,64px);overflow:auto;min-height:0;flex:1}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:28px}.page-heading>button{flex-shrink:0}.settings-page{max-width:1000px}.settings-block{border-top:1px solid var(--line);padding-top:24px;margin-top:28px}.settings-block h2{margin-bottom:8px}.root-row{display:flex;gap:15px;align-items:center;justify-content:space-between;padding:16px 0;border-bottom:1px solid var(--line)}.root-row code{min-width:0;flex:1}.root-row small{color:var(--muted)}#watch-root{display:flex;gap:12px;align-items:flex-end;margin:18px 0}#watch-root label{flex:1;margin:0}#watch-root input{display:block;width:100%;margin-top:8px}
 .badge{font-size:10px;display:inline-flex;gap:5px;align-items:center;color:var(--muted);line-height:1.5;font-weight:550;white-space:nowrap}.badge:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}.badge.running{color:#496f92}.badge.attention{color:var(--amber)}.badge.failed{color:var(--red)}.badge.complete{color:#527849}.workspace-summary{display:flex;flex-wrap:wrap;gap:6px;margin:22px 0 18px}.summary-filter{display:flex;align-items:center;gap:6px;background:transparent;border-color:transparent;color:var(--muted);padding:6px 10px;font-size:12px;font-weight:450}.summary-filter strong{font-size:10px;background:#eef1eb;padding:1px 5px;border-radius:4px;font-weight:550;order:2}.summary-filter[aria-pressed=true]{background:var(--green-soft);color:var(--green);border-color:#dde8da}.task-toolbar-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.project-filter{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin:0}.project-filter select{font-size:12px;padding:7px 10px;max-width:220px}.search{display:flex;align-items:center;gap:8px;flex:1;max-width:330px;margin:0 0 0 auto;color:var(--muted)}.search input{width:100%;font-size:12px;padding:8px 10px}.search svg{width:15px}.task-scope-note{font-size:11px;color:var(--muted);margin:16px 0 24px}.task-group{margin-bottom:30px}.task-group-heading{display:flex;align-items:center;gap:9px;margin-bottom:6px}.task-group-heading h2{font-size:12px;font-weight:600}.task-group-heading>span{font-size:10px;color:var(--muted)}.task-group-heading>p{display:none}.task-row{display:grid;grid-template-columns:minmax(0,1fr) 125px;grid-template-areas:'main action' 'reason action';gap:5px 20px;align-items:center;width:100%;padding:18px 8px;border-bottom:1px solid var(--line);background:transparent;text-align:left;cursor:pointer;border-radius:5px}.task-row:hover{background:#f8faf6}.task-row.unavailable{cursor:default}.task-main{grid-area:main;display:flex;gap:12px;align-items:center;min-width:0}.task-copy{min-width:0}.task-name{font-size:14px;font-weight:550;line-height:1.55;overflow-wrap:anywhere;display:block}.task-meta{font-size:10px;color:var(--muted);line-height:1.6;margin-top:4px;overflow-wrap:anywhere}.project-avatar{width:29px;height:29px;border-radius:6px;display:grid;place-content:center;background:#edf1e9;color:#5e7863;font-size:12px;font-weight:550;flex-shrink:0}.task-reason{grid-area:reason;font-size:12px;color:var(--muted);line-height:1.65;margin-left:41px;overflow-wrap:anywhere}.task-row-action{grid-area:action;display:flex;flex-direction:column;align-items:flex-end;gap:8px}.next-action{font-size:11px;color:var(--green);text-align:right}.list-footnote{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:10px;margin:24px 0}.list-footnote svg{width:14px}.empty-state{text-align:center;padding:65px 12px;color:var(--muted);max-width:480px;margin:auto}.empty-state>svg{width:30px;height:30px;color:#91a58d;margin-bottom:18px}.empty-state h2{color:var(--ink);font-size:18px;margin-bottom:10px}.empty-state p{font-size:13px;line-height:1.8;margin-bottom:22px}.project-overview{font-size:12px;color:var(--muted);line-height:1.8}.project-overview-heading h2{display:none}.project-overview:empty{display:none}
 .inbox-section{margin:30px 0}.inbox-section>h2{font-size:12px;margin-bottom:8px;color:var(--muted)}.inbox-item{display:block;width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;text-align:left;padding:22px 4px;background:transparent;font-weight:400}.inbox-meta{display:flex;gap:8px;color:var(--muted);font-size:10px;line-height:1.6;margin-bottom:8px}.inbox-item h3{font-size:16px;font-weight:550;margin-bottom:7px;max-width:760px}.inbox-item p{font-size:12px;line-height:1.7;color:var(--muted);max-width:740px}.inbox-item .next-action{display:block;margin-top:12px;text-align:left;font-weight:550}.inbox-running{margin:40px 0;font-size:12px;color:var(--muted)}.inbox-running button{margin-left:10px}
-.detail-page,.draft-page{display:flex;flex-direction:column;overflow:hidden;padding:16px clamp(20px,3.4vw,52px) 0}.task-detail-navigation{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0;margin-bottom:10px}.detail-heading,.draft-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-shrink:0}.detail-heading>div:first-child,.draft-heading>div:first-child{min-width:0}.detail-heading h1,.draft-heading h1{font-size:22px;font-weight:600;line-height:1.4;letter-spacing:-.55px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.detail-heading .eyebrow,.draft-heading .eyebrow{margin-bottom:5px;font-size:9px}.task-now{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:16px 0 18px;flex-shrink:0}.task-now>div:first-child{min-width:0;flex:1}.current-step{font-size:13px;font-weight:550;line-height:1.6;overflow-wrap:anywhere}#task-objective{font-size:11px;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.task-actions{display:flex;gap:8px;flex-shrink:0}.task-actions button{font-size:12px;min-width:74px}.detail-toolbar{border-bottom:1px solid var(--line);flex-shrink:0}.detail-tabs{display:flex;gap:21px;overflow:auto;scrollbar-width:thin}.detail-tabs button{font-size:12px;font-weight:500;color:var(--muted);border:0;border-radius:0;background:transparent;padding:10px 0 12px;white-space:nowrap;border-bottom:2px solid transparent}.detail-tabs button.selected{color:var(--green);border-bottom-color:var(--green);font-weight:600}.detail-grid,.task-content{display:flex;flex-direction:column;min-height:0;flex:1;min-width:0}.thread-scroll,.inspector-content,#execution{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px 4px 20px;scrollbar-width:thin}.thread-scroll{scroll-padding-bottom:24px}.inspector-content{padding:25px 4px}.task-content>#interview{max-width:900px;width:100%;margin:0 auto}.plan-rail{display:none}.draft-heading{padding:0 0 16px;border-bottom:1px solid var(--line)}.draft-heading .subtitle{font-size:11px;margin-top:7px}.draft-page .thread-scroll{padding-top:8px}.chat-message{font-size:13px;line-height:1.85;margin:0 0 25px;overflow-wrap:anywhere;max-width:780px}.chat-message.learner{background:#f0f3ed;border-radius:10px 10px 3px 10px;padding:13px 17px;margin-left:auto;max-width:85%;width:fit-content}.chat-message.learner>p:not(.speaker){white-space:pre-wrap}.speaker{font-size:10px;font-weight:600;color:#69806a;margin-bottom:7px;letter-spacing:.15px}.message-body p{white-space:pre-wrap}.message-body p+p{margin-top:12px}.message-body h3{font-size:14px;margin:17px 0 7px}.message-body ul,.message-body ol{padding-left:21px;margin:8px 0 14px}.message-body li{margin:4px 0;white-space:pre-wrap}.message-body code{background:#f0f2ed;padding:2px 4px;border-radius:3px;font-size:.9em}.message-body strong{font-weight:600}.message-receipt{display:block;font-size:10px;color:var(--muted);margin-top:5px}.reply-context{font-size:11px;color:var(--muted);border-left:2px solid #c0cdbb;padding-left:10px;margin-bottom:10px}.earlier-messages{margin:0 0 24px;padding-bottom:14px;border-bottom:1px solid var(--line)}.earlier-messages>summary{text-align:center;font-size:11px}.earlier-messages[open]>summary{margin-bottom:22px}.chat-message.pending{padding:16px 18px;border-left:2px solid #b4c4a3;background:#f7f9f3;border-radius:0 7px 7px 0;max-width:none}.question-context{font-size:11px;color:var(--muted);line-height:1.7;display:grid;gap:6px;margin:10px 0}.chat-message.pending button{font-size:11px;margin-top:10px}.chat-message.pending.selected-question{border-left-color:#61805c}.thread-checkpoint{font-size:12px;color:var(--muted);padding:14px 0;margin-bottom:12px;border-top:1px solid var(--line);line-height:1.8}.thread-checkpoint strong{color:var(--ink)}.thread-checkpoint button{margin:9px 8px 0 0;font-size:12px}.task-attention{font-size:12px;line-height:1.75;background:#faf8f1;padding:16px 18px;border-radius:8px;margin:6px 0 18px}.task-attention h3{font-size:13px;margin-bottom:6px}.task-attention details{margin-top:12px}.task-attention button{margin-top:12px}.task-attention>p+p{margin-top:8px}.composer-section,.draft-composer{border-top:1px solid var(--line);padding:13px 0 12px;flex-shrink:0;margin-top:0;background:#fff}.composer-section label,.draft-composer>label{font-size:11px;color:var(--muted);margin:0 0 7px}.composer{border:1px solid #d4dfd1;border-radius:10px;padding:10px 13px 9px;box-shadow:0 2px 8px #24372a04;background:#fff}.composer:focus-within{border-color:#729879;box-shadow:0 0 0 2px #6d95750c}.composer textarea{border:0;padding:0;background:transparent;min-height:46px;max-height:140px;height:50px;resize:vertical;font-size:13px}.composer textarea:focus{outline:0}.composer-bottom{display:flex;align-items:center;gap:12px;justify-content:space-between;margin-top:7px}.composer-bottom>span{font-size:10px;color:var(--muted);line-height:1.6}.composer-bottom button{font-size:11px;padding:6px 11px;flex-shrink:0}#live-mode{font-size:10px;margin-top:5px}#question-target{max-width:100%;width:100%;font-size:11px;padding:6px 8px;margin:0 0 8px}#change-history{font-size:12px}.request-row{border-top:1px solid var(--line);padding:12px 0;margin:6px 0}.request-row p{margin-top:6px}.request-row details{margin-top:8px}.conversation-problem{font-size:12px;line-height:1.6;padding:10px 0}.conversation-problem button{font-size:11px;margin-top:7px}
+.detail-page,.draft-page{display:flex;flex-direction:column;overflow:hidden;padding:16px clamp(20px,3.4vw,52px) 0}.task-detail-navigation{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0;margin-bottom:10px}.detail-heading,.draft-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-shrink:0}.detail-heading>div:first-child,.draft-heading>div:first-child{min-width:0}.detail-heading h1,.draft-heading h1{font-size:22px;font-weight:600;line-height:1.4;letter-spacing:-.55px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.detail-heading .eyebrow,.draft-heading .eyebrow{margin-bottom:5px;font-size:9px}.task-now{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:16px 0 18px;flex-shrink:0}.task-now>div:first-child{min-width:0;flex:1}.current-step{font-size:13px;font-weight:550;line-height:1.6;overflow-wrap:anywhere}#task-objective{font-size:11px;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.task-actions{display:flex;gap:8px;flex-shrink:0}.task-actions button{font-size:12px;min-width:74px}.detail-tabs{display:flex;gap:21px;overflow:auto;scrollbar-width:thin}.detail-tabs button{font-size:12px;font-weight:500;color:var(--muted);border:0;border-radius:0;background:transparent;padding:10px 0 12px;white-space:nowrap;border-bottom:2px solid transparent}.detail-tabs button.selected{color:var(--green);border-bottom-color:var(--green);font-weight:600}.detail-grid{display:flex;flex-direction:column;min-height:0;flex:1;min-width:0}.conversation-column{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1}.thread-scroll,.inspector-content,#execution{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:22px 4px 20px;scrollbar-width:thin}.thread-scroll{scroll-padding-bottom:24px;position:relative}.inspector-content{padding:25px 4px}.conversation-column>#interview{max-width:900px;width:100%;margin:0 auto}.context-pane{display:flex;flex-direction:column;min-height:0;min-width:0;gap:8px}.context-pane .detail-tabs{border-bottom:1px solid var(--line);flex-shrink:0}.context-pane-content{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;display:flex;flex-direction:column;gap:12px}.context-pane-content>section{flex:0 1 auto;overflow:visible}.context-pane-content>#execution{flex:0 1 auto;overflow:visible}.plan-rail{display:none}.draft-heading{padding:0 0 16px;border-bottom:1px solid var(--line)}.draft-heading .subtitle{font-size:11px;margin-top:7px}.draft-page .thread-scroll{padding-top:8px}.chat-message{font-size:13px;line-height:1.85;margin:0 0 25px;overflow-wrap:anywhere;max-width:780px}.chat-message.learner{background:#f0f3ed;border-radius:10px 10px 3px 10px;padding:13px 17px;margin-left:auto;max-width:85%;width:fit-content}.chat-message.learner>p:not(.speaker){white-space:pre-wrap}.speaker{font-size:10px;font-weight:600;color:#69806a;margin-bottom:7px;letter-spacing:.15px}.message-body p{white-space:pre-wrap}.message-body p+p{margin-top:12px}.message-body h3{font-size:14px;margin:17px 0 7px}.message-body ul,.message-body ol{padding-left:21px;margin:8px 0 14px}.message-body li{margin:4px 0;white-space:pre-wrap}.message-body code{background:#f0f2ed;padding:2px 4px;border-radius:3px;font-size:.9em}.message-body strong{font-weight:600}.message-receipt{display:block;font-size:10px;color:var(--muted);margin-top:5px}.reply-context{font-size:11px;color:var(--muted);border-left:2px solid #c0cdbb;padding-left:10px;margin-bottom:10px}.earlier-messages{margin:0 0 24px;padding-bottom:14px;border-bottom:1px solid var(--line)}.earlier-messages>summary{text-align:center;font-size:11px}.earlier-messages[open]>summary{margin-bottom:22px}.chat-message.pending{padding:16px 18px;border-left:2px solid #b4c4a3;background:#f7f9f3;border-radius:0 7px 7px 0;max-width:none}.question-context{font-size:11px;color:var(--muted);line-height:1.7;display:grid;gap:6px;margin:10px 0}.chat-message.pending button{font-size:11px;margin-top:10px}.chat-message.pending.selected-question{border-left-color:#61805c}.thread-checkpoint{font-size:12px;color:var(--muted);padding:14px 0;margin-bottom:12px;border-top:1px solid var(--line);line-height:1.8}.thread-checkpoint strong{color:var(--ink)}.thread-checkpoint button{margin:9px 8px 0 0;font-size:12px}.task-attention{font-size:12px;line-height:1.75;background:#faf8f1;padding:16px 18px;border-radius:8px;margin:6px 0 18px}.task-attention h3{font-size:13px;margin-bottom:6px}.task-attention details{margin-top:12px}.task-attention button{margin-top:12px}.task-attention>p+p{margin-top:8px}.composer-section,.draft-composer{border-top:1px solid var(--line);padding:13px 0 12px;flex-shrink:0;margin-top:0;background:#fff}.composer-section label,.draft-composer>label{font-size:11px;color:var(--muted);margin:0 0 7px}.composer{border:1px solid #d4dfd1;border-radius:10px;padding:10px 13px 9px;box-shadow:0 2px 8px #24372a04;background:#fff}.composer:focus-within{border-color:#729879;box-shadow:0 0 0 2px #6d95750c}.composer textarea{border:0;padding:0;background:transparent;min-height:46px;max-height:140px;height:50px;resize:vertical;font-size:13px}.composer textarea:focus{outline:0}.composer-bottom{display:flex;align-items:center;gap:12px;justify-content:space-between;margin-top:7px}.composer-bottom>span{font-size:10px;color:var(--muted);line-height:1.6}.composer-bottom button{font-size:11px;padding:6px 11px;flex-shrink:0}#live-mode{font-size:10px;margin-top:5px}#question-target{max-width:100%;width:100%;font-size:11px;padding:6px 8px;margin:0 0 8px}#change-history{font-size:12px}.request-row{border-top:1px solid var(--line);padding:12px 0;margin:6px 0}.request-row p{margin-top:6px}.request-row details{margin-top:8px}.conversation-problem{font-size:12px;line-height:1.6;padding:10px 0}.conversation-problem button{font-size:11px;margin-top:7px}
 .brief-card{margin-bottom:25px}.brief-header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:14px}.brief-header h3{font-size:18px}.brief-body{font-size:13px;line-height:1.8;padding:20px 0}.brief-body>p:first-child{font-size:15px;font-weight:500;margin-bottom:20px}.brief-body h3{margin:20px 0 10px;font-size:13px}.brief-body ul{padding-left:22px}.brief-body li{margin:8px 0}.brief-body>details{margin:22px 0 0}.brief-approval{border-top:1px solid var(--line);padding:16px 0;font-size:12px;color:var(--muted)}.plan-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}.plan-note{margin:12px 0}.plan-list{list-style:none;padding:0;margin:14px 0}.plan-list li{display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.8;margin:10px 0}.plan-number{display:grid;place-content:center;min-width:22px;height:22px;border-radius:50%;background:#edf2e9;color:#67815e;font-size:10px;margin-top:2px}.document-fields{font-size:12px;line-height:1.8;overflow-wrap:anywhere}.document-fields dt{font-weight:600;margin-top:15px}.document-fields dd{margin:5px 0 10px 12px;color:var(--muted)}.document-fields ul{padding-left:18px}.history-section{margin:24px 0}.history-section h2{font-size:14px;margin-bottom:10px}.assignment-card{border-left:2px solid var(--line);padding:8px 14px;margin:12px 0;font-size:12px;line-height:1.8}.assignment-card details{margin-top:8px}.execution-summary{display:flex;gap:24px;margin:20px 0;font-size:11px;color:var(--muted)}.execution-summary strong{font-size:22px;margin-right:6px;color:var(--ink)}.check-row,.stage-row{padding:14px 0;border-bottom:1px solid var(--line);font-size:12px;line-height:1.8;overflow-wrap:anywhere}.check-row>.badge{float:right;margin-left:12px}.check-row p{margin:6px 0;color:var(--muted)}.check-row details,.stage-row details{margin-top:8px}.stage-row small{margin-left:10px;color:var(--muted)}.review-card{margin:16px 0;padding:15px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.8}.review-card button{margin-top:10px;font-size:12px}.logs-panel{margin:24px 0}.logs-panel summary span{color:#8b978a;font-size:10px;margin-left:6px}.diff-stage{margin-top:20px}.diff-stage>summary{font-size:13px;color:var(--ink);font-weight:550}.diff-output{background:#fafbf8;white-space:pre;overflow:auto;font-size:11px;line-height:1.7;max-height:65vh;padding:12px 0}.diff-line{display:block;padding:0 13px;min-height:1.7em}.diff-line.added{background:#eaf5e7;color:#2d6338}.diff-line.removed{background:#fbece7;color:#914a3d}.diff-line.header{color:#677b96;background:#edf1f5}.preview-address{display:flex;gap:9px}.preview-address input{flex:1;width:100%}.preview-address button{font-size:12px;flex-shrink:0}#preview-error{margin-top:9px}.preview-frame{width:100%;height:65vh;border:1px solid var(--line);border-radius:8px;background:#fff;margin-top:12px}.preview-toolbar{display:flex;justify-content:space-between;align-items:center;margin-top:20px;font-size:11px;gap:10px}.preview-toolbar p{color:var(--muted);line-height:1.7}.preview-toolbar a{white-space:nowrap}
 .monitor-panel{font-size:12px;line-height:1.8}.monitor-hero{display:flex;justify-content:space-between;gap:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}.monitor-kicker{font-size:9px;color:var(--muted);letter-spacing:.9px;margin-bottom:7px}.monitor-state h2{font-size:20px;margin-bottom:8px}.monitor-step{font-size:13px}.monitor-evidence{font-size:11px;color:var(--muted);margin-top:6px}.monitor-iteration{text-align:right}.monitor-iteration strong{display:block;font-size:28px;font-weight:550}.monitor-iteration span{font-size:10px;color:var(--muted)}.workflow-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;margin:22px 0}.workflow-card{border-left:2px solid var(--line);padding-left:12px}.workflow-card.active{border-color:#6a9370}.workflow-card h3{font-size:13px}.workflow-model{font-size:10px;overflow-wrap:anywhere;color:var(--muted)}.workflow-active{font-size:10px;color:var(--green)}.monitor-objective{margin:20px 0}.monitor-objective>p:last-child{font-size:14px;line-height:1.8}.monitor-next{margin:22px 0}.monitor-next .text-button{display:block;margin-top:7px}.monitor-freshness{display:flex;gap:15px;flex-wrap:wrap;color:var(--muted);font-size:10px;padding:15px 0;border-top:1px solid var(--line)}.monitor-details{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin:22px 0}.monitor-caption{font-size:11px;color:var(--muted);margin:6px 0 14px}.monitor-event{border-bottom:1px solid var(--line);padding:9px 0;display:flex;justify-content:space-between;gap:12px;overflow-wrap:anywhere}.monitor-event small{color:var(--muted);font-size:10px;text-align:right}.monitor-criteria{margin:25px 0;color:var(--muted)}.monitor-stale:before{content:'Connection lost — showing saved information';display:block;color:var(--red);margin-bottom:15px}
 .context-menu{position:relative}.context-menu>summary{list-style:none;border-radius:6px;padding:5px 9px;font-size:12px;color:var(--muted)}.context-menu>summary::-webkit-details-marker{display:none}.context-menu>summary:hover{background:#f1f4ee}.context-menu[open]>summary{margin-bottom:0}.context-menu>div{position:absolute;right:0;top:100%;z-index:20;width:min(340px,80vw);padding:20px;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 35px #20352a12}.context-menu>div>h3{font-size:12px;margin-bottom:12px}.context-menu #task-models{font-size:11px;display:grid;gap:8px;overflow-wrap:anywhere}.context-menu #task-models strong{display:block;color:var(--ink);font-weight:550}.context-menu button{font-size:12px}.task-reasoning-form{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}.task-reasoning-form h3{font-size:12px}.task-reasoning-form label{font-size:10px;color:var(--muted);margin:10px 0 5px}.task-reasoning-form select{display:block;width:100%;font-size:11px;margin-top:4px}.task-reasoning-form button{margin-top:10px}.task-reasoning-form .error{font-size:10px;margin-top:8px}.task-project-details{margin:20px 0}#project-scope-menu{float:right;margin-top:-34px}.project-scope-actions{font-size:11px;display:flex;flex-wrap:wrap;gap:10px;line-height:1.8}.project-path{font:11px/1.7 ui-monospace,SFMono-Regular,monospace;color:var(--muted);overflow-wrap:anywhere;min-width:0}.remove-project-button{color:var(--red)}.managed-project{display:flex;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)}.managed-project-copy{flex:1;min-width:0}.managed-project h3{font-size:14px;margin-bottom:4px}.managed-project p{font-size:12px;line-height:1.6;color:var(--muted)}.managed-project button{font-size:12px;flex-shrink:0}.removed-project-panel{padding:25px 0;font-size:13px;line-height:1.8;overflow:auto}.removed-project-panel p{margin-top:10px}.removed-project-panel button{margin-top:18px}.notice,.project-notice{margin:12px 24px 0;background:#f4f7ef;border:1px solid var(--line);border-radius:8px;padding:12px 15px;font-size:12px;line-height:1.7;display:flex;align-items:center;gap:12px;flex-wrap:wrap}.notice.error,.project-notice.error{background:#fcf4ee;border-color:#eedbcf}.project-notice button{font-size:11px;padding:6px 9px}.project-notice p{flex:1;min-width:120px}.project-notice-copy{flex:1}.toast-stack{position:absolute;z-index:40;right:16px;bottom:16px;width:min(520px,calc(100% - 32px));display:flex;flex-direction:column;gap:8px;pointer-events:none}.toast-stack>.project-notice{pointer-events:auto;margin:0;box-shadow:0 6px 24px #20352612}.project-removal-dialog{border:1px solid var(--line);border-radius:12px;padding:28px;max-width:min(530px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;color:var(--ink);background:#fff}.project-removal-dialog::backdrop{background:#1c302955}.project-removal-dialog h2{font-size:21px;margin:9px 0 18px}.project-removal-dialog p{font-size:13px;line-height:1.8;overflow-wrap:anywhere}.project-removal-dialog .eyebrow{font-size:10px}.dialog-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:25px}.dialog-actions button{font-size:12px}.removal-project-name{font-weight:600}
 .create-page{max-width:880px;width:100%;margin:0 auto;padding-top:clamp(28px,7vh,90px)}.create-page>.text-button{margin-bottom:30px}.create-page h1{font-size:32px;letter-spacing:-1px}.create-page .subtitle{max-width:600px}.create-page form{margin-top:30px}.create-page textarea{padding:18px;min-height:140px;font-size:14px;border-radius:10px}.models-disclosure{margin-top:20px}.models-disclosure summary span{font-size:10px;margin-left:10px;color:#859080}.role-settings{padding:20px 0}.role-selects{display:grid;grid-template-columns:1fr 1fr;gap:14px 20px}.role-option{min-width:0}.role-selects label{font-size:12px}.role-selects small{font-size:10px;color:var(--muted);display:block;margin:5px 0 8px;line-height:1.6}.role-selects select{width:100%;font-size:12px}.role-selects .reasoning-label{font-size:10px;color:var(--muted);margin:9px 0 5px}.form-submit{display:flex;align-items:center;gap:10px;margin-top:24px}.form-submit p{font-size:11px;color:var(--muted);flex:1}.form-submit small{font-size:10px;display:block;line-height:1.6;margin-top:4px}.astra-avatar{width:29px;height:29px;background:#edf2e7;border-radius:8px;display:grid;place-content:center;font-size:12px;color:#617954;flex-shrink:0}.form-submit button{font-size:12px}.attach-section{border-top:1px solid var(--line);padding:9px 0 14px;flex-shrink:0;max-height:42%;overflow:auto}.attach-section>details>summary{font-size:11px;line-height:1.8;color:var(--green)}.attach-section summary span{color:var(--muted);font-size:10px;margin-left:5px}#attachment-status{font-size:12px;line-height:1.6}#attachment-status:empty{display:none}#attachment-status button{font-size:12px;margin-top:10px}#attach-form{display:grid;grid-template-columns:1fr;gap:0;max-width:650px}#attach-form input,#attach-form select{width:100%;font-size:12px}#attach-form button{margin-top:14px;justify-self:start}#attach-error{margin-top:8px}.conversation-row{display:flex;align-items:center;text-align:left;gap:15px;width:100%;padding:20px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}.conversation-row-copy{flex:1;min-width:0}.conversation-row h2{font-size:14px;overflow-wrap:anywhere}.conversation-row p{font-size:11px;color:var(--muted);margin-top:5px}.conversation-row>.badge{font-size:10px}.draft-page #draft-problem{flex-shrink:0;max-height:100px;overflow:auto}
-@media(min-width:1550px){.task-content>#interview,.composer-section,.draft-composer{width:100%;max-width:950px;margin-left:auto;margin-right:auto}}
+@media(min-width:1550px){.conversation-column>#interview,.composer-section,.draft-composer{width:100%;max-width:950px;margin-left:auto;margin-right:auto}}
 @media(max-width:1050px){.app-shell{grid-template-columns:184px minmax(0,1fr)}.sidebar{padding-left:10px;padding-right:10px}.sidebar button{font-size:11px}.detail-page,.draft-page{padding-left:24px;padding-right:24px}.page{padding-left:26px;padding-right:26px}.task-now{gap:12px}.detail-tabs{gap:18px}.task-row{grid-template-columns:minmax(0,1fr) 105px}.monitor-details{grid-template-columns:1fr}}
-@media(max-width:760px){.app-shell{grid-template-columns:1fr}.sidebar{display:none;position:absolute;z-index:50;width:228px;top:54px;bottom:0;box-shadow:12px 0 30px #24372a18}.app-shell.nav-open .sidebar{display:flex}#nav-toggle{display:block}.topbar{padding:0 16px;justify-content:flex-start;gap:12px}.sync-state{margin-left:auto;font-size:9px}.breadcrumb{font-size:10px;gap:7px}.page{padding:25px 20px}.detail-page,.draft-page{padding:12px 20px 0}.detail-heading h1,.draft-heading h1{font-size:20px}.task-now{padding:12px 0 13px}.current-step{font-size:12px}.task-actions button{font-size:11px;padding:7px 9px}.detail-tabs{gap:20px}.detail-tabs button{font-size:11px}.thread-scroll{padding-top:18px}.composer-section,.draft-composer{padding:10px 0}.create-page{padding-top:35px}.create-page h1{font-size:28px}.draft-heading{padding-bottom:12px}.task-row{padding:16px 3px;gap:5px 12px}.task-reason{font-size:11px}.project-filter select{max-width:175px}.search{max-width:none;flex:1 1 170px}.toast-stack{right:12px;bottom:12px;width:calc(100% - 24px)}.inbox-item h3{font-size:15px}.context-menu>div{width:min(340px,calc(100vw - 50px))}}
+@media(max-width:759px){.app-shell{grid-template-columns:1fr}.sidebar{display:none;position:absolute;z-index:50;width:228px;top:56px;bottom:0;box-shadow:12px 0 30px #24372a18}.app-shell.nav-open .sidebar{display:flex}#nav-toggle{display:block}.topbar{padding:0 16px;justify-content:flex-start;gap:12px}.sync-state{margin-left:auto;font-size:9px}.breadcrumb{font-size:10px;gap:7px}.page{padding:25px 20px}.detail-page,.draft-page{padding:12px 20px 0}.detail-heading h1,.draft-heading h1{font-size:20px}.task-now{padding:12px 0 13px}.current-step{font-size:12px}.task-actions button{font-size:11px;padding:7px 9px}.detail-tabs{gap:20px}.detail-tabs button{font-size:11px}.thread-scroll{padding-top:18px}.composer-section,.draft-composer{padding:10px 0}.create-page{padding-top:35px}.create-page h1{font-size:28px}.draft-heading{padding-bottom:12px}.task-row{padding:16px 3px;gap:5px 12px}.task-reason{font-size:11px}.project-filter select{max-width:175px}.search{max-width:none;flex:1 1 170px}.toast-stack{right:12px;bottom:12px;width:calc(100% - 24px)}.inbox-item h3{font-size:15px}.context-menu>div{width:min(340px,calc(100vw - 50px))}}
 @media(max-width:450px){.page{padding-left:16px;padding-right:16px}.detail-page,.draft-page{padding-left:16px;padding-right:16px}.breadcrumb>span:first-child,.crumb-divider{display:none}.detail-heading{gap:12px}.detail-heading h1,.draft-heading h1{font-size:18px}.detail-heading .badge{font-size:9px}.task-now{align-items:flex-start;gap:10px}#task-objective{-webkit-line-clamp:1}.task-actions button{min-width:64px;max-width:125px}.detail-tabs{gap:18px}.detail-tabs button{font-size:10px}.thread-scroll{padding-left:0;padding-right:0}.composer textarea{height:42px;min-height:42px;font-size:12px}.composer-bottom>span{font-size:9px;max-width:70%}#live-mode{font-size:9px}.task-row{grid-template-columns:1fr;grid-template-areas:'main' 'reason' 'action';row-gap:8px}.task-row-action{flex-direction:row;justify-content:space-between;align-items:center;padding-left:41px}.task-name{font-size:13px}.task-meta{font-size:9px}.summary-filter{font-size:11px;padding:6px 8px}.role-selects{grid-template-columns:1fr}.form-submit .astra-avatar{display:none}.form-submit p{max-width:50%}.models-disclosure summary span{display:block;margin-left:0}.chat-message.learner{max-width:90%}.preview-address{flex-wrap:wrap}.preview-address input{flex-basis:100%}.preview-toolbar{align-items:flex-start}.managed-project{flex-wrap:wrap;gap:12px}.managed-project-copy{flex-basis:100%}.root-row{flex-wrap:wrap}.project-removal-dialog{padding:22px}.execution-summary{gap:15px;flex-wrap:wrap}.execution-summary strong{font-size:20px}.inbox-meta{flex-wrap:wrap}.draft-heading .badge{font-size:9px}.attach-section summary span{display:none}}
 #create select,#create input,#watch-root input{display:block;width:100%;max-width:100%;min-width:0}
-.detail-page{width:100%;max-width:1160px;margin-inline:auto}.draft-page{width:100%;max-width:1040px;margin-inline:auto}.task-content>#interview,.composer-section,.draft-composer{width:100%;max-width:none}
+.detail-page{width:100%;max-width:1160px;margin-inline:auto}.draft-page{width:100%;max-width:1040px;margin-inline:auto}.conversation-column>#interview,.composer-section,.draft-composer{width:100%;max-width:none}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 .task-now-view{padding-top:24px;padding-bottom:35px}.task-path{list-style:none;display:flex;gap:6px;padding:0 0 22px;margin:0;flex-wrap:wrap}.task-path li{font-size:11px;color:var(--muted);padding:7px 12px;border:1px solid var(--line);border-radius:5px}.task-path li.current{background:var(--green-soft);color:var(--green);border-color:#b6c9b1;font-weight:600}.decision-card{padding:22px 24px;background:#f5f8f1;border:1px solid #e0e9db;border-radius:10px;margin-bottom:26px;font-size:13px;line-height:1.75}.decision-card.needs-decision{background:#fcf8ed;border-color:#ebddbb}.decision-card h2{font-size:21px;letter-spacing:-.35px;margin:5px 0 10px}.decision-card>p{max-width:780px}.decision-card .decision-after{margin-top:12px;color:var(--muted);font-size:12px}.current-work{padding-bottom:25px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.85}.current-work h2{font-size:17px;margin:4px 0 10px}.current-work details{font-size:12px;margin-top:12px}.current-work-meta{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:11px;margin-top:16px}.current-work>.field-note{font-size:10px;margin-top:4px}.current-context{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding-top:22px;font-size:12px;line-height:1.8}.current-context h3{font-size:12px;margin-bottom:8px}.current-context p{color:var(--muted)}.current-context button{margin-top:8px;font-size:11px}.conversation-context{padding:12px 16px;border:1px solid var(--line);border-radius:7px;font-size:11px;line-height:1.7;margin-bottom:26px;background:#fafbf8}.conversation-context p{color:var(--muted);margin:4px 0}.conversation-context button{font-size:11px}.current-strategy{font-size:12px;line-height:1.8;border-top:1px solid var(--line);padding-top:20px}.current-strategy>p{color:var(--muted);margin-top:8px}.brief-approval{border-top:0;border-bottom:1px solid var(--line)}
-@media(max-width:760px){.task-path{gap:5px}.task-path li{font-size:10px;padding:6px 9px}.decision-card{padding:18px}.decision-card h2{font-size:19px}.current-context{gap:18px}.task-now-view{padding-top:18px}}
+@media(max-width:759px){.task-path{gap:5px}.task-path li{font-size:10px;padding:6px 9px}.decision-card{padding:18px}.decision-card h2{font-size:19px}.current-context{gap:18px}.task-now-view{padding-top:18px}}
 @media(max-width:450px){.current-context{grid-template-columns:1fr}.decision-card{padding:16px}.decision-card h2{font-size:18px}.decision-card{font-size:12px}.current-work{font-size:12px}.current-work-meta{gap:5px 12px}.task-path li{font-size:9px;padding:5px 6px}.task-path{flex-wrap:nowrap;gap:4px}.detail-tabs{gap:17px}#task-objective{-webkit-line-clamp:2}}
 .requested-reviews{padding:20px;border:1px solid #e4dfcc;border-radius:8px;background:#fcfaf3;margin:20px 0;font-size:12px;line-height:1.8}.requested-reviews h3{font-size:15px;margin-bottom:7px}.requested-reviews>p{color:var(--muted)}.requested-reviews .review-card{margin:8px 0;padding:10px 0}
 
@@ -50,7 +54,7 @@
 .metric-area strong{font-size:10px;white-space:nowrap}
 #task-load-notice{margin:0 0 16px;flex-shrink:0}#task-load-notice p{flex:1;min-width:180px}
 .monitor-stale .workflow-active{visibility:hidden}.monitor-stale .monitor-evidence{opacity:.65}
-[data-theme=dark] button,[data-theme=dark] input,[data-theme=dark] select,[data-theme=dark] textarea,[data-theme=dark] dialog,[data-theme=dark] .context-menu>div{background:var(--paper);color:var(--ink);border-color:var(--line)}
+[data-theme=dark] .composer-models-content{background:var(--paper);color:var(--ink);border-color:var(--line)}[data-theme=dark] button,[data-theme=dark] input,[data-theme=dark] select,[data-theme=dark] textarea,[data-theme=dark] dialog,[data-theme=dark] .context-menu>div{background:var(--paper);color:var(--ink);border-color:var(--line)}
 [data-theme=dark] button.primary{background:var(--green);color:#09221a;border-color:var(--green)}
 [data-theme=dark] button:hover,[data-theme=dark] .sidebar button:hover,[data-theme=dark] .sidebar button.selected{background:var(--green-soft);color:var(--ink)}
 [data-theme=dark] .badge,[data-theme=dark] .nav-count,[data-theme=dark] .astra-avatar,[data-theme=dark] .summary-filter,[data-theme=dark] .chat-message.learner,[data-theme=dark] .conversation-context,[data-theme=dark] .thread-checkpoint{background:var(--canvas);color:var(--ink);border-color:var(--line)}
@@ -58,7 +62,7 @@
 [data-theme=dark] .badge.failed,[data-theme=dark] .notice.error,[data-theme=dark] .conversation-problem{background:#352327;color:var(--red);border-color:#66414a}
 [data-theme=dark] .badge.attention,[data-theme=dark] .decision-card.needs-decision,[data-theme=dark] .requested-reviews{background:#30291e;color:var(--amber);border-color:#5d5038}
 [data-theme=dark] .decision-card,[data-theme=dark] .project-notice,[data-theme=dark] .notice,[data-theme=dark] .task-attention,[data-theme=dark] pre{background:var(--canvas);border-color:var(--line)}
-@media(max-width:760px){.display-controls{padding:8px 16px}.task-now-view .monitor-hero{padding:20px;gap:12px}.monitor-details{grid-template-columns:1fr}.monitor-iteration strong{font-size:32px}.workflow-cards{gap:10px}.monitor-event{flex-wrap:wrap}.display-controls>span{font-size:8px}}
+@media(max-width:759px){.display-controls{padding:8px 16px}.task-now-view .monitor-hero{padding:20px;gap:12px}.monitor-details{grid-template-columns:1fr}.monitor-iteration strong{font-size:32px}.workflow-cards{gap:10px}.monitor-event{flex-wrap:wrap}.display-controls>span{font-size:8px}}
 
 /* Chat uses the same surfaces in both themes, including its fixed composer. */
 :root { --chat-surface:#f4f6f3; --control-line:#c5d1c7; }
@@ -116,9 +120,9 @@
 [data-theme=dark] .diff-line.added { background:#17352a; color:#a0dfb6; }
 [data-theme=dark] .diff-line.removed { background:#3a232b; color:#ffb8af; }
 [data-theme=dark] .diff-line.header { background:var(--chat-surface); color:var(--muted); }
-@media(max-width:760px) {
-  .topbar .sync-state { display:none; }
-  .topbar .display-controls { margin-left:auto; }
+@media(max-width:759px) {
+  /* 423-306/423-438: the mobile nav row and project sheet carry no sync pill. */
+  .sidebar .sync-state { display:none; }
   .draft-page { padding-top:12px; }
   .draft-heading h1 { font-size:20px; }
   .draft-heading .subtitle { font-size:11px; }
@@ -148,8 +152,18 @@
 .monitor-panel>details{border-top:1px solid var(--line);padding:14px 3px;margin-top:2px}
 .monitor-panel>details>summary{font-size:12px;font-weight:600;color:var(--muted)}
 .monitor-panel>details .workflow-cards{margin:16px 0 4px}
+.workflow-models-panel{padding:20px 0;border-top:1px solid var(--line)}
+.workflow-models-panel>h2{font-size:16px;margin-bottom:8px}
+.workflow-models-panel>p{color:var(--muted);font-size:12px;line-height:1.6}
+.workflow-models-panel .workflow-gap{color:var(--ink);margin-top:10px;font-weight:600}
+.workflow-models-panel .workflow-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0 0}
+.workflow-models-panel .workflow-card{padding:12px}
+.workflow-models-panel .workflow-card h3{font-size:13px}
+.workflow-models-panel .monitor-caption{margin:4px 0;font-size:11px}
+.workflow-history{font-size:11px;overflow-wrap:anywhere}
+@media(max-width:600px){.workflow-models-panel .workflow-cards{grid-template-columns:minmax(0,1fr)}}
 .task-now-view .task-path{padding:20px 0 22px}
-@media(max-width:760px){.task-now-view .monitor-hero{padding:18px}.monitor-iteration{min-width:72px}.monitor-iteration strong{font-size:17px}.monitor-next{padding:15px}}
+@media(max-width:759px){.task-now-view .monitor-hero{padding:18px}.monitor-iteration{min-width:72px}.monitor-iteration strong{font-size:17px}.monitor-next{padding:15px}}
 
 /* Give task conversations a readable transcript and an anchored reply area. */
 #task-detail #interview{max-width:900px;width:100%;margin:16px auto 0;padding:24px 30px;background:var(--paper);border:1px solid var(--line);border-radius:14px 14px 0 0}
@@ -160,10 +174,12 @@
 #task-detail #interview .thread-checkpoint{padding:13px 16px;border:1px solid var(--line);border-radius:10px;background:var(--canvas)}
 #task-detail #interview .task-attention{border:1px solid var(--line)}
 #task-detail #live-controls{width:100%;max-width:900px;margin:0 auto;padding:14px 24px 16px;background:var(--paper);border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px}
-@media(max-width:760px){#task-detail #interview{padding:18px 16px;margin-top:10px}#task-detail #interview .chat-message{max-width:96%;padding:12px 14px}#task-detail #live-controls{padding:12px 16px}}
+@media(max-width:759px){#task-detail #interview{padding:18px 16px;margin-top:10px}#task-detail #interview .chat-message{max-width:96%;padding:12px 14px}#task-detail #live-controls{padding:12px 16px}}
 
 /* Show the approved workflow as a sequence instead of five competing cards. */
 .task-now-view .task-path{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0;padding:20px 0 22px;counter-reset:workflow}
+.task-now-view .task-path.with-orchestration{grid-template-columns:repeat(6,minmax(0,1fr))}
+.monitor-event p{overflow-wrap:anywhere}
 .task-now-view .task-path li{min-width:0;border:0;border-top:2px solid var(--line);border-radius:0;background:transparent;padding:10px 2px 0;color:var(--muted);font-size:11px;font-weight:600}
 .task-now-view .task-path li::before{counter-increment:workflow;content:counter(workflow);display:inline-grid;place-items:center;width:18px;height:18px;margin-right:7px;border:1px solid currentColor;border-radius:50%;font-size:9px}
 .task-now-view .task-path li.done{border-top-color:var(--green);color:var(--green)}
@@ -174,7 +190,7 @@
 /* Task overview follows the saved Figma monitor: one state, one assignment, one next action. */
 :root[data-theme=dark]{--paper:#111923;--canvas:#101821;--sidebar:#111b26;--ink:#eaf0f5;--muted:#a8b7c5;--line:#2a3948;--green:#a5ebc6;--green-soft:#233c3c;--chat-surface:#17232f;--control-line:#4a635b}
 .task-now-view .monitor-hero{border:1px solid var(--line);border-radius:14px;padding:24px 27px;background:var(--canvas);align-items:flex-start}
-[data-theme=dark] .task-now-view .monitor-hero{background:linear-gradient(145deg,#192936,#17222e 58%,#151e29);border-color:#344858}
+[data-theme=dark] .task-now-view .monitor-hero{background:var(--surface-default);border-color:#344858}
 .monitor-status-chip{display:inline-flex;align-items:center;gap:8px;width:fit-content;border:1px solid var(--line);border-radius:999px;background:var(--green-soft);color:var(--green);padding:5px 10px;font-size:11px;font-weight:700;line-height:1.4}
 .monitor-status-chip::before{content:'';width:7px;height:7px;flex:none;border-radius:50%;background:currentColor}
 .monitor-status-chip.attention,.monitor-status-chip.stopped{background:#fbf2e2;color:var(--amber);border-color:#e7d3a5}
@@ -208,3 +224,1089 @@
 .task-now-view .current-context>div{padding:19px 21px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
 @media(max-width:850px){.monitor-summary-grid{grid-template-columns:1fr}.task-now-view .monitor-details{grid-template-columns:1fr}}
 @media(max-width:600px){.task-now-view .monitor-hero{padding:19px;gap:12px}.task-now-view .monitor-iteration{min-width:68px}.task-now-view .monitor-iteration strong{font-size:20px}.task-now-view .monitor-objective,.task-now-view .monitor-next{padding:18px}.task-now-view .monitor-next button{margin-right:8px}}
+
+/* M1 shell: shared semantic foundation aligned with the accepted dashboard frames. */
+:root{
+  --surface-canvas:#f7f8fa;--surface-default:#fff;--surface-subtle:#f1f4f5;
+  --text-primary:#17212b;--text-secondary:#536171;
+  /* Control/region boundaries identify actionable or bounded UI; 3:1+ on their adjacent surfaces. */
+  --border-control:#536171;
+  /* Separators merely group adjacent content and are intentionally not control boundaries. */
+  --border-subtle:#d9dfe7;
+  --accent-primary:#167d58;--accent-primary-hover:#106546;--state-running:#e8f7f0;
+  --state-attention:#fff5df;--state-danger:#fff0ee;--focus-ring:#155eef;
+  --focus-indicator-width:2px;--focus-control-layer:#17212b;--focus-surface-layer:#17212b;
+  /* Each focus layer must remain distinguishable from both a filled control and its canvas. */
+  --focus-primary-control-layer:#17212b;--focus-primary-surface-layer:#17212b;
+  --accent-danger:#b42318;--focus-danger-control-layer:#000;--focus-danger-surface-layer:#000;
+  --space-4:4px;--space-8:8px;--space-12:12px;--space-16:16px;--space-24:24px;--space-32:32px;--space-48:48px;
+  --radius-6:6px;--radius-10:10px;--radius-14:14px;
+  --paper:var(--surface-default);--canvas:var(--surface-canvas);--sidebar:var(--surface-default);
+  --ink:var(--text-primary);--muted:var(--text-secondary);--line:var(--border-subtle);--green:var(--accent-primary);--green-soft:var(--state-running)
+}
+:root[data-theme=dark]{
+  --surface-canvas:#0d1117;--surface-default:#161b22;--surface-subtle:#21262d;
+  --text-primary:#f0f6fc;--text-secondary:#a8b3c1;
+  --border-control:#a8b3c1;--border-subtle:#38424f;
+  /* Slightly deepen live green so the light focus ring independently clears 3:1. */
+  --accent-primary:#238636;--accent-primary-hover:#2ea043;--state-running:#173a2b;
+  --state-attention:#3b2e18;--state-danger:#3b2025;--focus-ring:#79c0ff;
+  --focus-control-layer:#f0f6fc;--focus-surface-layer:#f0f6fc;
+  --focus-primary-control-layer:#f0f6fc;--focus-primary-surface-layer:#f0f6fc;
+  --accent-danger:#d73a49;--focus-danger-control-layer:#f0f6fc;--focus-danger-surface-layer:#f0f6fc
+}
+html,body{min-width:0;max-width:100%;background:var(--surface-canvas)}
+body{overflow:hidden;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;line-height:1.57}
+button,input,select,textarea{border-color:var(--border-control)}
+[data-theme=dark] button,[data-theme=dark] input,[data-theme=dark] select,[data-theme=dark] textarea,[data-theme=dark] dialog,[data-theme=dark] .context-menu>div{border-color:var(--border-control)}
+button{min-height:36px;border-radius:var(--radius-6)}
+button.primary{background:var(--accent-primary);border-color:var(--accent-primary);color:#fff}
+/* These selectors intentionally match the earlier dark-theme rules' specificity. */
+[data-theme=dark] button.primary{background:var(--accent-primary);border-color:var(--accent-primary);color:#fff}
+/* A paired ring keeps focus distinct from both a filled control and its surface. */
+:focus-visible,[data-focus-visible-test]{outline:var(--focus-indicator-width) solid var(--focus-surface-layer);outline-offset:4px;box-shadow:0 0 0 var(--focus-indicator-width) var(--focus-control-layer)}
+button.primary:focus-visible,button.primary[data-focus-visible-test]{outline-color:var(--focus-primary-surface-layer);box-shadow:0 0 0 var(--focus-indicator-width) var(--focus-primary-control-layer)}
+button.destructive,.remove-project-button{background:var(--accent-danger);border-color:var(--accent-danger);color:#fff}
+[data-theme=dark] button.destructive,[data-theme=dark] .remove-project-button{background:var(--accent-danger);border-color:var(--accent-danger);color:#fff}
+button.destructive:focus-visible,button.destructive[data-focus-visible-test],.remove-project-button:focus-visible,.remove-project-button[data-focus-visible-test]{outline-color:var(--focus-danger-surface-layer);box-shadow:0 0 0 var(--focus-indicator-width) var(--focus-danger-control-layer)}
+.app-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:56px minmax(0,1fr);background:var(--surface-default)}
+.shell-body{display:grid;grid-template-columns:216px minmax(0,1fr);min-width:0;min-height:0;overflow:hidden;background:var(--surface-default)}
+.monitor-focus .app-shell{grid-template-columns:minmax(0,1fr)}
+.monitor-focus .shell-body{grid-template-columns:minmax(0,1fr)}
+.sidebar{padding:20px 16px 16px;background:var(--surface-default);border-right:1px solid var(--border-subtle)}
+.main-area{height:100%;background:var(--surface-default)}
+.topbar{grid-row:1;grid-column:1;height:56px;min-height:56px;padding-inline:24px;background:var(--surface-default);border-bottom-color:var(--border-subtle)}
+.topbar button{min-width:44px;min-height:44px}
+.page{width:100%;max-width:1120px;margin-inline:auto;padding:var(--space-32) var(--space-24)}
+.workspace-page{max-width:1120px}
+.detail-page,.draft-page{max-width:1120px;padding-inline:24px}
+.sidebar button,.new-task-button{min-height:44px}
+.main-nav button,.project-nav button,.sidebar-bottom>button{min-height:44px;padding-block:10px}
+.new-task-button{border-color:var(--border-control)}
+/* Sidebar workspace: project groups hold that project's conversations as
+   indented rows; a No project group keeps unscoped conversations visible. */
+.sidebar-search{display:flex;align-items:center;gap:var(--space-8);margin:var(--space-8) 0;padding:0 10px;border:1px solid var(--border-control);border-radius:var(--radius-6);min-height:46px;background:var(--surface-default)}
+.sidebar-search svg{width:14px;color:var(--text-secondary);flex-shrink:0}
+.sidebar-search input{border:0;background:transparent;width:100%;font-size:12px;color:var(--text-primary);min-height:44px;padding-block:0}
+.sidebar-search input:focus{outline:none}
+.sidebar-search:focus-within{border-color:var(--accent-primary)}
+.project-group{display:flex;flex-direction:column;gap:1px}
+.project-group-header{display:flex;align-items:center;gap:2px}
+/* Scoped above .project-nav button so the group controls keep their intended
+   sizes: the toggle fills the row, the create control stays a 44px target. */
+.project-nav .project-group-toggle{width:auto;min-width:0;flex:1 1 auto;font-weight:600;color:var(--text-primary)}
+.project-group-toggle[aria-expanded=false] .project-group-chevron{transform:rotate(-90deg)}
+.project-group-chevron{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--text-secondary);transition:transform .12s ease;flex-shrink:0}
+.project-group-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-nav .project-group-new{width:44px;min-width:44px;flex:0 0 auto;justify-content:center;font-size:15px;line-height:1;color:var(--text-secondary);padding-inline:0}
+.project-group-rows{display:flex;flex-direction:column;gap:1px;margin:0 0 var(--space-4) 14px}
+.conversation-nav-row{display:flex;align-items:center;gap:var(--space-8);width:100%;border-radius:var(--radius-6);padding:6px 8px 6px 10px;font-size:12px;text-align:left;color:var(--text-primary);min-height:44px;cursor:pointer}
+.conversation-nav-row:hover{background:var(--surface-subtle)}
+.conversation-nav-row.selected{background:var(--state-running)}
+.conversation-nav-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conversation-row-marks{display:inline-flex;align-items:center;gap:var(--space-4);flex-shrink:0}
+.attention-marker{width:18px;height:18px;border-radius:50%;background:var(--amber);color:#fff;display:inline-grid;place-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+[data-theme=dark] .attention-marker{color:#17212b}
+.complete-tick{width:18px;height:18px;display:inline-grid;place-content:center;color:var(--accent-primary);font-size:13px;font-weight:700;flex-shrink:0}
+@media(max-width:759px){.conversation-nav-row,.project-group-toggle,.project-group-new{min-height:44px}}
+.badge,.monitor-status-chip{white-space:normal;overflow-wrap:anywhere}
+.detail-tabs{gap:0;scrollbar-width:thin;scrollbar-color:var(--border-subtle) transparent}
+.detail-tabs button{min-height:44px;padding:12px 14px;border-radius:0;flex:0 0 auto}
+.detail-tabs button.selected{color:var(--accent-primary);border-bottom-color:var(--accent-primary)}
+.detail-tabs button[role=tab][aria-selected=true]{font-weight:700}
+.detail-heading h1,.draft-heading h1{display:block;overflow:visible;-webkit-line-clamp:unset;overflow-wrap:anywhere}
+.task-row,.task-name,.task-meta,.task-reason,.project-path,.error,code,pre,.message-body,.removed-project-panel{overflow-wrap:anywhere;word-break:break-word}
+.task-row{border:1px solid var(--border-control);border-radius:var(--radius-10);margin-bottom:var(--space-12);padding:var(--space-16);background:var(--surface-default)}
+.task-row:hover{background:var(--surface-subtle)}
+.summary-filter{min-height:44px;border:1px solid var(--border-control);border-radius:var(--radius-10);background:var(--surface-default)}
+.summary-filter[aria-pressed=true]{background:var(--state-running);border-color:var(--accent-primary)}
+.composer,.task-now-view .monitor-hero,.task-now-view .monitor-objective,.task-now-view .monitor-next,.task-now-view .monitor-activity,.task-now-view .monitor-history,.task-now-view .monitor-criteria,.project-removal-dialog,.context-menu>div{border-color:var(--border-control);box-shadow:none}
+.drawer-scrim{display:none}
+.drawer-close{display:none}
+.drawer-heading{display:none}
+@media (min-width:760px) and (max-width:1050px){
+  .shell-body{grid-template-columns:184px minmax(0,1fr)}
+  .sidebar{padding-inline:12px}.page{padding-inline:24px}
+  .main-area button,.main-area input,.main-area select,.main-area textarea,.main-area summary,.sidebar a.brand{min-width:44px;min-height:44px}
+  .main-area summary{display:flex;align-items:center}
+}
+@media (max-width:759px){
+  body{overflow:hidden}.app-shell{display:grid;height:100dvh}.shell-body{display:block;height:100%;min-height:0}.main-area{height:100%}
+  .sidebar{display:flex;position:fixed;z-index:60;inset:56px auto 0 0;width:min(292px,calc(100vw - 48px));padding:20px 16px 16px;transform:translateX(-105%);transition:transform 160ms ease;box-shadow:none}
+  .app-shell.nav-open .sidebar{transform:translateX(0);box-shadow:12px 0 32px #07111b40}
+  .drawer-close{display:inline-flex;align-items:center;justify-content:center;align-self:flex-end;min-height:44px}
+  .drawer-scrim{display:block;position:fixed;z-index:55;inset:56px 0 0;width:100%;height:calc(100% - 56px);border:0;border-radius:0;background:#07111b80;opacity:0;pointer-events:none;transition:opacity 160ms ease}
+  .app-shell.nav-open .drawer-scrim{opacity:1;pointer-events:auto}
+  #nav-toggle{display:inline-grid;place-items:center;min-width:44px;min-height:44px}
+  .topbar{padding-inline:12px}.page,.detail-page,.draft-page{padding-inline:16px}.page{padding-top:24px}
+  .detail-heading,.task-now{align-items:flex-start}.task-now{flex-direction:column}.task-actions{width:100%}.task-actions button{min-height:44px;max-width:none;flex:1}.task-actions .primary{width:100%}
+  .context-pane .detail-tabs{padding-inline:16px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity}
+  .detail-tabs button{font-size:12px;scroll-snap-align:start}
+  .task-toolbar-controls{gap:8px}.search{flex-basis:100%;max-width:none}.search input{min-height:44px;font-size:16px}
+  .main-area button,.main-area input,.main-area select,.main-area textarea,.main-area summary,.sidebar a.brand{min-width:44px;min-height:44px}
+  .main-area summary{display:flex;align-items:center}.composer textarea{font-size:16px!important}
+  /* Status is a separate, wrapping row at the narrow drawer breakpoint.
+     Keeping it out of the title's flex row prevents narrow status chips from
+     being squeezed into clipped letters beside a long task title. */
+  .detail-heading{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-8)}
+  #task-status{min-width:0;max-width:100%;justify-self:start}
+  #task-status .badge{max-width:100%;line-height:1.5}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:0.01ms!important;animation-duration:0.01ms!important;animation-iteration-count:1!important}}
+@media (forced-colors:active){:focus-visible,[data-focus-visible-test]{outline:var(--focus-indicator-width) solid Highlight;outline-offset:3px;box-shadow:0 0 0 var(--focus-indicator-width) Canvas}}
+
+/* M2 operational views: runtime facts are scannable before optional detail. */
+.workspace-summary{gap:var(--space-8);margin:var(--space-24) 0 var(--space-16)}
+.archive-suggestions{margin:0 0 var(--space-24);padding:18px 20px;border:1px solid var(--line);border-radius:var(--radius-10);background:var(--surface-default)}
+.archive-suggestions[hidden]{display:none}
+.archive-suggestions h2{font-size:16px;margin:0 0 6px}
+.archive-suggestions>p{font-size:12px;color:var(--muted);line-height:1.6;margin:0 0 10px}
+.archive-suggestion-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.archive-suggestion-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px;font-size:12px}
+.archive-suggestion-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.archive-suggestion-copy span{color:var(--muted)}
+@media(max-width:640px){.archive-suggestion-row{flex-wrap:wrap}.archive-suggestion-copy{flex-basis:100%}}
+.summary-filter{justify-content:space-between;gap:var(--space-12);padding:9px 12px;color:var(--text-primary);font-size:13px;font-weight:600}
+.summary-filter strong{order:0;min-width:24px;background:var(--surface-subtle);color:var(--text-primary);font-size:12px;text-align:center}
+[data-theme=dark] .summary-filter{background:var(--surface-default);border-color:var(--border-control);color:var(--text-primary)}
+.task-status-filter{min-width:180px}
+.task-status-filter select{min-height:44px}
+.task-group{margin-bottom:var(--space-32)}
+.task-group-heading{margin:0 0 var(--space-12)}
+.task-group-heading h2{font-size:14px;color:var(--text-primary)}
+.task-row{grid-template-columns:minmax(0,1.25fr) minmax(180px,.95fr) minmax(108px,auto);grid-template-areas:'main reason action';gap:var(--space-16);align-items:start;padding:var(--space-16);border-color:var(--border-control);box-shadow:none}
+.task-row[data-runtime-state*="Running"]{border-left:3px solid var(--accent-primary)}
+.task-row .task-main{align-items:flex-start}
+.task-row .task-reason{margin:0;display:grid;gap:var(--space-8);font-size:12px;line-height:1.55}
+.task-row-step,.task-row-freshness{display:block;min-width:0;overflow-wrap:anywhere}
+.task-row-freshness{color:var(--text-secondary)}
+.task-row-action{gap:var(--space-12);min-width:0}
+.task-row-action .badge{justify-content:flex-end;text-align:right}
+.task-row-action .next-action{min-height:36px;text-align:center;overflow-wrap:anywhere}
+.task-state-hero{margin:0 0 var(--space-24)}
+.task-now-view .monitor-hero{background:var(--surface-default);border-color:var(--border-subtle)}
+[data-theme=dark] .task-now-view .monitor-hero{background:var(--surface-default);border-color:var(--border-subtle)}
+.monitor-summary-grid{gap:var(--space-12)}
+.task-now-view .monitor-objective,.task-now-view .monitor-next{border-color:var(--border-subtle);box-shadow:none}
+.monitor-fact-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-8);margin-top:var(--space-12)}
+.monitor-fact{min-width:0;padding:var(--space-12);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle)}
+.monitor-fact p:first-child{margin:0 0 4px;color:var(--text-secondary);font-size:10px;font-weight:700;letter-spacing:.06em}
+.monitor-fact p:last-child{margin:0;color:var(--text-primary);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.completion-record{display:grid;gap:4px;margin:var(--space-16) 0 0;padding:var(--space-12) var(--space-16);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle);overflow-wrap:anywhere}
+.completion-record .monitor-kicker{margin:0;color:var(--text-secondary);font-size:10px;font-weight:700;letter-spacing:.06em}
+.completion-record [data-completion-timestamp]{margin:0;color:var(--text-primary);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.completion-record[data-completion-record-state=invalid]{border-color:var(--border-control)}
+.recovery-order,.completion-evidence{margin:var(--space-16) 0 0;padding:var(--space-12) var(--space-16);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.recovery-sequence{display:grid;gap:var(--space-8);margin:var(--space-12) 0;padding:0;list-style:none;counter-reset:recovery}
+.recovery-sequence li{display:flex;gap:var(--space-8);align-items:center;min-height:32px;counter-increment:recovery}
+.recovery-sequence li::before{content:counter(recovery);display:inline-grid;place-items:center;width:22px;height:22px;border:1px solid var(--border-control);border-radius:50%;font-size:11px;font-weight:700;flex:none}
+.answer-safety{display:grid;gap:var(--space-8);margin:0 0 var(--space-16);padding:var(--space-16);border:1px solid var(--border-subtle);border-left:3px solid var(--accent-primary);border-radius:var(--radius-10);background:var(--state-running);font-size:13px;line-height:1.6}
+.answer-safety p{margin:0}
+.answer-safety .monitor-kicker{color:var(--text-secondary);font-size:11px;font-weight:700;letter-spacing:.06em}
+.plan-document{max-width:840px;margin:0 auto var(--space-32)}
+.plan-document .brief-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-8);align-items:start;padding-bottom:var(--space-16)}
+.plan-document .brief-header h2{font-size:clamp(22px,3vw,30px);line-height:1.25}
+.plan-provenance{grid-column:1 / -1;margin:0;color:var(--text-secondary);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.plan-document-body{display:grid;gap:var(--space-24);padding:var(--space-24) 0}
+.plan-document-section{min-width:0}
+.plan-document-section h3{margin:0 0 var(--space-8);font-size:15px}
+.plan-document-section p,.plan-document-section li{overflow-wrap:anywhere;word-break:break-word}
+.plan-document-section ul,.plan-document-section ol{margin:0;padding-left:22px}
+.plan-document-section li{margin:var(--space-8) 0;line-height:1.65}
+.brief-approval{display:grid;gap:var(--space-8);padding:var(--space-16);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle);color:var(--text-primary)}
+.brief-approval p{margin:0;line-height:1.6}
+.plan-actions{justify-content:flex-start;margin:var(--space-8) 0 0}
+#plan{overflow-y:auto;overflow-x:hidden}
+#task-safe-boundary{margin-top:var(--space-4);max-width:620px;overflow-wrap:anywhere}
+
+@media (max-width:759px){
+  .workspace-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .summary-filter{min-width:0;align-items:flex-start;font-size:12px;text-align:left}
+  .task-toolbar-controls{align-items:stretch}
+  .task-status-filter{flex:1 1 100%;min-width:0}
+  .task-status-filter select{width:100%;max-width:none}
+  .task-row{grid-template-columns:minmax(0,1fr);grid-template-areas:'main' 'reason' 'action';gap:var(--space-12);padding:var(--space-16)}
+  .task-row-action{align-items:stretch;padding:0}
+  .task-row-action .badge{justify-content:flex-start;text-align:left}
+  .task-row-action .next-action{width:100%;min-height:44px}
+  .monitor-fact-grid{grid-template-columns:1fr}
+  .task-now-view .monitor-hero{padding:var(--space-16)}
+  .task-now-view .monitor-iteration{min-width:64px}
+  .plan-document .brief-header{grid-template-columns:1fr}
+  .plan-document .brief-header .badge{justify-self:start}
+  .plan-actions{display:grid;grid-template-columns:1fr}
+  .plan-actions button{width:100%;min-height:44px}
+  .answer-safety{padding:var(--space-12)}
+}
+
+/* M3 settings and mutation lifecycles share the compact, evidence-first Figma primitives. */
+.stale-state-banner{display:flex;align-items:center;gap:var(--space-12);margin:var(--space-12) 0;padding:var(--space-12);min-height:52px;border:1px solid var(--border-control);border-radius:var(--radius-10);background:var(--state-attention);color:var(--text-primary);font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.stale-state-banner strong{font-size:13px;white-space:nowrap}.stale-state-banner span{min-width:0;flex:1}.stale-state-banner button{flex:none;min-height:44px}
+.task-model-settings{display:grid;gap:var(--space-12);margin:var(--space-16) 0 0}.saved-model-row{display:grid;gap:var(--space-8);min-width:0;padding:var(--space-12);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-default);font-size:12px;line-height:1.55;overflow-wrap:anywhere}.saved-model-row>header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-8)}.saved-model-row h4{margin:0;font-size:13px;line-height:1.4}.saved-model-row .field-note{font-size:11px}.model-state{flex:none;padding:3px 6px;border-radius:var(--radius-6);background:var(--surface-subtle);color:var(--text-secondary);font-size:10px;font-weight:700;line-height:1.3;text-align:right}.model-state.unavailable{background:var(--state-danger);color:var(--accent-danger)}.model-state.mutable{background:var(--state-running);color:var(--accent-primary)}.saved-model-value{font:11px/1.6 ui-monospace,SFMono-Regular,monospace;color:var(--text-primary);overflow-wrap:anywhere;word-break:break-word}.model-replacement{display:grid;gap:var(--space-8);padding-top:var(--space-12);border-top:1px solid var(--border-subtle)}.model-replacement label{margin:0;font-size:11px}.model-replacement select{width:100%;min-height:44px;font-size:12px}.model-replacement button{width:100%;min-height:44px}.model-replacement-note{margin:0;color:var(--text-secondary);font-size:11px;line-height:1.55;overflow-wrap:anywhere}.model-replacement-note.error{color:var(--accent-danger)}.model-replacement-receipt{display:grid;gap:4px;padding:var(--space-8);border:1px solid var(--border-subtle);border-radius:var(--radius-6);background:var(--surface-subtle);font-size:11px;line-height:1.5;overflow-wrap:anywhere}.model-replacement-receipt code{font-size:10px}.task-model-gate{margin:var(--space-8) 0 0;color:var(--accent-danger);font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+.task-actions{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-8);align-items:start;min-width:0;max-width:360px}.task-actions button{width:100%;min-width:0}.task-model-gate{min-width:0;max-width:100%;grid-column:1}
+#task-detail .context-menu>div{max-height:calc(100dvh - 112px);overflow-x:hidden;overflow-y:auto}
+.project-scope-actions button[data-stale-safe]{min-height:44px}.project-notice{border-radius:var(--radius-10)}.project-notice.mutation-toast{background:var(--text-primary);border-color:var(--text-primary);color:var(--surface-default);box-shadow:0 6px 24px #20352622}.project-notice.mutation-toast .project-path,.project-notice.mutation-toast p{color:var(--surface-default)}.project-notice.mutation-toast button{background:transparent;border-color:currentColor;color:inherit}.project-notice.mutation-toast button:hover{background:#ffffff1a}
+.project-removal-dialog{width:min(530px,calc(100vw - 32px));padding:var(--space-24);border-color:var(--border-control);border-radius:var(--radius-10);background:var(--surface-default);color:var(--text-primary);box-shadow:0 20px 56px #07111b40}.project-removal-dialog::backdrop{background:#07111b80}.project-removal-dialog .dialog-actions{align-items:center;flex-wrap:wrap}.project-removal-dialog .dialog-actions button{min-height:44px}.project-removal-dialog .field-note{margin-top:var(--space-12)}
+[data-theme=dark] .project-removal-dialog{background:var(--surface-default);color:var(--text-primary)}
+@media (max-width:759px){.stale-state-banner{align-items:flex-start;flex-wrap:wrap}.stale-state-banner button{width:100%}.saved-model-row{padding:var(--space-12)}.model-replacement{min-width:0}.project-removal-dialog{width:calc(100vw - 32px);padding:var(--space-16)}.project-removal-dialog .dialog-actions{display:grid;grid-template-columns:1fr}.project-removal-dialog .dialog-actions button{width:100%}}
+
+/* Catalogue recovery stays next to the blocked creation action, while the
+   full model and reasoning controls remain in their disclosure. */
+.form-submit{align-items:flex-start}
+.create-submit-area{display:grid;gap:var(--space-8);flex:0 1 340px;min-width:0;width:min(100%,340px)}
+#create-submit{width:100%;min-height:44px}
+.create-model-catalogue-gate{display:grid;gap:var(--space-8);padding:var(--space-12);border:1px solid var(--border-control);border-radius:var(--radius-10);background:var(--state-attention);color:var(--text-primary);font-size:12px;line-height:1.55;text-align:left;overflow-wrap:anywhere}
+.create-model-catalogue-gate.error{background:var(--state-danger);border-color:var(--accent-danger)}
+.create-model-catalogue-gate .field-note{margin:0;color:inherit;font-size:12px;line-height:1.55}
+.create-model-catalogue-gate button{justify-self:start;min-height:44px}
+@media (max-width:759px){.form-submit{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start}.form-submit>p{max-width:none}.create-submit-area{grid-column:1 / -1;width:100%}}
+
+/* M4 operational fold repair: keep runtime truth in one readable hero. Long
+   objectives stay rendered (rather than being replaced by generic disclosures)
+   and the complete question/recovery content remains in its real detail pane. */
+:root{--accent-foreground:#167d58}
+:root[data-theme=dark]{--accent-foreground:#3fb950}
+.detail-tabs button.selected{color:var(--accent-foreground);border-bottom-color:var(--accent-foreground)}
+a,.next-action,.workflow-active,.task-path li.done,.model-state.mutable,button.text-button:hover{color:var(--accent-foreground)}
+.task-now-view .monitor-hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-12);padding:var(--space-16);border-color:var(--border-subtle);align-items:start}
+.task-now-view .monitor-state h2{margin:8px 0 0;font-size:clamp(19px,2vw,24px);line-height:1.28}
+.monitor-operational-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-8);margin:0}
+.context-pane-content .monitor-operational-facts{grid-template-columns:1fr}
+.monitor-operational-facts .monitor-fact,.monitor-runtime-facts .monitor-fact{min-width:0;padding:var(--space-8) var(--space-12);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle)}
+.monitor-operational-facts .monitor-fact-objective{grid-column:1 / -1}
+.monitor-operational-facts .monitor-fact-blocker{grid-column:span 1}
+.monitor-operational-facts .monitor-fact>p:first-child,.monitor-runtime-facts .monitor-fact>p:first-child{margin:0 0 3px;color:var(--text-secondary);font-size:12px;font-weight:700;letter-spacing:.06em;line-height:18px}
+.monitor-operational-facts .monitor-fact>p:last-child,.monitor-runtime-facts .monitor-fact>p:last-child{margin:0;color:var(--text-primary);font-size:14px;font-weight:400;line-height:22px;overflow-wrap:anywhere;word-break:break-word}
+.monitor-objective-detail{margin:var(--space-8) 0 0;padding:0 var(--space-12);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle)}
+.monitor-objective-detail>summary{display:flex;align-items:center;min-height:44px;color:var(--accent-foreground);font-size:12px;font-weight:600;line-height:18px}
+.monitor-objective-detail>p{margin:0 0 var(--space-12);color:var(--text-primary);font-size:14px;line-height:22px;overflow-wrap:anywhere;word-break:break-word}
+.monitor-fact-detail{margin:0;min-width:0}
+.monitor-fact-detail>summary{cursor:pointer;color:var(--accent-foreground)}
+.monitor-fact-detail>p{margin:var(--space-8) 0 0;color:var(--text-primary);font-size:12px;font-weight:400;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+@media(max-width:759px){
+  /* Keep all six operational facts inside the fixed mobile Now viewport.
+     Text size is unchanged; only card gutters tighten below the drawer
+     breakpoint so the last freshness fact is not clipped after a long paused
+     or interrupted step label. */
+  .task-now-view .monitor-hero{grid-template-columns:minmax(0,1fr);gap:6px;padding:var(--space-8)}
+  .task-now-view .monitor-state h2{font-size:19px}
+  .monitor-operational-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .monitor-operational-facts .monitor-fact-blocker{grid-column:1 / -1}
+  .monitor-operational-facts .monitor-fact{padding:6px 10px}
+  .monitor-operational-facts .monitor-fact>p:last-child{font-size:14px;line-height:22px}
+  .monitor-objective-detail{padding:0 10px}
+}
+
+/* Session checkpoints: the task's meaningful saved moments, inspectable in the conversation. */
+#task-detail #interview .session-checkpoints{margin:24px 0 6px;padding:0}
+.session-checkpoints h2{font-size:14px;color:var(--text-primary)}
+.checkpoint-list{list-style:none;margin:var(--space-12) 0 0;padding:0;display:grid;gap:2px}
+.checkpoint-item{min-width:0}
+.checkpoint-toggle{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;border:0;border-radius:var(--radius-6);background:transparent;padding:9px 10px;font-size:13px;font-weight:600;text-align:left;color:var(--text-primary)}
+.checkpoint-toggle:hover{background:var(--surface-subtle)}
+.checkpoint-mark{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;border-radius:50%;background:var(--state-running);color:var(--accent-primary);font-size:11px;font-weight:700}
+.checkpoint-label{flex:1;min-width:0;overflow-wrap:anywhere}
+.checkpoint-time{flex:none;font-size:11px;font-weight:400;color:var(--text-secondary)}
+.checkpoint-detail{margin:0 0 var(--space-8) 40px;padding:var(--space-12) var(--space-16);border:1px solid var(--border-subtle);border-radius:var(--radius-10);background:var(--surface-subtle);font-size:12px;line-height:1.7}
+.checkpoint-answers{margin:0;display:grid;gap:var(--space-8)}
+.checkpoint-answers dt{font-size:11px;font-weight:700;color:var(--text-secondary)}
+.checkpoint-answers dd{margin:2px 0 0;overflow-wrap:anywhere;word-break:break-word}
+.checkpoint-detail>button{margin-top:var(--space-8)}
+@media(max-width:600px){.checkpoint-detail{margin-left:0}.checkpoint-toggle{font-size:12px}}
+
+/* Persistent chat and live draft rail — accepted lifecycle frames, page 288:2. */
+#task-detail,#draft-conversation{--accent-primary:#1d4ed8;--accent-primary-hover:#1e40af;--accent-foreground:#1d4ed8;--state-running:#dbeafe;max-width:none;background:var(--surface-canvas);padding:12px 24px 0}
+[data-theme=dark] #task-detail,[data-theme=dark] #draft-conversation{--accent-primary:#2563eb;--accent-primary-hover:#3b82f6;--accent-foreground:#93c5fd;--state-running:#172b4d}
+#task-detail .task-detail-navigation,#draft-conversation .task-detail-navigation{margin-bottom:4px}
+#task-detail .detail-heading h1,#draft-conversation .draft-heading h1{font-size:16px;line-height:1.4;letter-spacing:0}
+#task-detail .detail-heading .eyebrow{margin:0 0 2px;font-size:10px}
+#task-detail .task-now{padding:8px 0 10px;gap:12px}
+#task-detail .task-now .task-actions{max-width:240px}
+#task-detail .current-step{font-size:12px;line-height:1.5}
+#task-detail .task-actions button{min-height:44px;font-size:12px}
+#task-detail #task-objective{font-size:12px}
+#task-detail .context-pane .detail-tabs{position:relative;margin-top:0}
+#task-detail .detail-tabs{gap:4px}
+#task-detail .detail-tabs button{font-size:12px;padding:8px 12px}
+#task-detail.conversation-active .detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(340px,42%);gap:28px;padding-top:12px;overflow:hidden}
+#task-detail .conversation-column{min-width:0;min-height:0}
+#task-detail.conversation-active #interview{max-width:none;padding:0 0 12px;scroll-padding-bottom:16px}
+#task-detail #conversation>*,#task-detail #task-attention{max-width:100%}
+#task-detail #conversation-header{display:none}
+#task-detail .plan-rail,#draft-conversation .plan-rail{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;border:1px solid var(--border-subtle);border-radius:12px;padding:16px;background:var(--surface-default);margin-bottom:16px;font-size:13px;line-height:1.5}
+#task-detail .plan-rail[hidden],#draft-conversation .plan-rail[hidden]{display:none}
+.quiet-plan{min-width:0;display:flex;flex-direction:column;gap:8px;flex:1}
+.quiet-plan h2{font-size:18px;line-height:1.35;margin:0;color:var(--text-primary)}
+.quiet-plan p{margin:0;color:var(--text-secondary);font-size:13px;line-height:1.5}
+.quiet-plan-counts{font:12px/1.45 "JetBrains Mono",ui-monospace,SFMono-Regular,monospace!important;overflow-wrap:anywhere}
+.quiet-plan-section{padding-top:8px}
+.quiet-plan-section h3{font-size:12px;font-weight:600;color:var(--text-secondary);margin:0 0 6px}
+.quiet-plan-section ul{list-style:none;padding:0;margin:0;display:grid;gap:4px}
+.quiet-plan-section li{position:relative;padding:4px 0 4px 22px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.quiet-plan-section li::before{content:'•';position:absolute;left:6px;color:var(--text-secondary)}
+.quiet-plan-section:first-of-type li::before{content:'✓';color:#15803d}
+.quiet-plan .quiet-plan-freshness{font-size:12px;margin-top:12px}
+.quiet-plan .quiet-plan-causes{overflow-wrap:anywhere}.quiet-plan .quiet-plan-causes+.quiet-plan-freshness{margin-top:2px}
+.quiet-plan .quiet-plan-safety{font-size:12px;margin-top:auto;padding-top:24px}
+#task-detail .chat-message,#draft-conversation .chat-message{font-size:13px;line-height:1.5;margin-bottom:16px;max-width:100%}
+#task-detail .chat-message.learner,#draft-conversation .chat-message.learner{background:var(--surface-subtle);border:0;border-radius:12px;padding:12px 14px;max-width:82%;color:var(--text-primary)}
+#task-detail .speaker,#draft-conversation .speaker{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;color:var(--text-secondary);font-size:12px;margin-bottom:8px}
+#task-detail .speaker strong,#draft-conversation .speaker strong{color:var(--text-primary);font-weight:600}
+.message-model{font:11px/1.45 "JetBrains Mono",ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
+#task-detail .speaker time,#draft-conversation .speaker time{font-size:11px;color:var(--text-secondary)}
+.lifecycle-region{display:grid;gap:12px;margin-bottom:12px}
+.lifecycle-card,.inline-task-action{margin:0 0 12px;padding:16px;background:var(--surface-default);border-radius:12px;border-left:3px solid var(--accent-primary);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.lifecycle-card h3,.lifecycle-card h4,.inline-task-action strong{font-size:13px;font-weight:600;margin:0 0 8px;line-height:1.5}
+.lifecycle-card p,.inline-task-action p{margin:6px 0;color:var(--text-secondary)}
+.draft-page .lifecycle-card button,#draft-problem button{min-height:44px;min-width:44px;white-space:normal}
+.lifecycle-card.severity-attention{border-left-color:#d97706}
+.lifecycle-card.severity-failed{border-left-color:var(--accent-danger)}
+.lifecycle-card.severity-complete,.contract-receipt{border-left-color:#15803d}
+.lifecycle-attribution{display:flex;flex-wrap:wrap;gap:6px 12px;color:var(--text-secondary);font-size:11px;margin-bottom:8px}
+.lifecycle-attribution:empty{display:none}
+.lifecycle-status{background:var(--surface-subtle);border-radius:999px;padding:1px 6px}
+.lifecycle-card details{margin-top:10px}
+.lifecycle-card summary{min-height:44px;display:flex;align-items:center;color:var(--accent-foreground)}
+.lifecycle-actions,.lifecycle-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.lifecycle-actions button,.lifecycle-links button,#inline-task-action button{min-height:44px;max-width:100%}
+.inline-task-action{margin:0 0 10px;border:0;padding:0;background:transparent}
+.composer-controls{display:flex;flex-direction:column;gap:7px;padding:2px 0 4px;min-width:0}.composer-run-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;min-width:0}.composer-run-controls button{font-size:12px;min-width:96px;min-height:44px}.composer-run-controls .task-model-gate{flex:1 1 180px;min-width:0;margin:0}#stop-run{background:transparent;border-color:var(--accent-danger);color:var(--accent-danger)}#stop-run:hover:not(:disabled){background:var(--accent-danger);border-color:var(--accent-danger);color:#fff}#stop-run:disabled{background:transparent;border-color:var(--border-control);color:var(--muted)}.composer-models{position:relative}.composer-models>summary{cursor:pointer;font-size:11px;color:var(--muted);min-height:44px;display:flex;align-items:center;gap:6px}.composer-models[open]>summary{margin-bottom:0}.composer-models-content{position:absolute;right:0;bottom:calc(100% + 6px);z-index:20;width:min(420px,calc(100vw - 48px));padding:16px;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 35px #20372a12;max-height:min(480px,60vh);overflow:auto;overscroll-behavior:contain}.composer-models-content h3{font-size:12px}#task-detail .composer-section,#draft-conversation .draft-composer{background:var(--surface-canvas);padding:8px 0 14px;border-top:0}
+/* Composer hierarchy (422:1602 / 423:343): one card holds the input, the
+   compact actions row (model route left, run controls right) and the send
+   row; the run controls no longer stack as separate full-width rows. */
+#task-detail .composer{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:8px 12px;border:0;background:transparent;box-shadow:none}
+#draft-conversation .composer{display:flex;align-items:flex-end;gap:12px;padding:0;border:0;background:transparent;box-shadow:none}
+#task-detail .composer textarea{border:0;border-radius:0;background:transparent;padding:2px 0 0;min-height:44px;height:44px;resize:none;font-size:14px;line-height:21px;color:var(--text-primary)}
+#task-detail .composer textarea:focus-visible{outline:0}
+#task-detail .composer textarea::placeholder{color:var(--text-secondary)}
+.composer-controls{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:2px 0 0;min-width:0}
+.composer-run-controls{justify-content:flex-end;flex:1 1 auto}
+#task-detail .composer-bottom,#draft-conversation .composer-bottom{margin:0;flex:none}
+#task-detail .composer-bottom>span,#draft-conversation .composer-bottom>span{display:none}
+#task-detail .composer-bottom button,#draft-conversation .composer-bottom button{border-radius:12px;min-width:60px;min-height:44px;padding:10px 16px;font-size:13px}
+#task-detail #live-mode{font-size:12px;line-height:1.4;margin-top:8px}
+#task-detail .thread-checkpoint{font-size:12px;padding:10px 0;margin-bottom:0}
+#draft-conversation .draft-chat-layout{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0;gap:28px;padding-top:12px}
+#draft-conversation.has-plan .draft-chat-layout{grid-template-columns:minmax(0,1fr) minmax(300px,40%)}
+#draft-conversation .draft-chat-column{display:flex;flex-direction:column;min-width:0;min-height:0}
+#draft-conversation .thread-viewport{min-height:0;flex:1}
+#draft-conversation .draft-heading{padding-bottom:8px;align-items:flex-start}
+#draft-conversation .draft-heading .subtitle{font-size:12px;line-height:1.5}
+#draft-conversation .attach-section{max-height:30vh;overflow:auto;padding-bottom:12px;flex-shrink:0}
+#task-detail .context-menu[open]{z-index:52}
+#task-detail .context-menu[open]::before{content:'';position:fixed;inset:0;background:#07111b66;z-index:-1}
+#task-detail .context-menu>summary{position:relative;background:var(--surface-default);border-radius:6px}
+#task-detail .context-menu>div{z-index:1;width:min(400px,calc(100vw - 32px));max-height:calc(100dvh - 144px)}
+.project-notice.mutation-toast{max-height:40vh;overflow:auto}
+.project-notice .project-path{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+@media(max-width:1023px){
+  #task-detail.conversation-active .detail-grid{grid-template-columns:minmax(0,1fr) minmax(300px,44%);grid-template-rows:minmax(0,1fr);gap:18px}
+  #task-detail.conversation-active #goal{display:none}
+}
+@media(max-width:1199px){
+  #draft-conversation.has-plan .draft-chat-layout{grid-template-columns:minmax(0,1fr);gap:0}
+  #draft-conversation.has-plan .draft-chat-layout{display:flex;flex-direction:column}
+  #draft-conversation #quiet-plan{max-height:30vh;flex-shrink:0;margin-bottom:8px}
+}
+@media(max-width:759px){
+  #task-detail.conversation-active .detail-grid{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(170px,1fr);gap:0}
+  #task-detail.conversation-active .context-pane{border-top:1px solid var(--border-subtle);padding-top:8px}
+  #task-detail.conversation-active #goal{display:none}
+  #task-detail.conversation-active .conversation-column #interview{flex:0 0 auto;min-height:100px;max-height:150px}
+}
+@media(max-width:759px){
+  #task-detail,#draft-conversation{padding:8px 16px 0}
+  #task-detail .detail-heading,#draft-conversation .draft-heading{flex-direction:column;align-items:flex-start;gap:4px}
+  #task-detail #task-status{max-width:100%}
+  #task-detail #task-status .badge,#draft-conversation #draft-status{font-size:12px;line-height:1.4;word-break:normal;overflow-wrap:normal}
+  #task-detail .task-now{gap:6px;padding:4px 0 6px}
+  #task-detail .task-now>div:first-child{flex:1;min-width:0}
+  #task-detail .task-actions{max-width:150px}
+  #task-detail #task-objective{display:none}
+  #task-detail .detail-tabs{padding:0;gap:4px;min-height:56px}
+  #task-detail .detail-tabs button{font-size:12px;min-width:64px;padding-inline:12px}
+  #task-detail.conversation-active .detail-grid{padding-top:12px}
+  #task-detail .composer-section{padding-bottom:10px}
+  #task-detail .chat-message.learner,#draft-conversation .chat-message.learner{max-width:94%}
+  #task-detail .lifecycle-actions,#task-detail .inline-task-action{width:100%}
+  #task-detail .lifecycle-actions button{flex:1 1 auto}
+  #task-detail .inline-task-action p{font-size:12px}
+  #task-detail .composer-bottom button,#draft-conversation .composer-bottom button{padding-inline:12px}
+  #task-detail .task-detail-navigation,#draft-conversation .task-detail-navigation{min-height:36px}
+  #task-detail .task-detail-navigation>button,#draft-conversation .task-detail-navigation>button{font-size:12px;min-height:44px}
+  #draft-conversation .attach-section{max-height:26vh}
+}
+@media(prefers-reduced-motion:reduce){#task-detail *,#draft-conversation *{scroll-behavior:auto!important;transition:none!important}}
+.delete-option{display:flex;gap:10px;align-items:flex-start;font-size:13px;margin:12px 0}.delete-option input{width:20px;min-width:20px;min-height:20px;margin:0;flex:none}.delete-scope{padding:0;list-style:none;display:grid;gap:8px;max-height:24vh;overflow:auto}.delete-scope li{display:grid;gap:4px;padding:8px;background:var(--surface-subtle);border-radius:6px}.delete-scope code{font-size:11px;overflow-wrap:anywhere}.delete-scope strong{font-size:12px}#task-delete-dialog{max-height:calc(100dvh - 32px);overflow:auto}#task-delete-dialog>input{width:100%}
+/* Keep the chat transcript unframed; cards carry their own boundaries. */
+#task-detail.conversation-active .conversation-column{background:transparent;border:0;border-radius:0;box-shadow:none}
+#task-detail.conversation-active #interview{background:transparent;border:0;border-radius:0}
+#task-detail.conversation-active #live-controls{background:transparent;border:0;padding:8px 0 14px}
+#task-detail.conversation-active #change-text{height:44px;min-height:44px}
+#task-detail.conversation-active #change-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+#task-detail.conversation-active .task-now #task-objective{display:none}
+#task-detail.conversation-active .task-now #task-safe-boundary{display:none}
+#task-detail.conversation-active #task-project{display:none}
+#task-detail.conversation-active .task-now{padding:4px 0 6px}
+
+@media(max-width:759px){
+  #task-detail .task-actions button{min-height:44px}
+}
+/* 423:306 mobile conversation header: the title leads the compact header and
+   the settings cluster shares its line; the Projects drawer is the back path,
+   so no All work/navigation row sits above the title. */
+@media(max-width:759px){
+  #task-detail.conversation-active #task-back{display:none}
+  #task-detail.conversation-active .detail-heading>div:first-child{gap:6px}
+  #task-detail.conversation-active .task-detail-navigation>details>summary{min-width:44px;justify-content:center}
+  #task-detail.conversation-active .task-now{padding:2px 0 4px}
+}
+/* Mobile composer (423:343): one card — input line, then compact 44px action
+   rows where the model chip shares its row with Pause and Stop joins Send.
+   The intermediate control boxes flatten into the card's wrap context so the
+   rows pair up instead of stacking full width; DOM order (and with it the
+   keyboard order and every control ancestry) is unchanged. */
+@media(max-width:759px){
+  #task-detail .composer{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;row-gap:6px}
+  #task-detail .composer textarea{flex:1 1 100%}
+  #task-detail .composer-controls{display:contents}
+  #composer-run-controls{display:contents}
+  #task-detail .composer-action-slot{display:contents}
+  #task-detail .composer-action-slot>button{width:auto}
+  #task-detail .composer-models{order:1;flex:0 1 auto;min-width:0}
+  #task-detail #change-form{display:contents}
+  #task-detail #change-form .composer-bottom{display:contents}
+  #task-detail #change-form .composer-bottom>span{display:none}
+  .composer-run-controls button{min-height:44px;flex:0 1 auto;max-width:none;white-space:nowrap;order:2}
+  /* The accepted primary-action gate keeps its full 16px-margin width when it
+     is the offered action; secondary run controls share the following rows. */
+  #task-detail .composer-run-controls #continue-run{flex:1 1 100%}
+  /* 423:343 compact action row: Send joins the model chip, Pause and Stop on
+     one wrapped row instead of claiming a separate composer row. */
+  #task-detail .composer-bottom button{margin-left:auto;order:2;flex:0 1 auto;min-width:44px}
+}
+
+@media(max-width:759px){#task-detail .task-now .task-actions{max-width:none;width:100%}}
+
+.compact-draft-preview{display:none}#draft-plan-dialog{max-height:calc(100dvh - 32px);overflow:auto;width:min(680px,calc(100vw - 32px))}#draft-plan-dialog .section-heading{position:sticky;top:0;background:var(--surface-default);z-index:1;padding-bottom:8px;gap:8px}#draft-plan-dialog .quiet-plan-safety{padding-top:16px}#draft-plan-close{min-height:44px;flex-shrink:0}
+@media(max-width:1199px){#draft-conversation #quiet-plan{max-height:none;padding:12px;margin-bottom:8px}#quiet-plan>.full-draft-preview{display:none}.compact-draft-preview{display:grid;gap:6px}.compact-draft-preview h2{font-size:14px;line-height:1.4}.compact-draft-preview p{margin:0;font-size:12px;line-height:1.5}.compact-draft-preview .compact-draft-question{color:var(--text-primary)}.compact-draft-preview button{min-height:44px;text-align:left;color:var(--accent-foreground)}}
+
+/* Larger text keeps a readable transcript; overflow remains reachable. */
+#task-detail.conversation-active .detail-grid{overflow:auto}
+#task-detail.conversation-active .conversation-column{min-height:min-content}
+#task-detail.conversation-active #interview{min-height:120px}
+@media(max-width:759px){#task-detail.conversation-active #interview{min-height:100px}#task-detail.conversation-active .detail-grid{padding-top:4px}#task-detail .context-pane{padding-top:4px}#task-detail .context-pane .detail-tabs{min-height:44px}#task-detail .context-pane .detail-tabs button{min-height:44px;padding-block:6px}#task-detail .context-pane-content .monitor-operational-facts{grid-template-columns:repeat(2,minmax(0,1fr))}#task-detail .context-pane-content .monitor-fact-objective,#task-detail .context-pane-content .monitor-fact-blocker{grid-column:1 / -1}#task-detail .context-pane-content{gap:8px}#task-detail .context-pane-content .task-now-view{padding-top:10px}#task-detail .context-pane-content .monitor-operational-facts .monitor-fact{padding:5px 10px}}
+@media(max-width:759px){#task-detail .context-pane-content .monitor-operational-facts{gap:5px;margin-top:6px}#task-detail #live-mode{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);margin:0}#task-detail .composer-section,#task-detail #live-controls{padding-block:6px 8px}}
+#task-detail.conversation-active #change-text,#draft-conversation #draft-text{min-height:calc(1.5em + 24px);line-height:1.5}
+#draft-conversation .draft-chat-layout{overflow:auto}
+#draft-conversation .draft-chat-column{min-height:calc(120px + 10em);flex:1}
+#draft-conversation .thread-viewport{min-height:120px}
+
+/* Text resizing expands navigation without altering its normal Figma widths. */
+@media(min-width:1051px){.shell-body{grid-template-columns:max(216px,15.428em) minmax(0,1fr)}}
+@media(min-width:760px) and (max-width:1050px){.shell-body{grid-template-columns:max(184px,13.142em) minmax(0,1fr)}}
+
+@media(max-width:759px){
+  .app-shell{grid-template-rows:auto minmax(0,1fr)}
+  .topbar{height:auto;min-height:56px;flex-wrap:wrap;row-gap:4px;padding-block:5px}
+  .topbar .breadcrumb{flex:1 1 8em;min-width:min(8em,calc(100vw - 80px))}
+  .sidebar{top:var(--dashboard-header-height,56px)}
+  .drawer-scrim{top:var(--dashboard-header-height,56px);height:calc(100% - var(--dashboard-header-height,56px))}
+}
+
+/* Work pane: saved task facts, roles and the record-only checklist. */
+#task-detail .work-summary{display:grid;gap:6px;padding:16px 18px;border:1px solid var(--border-subtle);border-radius:12px;background:var(--surface-default);margin:0}
+#task-detail .work-summary h2{font-size:17px;line-height:1.4;margin:0;color:var(--text-primary);overflow-wrap:anywhere}
+#task-detail .work-summary .monitor-kicker{margin:0}
+#task-detail .work-roles{display:grid;gap:3px}
+#task-detail .work-roles p{margin:0;font:12px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,monospace;color:var(--text-secondary);overflow-wrap:anywhere}
+#task-detail .work-checklist{padding:0;border:0;background:transparent;margin:0}
+#task-detail .work-checklist h3{font-size:13px;margin:0 0 6px}
+#task-detail .work-checklist-counts p{margin:0 0 8px;font-size:12px;color:var(--text-secondary)}
+#task-detail .work-checklist-rows{display:grid;gap:2px}
+#task-detail .work-check-row{display:flex;gap:8px;align-items:baseline;font-size:13px;line-height:1.5;color:var(--text-secondary);padding:2px 0}
+#task-detail .work-check-row .work-check-icon{flex:none;font-weight:600;width:1em;text-align:center}
+#task-detail .work-check-row p{margin:0;overflow-wrap:anywhere}
+#task-detail .work-check-row.checked .work-check-icon{color:#15803d}
+#task-detail .work-check-row.checked p{color:var(--text-primary)}
+#task-detail .work-check-row.failed .work-check-icon{color:#b45309}
+[data-theme=dark] #task-detail .work-check-row.checked .work-check-icon{color:#5bb98c}
+[data-theme=dark] #task-detail .work-check-row.failed .work-check-icon{color:#d99a4e}
+
+/* M3 narrow workspace: the project drawer keeps its behavior; the details
+   drawer lifts the artifact pane over the chat at phone widths so the chat
+   transcript and its composer stay mounted, untouched, underneath. */
+#details-drawer-toggle{display:none}
+#details-drawer-close{display:none}
+#details-scrim{display:none}
+@media(max-width:759px){
+  #details-drawer-toggle{display:inline-grid;place-items:center;min-width:44px;min-height:44px;padding-inline:10px;flex-shrink:0}
+  /* The approved mobile navigation row is Projects · title · Details; the sync
+     pill and the desktop-only focus view stay out of the row so the header
+     keeps its single 56 px line. Theme switching lives in the project sheet.
+     The crumb uses a zero flex basis so any restored scope title ellipsizes
+     inside the row instead of wrapping it after a desktop visit. */
+  .topbar .breadcrumb{flex:1 1 0%;min-width:0}
+  #task-detail.conversation-active .detail-grid{grid-template-rows:minmax(0,1fr);overflow:hidden}
+  #task-detail.conversation-active .conversation-column{min-height:0}
+  #task-detail.conversation-active .context-pane{display:none}
+  .app-shell.details-open #task-detail.conversation-active .context-pane{display:flex;position:fixed;top:var(--dashboard-header-height,56px);bottom:0;left:0;right:0;z-index:60;flex-direction:column;background:var(--surface-default);padding:10px 16px 16px;overflow:hidden;box-shadow:12px 0 32px #07111b40}
+  #details-drawer-close{display:inline-flex;align-items:center;justify-content:center;min-height:44px;align-self:flex-end;flex-shrink:0}
+  #task-detail.conversation-active .conversation-column #interview{flex:1 1 auto;min-height:120px;max-height:none;overflow:auto}
+  #details-scrim{display:block;position:fixed;z-index:55;top:var(--dashboard-header-height,56px);left:0;width:100%;height:calc(100% - var(--dashboard-header-height,56px));border:0;border-radius:0;background:#07111b80;opacity:0;pointer-events:none;transition:opacity 160ms ease}
+  .app-shell.details-open #details-scrim{opacity:1;pointer-events:auto}
+}
+
+/* M3 approved-visual layer: the saved Figma chat-first hierarchy (exports
+   422-1495 desktop, 423-306/353/438 mobile). Additive m2b-* tokens keep the
+   pinned semantic variables and every existing gate untouched: the compact
+   dark project sidebar, the foreground conversation with its card composer,
+   the restrained gray Work panel with hairline cards, and the rounded mobile
+   project/details sheets over dimmed chat. */
+:root{
+  --m2b-sidebar-surface:#131b2a;--m2b-sidebar-border:#2a3444;--m2b-sidebar-raised:#1b2a44;--m2b-sidebar-hover:#182338;
+  --m2b-sidebar-text:#e7ecf4;--m2b-sidebar-secondary:#a9b4c6;--m2b-sidebar-muted:#8a94a6;
+  --m2b-sidebar-accent:#7cb0ff;--m2b-sidebar-on-accent:#171c2d;
+  --m2b-action:#6257e8;--m2b-action-text:#6257e8;--m2b-action-tint:#f1f0ff;--m2b-action-tint-text:#4a3fa8;
+  --m2b-bg-app:#f5f6fa;--m2b-hairline:#e3e7ef;--m2b-ink:#20263b;--m2b-secondary:#647087;--m2b-muted:#64748b;
+  --m2b-warning-tint:#3a2c10;--m2b-warning-text:#fbbf24;--m2b-sheet-shadow:0 4px 16px rgba(23,28,46,.06);
+}
+:root[data-theme=dark]{
+  --m2b-action-text:#b3a7f7;--m2b-action-tint:#1d2140;--m2b-action-tint-text:#b3a7f7;
+  --m2b-bg-app:var(--surface-canvas);--m2b-hairline:var(--border-subtle);--m2b-ink:var(--text-primary);--m2b-secondary:var(--text-secondary);
+}
+
+/* Compact dark project sidebar (both themes, per 462:523). */
+.sidebar{background:var(--m2b-sidebar-surface);border-right:1px solid var(--m2b-sidebar-border);color:var(--m2b-sidebar-text);padding:16px 12px 14px;gap:10px}
+.sidebar .brand{padding:2px 10px 8px;gap:9px}
+.sidebar .brand-mark{width:28px;height:28px;border-radius:8px;background:var(--m2b-sidebar-accent);color:var(--m2b-sidebar-on-accent);font-size:10px;font-weight:600;letter-spacing:0;padding:0;display:grid;place-content:center}
+.sidebar .brand-mark>span{display:none}
+.sidebar .brand-name{color:var(--m2b-sidebar-text);font-size:18px;font-weight:700;letter-spacing:-.3px}
+.sidebar .new-task-button{background:var(--m2b-sidebar-accent);border:0;border-radius:9px;color:var(--m2b-sidebar-on-accent);min-height:56px;font-size:13px;font-weight:600;line-height:1.35;display:grid;grid-template-columns:14px minmax(0,1fr);justify-content:start;text-align:left;padding:8px 12px;gap:4px 8px}
+.sidebar .new-task-button>span:first-child{font-size:15px}
+.sidebar .new-task-button kbd{grid-column:2;color:var(--m2b-sidebar-on-accent);opacity:.72;margin-left:0;border:0;background:transparent;font-size:10px}
+.sidebar .new-task-button:hover{background:var(--m2b-sidebar-accent);filter:brightness(1.06)}
+.sidebar .sidebar-label{color:var(--m2b-sidebar-muted);padding-top:8px}
+.sidebar .main-nav button,.sidebar .sidebar-bottom>button{background:transparent;color:var(--m2b-sidebar-secondary)}
+.sidebar .main-nav button:hover,.sidebar .sidebar-bottom>button:hover{background:var(--m2b-sidebar-hover)}
+.sidebar .main-nav button.selected{background:var(--m2b-sidebar-raised);color:var(--m2b-sidebar-text)}
+.sidebar .nav-count{background:transparent;color:var(--m2b-sidebar-muted)}
+.sidebar .sidebar-search{background:transparent;border-color:var(--m2b-sidebar-border);border-radius:8px}
+.sidebar .sidebar-search svg{color:var(--m2b-sidebar-muted)}
+.sidebar .sidebar-search input{color:var(--m2b-sidebar-text)}
+.sidebar .sidebar-search input::placeholder{color:var(--m2b-sidebar-muted)}
+.sidebar .sidebar-search:focus-within{border-color:var(--m2b-sidebar-accent)}
+.sidebar .project-nav .project-group-toggle{color:var(--m2b-sidebar-text)}
+.sidebar .project-nav .project-group-toggle:hover{background:var(--m2b-sidebar-hover)}
+.sidebar .project-nav .project-group-new{color:var(--m2b-sidebar-text);border:1px solid var(--m2b-sidebar-border);background:transparent}
+.sidebar .project-nav .project-group-new:hover{background:var(--m2b-sidebar-hover)}
+.sidebar .project-nav .project-group-chevron{border-top-color:var(--m2b-sidebar-muted)}
+.sidebar .conversation-nav-row{color:var(--m2b-sidebar-secondary)}
+.sidebar .conversation-nav-row:hover{background:var(--m2b-sidebar-hover)}
+.sidebar .conversation-nav-row.selected{background:var(--m2b-sidebar-raised);color:var(--m2b-sidebar-text)}
+.sidebar .conversation-nav-row.selected .conversation-nav-title{font-weight:600}
+.sidebar .sidebar-bottom{border-top:1px solid var(--m2b-sidebar-border)}
+.sidebar .local-status{color:var(--m2b-sidebar-muted)}
+.sidebar .status-dot{background:var(--m2b-sidebar-accent)}
+.sidebar :focus-visible{outline-color:var(--m2b-sidebar-accent);box-shadow:0 0 0 var(--focus-indicator-width) var(--m2b-sidebar-accent)}
+.attention-marker{border-radius:9px;background:var(--m2b-warning-tint);color:var(--m2b-warning-text)}
+[data-theme=dark] .attention-marker{color:var(--m2b-warning-text)}
+
+/* Desktop conversation header: breadcrumb, 25px title, quiet status row. */
+#task-detail .detail-heading{padding-top:2px}
+#task-detail .detail-heading h1{font-size:25px;line-height:38px;font-weight:600;letter-spacing:-.4px}
+#task-detail .detail-heading .eyebrow{letter-spacing:.9px}
+/* 422:1495 task identity block: the back link and the task settings cluster
+   join the heading's own line, so no separate full-width navigation row sits
+   above the title displacing the conversation and Work hierarchy. */
+#task-detail .task-detail-navigation{margin-bottom:0}
+#task-detail.conversation-active .detail-heading>div:first-child{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+#task-detail.conversation-active .detail-heading>div:first-child>h1{flex:1;min-width:0}
+#task-detail.conversation-active .task-detail-navigation{display:flex;align-items:center;gap:8px;flex:none}
+#task-detail.conversation-active .detail-heading{padding-top:0}
+#task-detail.conversation-active .task-now{padding:2px 0 4px}
+
+/* Foreground conversation: generous white column with a card composer. */
+#task-detail.conversation-active .detail-grid{gap:0}
+#task-detail.conversation-active .conversation-column{padding-right:28px}
+#task-detail.conversation-active .conversation-column>#interview{padding:18px 4px 12px}
+#task-detail .chat-message{font-size:13px;line-height:1.7;margin-bottom:20px}
+#task-detail .chat-message.learner{background:var(--m2b-action-tint);border-radius:12px;padding:12px 16px}
+[data-theme=dark] #task-detail .chat-message.learner{color:var(--text-primary)}
+#task-detail .chat-message.pending{background:var(--surface-subtle);border-left-color:var(--m2b-warning-text);border-radius:0 8px 8px 0}
+#task-detail .thread-checkpoint{background:var(--m2b-bg-app);border:1px solid var(--m2b-hairline);border-radius:12px;padding:14px 16px;line-height:1.65}
+/* The composer boundary is a pinned 3:1 non-text gate; its card look comes
+   from the radius and shadow, not a low-contrast hairline. */
+#task-detail .composer{border:1px solid var(--border-control);border-radius:14px;box-shadow:var(--m2b-sheet-shadow);background:var(--surface-default)}
+#task-detail .composer:focus-within{border-color:var(--m2b-action);box-shadow:0 0 0 2px var(--m2b-action-tint)}
+#task-detail .composer-run-controls{gap:8px}
+#task-detail .composer-run-controls button{min-height:44px;border-radius:10px}
+#task-detail .composer-models>summary{min-height:44px;border-radius:10px;order:-1;border:1px solid var(--m2b-hairline);background:var(--surface-default);padding:0 12px;font-size:12px;font-weight:600;color:var(--m2b-ink)}
+
+/* Restrained gray Work panel with hairline cards (422:1613). */
+#task-detail .context-pane{background:var(--m2b-bg-app);border-left:1px solid var(--m2b-hairline);padding:0 20px 20px;gap:10px}
+#task-detail .context-pane .detail-tabs{padding-inline:2px}
+#task-detail .context-pane .detail-tabs button{font-size:12px;color:var(--m2b-secondary)}
+#task-detail .context-pane .detail-tabs button[aria-selected=true]{color:var(--m2b-ink)}
+#task-detail .context-pane-content{gap:10px;padding-top:12px}
+#task-detail .work-summary,#task-detail .work-questions,#task-detail .work-recovery{border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--surface-default);box-shadow:none}
+#task-detail .work-summary{border-left:3px solid var(--m2b-action)}
+#task-detail .work-summary h2{font-size:17px}
+#task-detail .work-summary .monitor-kicker,#task-detail .work-questions .monitor-kicker{color:var(--m2b-action-text);letter-spacing:.9px}
+#task-detail .work-question-rows{display:grid;gap:0}
+#task-detail .work-question-row{padding:10px 0;border-top:1px solid var(--m2b-hairline);display:grid;gap:4px;justify-items:start}
+#task-detail .work-question-row:first-child{border-top:0;padding-top:2px}
+#task-detail .work-question-row p{margin:0;font-size:13px;line-height:1.55;color:var(--m2b-ink)}
+#task-detail .work-question-status{font-size:11px;color:var(--m2b-action-text)}
+#task-detail .work-question-link{color:var(--m2b-action-text);min-height:44px}
+#task-detail .task-now-view .monitor-hero{border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--surface-default);box-shadow:none;padding:14px 16px}
+#task-detail .task-now-view .monitor-hero .monitor-iteration strong{font-size:22px}
+#task-detail .task-now-view .monitor-objective,#task-detail .task-now-view .monitor-next,#task-detail .task-now-view .monitor-activity{border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--surface-default);box-shadow:none}
+
+/* Mobile navigation row (423:306): Projects · title · Details. */
+@media(max-width:759px){
+  .topbar{gap:8px}
+  .topbar .breadcrumb{justify-content:center;text-align:center}
+  .topbar .breadcrumb>span:first-child,.topbar .crumb-divider{display:none}
+  #nav-toggle{width:96px;flex:0 0 auto;border:1px solid var(--m2b-hairline);border-radius:10px;background:var(--surface-default);font-size:13px;font-weight:600;color:var(--m2b-ink)}
+  #nav-toggle [data-icon]{display:none}
+  #nav-toggle .nav-toggle-label{display:inline}
+  #details-drawer-toggle{width:96px;flex:0 0 auto;border:1px solid var(--m2b-hairline);border-radius:10px;background:var(--surface-default);font-size:13px;font-weight:600;color:var(--m2b-ink)}
+  .icon-button{padding-inline:0}
+}
+@media(min-width:760px){#nav-toggle .nav-toggle-label{display:none}}
+
+/* Rounded mobile project sheet (423:438): full-width white sheet with the
+   light hierarchy, over dimmed chat. */
+@media(max-width:759px){
+  .sidebar{left:0;right:0;width:auto;top:calc(var(--dashboard-header-height,56px) + 16px);bottom:0;border-radius:20px 20px 0 0;border:0;transform:translateX(-105%);background:var(--surface-default);color:var(--text-primary);padding:16px 16px 14px;gap:8px;overflow:clip;box-shadow:none}
+  .app-shell.nav-open .sidebar{transform:translateX(0);box-shadow:0 -6px 24px rgba(18,26,41,.14)}
+  .sidebar .brand{display:none}
+  /* Reference 423:438: the sheet header pairs the Projects title with the
+     Close control before the new-conversation action and the search field. */
+  .sidebar .drawer-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+  .sidebar .drawer-heading .drawer-title{margin:0;font-size:20px;line-height:30px;font-weight:600;color:var(--text-primary)}
+  .sidebar #drawer-close{order:0;align-self:auto;min-width:72px;border:1px solid var(--m2b-hairline);border-radius:10px;background:var(--surface-default);color:var(--text-primary);font-size:13px;font-weight:600}
+  .sidebar .new-task-button{background:var(--m2b-action);color:#fff;min-height:44px;border-radius:9px;flex-wrap:nowrap;justify-content:flex-start;text-align:left}
+  .sidebar .new-task-button kbd{grid-column:2;color:#fff;opacity:.85}
+  .sidebar .sidebar-search{border-color:var(--border-control);border-radius:8px}
+  .sidebar .sidebar-search input{color:var(--text-primary)}
+  .sidebar .sidebar-search input::placeholder{color:var(--text-secondary)}
+  .sidebar .sidebar-label{color:var(--text-secondary)}
+  .sidebar .main-nav button,.sidebar .sidebar-bottom>button,.sidebar .conversation-nav-row{color:var(--text-secondary);background:transparent}
+  /* The sheet's utility navigation (All work, Archived, Workspace settings)
+     renders as bordered rows like the reference's Workspace setup entry. */
+  .sidebar .main-nav{order:8}
+  .sidebar .sidebar-bottom{order:9}
+  .sidebar .main-nav button,.sidebar .sidebar-bottom>button{color:var(--text-primary);background:var(--surface-default);border:1px solid var(--m2b-hairline);border-radius:8px;margin-bottom:6px}
+  .sidebar .main-nav button:hover,.sidebar .sidebar-bottom>button:hover,.sidebar .conversation-nav-row:hover{background:var(--surface-subtle)}
+  .sidebar .main-nav button.selected{background:var(--m2b-action-tint);color:var(--m2b-action-tint-text)}
+  .sidebar .nav-count{color:var(--text-secondary)}
+  .sidebar .project-nav .project-group-toggle{color:var(--text-primary)}
+  .sidebar .project-nav .project-group-toggle:hover{background:var(--surface-subtle)}
+  .sidebar .project-nav .project-group-new{color:var(--text-primary);border-color:var(--border-control)}
+  .sidebar .project-nav .project-group-new:hover{background:var(--surface-subtle)}
+  .sidebar .conversation-nav-row.selected{background:var(--m2b-action-tint);color:var(--m2b-action-tint-text)}
+  .sidebar .conversation-nav-row.selected .conversation-nav-title{font-weight:600}
+  .sidebar .sidebar-bottom{border-top:1px solid var(--border-subtle)}
+  .sidebar .local-status{color:var(--text-secondary)}
+  .sidebar .status-dot{background:var(--accent-primary)}
+  .sidebar :focus-visible{outline-color:var(--focus-surface-layer);box-shadow:0 0 0 var(--focus-indicator-width) var(--focus-control-layer)}
+  .drawer-scrim{background:rgba(18,26,41,.28)}
+  #task-detail.conversation-active .conversation-column{padding-right:0}
+  #task-detail .chat-message.learner{background:var(--m2b-action-tint)}
+}
+
+/* Rounded mobile details sheet (423:353): the pane keeps its full-viewport
+   box (chat stays mounted underneath) while its visible surface becomes a
+   partial-height sheet with rounded top corners above dimmed chat. */
+@media(max-width:759px){
+  #details-scrim{background:rgba(18,26,41,.28)}
+  .app-shell.details-open #task-detail.conversation-active .context-pane{background:transparent;padding:0;box-shadow:none}
+  .app-shell.details-open #task-detail.conversation-active .context-pane::before{content:"";position:absolute;left:0;right:0;top:max(120px,22dvh);bottom:0;background:var(--surface-default);border-radius:20px 20px 0 0;box-shadow:0 -6px 24px rgba(18,26,41,.14);pointer-events:none}
+  .app-shell.details-open #task-detail.conversation-active .context-pane{gap:0}
+  .app-shell.details-open #task-detail.conversation-active .context-pane>#details-drawer-close{position:relative;z-index:1;margin:calc(max(120px,22dvh) + 12px) 16px 0 auto;min-width:72px;border:1px solid var(--m2b-hairline);border-radius:10px;background:var(--surface-default);color:var(--text-primary);font-size:13px;font-weight:600}
+  /* 423:353 sheet hierarchy: the pane's lead content (plan revision, title,
+     checklist) starts immediately below the heading row; the pane-switch strip
+     relocates to the sheet's foot as a bottom bar instead of displacing it.
+     DOM (and keyboard) order is unchanged. */
+  .app-shell.details-open #task-detail.conversation-active .context-pane .detail-tabs{position:relative;z-index:1;background:var(--surface-default);order:2;margin-top:auto;padding-inline:16px;border-top:1px solid var(--m2b-hairline);border-bottom:0;border-radius:0}
+  .app-shell.details-open #task-detail.conversation-active .context-pane .context-pane-content{position:relative;z-index:1;background:var(--surface-default);order:1;flex:1;min-height:0;padding:12px 16px 16px}
+}
+
+/* Tablet keeps every operational fact inside the unscrolled pane: the
+   approved paddings are trimmed between the pinned 1024 px checks. */
+@media(min-width:760px) and (max-width:1050px){
+  #task-detail .context-pane{padding:0 12px 12px}
+  #task-detail .context-pane-content{padding-top:2px;gap:6px}
+  #task-detail .context-pane .inspector-content{padding:8px 2px 0}
+  #task-detail .detail-heading h1{font-size:21px;line-height:30px}
+  #task-detail .task-now-view .monitor-hero{padding:10px 12px}
+  #task-detail .work-summary,#task-detail .work-checklist{padding:12px 14px}
+}
+
+/* Keep historical controls in chat without making saved checkpoints the
+   conversation's primary content. The disclosure retains its open state. */
+#task-detail .checkpoint-history{margin:12px 0;border-top:1px solid var(--m2b-hairline)}
+#task-detail .checkpoint-history>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:12px;color:var(--text-secondary)}
+#task-detail #interview .checkpoint-history .session-checkpoints{margin:4px 0 8px}
+#task-detail #interview .chat-message.assistant{background:transparent;border:0;border-radius:0;padding:8px 0;color:var(--text-primary)}
+#task-detail .thread-checkpoint{padding:10px 12px;font-size:12px}
+@media(min-width:760px){
+  #task-detail.conversation-active .conversation-column{background:var(--surface-default)}
+  #task-detail .task-now-view .monitor-hero{padding:12px;gap:8px}
+  #task-detail .task-now-view .monitor-state h2{font-size:17px;line-height:1.4;margin:6px 0 0}
+  #task-detail .context-pane-content .monitor-operational-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  #task-detail .context-pane-content .monitor-operational-facts .monitor-fact{padding:6px 0;border:0;border-radius:0;background:transparent}
+  #task-detail .context-pane-content .monitor-operational-facts .monitor-fact>p:first-child{font-size:12px;line-height:18px;letter-spacing:.04em}
+  #task-detail .context-pane-content .monitor-operational-facts .monitor-fact>p:last-child{font-size:14px;line-height:22px}
+  #task-detail .context-pane-content .monitor-fact-freshness{grid-column:1 / -1}
+}
+
+#task-detail #interview .chat-message.learner{background:var(--m2b-action-tint);border:0;border-radius:12px}
+@media(min-width:760px){
+  #task-detail .context-pane-content .task-now-view{padding-top:0}
+  #task-detail .context-pane-content .task-state-hero{margin-bottom:8px}
+}
+
+/* Chat controls remain distinct and 44px accessible inside one compact
+   composer row. Each primary control still fills its own action slot. */
+.composer-action-slot{display:flex;min-width:0}
+.composer-action-slot:has(>button[hidden]){display:none}
+.composer-action-slot>button{width:100%}
+#task-detail .composer-controls{flex-direction:row;align-items:center;gap:8px}
+#task-detail .composer-run-controls{flex:1;min-width:0;gap:8px;width:auto}
+#task-detail .composer-action-slot{flex:1 1 auto}
+#task-detail .composer-models{flex:0 1 100px}
+#task-detail .composer-models>summary{font-size:11px;line-height:16px;min-height:44px}
+#task-detail .composer-run-controls button{flex:none;min-width:0;max-width:100%;padding:8px 10px;font-size:12px;line-height:16px}
+/* The composer card itself (not the section) carries the border, so the
+   section stays a plain surface around it (422:1602 / 423:343). */
+#task-detail .composer-section{background:transparent;border:0;border-radius:0;padding:8px 0 10px;box-shadow:none}
+#task-detail .plan-revision-label{font-size:12px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:18px}
+#task-detail .brief-header h2{font-size:24px;line-height:1.3;margin-bottom:16px}
+#task-detail .plan-checklist{border:0;box-shadow:none;padding:0;margin:8px 0 20px}
+#task-detail .plan-checklist h3{font-size:12px;text-transform:none;letter-spacing:0}
+#task-detail .plan-checklist .monitor-caption{display:none}
+#task-detail .plan-current-task{background:var(--m2b-action-tint);border-radius:12px;padding:16px;font-size:14px;line-height:1.6;margin-bottom:16px}
+#task-detail .plan-current-task h3{font-size:14px;font-weight:500;margin-bottom:8px}
+#task-detail .plan-current-task p{color:var(--text-secondary)}
+#task-detail .checkpoint-restore-choices{display:grid;gap:4px}
+@media(max-width:759px){
+  #task-detail .composer-section{margin-inline:0;padding:0 0 8px}
+  #task-detail .composer-run-controls button{font-size:11px;padding:6px 10px;min-height:44px}
+}
+
+.details-pane-title{display:none}
+@media(max-width:759px){
+  #details-scrim{top:0;height:100%}
+  .app-shell.details-open #task-detail.conversation-active .context-pane::before{top:calc(max(120px,22dvh) - var(--dashboard-header-height,56px))}
+  .app-shell.details-open #task-detail.conversation-active .context-pane>#details-drawer-close{margin-top:calc(max(120px,22dvh) - var(--dashboard-header-height,56px) + 12px)}
+  .app-shell.details-open .details-pane-title{display:block;position:absolute;z-index:1;left:24px;top:calc(max(120px,22dvh) - var(--dashboard-header-height,56px) + 20px);font-size:20px;line-height:28px}
+}
+
+@media(max-width:759px){
+  /* One compact actions area inside the composer card: the model chip and
+     the run controls share the 44px row; send closes it when it fits. */
+  #task-detail .composer-action-slot{flex:0 1 auto}
+  #task-detail .composer-models{flex:0 1 auto;min-width:0}
+}
+
+/* Preserve the protected mobile primary width inside the composer border.
+   The card's one-pixel outline lies outside the 16px content margins. */
+@media(max-width:759px){
+  #task-detail .composer{padding-inline:0;width:calc(100% + 2px);margin-inline:-1px}
+  #task-detail .composer textarea{padding-inline:12px}
+  #task-detail .composer-run-controls #continue-run{order:0;flex:1 1 100%}
+  #task-detail .composer{column-gap:6px}
+  #task-detail .composer-models{flex:0 1 94px}
+  #task-detail .composer-models>summary{padding-inline:4px;white-space:normal}
+  #task-detail .composer-run-controls #pause-run{flex:0 1 112px;white-space:normal}
+  #task-detail .composer-run-controls #stop-run{flex:0 1 48px;min-width:44px}
+}
+
+/* The mobile conversation uses the reference's white surface and 20px title. */
+@media(max-width:759px){
+  #task-detail.conversation-active,
+  #task-detail.conversation-active .conversation-column{background:var(--surface-default)}
+  #task-detail.conversation-active .detail-heading h1{font-size:20px;line-height:28px}
+}
+
+/* Desktop composer actions share one compact row without moving the real
+   form or run controls out of the chat. The textarea and offered primary
+   continuation retain their full-width rows. */
+@media(min-width:760px){
+  #task-detail .composer{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}
+  #task-detail .composer textarea{flex:1 1 100%;width:100%;min-width:0}
+  #task-detail .composer-controls,
+  #task-detail .composer-run-controls,
+  #task-detail .composer-action-slot,
+  #task-detail #change-form,
+  #task-detail #change-form .composer-bottom{display:contents}
+  #task-detail .composer-run-controls button,
+  #task-detail .composer-bottom button{width:auto;flex:0 1 auto;min-width:44px;margin:0;order:2}
+  #task-detail .composer-models{flex:0 1 100px;order:1;margin-right:auto}
+  #task-detail .composer-run-controls #continue-run{flex:1 1 100%;order:0}
+  #task-detail .task-model-gate{flex:1 1 100%;order:3}
+}
+
+/* Keep the model confirmation popup above the chat when its compact trigger
+   is at the start of the action row, including at mobile widths. */
+#task-detail .composer-models-content{left:0;right:auto}
+
+/* Mobile model popups keep viewport margins whether the trigger follows a
+   full-width continuation or starts the running-task action row. */
+@media(max-width:759px){
+  #task-detail .composer-models-content{position:fixed;left:16px;right:16px;bottom:calc(64px + env(safe-area-inset-bottom));width:auto;max-height:min(480px,60dvh)}
+}
+
+/* Desktop shell per 422-1495: the compact dark sidebar spans the full canvas
+   height and the workspace identity block leads the workspace column. The
+   utility top bar exists only at phone widths (423-306 Projects · title ·
+   Details), so its desktop controls live in the sidebar's utility rows and
+   the task settings menu instead of a full-width toolbar above the sidebar. */
+@media(min-width:760px){
+  .app-shell{grid-template-rows:minmax(0,1fr)}
+  .shell-body{grid-row:1}
+  .topbar{display:none}
+  /* 422:1558 identity block: the project eyebrow leads the heading line at
+     desktop widths; the phone header (423:306) keeps title-first. */
+  #task-detail.conversation-active #task-project{display:block;flex:0 0 100%;min-width:100%;margin:0 0 4px;letter-spacing:.9px}
+  #task-detail.conversation-active .detail-heading>div:first-child{flex-wrap:wrap}
+}
+.sidebar .display-controls{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:6px;padding:0;border:0;flex-shrink:0}
+.sidebar .display-controls button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:9px 10px;border:0;border-radius:6px;background:transparent;color:var(--m2b-sidebar-secondary);font-size:12px;font-weight:500;text-align:left}
+.sidebar .display-controls button:hover{background:var(--m2b-sidebar-hover);color:var(--m2b-sidebar-text)}
+.sidebar .sync-state{display:flex;align-items:center;gap:8px;padding:8px 10px 0;font-size:10px;color:var(--m2b-sidebar-muted);white-space:normal}
+/* The task settings menu hosts the desktop focus-view control beside its
+   archive actions; opened targets keep the 44px minimum. */
+#task-detail .task-detail-navigation .context-menu>div>button{min-height:44px}
+@media(max-width:759px){
+  /* The project sheet (423-438) renders its utilities as bordered rows. */
+  .sidebar .display-controls button{border:1px solid var(--m2b-hairline);border-radius:8px;background:var(--surface-default);color:var(--text-primary);margin-bottom:6px}
+  .sidebar .display-controls button:hover{background:var(--surface-subtle);color:var(--text-primary)}
+  /* Focus view is a desktop working mode; the phone workspace has no persistent sidebar to hide. */
+  #focus-toggle{display:none!important}
+}
+
+/* ==== M3 visual repair: the four reference-mapped hierarchy corrections
+   (422-1495 desktop Work, 423-306 mobile chat, 423-353 Plan sheet,
+   423-438 Projects sheet). Saved content and every control stay; only the
+   visual hierarchy, spacing and wrapping change. ==== */
+
+/* 422-1495: the creation action carries no shortcut letter on its own row;
+   the label wraps exactly as the reference's two-line action does. */
+.sidebar .new-task-button kbd{display:none}
+
+/* 422-1495 Work pane: the Now-working lead card stays compact (448:635 —
+   title, one saved-status line, role attributions), the live checklist is
+   integrated directly beneath it without a second card boundary (448:639 and
+   448:640), and the remaining saved operational facts render in their own
+   restrained section (448:667) instead of enlarging the lead. */
+#task-detail .work-summary{gap:4px;padding:12px 16px}
+#task-detail .work-summary .monitor-state{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+#task-detail .work-summary .monitor-state h2{font-size:13px;line-height:18px;font-weight:600;letter-spacing:-.1px;margin:0;color:var(--m2b-secondary);overflow-wrap:anywhere}
+#task-detail .work-summary .monitor-status-chip{padding:2px 8px;font-size:11px;line-height:16px}
+#task-detail .work-roles{gap:2px;margin-top:2px}
+#task-detail .work-checklist{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;column-gap:10px;row-gap:5px;margin-top:2px}
+#task-detail .work-checklist h3{margin:0;color:var(--m2b-secondary);font-size:11px;font-weight:600;letter-spacing:.9px;text-transform:uppercase;line-height:16px}
+#task-detail .work-checklist-counts{min-width:0}
+#task-detail .work-checklist-counts p{margin:0;font-size:11px;line-height:16px;color:var(--m2b-secondary);letter-spacing:.02em}
+#task-detail .work-checklist-rows{grid-column:1/-1;display:grid;gap:2px}
+#task-detail .work-checklist .monitor-caption{grid-column:1/-1;margin:0}
+#task-detail .work-check-row{padding:3px 0}
+#task-detail .work-facts{display:grid;gap:5px;padding:12px 16px 10px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--surface-default);box-shadow:none;margin:0}
+#task-detail .work-facts .monitor-kicker{margin:0;color:var(--m2b-secondary)}
+#task-detail .work-facts .monitor-fact-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 20px;margin:0}
+#task-detail .work-facts .monitor-fact{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;padding:0;border:0;border-radius:0;background:transparent}
+#task-detail .work-facts .monitor-fact>p:first-child{flex:none;margin:0;font-size:12px;line-height:18px;font-weight:600;color:var(--m2b-secondary);letter-spacing:.02em}
+#task-detail .work-facts .monitor-fact>p:last-child{flex:1 1 14em;min-width:0;margin:0;font-size:14px;line-height:20px;font-weight:400;color:var(--m2b-ink);overflow-wrap:anywhere}
+#task-detail .work-facts .monitor-fact-objective{grid-column:1/-1}
+#task-detail .work-facts .monitor-objective-detail{margin:0}
+#task-detail .work-facts .recovery-order,
+#task-detail .work-facts .completion-record,
+#task-detail .work-facts .completion-evidence{margin:2px 0 0}
+@media(max-width:759px){
+  #task-detail .work-facts .monitor-fact-grid{grid-template-columns:minmax(0,1fr)}
+  #task-detail .work-summary{padding:12px 14px}
+}
+
+/* Narrow context panes keep every saved fact inside the unscrolled fold (the
+   pinned a11y gate measures state/step/objective/blocker/role/freshness
+   without scrolling): below the desktop design width the compact facts
+   section moves ahead of the checklist. The desktop 422-1495 hierarchy —
+   lead, integrated checklist, then the verification-style facts section —
+   is unchanged at wider panes. */
+@media(max-width:1199px){
+  #task-detail .task-now-view{display:flex;flex-direction:column;gap:8px}
+  #task-detail .task-now-view>.work-summary{order:0}
+  #task-detail .task-now-view>.work-facts{order:1}
+  #task-detail .task-now-view>.work-recovery{order:2}
+  #task-detail .task-now-view>.work-checklist{order:3}
+  #task-detail .task-now-view>.answer-safety{order:4}
+  #task-detail .task-now-view>.decision-card{order:5}
+  #task-detail .task-now-view>.work-questions{order:6}
+  #task-detail .task-now-view>.task-path{order:7}
+  #task-detail .task-now-view>.workflow-models-panel{order:8}
+  /* The pinned a11y fold gate measures every fact unscrolled, so narrow
+     panes compact the same compact composition instead of hiding data. */
+  #task-detail .work-summary{padding:10px 12px}
+  #task-detail .work-summary .monitor-state h2{line-height:16px}
+  #task-detail .work-facts{gap:3px;padding:8px 12px 6px}
+  #task-detail .work-facts .monitor-fact-grid{grid-template-columns:minmax(0,1fr);gap:1px}
+  #task-detail .work-facts .monitor-fact>p:last-child{line-height:18px}
+  #task-detail .context-pane .context-pane-content{padding-top:8px}
+}
+
+/* 422:1602 desktop composer placement: the saved delivery hint returns as
+   the card's meta row and the card regains the reference height, so its top
+   edge returns to the reference position (export y=506 at the 1024/1440
+   matched scale) without touching the compact one-row actions — Send, Pause,
+   Stop and the model chip stay on their single 44px row. */
+@media(min-width:760px){
+  #task-detail.conversation-active #live-controls{padding:0 0 32px}
+  #task-detail #live-mode{margin:0}
+  #task-detail .composer{padding:16px}
+  #task-detail #change-form .composer-bottom>span{display:block;flex:1 1 100%;max-width:none;margin:0;font-size:11px;line-height:17px;color:var(--m2b-secondary)}
+  #task-detail.conversation-active #change-text{height:48px;min-height:48px}
+}
+
+/* 423-306 mobile chat: one status lead line under the title. The header badge
+   becomes the plain accent status line; the sentence row stays in the DOM
+   (announced and probed) but no longer adds a second visible line. */
+@media(max-width:759px){
+  #task-detail.conversation-active #task-status .badge{background:transparent;border:0;color:var(--m2b-action-text);padding:0;font-size:12px;font-weight:600;line-height:18px}
+  #task-detail.conversation-active .detail-heading{gap:4px}
+  #task-detail.conversation-active .task-now{padding:0 0 2px}
+  #task-detail.conversation-active .task-now #task-subtitle{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  /* 423-343 composer: the delivery line returns as the card's meta row and
+     the input grows, so the card reaches the reference height and its top
+     edge returns to the reference position. */
+  #task-detail #change-form .composer-bottom>span{display:block;flex:0 0 100%;max-width:none;margin:0;padding:0 12px;font-size:11px;line-height:18px;color:var(--m2b-secondary)}
+  #task-detail.conversation-active #change-text{height:56px;min-height:56px}
+  #task-detail .composer{row-gap:7px}
+}
+
+/* 423-353 Plan sheet: revision, title and checklist sit under the sheet
+   heading at the reference rhythm — 12 px version label, 24 px title,
+   reference-density 43.5 px checklist rows (12 px row padding), then the
+   tinted current-task card; the pane-switch strip keeps its sheet-foot
+   position. Anchored to the reference sheet top (~185): revision ~277,
+   title ~312, rows ~408-669, card ~703. */
+@media(max-width:759px){
+  .app-shell.details-open #task-detail.conversation-active .context-pane .context-pane-content{padding-top:6px}
+  .app-shell.details-open #task-detail.conversation-active .context-pane .inspector-content{padding:0 0 2px}
+  #task-detail .plan-revision-label{margin:28px 0 8px;letter-spacing:.02em}
+  #task-detail .brief-header h2{margin-bottom:8px}
+  #task-detail .plan-checklist{margin:14px 0 34px}
+  #task-detail .plan-checklist h3{margin:0 0 4px}
+  #task-detail .plan-checklist .work-checklist-counts p{margin-bottom:6px}
+  #task-detail .plan-checklist .work-checklist-rows{gap:0}
+  #task-detail .plan-checklist .work-check-row{padding:12px 10px}
+  #task-detail .plan-checklist .monitor-caption{margin-top:4px}
+  #task-detail .plan-current-task{margin-bottom:14px;padding:14px 16px;background:var(--m2b-action-tint);border:1px solid var(--m2b-hairline);border-radius:12px}
+}
+
+/* 423-438 Projects sheet: the creation label is one line at the reference
+   44 px height, and the sheet's utility density matches the reference — the
+   navigation and settings rows stay, the archive/theme/status extras do not. */
+@media(max-width:759px){
+  .sidebar .new-task-button{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;min-height:44px;grid-template-columns:none;padding:0 12px}
+  .sidebar .new-task-button>span:first-child{font-size:15px}
+  .sidebar #new-task-scope-label{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sidebar .main-nav{order:8}
+  .sidebar .sidebar-bottom{order:9;border-top:0;padding-top:0}
+  .sidebar .sidebar-bottom>[data-view="archived"]{display:none}
+  .sidebar .display-controls{display:none}
+  .sidebar .local-status{display:none}
+  .sidebar .sync-state{display:none}
+}
+
+/* Tablet font metrics can wrap the waiting summary onto an extra line.
+   Keep readable fact sizes and leave room above the pane's bottom edge. */
+@media(min-width:760px) and (max-width:1050px){
+  #task-detail .context-pane .context-pane-content{padding-top:2px}
+  #task-detail .work-summary{padding:8px 12px}
+}
+
+/* Task input classification and explicit plan-change decisions stay in chat. */
+#task-detail #interview .chat-intent{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding:12px;border:1px solid var(--border-subtle);border-radius:10px;background:var(--surface-default);color:var(--text-primary)}
+#task-detail #interview .chat-intent>p{flex-basis:100%;margin:0}
+#task-detail #interview .chat-intent button{min-height:44px;min-width:44px;padding:10px 12px;white-space:normal;text-align:left}
+
+/* Saved counts stay available without expanding the transcript header. */
+#task-progress-summary{display:block;width:100%;max-width:100%;min-width:0;min-height:44px;padding:4px 8px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--text-secondary);background:var(--surface-default);border:1px solid var(--border-subtle);border-radius:8px}
+#task-progress-summary[hidden]{display:none}
+#task-detail .work-task-list{margin:8px 0}
+#task-detail .work-task-list>summary{min-height:44px;display:flex;align-items:center;cursor:pointer}
+#task-detail .work-task-rows{padding-left:20px;margin:8px 0}
+#task-detail .work-task-rows li{padding:6px 0;overflow-wrap:anywhere}
+#task-detail .work-task-rows small{display:block;color:var(--text-secondary)}
+#task-detail .work-detail-link{min-height:44px;padding:4px 0;text-align:left;white-space:normal;overflow-wrap:anywhere}
+#task-detail .problem-detail{border:1px solid var(--border-subtle);border-radius:8px;padding:12px;margin-block:8px}
+
+/* Status and blockers stay above arbitrarily long task and requirement lists. */
+#task-detail .task-now-view{display:flex;flex-direction:column;gap:8px}
+#task-detail .task-now-view>.work-summary{order:0}
+#task-detail .task-now-view>.work-facts{order:1}
+#task-detail .task-now-view>.work-recovery{order:2}
+#task-detail .task-now-view>.work-checklist{order:3}
+#task-detail .task-now-view>.answer-safety{order:4}
+#task-detail .task-now-view>.decision-card{order:5}
+#task-detail .task-now-view>.work-questions{order:6}
+#task-detail .task-now-view>.task-path{order:7}
+#task-detail .task-now-view>.workflow-models-panel{order:8}
+#task-detail .work-checklist>details{grid-column:1/-1}
+
+/* The task title is already visible above the pane. On tablets, avoid
+   repeating it so the saved worker status and blockers remain in view. */
+@media(min-width:760px) and (max-width:1050px){
+  #task-detail .task-now-view>.work-summary>h2{display:none}
+}
+
+.question-answer-form{display:grid;gap:8px;margin-top:14px}
+.question-answer-form label{font-size:12px;font-weight:600;margin:0}
+.question-answer-form textarea{width:100%;min-height:72px;max-height:180px;resize:vertical;font:inherit;padding:10px 12px;border:1px solid var(--border-control);border-radius:8px;background:var(--surface-default);color:var(--text-primary)}
+.question-answer-form .question-answer-submit{justify-self:start;min-height:44px;margin:0}
+.answer-history{margin-block:12px;border-block:1px solid var(--border-subtle);padding-block:8px}
+.answer-history>summary{min-height:44px;display:flex;align-items:center;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.answer-history-content{padding-block:12px}
+.answer-history .answer-provenance{margin:0 0 16px;text-align:right;font-size:11px}
+
+.screenshot-evidence{padding:16px;border:1px solid var(--line);border-radius:12px;margin:16px 0;background:var(--paper)}
+.screenshot-evidence img{display:block;max-width:100%;max-height:320px;object-fit:contain;margin:12px 0}
+.screenshot-evidence .text-button{min-height:44px;display:inline-flex;align-items:center;margin-right:8px}
+
+/* Setup actions live in the chat; narrow screens keep every control reachable. */
+.workspace-setup-card{max-width:100%;padding:24px;border:1px solid var(--border,#dfe4ed);border-radius:16px;background:var(--panel,#fff)}
+.workspace-setup-card h2{font-size:22px;margin:6px 0 12px}
+.workspace-setup-card h3{margin-top:24px}
+.workspace-setup-card label{display:block;margin:16px 0 6px;font-weight:600}
+.workspace-setup-card input,.workspace-setup-card select{width:100%;min-width:0;box-sizing:border-box;min-height:44px}
+.workspace-setup-card button,.workspace-setup-card summary{min-height:44px;margin-top:12px}
+.workspace-setup-card p,.workspace-setup-card li{overflow-wrap:anywhere}
+.workspace-setup-card ul{padding-left:20px}.workspace-setup-card li{margin:12px 0}
+.workspace-setup-card li p{margin:4px 0}.workspace-setup-card [data-check-status="missing"] strong{color:var(--danger,#b42318)}
+.workspace-setup-card .role-selects{grid-template-columns:1fr}
+@media(max-width:600px){.workspace-setup-card{padding:16px}.workspace-setup-card h2{font-size:20px}}
+
+/* Checkpoint confirmations remain in the conversation, with mobile touch targets. */
+.code-checkpoints{display:grid;gap:12px;margin:20px 0;min-width:0}.code-checkpoint,.checkpoint-confirmation,.checkpoint-lineage{border:1px solid var(--line,#e3e5ed);border-radius:12px;padding:16px;background:var(--surface,#fff);min-width:0;overflow-wrap:anywhere}.code-checkpoint h4,.checkpoint-confirmation h4{margin:0 0 8px}.code-checkpoint button,.checkpoint-confirmation button,.checkpoint-lineage button{min-height:44px;margin:4px 8px 4px 0}.checkpoint-confirmation{border-color:#7183c4;background:#f7f8ff}#checkpoint-comparison{margin-bottom:20px}#checkpoint-comparison pre{max-width:100%;overflow:auto;white-space:pre}
+
+/* At the native desktop design size, keep the approved 422:1495 hierarchy.
+   Narrow panes retain their operational-facts-first responsive treatment. */
+@media(min-width:1200px){
+  #task-detail .task-now-view>.work-checklist{order:1}
+  #task-detail .task-now-view>.work-recovery{order:2}
+  #task-detail .task-now-view>.work-facts{order:3}
+}
+
+#task-detail .work-requirement-list>summary{min-height:44px;display:flex;align-items:center}
+#task-detail .work-requirement-list[open] .work-checklist-rows{max-height:300px;overflow:auto;overscroll-behavior:contain;padding:4px}
+
+/* Native approved desktop geometry, 422:1495 and 462:523 (220px sidebar).
+   Earlier 216px assertions described the retired prototype, not this frame. */
+@media(min-width:1051px){.shell-body{grid-template-columns:max(220px,15.714em) minmax(0,1fr)}}
+.sidebar .sync-state img{flex:none;display:block}
+#task-detail .assistant>.speaker:before{content:attr(data-initials);width:24px;height:24px;border-radius:50%;background:#eef1f5;color:var(--m2b-secondary);font-size:12px;font-weight:600}
+[data-theme=dark] #task-detail .assistant>.speaker:before{background:var(--surface-subtle);color:var(--text-secondary)}

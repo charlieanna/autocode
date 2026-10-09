@@ -1,0 +1,14 @@
+{
+  "verdict": "approve",
+  "findings": [
+    {
+      "id": "S1",
+      "severity": "advisory",
+      "file": "regclient/client.py",
+      "lines": [17, 19],
+      "summary": "sleep defaults to time.sleep; a test that forgets to inject a sleep will wait for real on .com/.net/.org backoffs.",
+      "evidence": "Constructor default; the PR's own tests inject a no-op sleep everywhere."
+    }
+  ],
+  "tests_run": ["python3 -m unittest discover -s tests -t . (with pr-191.patch applied, in a scratch copy): 10 tests OK, including timeout-after-execution and .de never retried"]
+}

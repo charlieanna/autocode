@@ -1,0 +1,44 @@
+title = "Refusal tests that also pass on the original code reach AutoResolver"
+category = "feature"
+# Issue #59: does AutoResolver diagnose a real failure correctly? The failure is natural, not
+# scripted: on the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and
+# never touches stock.json. A refusal test that asserts only exit 2, some stderr and unchanged bytes
+# passes there too, and the runner's model-free regression proof rejects it ("Test case Cn ... did
+# not pass without it", the test listed under pass_to_pass).
+#
+# Deliberate nudge, disclosed: the seed's only refusal test is written in exactly that style, so a
+# Builder that follows the seed's tests writes vacuous refusal tests. The product code is easy, and the seed's
+# helpers are correct: quantity() takes ASCII digits only and refuses what int() cannot read, and load() refuses a
+# JSON true. Until 2026-10-05 they were not ("²" crashed, "٣" read as 3, true passed as 1), and all six hybrid
+# Resolvers rightly put stock.py in scope.
+#
+# Routing basis: a Completion REWORK goes straight back to the Builder (#294, autocode_rework_policy)
+# only after a Validator FAIL backed by an executed failing check whose receipt is in the run's own
+# evidence. Here the project's tests pass, and on the claude provider check receipts are
+# workspace-shared captures, which also need AutoResolver. The 2026-10-04 claude-tiers runs of
+# greenfield-todo-cli reached astra_resolve the same way, on usage-error tests that passed without
+# todo.py.
+#
+# oracle.py's check() judges the product only. Its diagnosis() scores the first accepted Resolver call
+# at the failed proof's revision against the proof's own record, apart from the run verdict
+# (scenarios/README.md, "Diagnosis").
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+fault = "vacuous_refusal_tests"
+
+# Hybrid route (run --profile NAME --hybrid; harness/hybrid.py). In six live claude-tiers runs (2026-10-05) no
+# Builder wrote the vacuous tests, so the trap never fired. A hybrid run scripts the planning stages (the plan's
+# cases name the tests: "test: test_c3_..." for each reference test) and the first Builder, which delivers
+# broken/vacuous-refusal-tests (correct stock.py, refusal tests that also pass on the original code). The
+# regression proof then fails on those planned cases by construction, and every later call is live: the
+# Validator, the Completion Owner, AutoResolver and the repair Builder.
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
+            "astra_finalize"]
+first_attempt = ["terra"]
+
+[run]
+requires_stages = ["astra_resolve"]
+timeout_minutes = 60
+max_steps = 30

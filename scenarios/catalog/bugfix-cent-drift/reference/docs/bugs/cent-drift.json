@@ -1,0 +1,9 @@
+{
+  "observed": "The amount charged to the card sometimes differs by a cent from the invoice total, and refunding every line of an order can refund more or less than was charged.",
+  "reproduction": "3 x 19.99 at 10% off: build_invoice(...).total == 58.42 but charge_amount(...) == 58.43; refund_line returns unrounded floats such as 58.4257725 (tests/test_cent_drift.py, failing before the fix).",
+  "root_cause": "Each module does its own float arithmetic and rounds at a different point: invoice rounds each line and its tax, payment rounds once on the unrounded subtotal plus tax, and refunds never round. Python's round() on binary floats is also not the half-up rule accounting requires. The modules therefore disagree by a cent.",
+  "affected_paths": ["billing/cart.py", "billing/tax.py", "billing/invoice.py", "billing/payment.py", "billing/refunds.py"],
+  "invariant": "Every invoiced, charged and refunded amount is whole cents rounded half up; the charge equals the invoice total; each line's refund is its amount plus its tax, and all refunds sum to the charge.",
+  "fix_size": "large",
+  "fix": "Add one money module (exact Decimal, half-up to the cent); compute every amount once in the invoice and derive the charge and refunds from it."
+}

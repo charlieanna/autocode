@@ -18,6 +18,23 @@ import threading
 import time
 
 
+IDLE_REASON = "No new provider activity within the inactivity limit"
+CHANGE_IDLE_LIMIT = "change it with autocode resume --max-idle-seconds N"
+# A workflow job's exact retry is bound to the limits it ran under (autocode_job_failure), so
+# changing the limit on resume would only make that retry stale.
+JOB_IDLE_LIMIT = "an exact job retry runs under the same limit; a different limit needs a new run"
+# AutoResolver extends only time, iteration and planning budgets, never this limit (autocode_budget_recovery).
+_ORIGINS = {"runner_default": "runner default", "user_explicit": "set explicitly",
+            "resolver_delegated": "delegated to AutoResolver, which does not change it"}
+
+
+def idle_timeout_reason(limit, origin=None, hint=CHANGE_IDLE_LIMIT):
+    """Operator text for an idle stop: the limit, where it came from and what to do about it."""
+    source = f", {_ORIGINS.get(origin, origin)}" if origin else ""
+    advice = f"; {hint}" if hint else ""
+    return f"{IDLE_REASON} ({limit:g} seconds{source}{advice})"
+
+
 class _ProjectedJsonLine:
     """Validate a JSONL record while bounding retained string-token contents.
 
@@ -116,19 +133,24 @@ class ActivityMonitor:
     }
 
     def __init__(self, events_path, *, idle_seconds=300, tool_seconds=1800,
-                 clock=time.monotonic):
+                 clock=time.monotonic, reporter=None, idle_origin=None, idle_hint=CHANGE_IDLE_LIMIT):
         self.path = Path(events_path)
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))
+        self.idle_origin = idle_origin
+        self.idle_hint = idle_hint
         self.clock = clock
+        self._reporter = reporter
         self._lock = threading.RLock()
         self._last_activity = clock()
+        self._longest_idle = 0
         self._provider_active = False
         self._offset = 0
         self._file_identity = None
         self._line = None
         self._seen = set()
         self._text_items = {}
+        self._stream_items = {}
         self._active = {}
         self._closed = set()
         self._explicit_starts = False
@@ -150,6 +172,10 @@ class ActivityMonitor:
         self._last_activity = now
         self._provider_active = provider
 
+    def _report(self, kind, detail):
+        if self._reporter is not None:
+            self._reporter(kind, detail)
+
     @staticmethod
     def _identifier(value):
         return value if isinstance(value, str) and value else None
@@ -166,6 +192,7 @@ class ActivityMonitor:
                 return
             self._active[key] = (now, label)
             self._activity(now)
+            self._report("tool", f"{label} started")
         elif phase == "complete":
             if key in self._closed:
                 return
@@ -174,6 +201,7 @@ class ActivityMonitor:
                 self._closed.add(key)
             if self._new("complete:" + key) or was_active:
                 self._activity(now)
+                self._report("tool", f"{label} finished")
                 if not self._explicit_starts and self._fallback_started is not None:
                     # Completion-only providers may keep helper processes alive
                     # across many tools. A real new completion proves an end to
@@ -198,11 +226,44 @@ class ActivityMonitor:
         suffix_new = self._new("text:" + suffix.strip()) if suffix.strip() != value.strip() else full_new
         if full_new and suffix_new and suffix.strip():
             self._activity(now, provider=True)
+            self._report("text", suffix)
+
+    def _stream_progress(self, row, now):
+        """Native progress hashes are liveness, never report or command evidence."""
+        value = row.get("progress")
+        session = self._identifier(row.get("sessionID"))
+        if type(row.get("version")) is not int or row["version"] != 1 or not session or not isinstance(value, dict):
+            return
+        identifier = self._identifier(value.get("id"))
+        position, kind = value.get("position"), value.get("kind")
+        hashes = [value.get("content_hash"), value.get("delta_hash")]
+        if (not identifier or kind not in ("text", "reasoning") or value.get("nonwhite") is not True
+                or type(position) is not int or not 0 < position <= 2**53 - 1
+                or any(not isinstance(h, str) or len(h) != 64
+                       or any(c not in "0123456789abcdef" for c in h) for h in hashes)):
+            return
+        key = self._digest(session + "\0" + identifier)
+        previous = self._stream_items.get(key)
+        if previous and (position <= previous[0] or kind != previous[1]):
+            return
+        if previous is None and len(self._stream_items) >= self.MAX_ITEMS:
+            return
+        self._stream_items[key] = (position, kind)
+        # Both the bounded content window and its new suffix must be new.
+        # New counters or IDs cannot turn repeated content into fresh activity.
+        content_new = self._new("progress:" + hashes[0])
+        delta_new = self._new("progress:" + hashes[1]) if hashes[1] != hashes[0] else content_new
+        if content_new and delta_new:
+            self._activity(now, provider=True)
+            self._report("progress", "native provider stream advanced")
 
     def _event(self, row, now):
         if not isinstance(row, dict):
             return
         event_type = row.get("type")
+        if event_type == "autocode_progress":
+            self._stream_progress(row, now)
+            return
         item = row.get("item")
         if isinstance(item, dict) and event_type in ("item.started", "item.updated", "item.completed"):
             kind = item.get("type")
@@ -293,6 +354,7 @@ class ActivityMonitor:
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
+            idle = None if self._tool_elapsed(now) is not None else now - self._last_activity
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:
                 rows = processes.values() if isinstance(processes, dict) else processes
@@ -305,6 +367,9 @@ class ActivityMonitor:
                 elif not descendants and self._fallback_started is not None:
                     self._fallback_started = None
                     self._activity(now)
+            if idle is not None and (self._last_activity == now or self._tool_elapsed(now) is not None):
+                # Only a quiet period that has ended; the open one is idle_seconds.
+                self._longest_idle = max(self._longest_idle, idle)
             return self._snapshot(now)
 
     def _tool_elapsed(self, now):
@@ -319,8 +384,12 @@ class ActivityMonitor:
             if self.tool_limit and elapsed >= self.tool_limit:
                 return {"kind": "tool", "reason": "Tool execution exceeded its fixed time limit"}
         elif self.idle_limit and now - self._last_activity >= self.idle_limit:
-            return {"kind": "idle", "reason": "No new provider activity within the inactivity limit"}
+            return {"kind": "idle", "reason": self.idle_reason()}
         return None
+
+    def idle_reason(self, limit=None):
+        """This stage's idle-stop text; the process supervisor uses it too when it stops the stage first."""
+        return idle_timeout_reason(self.idle_limit if limit is None else limit, self.idle_origin, self.idle_hint)
 
     def expired(self):
         with self._lock:
@@ -341,9 +410,10 @@ class ActivityMonitor:
             activity, detail = "waiting_for_provider", "waiting for new provider activity"
         return {"activity": activity, "detail": detail,
                 "idle_seconds": round(max(0, now - self._last_activity), 3),
+                "longest_idle_seconds": round(self._longest_idle, 3),
                 "tool_elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
                 "idle_limit_seconds": self.idle_limit, "tool_limit_seconds": self.tool_limit,
-                "active_tool_count": len(self._active),
+                "active_tool_count": len(self._active), "completed_tool_count": len(self._closed),
                 "process_fallback": self._fallback_started is not None}
 
     def snapshot(self):

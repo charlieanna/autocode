@@ -1,0 +1,5 @@
+title = "Convert temperatures with explicit input validation"
+category = "greenfield"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

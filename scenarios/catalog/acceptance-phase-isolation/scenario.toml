@@ -1,0 +1,5 @@
+title = "Keep acceptance phases isolated and retain swallowed transport refusals"
+category = "bugfix"
+
+[fake]
+check = "python3 -c \"import json; assert json.load(open('phase_policy.json'))['isolate']\""

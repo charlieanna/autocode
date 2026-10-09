@@ -1,0 +1,12 @@
+title = "A three-line fix, through the full bug-fix path"
+category = "bugfix"
+# An off-by-one in page_count. Correctness is the easy part (hidden tests
+# cover every small total/size pair, so `// size + 1` fails on exact
+# multiples). It takes the full path: diagnosis, Planner, Plan Reviewer, the
+# user's approval, no requirements gathering, no questions. Proportionality (no
+# plan-review rounds, at most five model stages) comes back with the short path.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+# Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
+probe = 'python3 -c "from pager import page_count; assert page_count(5, 2) == 2"'

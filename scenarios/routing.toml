@@ -1,0 +1,67 @@
+# One-line prompts, as a user would type them into one AutoCode chat, and the
+# workflow AutoCode should recognize for each without being told a mode.
+# `scenarios/run.py route --fake` starts each one in the seed workspace, lets
+# AutoCode run one stage, and reads `workflow` from the status view.
+#
+# Workflows (scenarios/README.md, "Workflows"):
+#   build     something new or changed: requirements → plan → build → test → review
+#   bugfix    a reported misbehavior: investigate → diagnose → fix → test → review
+#   review    judge an existing change: review → test where useful → findings
+#   design    judge or produce an architecture: understand → challenge → design
+#   discuss   a question or tradeoff: investigate/architect → conversation, no code
+
+seed = "review-planted-defects"
+
+[[prompt]]
+text = "Add support for registry-specific retry policies; different registries have different retryable errors and limits."
+workflow = "build"
+
+[[prompt]]
+text = "I want a small CLI that prints which registries are currently in maintenance."
+workflow = "build"
+
+[[prompt]]
+text = "Occasionally we send the same command twice after a timeout. Figure out why and fix it."
+workflow = "bugfix"
+
+[[prompt]]
+text = "Why are retries creating duplicates?"
+workflow = "bugfix"
+
+[[prompt]]
+text = "The .de policy stopped being applied after last week's change; it should never retry."
+workflow = "bugfix"
+
+[[prompt]]
+text = "Review pr-184.patch before I merge it."
+workflow = "review"
+
+[[prompt]]
+text = "Can you look over the change in pr-184.patch and tell me if it's safe?"
+workflow = "review"
+
+[[prompt]]
+text = "Review this design for moving registry event processing to a message queue: docs/design/queue.md"
+workflow = "design"
+
+[[prompt]]
+text = "Design how retry policies should be configured per registry; don't implement anything yet."
+workflow = "design"
+
+[[prompt]]
+text = "Should the retry policy table live in code or in a config file?"
+workflow = "discuss"
+
+# An architecture choice with a requested decision note is still discuss: the user wants an answer
+# written down, not a design produced (openai-only misrouted this shape to design on 2026-09-28).
+[[prompt]]
+text = "Should the retry state stay in memory or move to a shared file on the host? I want the analysis, not code, written to docs/decisions/retry-state.json with the tradeoffs."
+workflow = "discuss"
+
+[[prompt]]
+text = "Why does the client have both a per-attempt timeout and an overall deadline?"
+workflow = "discuss"
+
+[[prompt]]
+text = "What would break if we removed the reconcile step after a timeout?"
+workflow = "discuss"

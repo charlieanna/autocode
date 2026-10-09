@@ -1,0 +1,5 @@
+title = "Outbox query limits exceed SQLite integer bindings"
+category = "bugfix"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

@@ -1,0 +1,39 @@
+title = "Four-milestone diamond built by parallel Builders"
+category = "parallel"
+# Ported from tools/live_scenarios.py LIVE-06 (oracle FX06). B and C are
+# independent and own disjoint paths, so AutoCode may build them in parallel.
+#
+# The scripted rehearsal: the fake plans the same four-milestone diamond and
+# each Builder applies only its own milestone's files, so AutoCode's real
+# orchestrator schedules B and C as one parallel batch in isolated worktrees.
+[fake]
+check = "python3 -c \"import json;t=json.load(open('dependency_trace.json'));assert sorted(map(tuple,t['edges']))==[('A','B'),('A','C'),('B','D'),('C','D')];s=json.load(open('contract/schema.json'));assert {'node','edges'}<=set(s);from integration.check import check;assert isinstance(check(),str)\""
+flags = ["--milestone-checkpoints"]
+
+[[fake.milestones]]
+id = "A"
+depends_on = []
+paths = ["contract/schema.json", "dependency_trace.json"]
+objective = "Write contract/schema.json and dependency_trace.json describing the four prerequisite pairs"
+verify = "python3 -c \"import json;t=json.load(open('dependency_trace.json'));assert sorted(map(tuple,t['edges']))==[('A','B'),('A','C'),('B','D'),('C','D')];s=json.load(open('contract/schema.json'));assert {'node','edges'}<=set(s)\""
+
+[[fake.milestones]]
+id = "B"
+depends_on = ["A"]
+paths = ["server/handler.py"]
+objective = "Write server/handler.py: handle(node) returns a string"
+verify = "python3 -c \"from server.handler import handle;assert isinstance(handle('x'),str)\""
+
+[[fake.milestones]]
+id = "C"
+depends_on = ["A"]
+paths = ["client/fetch.py"]
+objective = "Write client/fetch.py: fetch(node) returns a string"
+verify = "python3 -c \"from client.fetch import fetch;assert isinstance(fetch('x'),str)\""
+
+[[fake.milestones]]
+id = "D"
+depends_on = ["B", "C"]
+paths = ["integration/check.py"]
+objective = "Write integration/check.py: check() exercises handle() and fetch() together"
+verify = "python3 -c \"from integration.check import check;assert isinstance(check(),str)\""

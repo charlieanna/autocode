@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from test_chat_bridge import ChatFixture
-from agent_console import Console, Handler, ThreadingHTTPServer
+from agent_console import Console, Handler, LoopbackHTTPServer
 
 
 class ProjectRemovalFixture(ChatFixture):
@@ -65,6 +65,46 @@ class ProjectRemovalTests(ProjectRemovalFixture, unittest.TestCase):
         self.restore()
         self.assertEqual(doc['id'], self.console.conversation_list()[0]['id'])
         self.assertEqual(before, self.console.conversation_get(doc['id'])['messages'])
+
+    def test_root_removal_hides_linked_worktree_chat_and_rejects_messages(self):
+        doc = self.create_conversation('Keep the linked discussion')
+        child = self.root / 'managed-child'
+        child.mkdir()
+        self.console.conversations.update(doc['id'], attachment={
+            'status': 'linked', 'project_workspace': str(self.workspace),
+            'workspace': str(child), 'run': str(child / '.autocode/runs/example')})
+        before = self.console.conversations.get(doc['id'])['messages']
+        self.remove()
+        self.assertEqual([], self.console.conversation_list())
+        self.assertEqual([], self.console.dashboard_snapshot()['conversations'])
+        self.assertTrue(self.console.conversation_get(doc['id'])['project_removed'])
+        with self.assertRaisesRegex(ValueError, 'removed'):
+            self.console.require_unarchived_conversation(doc['id'])
+        self.restore()
+        self.assertEqual(before, self.console.conversations.get(doc['id'])['messages'])
+        self.assertEqual(doc['id'], self.console.conversation_list()[0]['id'])
+        self.assertTrue(child.exists())
+
+    def test_root_removal_hides_task_worktree_and_blocks_direct_actions(self):
+        child = self.root / 'task-worktree'
+        (child / '.git').mkdir(parents=True)
+        run = child / '.autocode/runs/child'
+        run.mkdir(parents=True)
+        (run / 'state.json').write_text(json.dumps({**self.state, 'workspace': str(child), 'project_workspace': str(self.workspace)}))
+        self.console.created_workspaces.append(child)
+        self.remove()
+        self.assertEqual([], self.console.discover())
+        self.assertEqual([], self.console.dashboard_snapshot()['runs'])
+        self.assertTrue(self.console.task_view(child, run)['project_removed'])
+        for action, payload in ((self.console.chat, {'text': 'keep working'}),
+                                (self.console.mutate, {'action': 'continue'}),
+                                (self.console.checkpoint_action, {'checkpoint_id': 'saved'})):
+            with self.subTest(action=action.__name__), self.assertRaisesRegex(ValueError, 'removed'):
+                action({'workspace': str(child), 'run': str(run), **payload})
+        self.assertEqual([], self.commands())
+        self.assertTrue((run / 'state.json').exists())
+        self.restore()
+        self.assertEqual(2, len(self.console.discover()))
 
     def test_unknown_project_is_rejected_and_alias_removes_canonical_project(self):
         with self.assertRaisesRegex(ValueError, 'not connected'):
@@ -124,7 +164,7 @@ class ProjectRemovalTests(ProjectRemovalFixture, unittest.TestCase):
 
 class ProjectRemovalHttpTests(ProjectRemovalFixture, unittest.TestCase):
     def test_http_remove_restore_origin_and_missing_folder(self):
-        server = ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        server = LoopbackHTTPServer(('127.0.0.1',0),Handler)
         server.console = self.console
         server.hosts = {'127.0.0.1:'+str(server.server_port)}
         thread = threading.Thread(target=server.serve_forever,daemon=True);thread.start()

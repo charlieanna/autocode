@@ -1,0 +1,9 @@
+title = "Validated multi-service deployment plans with atomic CLI output"
+category = "system"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[run]
+max_steps = 50
+timeout_minutes = 60

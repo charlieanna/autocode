@@ -1,0 +1,10 @@
+title = "Review a PR whose green tests do not exercise the change"
+category = "review"
+# pr-197.patch registers the new .at policy under the key "AT", but policy_for
+# lowercases the TLD, so .at silently keeps the default policy. The PR's tests
+# read POLICIES["AT"] directly and pass. The reviewer must find this and
+# deliver a targeted test that fails on the patched code and passes once the
+# key is fixed (hidden/fix).
+
+[fake]
+check = "python3 -c \"import json; json.load(open('review/findings.json')); print('ok')\""

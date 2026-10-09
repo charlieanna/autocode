@@ -1,0 +1,4 @@
+Build a SQLite inventory CLI exposed as `python3 -m app --db PATH COMMAND`. Support `add SKU QUANTITY`, `adjust SKU DELTA`, `delete SKU`, and `list`. Quantities and deltas are integers; stock must never become negative. SKU is a nonempty string (including Unicode or SQL punctuation). Adding an existing SKU, adjusting/deleting an unknown SKU, invalid integers, or an adjustment below zero must exit 2, print an error to stderr, and preserve all inventory records. Successful mutations exit 0 and print nothing. `list` exits 0 and prints one JSON array of objects with exactly `sku` and `quantity`, ordered by SKU. The database persists across processes, and different --db paths are isolated. Use parameterized SQL and SQLite transactions.
+
+
+Use only the Python standard library. Preserve the seed test, add meaningful tests under tests/, and document the public interface and test command in README.md. No external services or real-time sleeps.

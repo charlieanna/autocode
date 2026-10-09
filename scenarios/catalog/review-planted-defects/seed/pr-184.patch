@@ -1,0 +1,180 @@
+diff --git a/regclient/client.py b/regclient/client.py
+index f3fe33c..0d44b11 100644
+--- a/regclient/client.py
++++ b/regclient/client.py
+@@ -1,4 +1,5 @@
+ """Send one logical command to a registry, retrying within the registry's policy."""
++import time
+ from dataclasses import dataclass
+ 
+ from .policies import policy_for
+@@ -13,23 +14,20 @@ class Command:
+ 
+ 
+ class RegistryClient:
+-    def __init__(self, transport):
++    def __init__(self, transport, sleep=time.sleep):
+         self.transport = transport
++        self.sleep = sleep
+ 
+     def send(self, command: Command) -> Response:
+         policy = policy_for(command.tld)
+-        attempt = 0
+-        while True:
+-            attempt += 1
++        for attempt in range(1, policy.max_attempts + 1):
+             try:
+                 return self.transport.send(command)
+             except Timeout:
+-                # The reply may have been lost after the registry executed the
+-                # command. Ask before resending: an executed command is done.
+-                if self.transport.status(command.txn_id) == "executed":
+-                    return Response(True, "OK")
+-                if attempt >= policy.max_attempts:
++                if attempt == policy.max_attempts:
+                     raise
+             except RegistryError as error:
+-                if error.code not in policy.retryable_errors or attempt >= policy.max_attempts:
++                if not policy.retryable(error.code) or attempt == policy.max_attempts:
+                     raise
++            self.sleep(policy.backoff_seconds)
++        raise AssertionError("unreachable")
+diff --git a/regclient/policies.py b/regclient/policies.py
+index 417337d..5506ffd 100644
+--- a/regclient/policies.py
++++ b/regclient/policies.py
+@@ -1,5 +1,7 @@
+-"""Retry policies: which registry errors a client may retry, and how many attempts
+-one logical command gets."""
++"""Registry-specific retry policies.
++
++Each registry names the errors it allows a client to retry, how many attempts
++one logical command gets, and the delay between attempts."""
+ from dataclasses import dataclass
+ 
+ 
+@@ -7,16 +9,35 @@ from dataclasses import dataclass
+ class RetryPolicy:
+     retryable_errors: tuple[str, ...]
+     max_attempts: int
++    backoff_seconds: float = 0.0
++
++    def retryable(self, code: str) -> bool:
++        return code in self.retryable_errors
++
++
++def _errors(*groups):
++    # Merge error groups into one sorted tuple without duplicates.
++    merged = []
++    for group in groups:
++        for code in group:
++            if code not in merged:
++                merged.append(code)
++    return tuple(sorted(merged))
++
+ 
++TRANSIENT = ("SERVER_BUSY", "RATE_LIMITED")
++SESSION = ("SESSION_LIMIT_EXCEEDED",)
+ 
+-DEFAULT = RetryPolicy(retryable_errors=("SERVER_BUSY", "RATE_LIMITED"), max_attempts=3)
++DEFAULT = RetryPolicy(retryable_errors=_errors(TRANSIENT), max_attempts=3)
+ 
+-# DENIC (.de) rejects a repeated command with the same transaction id and may
+-# suspend the account after repeated duplicates: never retry there.
+-POLICIES = {
+-    "de": RetryPolicy(retryable_errors=(), max_attempts=1),
++# Policies for the registries we currently talk to. Anything not listed here
++# gets DEFAULT.
++REGISTRIES = {
++    "com": RetryPolicy(retryable_errors=_errors(TRANSIENT, SESSION), max_attempts=4, backoff_seconds=0.5),
++    "net": RetryPolicy(retryable_errors=_errors(TRANSIENT, SESSION), max_attempts=4, backoff_seconds=0.5),
++    "org": RetryPolicy(retryable_errors=_errors(TRANSIENT), max_attempts=3, backoff_seconds=1.0),
+ }
+ 
+ 
+ def policy_for(tld: str) -> RetryPolicy:
+-    return POLICIES.get(tld.lower(), DEFAULT)
++    return REGISTRIES.get(tld.lower(), DEFAULT)
+diff --git a/tests/test_client.py b/tests/test_client.py
+index 2d67651..29add61 100644
+--- a/tests/test_client.py
++++ b/tests/test_client.py
+@@ -8,28 +8,48 @@ def command(tld="com"):
+     return Command(tld=tld, name=f"example.{tld}", txn_id="txn-1")
+ 
+ 
++def client(transport):
++    return RegistryClient(transport, sleep=lambda seconds: None)
++
++
+ class ClientTests(unittest.TestCase):
+     def test_success_on_first_attempt(self):
+         transport = ScriptedTransport(["ok"])
+-        self.assertTrue(RegistryClient(transport).send(command()).ok)
++        self.assertTrue(client(transport).send(command()).ok)
+         self.assertEqual(1, transport.calls)
+ 
+     def test_server_busy_is_retried(self):
+         transport = ScriptedTransport(["error:SERVER_BUSY", "ok"])
+-        self.assertTrue(RegistryClient(transport).send(command()).ok)
++        self.assertTrue(client(transport).send(command()).ok)
+         self.assertEqual(2, transport.calls)
+ 
+     def test_non_retryable_error_is_raised(self):
+         transport = ScriptedTransport(["error:INVALID_DOMAIN"])
+         with self.assertRaises(RegistryError):
+-            RegistryClient(transport).send(command())
++            client(transport).send(command())
+         self.assertEqual(1, transport.calls)
+ 
+     def test_timeout_before_execution_is_retried(self):
+         transport = ScriptedTransport(["timeout", "ok"])
+-        self.assertTrue(RegistryClient(transport).send(command()).ok)
++        self.assertTrue(client(transport).send(command()).ok)
+         self.assertEqual(["txn-1"], transport.executed)
+ 
++    def test_com_retries_session_limit(self):
++        transport = ScriptedTransport(["error:SESSION_LIMIT_EXCEEDED", "ok"])
++        self.assertTrue(client(transport).send(command("com")).ok)
++        self.assertEqual(2, transport.calls)
++
++    def test_org_does_not_retry_session_limit(self):
++        transport = ScriptedTransport(["error:SESSION_LIMIT_EXCEEDED", "ok"])
++        with self.assertRaises(RegistryError):
++            client(transport).send(command("org"))
++
++    def test_backoff_is_applied_between_attempts(self):
++        waits = []
++        transport = ScriptedTransport(["error:SERVER_BUSY", "ok"])
++        RegistryClient(transport, sleep=waits.append).send(command("org"))
++        self.assertEqual([1.0], waits)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_policies.py b/tests/test_policies.py
+new file mode 100644
+index 0000000..8347e8b
+--- /dev/null
++++ b/tests/test_policies.py
+@@ -0,0 +1,20 @@
++import unittest
++
++from regclient.policies import DEFAULT, policy_for
++
++
++class PolicyTests(unittest.TestCase):
++    def test_known_registries_have_their_own_policy(self):
++        self.assertEqual(4, policy_for("com").max_attempts)
++        self.assertEqual(4, policy_for("NET").max_attempts)
++        self.assertEqual(1.0, policy_for("org").backoff_seconds)
++
++    def test_unknown_registry_gets_default(self):
++        self.assertIs(DEFAULT, policy_for("xyz"))
++
++    def test_retryable_errors_are_deduplicated_and_sorted(self):
++        self.assertEqual(("RATE_LIMITED", "SERVER_BUSY", "SESSION_LIMIT_EXCEEDED"), policy_for("com").retryable_errors)
++
++
++if __name__ == "__main__":
++    unittest.main()

@@ -13,13 +13,18 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_console import Console, Handler, ThreadingHTTPServer
+from agent_console import Console, Handler, LoopbackHTTPServer
 from dashboard_chat import planning_messages
+from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
 
 
 FAKE_RUNNER = r'''
 import json, sys
 from pathlib import Path
+sys.path.insert(0, FIXTURE_IMPORT_PATH)
+from test_pending_decisions import publish, resolver_human
+from unittest.mock import patch
+patch.object(resolver_human.support, 'snapshot', return_value={'revision': 'fixture-source'}).start()
 root = Path(__file__).parent
 args = sys.argv[1:]
 def arg(flag): return args[args.index(flag) + 1]
@@ -75,8 +80,13 @@ else:
    if (root/'answer-fails').exists():
     print('fixture answer rejected',file=sys.stderr);raise SystemExit(1)
    ident,text=arg('--answer').split('=',1) if '--answer' in args else (arg('--delegate'),'delegated')
+   assert arg('--resolver-token') == state['resolver_human_request']['request_token']
    state.setdefault('answers',{})[ident]=text
    state['pending_questions']=[q for q in state.get('pending_questions',[]) if q['id']!=ident]
+   state.pop('resolver_human_request',None)
+   state.pop('user_request',None)
+   if state['pending_questions']: publish(state)
+   else: state['status']='RUNNING'
   else: state['continued']=state.get('continued',0)+1
   write(path,state)
  print('fixture saved')
@@ -88,23 +98,31 @@ class ChatFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
+        source_snapshot = patch.object(resolver_human.support, 'snapshot', return_value={'revision': 'fixture-source'})
+        source_snapshot.start()
+        self.addCleanup(source_snapshot.stop)
         self.workspace = self.root / 'project'
         (self.workspace / '.git').mkdir(parents=True)
         self.fake = self.root / 'runner.py'
-        self.fake.write_text(FAKE_RUNNER)
+        self.fake.write_text(FAKE_RUNNER.replace('FIXTURE_IMPORT_PATH', repr(str(Path(__file__).resolve().parent))))
         self.provider_calls = []
         self.console = self.make_console()
 
     def provider(self, messages, model, workdir):
         self.provider_calls.append((messages, model, workdir))
-        return 'GLM: ' + messages[-1]['text']
+        return 'Planner: ' + messages[-1]['text']
 
     def make_console(self):
+        from autocode_planner_routes import MANDATED_ROUTES
+        from dashboard_setup import BARE_OPENAI_ALIASES
         console = Console([self.workspace], self.fake, lambda: None,
                           conversation_root=self.root / 'dashboard/conversations',
                           conversation_provider=self.provider)
         console.catalogue.fetch = lambda **kwargs: {
-            'usable': True, 'models': ['zai-coding-plan/glm-5.3', 'zai-coding-plan/glm-5.3-flash']}
+            'usable': True, 'models': sorted({route['model'] for route in MANDATED_ROUTES.values()} |
+                                            {'openai/' + name for name in BARE_OPENAI_ALIASES} |
+                                            {'zai-coding-plan/glm-5.3-flash'})}
+        console._probe_conversation_transport = lambda *_: {'status': 'ok', 'data': {'version': '1.18.33'}}
         def close():
             console.pool.shutdown(wait=True)
             if console._conversation_store is not None:
@@ -112,7 +130,10 @@ class ChatFixture:
         self.addCleanup(close)
         return console
 
-    def eventually(self, function, timeout=5):
+    def eventually(self, function, timeout=30):
+        # The fixture's fake runner/provider threads keep making progress under
+        # parallel clean-copy load while far exceeding the old five-second
+        # ceiling, so the deadline only bounds genuine fixture hang failures.
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             result = function()
@@ -141,6 +162,8 @@ class ChatFixture:
         self.run.mkdir(parents=True)
         self.state = {'workspace': str(self.workspace), 'task': 'Existing task', 'status': 'WAITING_FOR_USER',
                       'pending_questions': list(questions), 'intervention_capability': {'supported': True, 'version': 1}}
+        if questions:
+            publish(self.state)
         self.save_state()
         return self.run
 
@@ -151,11 +174,33 @@ class ChatFixture:
         return json.loads((self.run / 'state.json').read_text())
 
     def chat(self, text='Please retain the history', **extra):
+        fields = {}
+        if extra.get('question_id'):
+            previous = next((row for row in self.console._chat_rows(self.run)
+                             if row['id'] == extra.get('request_id', 'message-request')), None)
+            public = self.read_state().get('resolver_human_request', {})
+            fields = ({key: previous.get(key) for key in ('resolver_request', 'resolver_token')} if previous else
+                      {'resolver_request': public.get('request_id'), 'resolver_token': public.get('request_token')})
         return self.console.chat({'workspace': str(self.workspace), 'run': str(self.run),
-                                  'request_id': 'message-request', 'text': text, **extra})
+                                  'request_id': 'message-request', 'text': text, **fields, **extra})
+
+    def confirmed_chat(self, text='Please retain the history', **extra):
+        row = self.chat(text, **extra)
+        if row.get('confirmation', {}).get('status') == 'pending':
+            return self.chat(text, **extra, decision='confirm', decision_token=row['confirmation']['token'])
+        return row
 
 
 class ChatBridgeTests(ChatFixture, unittest.TestCase):
+    def test_saved_progress_is_exposed_without_launching_runner(self):
+        self.make_run()
+        self.state['progress_messages'] = [{'id': 'progress-1', 'role': 'assistant',
+            'speaker': 'Builder', 'text': 'Fix routing', 'created_at': '2026-09-24T01:00:00Z'}]
+        self.save_state()
+        view = self.console.view(self.workspace, self.run, self.read_state())
+        self.assertEqual(self.state['progress_messages'], view['progress_messages'])
+        self.assertEqual([], self.commands())
+
     def test_project_free_conversation_persists_and_replays_without_starting_runner(self):
         data = {'text': 'Plan a journal', 'request_id': 'conversation-start'}
         first = self.ready(self.console.conversation_create(data))
@@ -163,7 +208,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         second = self.ready(self.console.conversations.send(first['id'], 'Keep it local', 'followup-request'))
         restored = self.make_console().conversation_get(first['id'])
         self.assertEqual(second['messages'], restored['messages'])
-        self.assertEqual(['Plan a journal', 'GLM: Plan a journal', 'Keep it local', 'GLM: Keep it local'],
+        self.assertEqual(['Plan a journal', 'Planner: Plan a journal', 'Keep it local', 'Planner: Keep it local'],
                          [row['text'] for row in restored['messages']])
         self.assertIsNone(restored['attachment'])
         self.assertEqual([], self.commands())
@@ -393,29 +438,30 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         message = restored.task_view(self.workspace, self.run)['chat_messages'][0]
         self.assertEqual('received', message['status'])
         self.assertIsNone(message['error'])
-        self.assertEqual('received', restored._chat_rows(self.run)[0]['status'])
+        self.assertEqual('saved', restored._chat_rows(self.run)[0]['status'], 'Polling must not rewrite receipts')
         self.assertNotIn('continued', self.read_state())
         self.assertEqual([], self.commands())
 
     def test_restart_keeps_unconfirmed_answers_visible_for_explicit_same_id_retry(self):
         self.make_run([{'id': ident, 'question': ident} for ident in ('missing', 'changed', 'delegated')])
         self.state['answers'] = {'changed': {'text': 'Different value'}, 'delegated': {'text': 'Browser only'}}
+        fields = publish(self.state)
         self.save_state()
         for ident in ('missing', 'changed', 'delegated'):
             self.console._save_chat(self.run, {
                 'id': 'restart-' + ident, 'role': 'user', 'speaker': 'You', 'text': 'Browser only',
                 'submitted_text': 'Browser only', 'question_id': ident, 'question_text': ident,
-                'delegate': ident == 'delegated', 'status': 'saved', 'action_id': 'lost-' + ident, 'error': None})
+                'delegate': ident == 'delegated', 'status': 'saved', 'action_id': 'lost-' + ident, 'error': None, **fields})
         restored = self.make_console()
         restored.conversations
         messages = restored.task_view(self.workspace, self.run)['chat_messages']
         self.assertEqual(['error'] * 3, [row['status'] for row in messages])
         self.assertTrue(all('could not be confirmed after restart' in row['error'] for row in messages))
-        self.assertEqual(['error'] * 3, [row['status'] for row in restored._chat_rows(self.run)])
+        self.assertEqual(['saved'] * 3, [row['status'] for row in restored._chat_rows(self.run)])
         self.assertEqual([], self.commands())
         data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Browser only',
-                'question_id': 'missing', 'request_id': 'restart-missing'}
-        self.assertEqual('error', restored.chat(data)['status'])
+                'question_id': 'missing', 'request_id': 'restart-missing', **fields}
+        self.assertEqual('saved', restored.chat(data)['status'])
         self.assertEqual([], self.commands())
         restored.chat({**data, 'retry': True})
         self.eventually(lambda: restored._chat_rows(self.run)[0]['status'] == 'received')
@@ -437,7 +483,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         oversized.write_text(json.dumps({'summary': 'x' * 524288}))
         rejected = self.run / 'rejected.json'
         rejected.write_text(json.dumps({'summary': 'Rejected stage text'}))
-        state = {'planning': {'reports': {'astra_discovery': {'output': str(joint), 'report': {'summary': 'Current GLM draft'}}}},
+        state = {'planning': {'reports': {'astra_discovery': {'output': str(joint), 'report': {'summary': 'Current Planner draft'}}}},
                  'stages': [
                      {'stage': 'astra_discovery', 'role': 'glm', 'output': str(initial), 'exit_code': 0,
                       'started_at': '2026-09-20T10:00:00Z', 'finished_at': '2026-09-20T10:01:00Z'},
@@ -446,11 +492,11 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
                      *[{'stage': 'astra_discovery', 'output': str(path), 'exit_code': 0} for path in (outside, escaped, oversized)],
                      {'stage': 'astra_discovery', 'output': str(rejected), 'exit_code': 0, 'rejected': True}]}
         messages = planning_messages(state, self.run)
-        self.assertEqual({'First clarification reply', 'Current GLM draft'}, {row['text'] for row in messages})
+        self.assertEqual({'First clarification reply', 'Current Planner draft'}, {row['text'] for row in messages})
         by_text = {row['text']: row for row in messages}
         self.assertEqual('2026-09-20T10:01:00Z', by_text['First clarification reply']['created_at'])
-        self.assertEqual('2026-09-20T10:02:00Z', by_text['Current GLM draft']['created_at'])
-        self.assertEqual(['GLM', 'GLM'], [row['speaker'] for row in messages])
+        self.assertEqual('2026-09-20T10:02:00Z', by_text['Current Planner draft']['created_at'])
+        self.assertEqual(['Requirements', 'Requirements'], [row['speaker'] for row in messages])
 
     def test_stale_question_and_conflicting_replay_are_rejected_without_commands(self):
         self.make_run([{'id': 'current', 'question': 'Current question'}])
@@ -463,12 +509,27 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'different message'):
             self.chat('different answer', question_id='current')
 
+    def test_human_review_question_does_not_capture_ordinary_feedback(self):
+        self.make_run()
+        publish(self.state, scope='human_review')
+        self.save_state()
+        view = self.console.view(self.workspace, self.run)
+        self.assertTrue(view['human_request_authorized'])
+        self.assertEqual('human_review', view['human_escalation']['scope'])
+        self.assertTrue(view['questions'])
+        with patch.object(self.console, 'intervene', return_value={'id': 'feedback', 'status': 'applied'}) as intervention, \
+                patch.object(self.console, 'enqueue') as enqueue:
+            row = self.confirmed_chat('Please change the requested output before I accept it', request_id='review-feedback')
+        self.assertEqual('received', row['status'])
+        self.assertEqual('feedback', intervention.call_args.args[2])
+        enqueue.assert_not_called()
+
     def test_feedback_has_durable_receipt_survives_reload_and_replays_once(self):
         self.make_run()
-        first = self.chat()
+        first = self.confirmed_chat()
         self.assertEqual('received', first['status'])
         self.assertTrue(first['receipt']['durable'])
-        self.chat()
+        self.confirmed_chat()
         inbox = json.loads((self.root / 'inbox.json').read_text())
         self.assertEqual(1, len(inbox))
         restored = self.make_console()
@@ -482,7 +543,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
     def test_uncertain_feedback_is_not_reported_received(self):
         self.make_run()
         (self.root / 'bad-receipt').touch()
-        result = self.chat()
+        result = self.confirmed_chat()
         self.assertEqual('error', result['status'])
         self.assertIn('uncertain', result['error'].lower())
         self.assertFalse(result['receipt']['durable'])
@@ -491,47 +552,62 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         self.make_run()
         marker = self.root / 'bad-receipt'
         marker.touch()
-        failed = self.chat()
+        failed = self.confirmed_chat()
         marker.unlink()
-        self.assertEqual(failed, self.chat())
+        self.assertEqual(failed, self.confirmed_chat())
         self.assertFalse((self.root / 'inbox.json').exists())
-        retry = self.chat(retry=True)
+        retry = self.confirmed_chat(retry=True)
         self.assertEqual('received', retry['status'])
         self.assertTrue(retry['receipt']['durable'])
         self.assertEqual(failed['id'], retry['receipt']['id'])
-        self.chat(retry=True)
+        self.confirmed_chat(retry=True)
         self.assertEqual(1, len(json.loads((self.root / 'inbox.json').read_text())))
         self.assertEqual(1, len(self.console._chat_rows(self.run)))
 
     def test_two_dashboards_replaying_same_message_submit_only_once(self):
         self.make_run()
         other = self.make_console()
+        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Keep the same history',
+                'request_id': 'concurrent-replay'}
+        proposal = self.console.chat(data)
+        data.update(decision='confirm', decision_token=proposal['confirmation']['token'])
         entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
         submitted = []
+        # The waits below are finite hang detectors, not speed assumptions: chat()
+        # performs flock/reconcile/save work before reaching the hook, and that
+        # arrival time is load dependent. A failure must diagnose the first call.
+        timeout = 30
         for console in (self.console, other):
             original = console.intervene
             def held_submit(*args, original=original, **kwargs):
                 submitted.append(args)
                 entered.set()
-                if not release.wait(timeout=3):
+                if not release.wait(timeout=timeout):
                     raise AssertionError('fixture release timed out')
                 return original(*args, **kwargs)
             console.intervene = held_submit
-        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Keep the same history',
-                'request_id': 'concurrent-replay'}
         def replay():
             second_started.set()
             return other.chat(data)
+        def first_call_report(started_at, first):
+            report = {'first_chat_elapsed_s': round(time.monotonic() - started_at, 3),
+                      'first_chat_done': first.done()}
+            if first.done():
+                error = first.exception(timeout=0)
+                report['first_chat_exception' if error else 'first_chat_result'] = (
+                    repr(error) if error else first.result(timeout=0))
+            return report
         with ThreadPoolExecutor(max_workers=2) as pool:
+            started_at = time.monotonic()
             first = pool.submit(self.console.chat, data)
             try:
-                self.assertTrue(entered.wait(timeout=2))
+                self.assertTrue(entered.wait(timeout=timeout), first_call_report(started_at, first))
                 second = pool.submit(replay)
-                self.assertTrue(second_started.wait(timeout=2))
+                self.assertTrue(second_started.wait(timeout=timeout), first_call_report(started_at, first))
             finally:
                 release.set()
-            first.result(timeout=3)
-            second.result(timeout=3)
+            first.result(timeout=timeout)
+            second.result(timeout=timeout)
         self.assertEqual(1, len(submitted))
         self.assertEqual(1, len(json.loads((self.root / 'inbox.json').read_text())))
         self.assertEqual(1, len(self.console._chat_rows(self.run)))
@@ -562,7 +638,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
 class ChatHttpTests(ChatFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
-        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
         self.server.console = self.console
         self.host = '127.0.0.1:' + str(self.server.server_port)
         self.server.hosts = {self.host, 'localhost:' + str(self.server.server_port)}
@@ -575,7 +651,9 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         self.addCleanup(shutdown)
 
     def request(self, method, path, data=None, headers=None):
-        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=3)
+        # The handler runs several sequential fake-runner subprocesses whose latency
+        # is load dependent, so this read is a finite hang bound, not a speed claim.
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
         try:
             connection.request(method, path, body=json.dumps(data) if data is not None else None,
                                headers={'Content-Type': 'application/json', **(headers or {})})
@@ -583,6 +661,55 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
             return response.status, json.loads(response.read())
         finally:
             connection.close()
+
+    def test_http_role_catalogue_matches_terminal_and_resolves_page_labels(self):
+        from autocode_role_names import CATALOGUE
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
+        try:
+            connection.request('GET', '/static/app.js')
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            script = response.read().decode()
+            prefix = 'globalThis.AUTOCODE_ROLE_NAMES = '
+            self.assertTrue(script.startswith(prefix))
+            actual = json.loads(script[len(prefix):].split(';\n', 1)[0])
+            self.assertEqual(CATALOGUE, actual)
+            connection.request('GET', '/')
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            page = response.read().decode()
+            self.assertNotIn('{{role:', page)
+            self.assertIn('Plan Reviewer <small>', page)
+            self.assertIn('Completion Reviewer <small>', page)
+        finally:
+            connection.close()
+        self.assertEqual([], self.commands())
+        self.assertEqual([], self.provider_calls)
+
+    def test_task_http_projects_saved_transcript_without_clock_reordering_or_state_writes(self):
+        from urllib.parse import urlencode
+        self.make_run([{'id':'q1','question':'Which format?'}])
+        route='/api/run?'+urlencode({'workspace':str(self.workspace),'run':str(self.run)})
+        for status, texts in (
+            ('TASK_COMPLETE', ['Builder finished', 'Checks passed', 'Task complete']),
+            ('WAITING_FOR_USER', ['Planning started', 'A format is needed']),
+            ('PAUSED_REPEATED_FAILURE', ['Checks failed', 'Saved work needs repair']),
+        ):
+            with self.subTest(status=status):
+                self.state['status']=status
+                self.state['progress_messages']=[{'id':f'progress-{index}', 'role':'assistant',
+                    'text':text, 'created_at':30-index} for index,text in enumerate(texts)]
+                self.save_state()
+                before=(self.run/'state.json').read_bytes()
+                code, first=self.request('GET',route)
+                self.assertEqual(200,code)
+                code, second=self.request('GET',route)
+                self.assertEqual(200,code)
+                self.assertEqual(texts,[row['text'] for row in first['transcript']['messages']])
+                self.assertEqual(first['transcript'],second['transcript'])
+                self.assertEqual(before,(self.run/'state.json').read_bytes())
+        self.assertEqual([],self.commands())
+        self.assertEqual([],self.provider_calls)
 
     def test_http_chat_round_trip_is_persistent_without_project(self):
         status, started = self.request('POST', '/api/conversations', {'text': 'Draft a review journal', 'request_id': 'http-start'})
@@ -627,6 +754,10 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         self.assertIn('no longer pending', result['error'])
         code, result = self.request('POST', '/api/chat', data)
         self.assertEqual(202, code)
+        self.assertEqual('awaiting_confirmation', result['status'])
+        code, result = self.request('POST', '/api/chat', {
+            **data, 'decision': 'confirm', 'decision_token': result['confirmation']['token']})
+        self.assertEqual(202, code)
         self.assertTrue(result['receipt']['durable'])
 
     def test_all_read_and_write_conversation_routes_reject_untrusted_hosts(self):
@@ -636,6 +767,30 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
             self.assertEqual(403, code)
             self.assertIn('cross-origin', value['error'])
         self.assertEqual([], self.provider_calls)
+
+
+class PlanningReportNames(unittest.TestCase):
+    def test_reports_use_the_canonical_job_for_each_legacy_and_v2_stage(self):
+        from autocode_status import role_name
+        from units.autoplanner import V2_STAGES
+        stages = ['astra_discovery', 'astra_challenge', 'glm_revise', 'astra_finalize', *V2_STAGES]
+        state = {'planning': {'reports': {stage: {'report': {'summary': stage}} for stage in stages}}}
+        messages = planning_messages(state)
+        self.assertEqual(stages, [row['stage'] for row in messages])
+        self.assertEqual([role_name(stage, state) for stage in stages], [row['speaker'] for row in messages])
+        self.assertEqual(['Requirements', 'Planner', 'Plan Reviewer', 'Planner', 'Plan Reviewer'],
+                         [row['speaker'] for row in messages[-len(V2_STAGES):]])
+
+    def test_clarification_speaker_uses_stage_even_when_provider_role_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            stages = []
+            for number, role in enumerate([None, 'glm', 'astra']):
+                path = run / (str(number) + '.json')
+                path.write_text(json.dumps({'summary': 'Clarification ' + str(number)}))
+                stages.append({'stage': 'astra_discovery', 'role': role, 'output': str(path), 'exit_code': 0})
+            messages = planning_messages({'stages': stages}, run)
+            self.assertEqual(['Requirements'] * 3, [row['speaker'] for row in messages])
 
 
 if __name__ == '__main__':

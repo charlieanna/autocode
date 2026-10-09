@@ -1,0 +1,188 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  suite:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu only since 2026-10-03: on GitHub's macOS runners the scenario harness took
+        # 19 minutes against 4 on Ubuntu (each loopback request through the phase guard
+        # stalled about 36 s there, not on a local Mac). macOS is covered by local runs.
+        # Keep the one-entry matrix: branch protection requires "suite (ubuntu-latest)".
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, not the default shallow (depth-1) clone:
+          # tests.test_catalogue_t14.SystematicCase.test_sys07_saved_failing_trace_replays
+          # reads a specific historical commit (`git show <sha>:tools/autocode_support.py`)
+          # to replay a saved regression, and a shallow clone doesn't have it.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: false
+
+      - name: Install dashboard browser test dependencies
+        # AC15 runs a real browser from the Python suite, before the Node gate.
+        # Pin the version used for the local feature acceptance checks.
+        run: |
+          npm install --global agent-browser@0.25.3
+          agent-browser install --with-deps
+
+      - name: Install package and runtime dependencies
+        # Evidence-bound reuse requires an isolated, source-bound editable install.
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[visual]'
+
+      - name: Run the suite gate
+        # tools/run_suite.py wraps the same discovery as
+        # `python -m unittest discover -s tests -t . -p 'test_*.py'`, minus
+        # the modules documented in tests/suite_exclusions.json (each with a
+        # recorded reason). It fails if any non-excluded test fails, and
+        # separately fails if an exclusion entry no longer matches anything
+        # discovered, so a stale exclusion cannot mask real coverage.
+        # A pull request runs every test module except the slow ones in
+        # tests/suite_slow.json that it did not change (--changed --all-fast):
+        # selecting by imports missed CLI-level tests and turned master red
+        # (#232, #242, #330). Master and manual runs run everything. Test modules run side by
+        # side, one per CPU.
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "origin/${{ github.base_ref }}" --all-fast
+          else
+            .venv/bin/python tools/run_suite.py --verbosity 2
+          fi
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Run the scenario harness
+        # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs
+        # (scenarios/README.md) would otherwise never run in CI. Each test runs in its own
+        # interpreter, one per CPU at a time; run serially it took about 3.5 minutes.
+        run: .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Run the dashboard suite
+        # tools/dashboard/tests is outside tests/, so run_suite.py never
+        # discovers it; run it here so it can't drift unnoticed again (#94).
+        run: .venv/bin/python -m unittest discover -s tools/dashboard/tests -p 'test_*.py' -v
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Verify chat, answers, Work, preview and recovery in real browsers
+        # Read-only messages and exact-message confirmation must remain safe
+        # with a pending question, after reload, and at narrow viewports.
+        run: |
+          .venv/bin/python - <<'PYTHON'
+          import json, os, sys, tempfile
+          from pathlib import Path
+          from tests.browser_suite_process import run
+          with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
+              env = {**os.environ, "AGENT_BROWSER_SOCKET_DIR": sockets,
+                     "AUTOCODE_TEST_PYTHON": sys.executable}
+              for script, cap in [("test_chat_intent_browser_ui.js", 180),
+                                  ("test_work_summary_browser_ui.js", 240),
+                                  ("test_question_cards_browser_ui.js", 240),
+                                  ("test_preview_browser_ui.js", 240),
+                                  ("test_recovery_browser_ui.js", 300),
+                                  ("test_draft_cadence_browser_ui.js", 300),
+                                  ("test_delete_browser_ui.js", 300),
+                                  ("test_setup_browser_ui.js", 300),
+                                  ("test_checkpoint_browser_ui.js", 300),
+                                  ("test_scoped_start_browser_ui.js", 240)]:
+                  try:
+                      result = run(["node", "tools/dashboard/tests/" + script],
+                                   cwd=Path.cwd(), env=env, timeout=cap)
+                  except BaseException as error:
+                      print(json.dumps(getattr(error, "receipt", {"error": str(error)})))
+                      raise
+                  print(json.dumps(result.receipt))
+                  if result.returncode:
+                      sys.exit(result.returncode)
+          PYTHON
+
+      - name: Run the dashboard Node tests
+        # Browser checks invoked by Python tests run in the suite above.
+        # Standalone browser matrices remain part of local visual acceptance;
+        # the log names those omitted from this separate Node gate.
+        run: |
+          for test_file in tools/dashboard/tests/test_*.js; do
+            if grep -q "agent-browser" "$test_file"; then
+              echo "Standalone browser matrix (verified separately): $test_file"
+              continue
+            fi
+            echo "node $test_file"
+            node "$test_file" || exit 1
+          done
+
+  wheel-smoke:
+    # The installed package, not the checkout (#67): build the wheel, install it into a
+    # fresh venv, and run it from a folder outside any Git repository. A separate job,
+    # so the suite above does not wait for it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the wheel and install it into a fresh venv
+        run: |
+          python3 -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/dist" .
+          python3 -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install "$RUNNER_TEMP"/dist/*.whl
+      - name: Run --version and doctor outside any repository
+        # No engine is installed here, so doctor exits 1: check its JSON, not exit 0.
+        run: |
+          cd "$(mktemp -d)"
+          if git rev-parse --git-dir >/dev/null 2>&1; then echo "::error::$PWD is inside a Git repository"; exit 1; fi
+          "$RUNNER_TEMP/smoke/bin/autocode" --version | tee version.txt
+          grep -q "(commit unknown)" version.txt
+          code=0
+          "$RUNNER_TEMP/smoke/bin/autocode" doctor --json > doctor.json || code=$?
+          cat doctor.json
+          [ "$code" -le 1 ] || { echo "::error::doctor exited $code"; exit 1; }
+          python3 - doctor.json <<'PYTHON'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          checks = {check["name"]: check["status"] for check in report["checks"]}
+          expected = {"python", "psutil", "git", "engine:opencode", "engine:codex", "engine", "workspace"}
+          assert expected <= set(checks), sorted(expected - set(checks))
+          assert all(checks[name] == "ok" for name in ("python", "psutil", "git")), checks
+          assert checks["workspace"] == "missing" and report["ok"] is False, report
+          PYTHON
+
+  visual-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install image and browser test dependencies
+        run: |
+          python3 -m pip install -e '.[visual-test]'
+          python3 -m playwright install --with-deps chromium
+      - name: Run real-browser visual comparison controls
+        run: python3 -m unittest tests.test_visual_check_browser -v
+        env:
+          AUTOCODE_REQUIRE_VISUAL_BROWSER: "1"
+          PYTHONDONTWRITEBYTECODE: "1"

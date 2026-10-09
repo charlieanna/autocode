@@ -1,0 +1,11 @@
+title = "Explain why a service has two caches, without touching it"
+category = "investigate"
+# Planted facts: cache_shared is file-backed, shared across workers, no TTL,
+# used by sessions; cache_local is per process with a 60 s TTL, used by
+# metadata to hold parsed objects that cannot be shared. Removing the local
+# cache means re-parsing a large document on every request. The note must get
+# scope, TTL and users right and the repository must be unchanged.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('docs/notes/caches.json')); print('ok')\""
+

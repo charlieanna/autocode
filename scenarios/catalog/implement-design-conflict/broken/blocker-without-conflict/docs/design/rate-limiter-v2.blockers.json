@@ -1,0 +1,10 @@
+{
+  "conflicts": [
+    {
+      "design_says": "Raise RateLimited on denial.",
+      "conflicts_with": "This is a larger change than it looks and needs more discussion.",
+      "files": [],
+      "options": ["Discuss"]
+    }
+  ]
+}

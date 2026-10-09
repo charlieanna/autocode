@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "code": {"type": "string"},
+    "destination": {"type": "string"},
+    "timestamp": {"type": "string", "format": "date-time"}
+  },
+  "required": ["code", "destination", "timestamp"]
+}

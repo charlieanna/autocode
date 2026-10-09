@@ -1,0 +1,12 @@
+title = "In-process or shared cache: a tradeoff decided by facts in the repository"
+category = "discuss"
+# The planted facts: four gunicorn worker processes that share nothing and are
+# recycled every ~2000 requests (deploy/gunicorn.conf.py), against an upstream
+# limit of 60 metadata requests per hour (app/metadata.py). Four cold caches
+# refilling on every recycle blow the limit; a shared cache does not. The
+# analysis must cite the worker configuration, cover both options, write no
+# code, and ask at most three questions.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('docs/decisions/metadata-cache.json')); print('ok')\""
+

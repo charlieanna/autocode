@@ -1,0 +1,18 @@
+[
+  {
+    "id": "link-service",
+    "description": "Owns short-code to destination-URL lookup and redirects. Also checks analytics for abuse before resolving.",
+    "requirements": ["R1", "R4"],
+    "depends_on": ["analytics-service"],
+    "publishes_contracts": ["click_event"],
+    "consumes_contracts": ["abuse_check"]
+  },
+  {
+    "id": "analytics-service",
+    "description": "Owns click storage and analytics queries, and publishes an abuse-check contract back to link-service.",
+    "requirements": ["R2", "R3", "R4"],
+    "depends_on": ["link-service"],
+    "publishes_contracts": ["abuse_check"],
+    "consumes_contracts": ["click_event"]
+  }
+]

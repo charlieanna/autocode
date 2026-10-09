@@ -1,0 +1,66 @@
+{
+  "services": {
+    "api": {
+      "build": {
+        "context": "/TREE/$$USER/components/api",
+        "dockerfile_inline": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . /app\n"
+      },
+      "command": [
+        "/bin/sh",
+        "-c",
+        "python3 server.py --home $$HOME --port $$PORT"
+      ],
+      "environment": {
+        "BRACED": "$${USER}",
+        "HOME_DIR": "$$HOME",
+        "PORT": "8000",
+        "PRICE": "$$$$5"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "ports": [
+        "127.0.0.1::8000"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    },
+    "poller": {
+      "build": {
+        "context": "/TREE/$$USER/components/poller",
+        "dockerfile_inline": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . /app\n"
+      },
+      "command": [
+        "/bin/sh",
+        "-c",
+        "python3 poll.py"
+      ],
+      "depends_on": {
+        "api": {
+          "condition": "service_started"
+        }
+      },
+      "environment": {
+        "API_URL": "http://api:8000"
+      },
+      "healthcheck": {
+        "interval": "1s",
+        "retries": 120,
+        "test": [
+          "CMD",
+          "sh",
+          "-c",
+          "test -f /tmp/ready-$$HOSTNAME"
+        ],
+        "timeout": "5s"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    }
+  }
+}

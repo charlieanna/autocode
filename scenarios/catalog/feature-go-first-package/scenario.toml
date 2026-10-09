@@ -1,0 +1,9 @@
+title = "Add a first Go package and CLI beside an existing C# policy"
+category = "feature"
+requires = ["go"]
+# The seed is code, not documentation-only, but has no Go module or package.
+# GO111MODULE=off go test ./... there reports 'matched no packages' (#685).
+
+[fake]
+check = "go test ./..."
+criteria = { C1 = "test: TestC1GermanRetention", C2 = "test: TestC2ExceptionRetention" }

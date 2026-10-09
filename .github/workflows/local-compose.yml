@@ -1,0 +1,39 @@
+name: optional-local-compose
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/autocode_component*.py'
+      - 'tools/autocode_local_run.py'
+      - 'tools/autocode_compose_file.py'
+      - 'tools/autocode_multicomponent.py'
+      - 'tools/autocode_verify.py'
+      - 'scenarios/catalog/architecture-two-services/**'
+      - 'scenarios/catalog/local-compose-two-services/**'
+      - 'scenarios/harness/component*.py'
+      - 'tests/test_local_compose_scenario.py'
+      - '.github/workflows/local-compose.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  local-compose:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install checkout dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e .
+      - name: Exercise two real containers and prove both teardowns
+        run: .venv/bin/python -m unittest tests.test_local_compose_scenario.RealDockerTests -v
+        env:
+          AUTOCODE_TEST_REAL_DOCKER: '1'
+          PYTHONDONTWRITEBYTECODE: '1'

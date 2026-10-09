@@ -3,8 +3,10 @@ from pathlib import Path
 import threading
 try:
     from .dashboard_projects import ProjectStore
+    from .dashboard_workspace_history import annotate_workspace_history
 except ImportError:  # Support direct execution from this source directory.
     from dashboard_projects import ProjectStore
+    from dashboard_workspace_history import annotate_workspace_history
 
 
 class TaskArchiveStore(ProjectStore):
@@ -86,6 +88,7 @@ class TaskArchiveMixin:
         hidden = {row['run'] for row in entries}
         titles = {row.get('run'): row.get('task') for row in data['runs']}
         data['runs'] = [row for row in data['runs'] if row.get('run') not in hidden]
+        annotate_workspace_history(data['runs'])
         data['conversations'] = [doc for doc in data['conversations'] if (doc.get('attachment') or {}).get('run') not in hidden]
         data['archived_tasks'] = [{**self.archived_view(row), 'task': titles.get(row['run']) or Path(row['run']).name} for row in entries]
         data['archived_conversations'] = [doc for doc in self.conversations.list(include_archived=True) if doc.get('archived_at')]

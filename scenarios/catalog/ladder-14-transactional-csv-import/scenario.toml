@@ -1,0 +1,8 @@
+title = "Atomic CSV inventory import with validation and upserts"
+category = "feature"
+# Intermediate difficulty; all tests are local, deterministic, and stdlib only.
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+[run]
+max_steps = 40
+timeout_minutes = 30

@@ -1,0 +1,19 @@
+# The #110 qualification ladder: every scenario that runs live on the Claude models.
+# batch.py runs each one --repeat times (default 3). Order is roughly cheapest first.
+greenfield-greeting-cli
+bugfix-trivial
+bugfix-iso-weeks
+bugfix-not-reproducible
+review-planted-defects
+review-vacuous-tests
+review-clean-pr
+feature-timesheet-by-project
+implement-design-conflict
+bugfix-cent-drift
+bugfix-stale-prices
+design-review-planted
+discuss-cache-choice
+architecture-two-services
+port-policy-go
+parallel-diamond
+review-then-fix

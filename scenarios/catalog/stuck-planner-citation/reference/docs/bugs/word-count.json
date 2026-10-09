@@ -1,0 +1,11 @@
+{
+  "observed": "count_words counts more words than a file has when it has double spaces or line breaks, and top_words can report an empty string as a top word.",
+  "reproduction": "count_words('one   two\\nthree\\n') returns 4, not 3; top_words('a   b\\n\\na', 1) returns [('', 2)], not [('a', 2)].",
+  "root_cause": "words() splits on a single space character, so repeated spaces produce empty strings and newlines stay inside tokens; empty strings are then counted as words.",
+  "affected_paths": [
+    "tally/words.py"
+  ],
+  "invariant": "A word is a non-empty token between runs of whitespace; counts and rankings never include empty strings.",
+  "fix_size": "large",
+  "fix": "Split on any whitespace and drop empty tokens after stripping punctuation."
+}

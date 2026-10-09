@@ -1,0 +1,7 @@
+title = "Add a per-project breakdown to an existing timesheet CLI"
+category = "feature"
+# Same project as bugfix-iso-weeks, after that fix. The output format is fully
+# specified, so the hidden tests can compare exact text.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

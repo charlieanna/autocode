@@ -1,0 +1,9 @@
+title = "Architecture for a two-service link shortener"
+category = "architecture"
+# The first rung of the multi-component layer: no code, just a design that
+# maps every requirement to a component, declares valid contracts, and forms
+# a dependency graph with no cycle. Proves whether the existing planner/Builder
+# loop can already produce this before any new orchestration code is written.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('architecture/components.json')); json.load(open('architecture/dependency_trace.json')); print('ok')\""

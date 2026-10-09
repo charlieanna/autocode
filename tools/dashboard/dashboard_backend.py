@@ -11,9 +11,19 @@ import time
 import uuid
 from contextlib import contextmanager
 try:
+    from .dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from .dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 except ImportError:  # Support direct execution from this source directory.
+    from dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
+
+
+try:
+    from .dashboard_work_summary import progress_from_status
+    from .dashboard_recovery import projection as recovery_projection
+except ImportError:
+    from dashboard_work_summary import progress_from_status
+    from dashboard_recovery import projection as recovery_projection
 
 
 def mapping(value):
@@ -29,9 +39,33 @@ def capability(value):
     return value.get('supported') is True and type(value.get('version')) is int and value['version'] == 1
 
 
+def approved_goal_token(view):
+    """Return the saved approved revision after its one-time display token clears.
+
+    The saved approval event must itself carry exactly the sealed
+    r<revision>:<hash> token (the runner records it on every approval and its
+    admission check requires it), so a tokenless or mismatched event is no
+    approval to build from."""
+    goal = mapping(view.get('goal'))
+    approval = mapping(goal.get('approval_event'))
+    revision, digest = goal.get('revision'), goal.get('hash')
+    if (goal.get('approval_status') != 'approved' or not approval
+            or type(revision) is not int or revision < 1
+            or not isinstance(digest, str) or not digest):
+        return ''
+    token = f'r{revision}:{digest}'
+    return token if approval.get('token') == token else ''
+
+
 class RegistryInterventionMixin:
+    # Intervention status/inspect/submit spawn the full runner CLI, whose cold
+    # import can exceed the short registry default under parallel load; the
+    # deletion preflight already bounds the same CLI at thirty seconds.
+    INTERVENTION_TIMEOUT = 30
+
     def __init__(self, *args, registry_ttl=30.0, **kwargs):
         super().__init__(*args, **kwargs)
+        self.workspace_commands = WorkspaceCommandGate()
         self.registry_lock = threading.RLock()
         self.registry_scope = threading.local()
         self.registry_ttl = max(0.0, float(registry_ttl))
@@ -40,6 +74,10 @@ class RegistryInterventionMixin:
         self.intervention_actions = {}
 
     def _json_command(self, args, timeout=4):
+        with self.workspace_commands.hold(command_workspace(args)):
+            return self._run_json_command(args, timeout)
+
+    def _run_json_command(self, args, timeout):
         try:
             result = subprocess.run([sys.executable, self.runner, *args], capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -245,7 +283,8 @@ class RegistryInterventionMixin:
         cached = self.status_cache.get(key)
         if cached and time.monotonic() - cached['at'] < .8:
             return cached['value']
-        data, error = self._json_command(['--workspace', str(workspace), '--run-dir', key, '--status'])
+        data, error = self._json_command(['--workspace', str(workspace), '--run-dir', key, '--status'],
+                                         timeout=self.INTERVENTION_TIMEOUT)
         interventions = mapping(mapping(data).get('interventions'))
         inspector = capability(interventions.get('inspector_capability'))
         capable = inspector and capability(interventions.get('runner_capability'))
@@ -271,7 +310,8 @@ class RegistryInterventionMixin:
                 item['status'] = {'finished': 'delivered', 'launch_failed': 'uncertain'}.get(action.get('status'), action.get('status', 'uncertain'))
         inspect_error = None
         if inspector:
-            inbox, inspect_error = self._json_command(['intervention', 'inspect', '--workspace', str(workspace), '--run-dir', key, '--json'])
+            inbox, inspect_error = self._json_command(['intervention', 'inspect', '--workspace', str(workspace), '--run-dir', key, '--json'],
+                                                      timeout=self.INTERVENTION_TIMEOUT)
             if not inspect_error and (inbox.get('version') != 1 or inbox.get('operation') != 'inspect' or not isinstance(inbox.get('requests'), list)):
                 inspect_error = {'message': 'Unsupported or malformed intervention inbox.'}
             if not inspect_error:
@@ -287,12 +327,17 @@ class RegistryInterventionMixin:
         inbox_error = mapping(interventions.get('inbox_error'))
         problem = error or inspect_error or inbox_error
         value = {'capable': capable and not bool(error or inspect_error), 'mode': mode,
+                 'stop_capable': capable and not bool(error or inspect_error) and mapping(interventions.get('runner_capability')).get('supports_stop') is True,
                  'attempt_id': mapping(data).get('attempt_id'),
                  'runner_status': mapping(data).get('status'),
                  'error': mapping(problem).get('message') or mapping(problem).get('code'),
                  'entries': sorted(local.values(), key=lambda x: (x['order'] if type(x.get('order')) is int else 10**15,
                                                                  x.get('submitted_at') if isinstance(x.get('submitted_at'), str) else '')),
-                 'blocked_conditions': blocked, 'pause_intent': interventions.get('pause_intent')}
+                 'blocked_conditions': blocked, 'pause_intent': interventions.get('pause_intent'),
+                 'stop_intent': interventions.get('stop_intent'),
+                 'work_progress': progress_from_status(data if not error else {}),
+                 'recovery': recovery_projection(data if not error else {}),
+                 'code_checkpoints': mapping(mapping(data).get('view')).get('code_checkpoints') if not error else None}
         if capable and (error or inspect_error):
             value['mode'] = 'unavailable'
         self.status_cache[key] = {'at': time.monotonic(), 'value': value}
@@ -315,18 +360,22 @@ class RegistryInterventionMixin:
     def intervene(self, workspace, run, kind, text='', request_id=None):
         if kind == 'feedback' and (not isinstance(text, str) or not text.strip()):
             raise ValueError('A non-empty change request is required')
+        if kind == 'stop' and text:
+            raise ValueError('Stop takes no message; the current step finishes first')
         if request_id is not None and (not isinstance(request_id, str) or not request_id):
             raise ValueError('Request ID must be a non-empty string')
         current = self._intervention_view(workspace, run)
         if current['mode'] == 'unavailable':
             raise ValueError(current['error'] or 'Live control capability is unavailable')
+        if kind == 'stop' and not current.get('stop_capable'):
+            raise ValueError('This runner does not support Stop; Pause remains available')
         ident = request_id or uuid.uuid4().hex
         row = {'id': ident, 'kind': kind, 'text': text, 'status': 'pending', 'durable': False}
         if current['capable']:
             args = ['intervention', 'submit', '--workspace', str(workspace), '--run-dir', str(run), '--request-id', ident, '--kind', kind]
             if kind == 'feedback':
                 args += ['--text', text]
-            data, error = self._json_command([*args, '--json'])
+            data, error = self._json_command([*args, '--json'], timeout=self.INTERVENTION_TIMEOUT)
             if error:
                 row.update(status='uncertain' if error['uncertain'] else 'failed', error=error['message'])
             else:
@@ -346,6 +395,10 @@ class RegistryInterventionMixin:
             except OSError as error:
                 raise ValueError('Pause request could not be saved: ' + str(error)) from error
             row.update(status='requested', legacy=True, text='Legacy pause marker saved; worker stoppage is not confirmed.')
+        elif kind == 'stop':
+            # A durable stop never falls back to a legacy kill path: it is only
+            # as good as the runner inbox that applies it at a saved boundary.
+            raise ValueError('Stop needs a runner that supports durable interventions')
         else:
             action = self.enqueue(workspace, run, 'Feedback', ['--feedback', text])
             row.update(status='queued', legacy=True, legacy_action=action['id'])
@@ -354,14 +407,19 @@ class RegistryInterventionMixin:
             self.status_cache.pop(str(run), None)
         return row
 
-    def continue_run(self, workspace, run):
+    def continue_run(self, workspace, run, expected_goal_token=None):
         current = self._intervention_view(workspace, run)
         if current['mode'] == 'unavailable':
             raise ValueError(current['error'] or 'Runner status is unavailable')
         if current.get('attempt_id') and current.get('runner_status') in ('PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE'):
             raise ValueError('Inspect the interrupted attempt, then use Recover saved work before continuing. Existing edits will be retained.')
         if current['capable']:
-            return self.enqueue(workspace, run, 'Continue', ['--no-chat', '--resume-paused'])
+            extra = ['--no-chat', '--resume-paused']
+            if expected_goal_token is not None:
+                extra += ['--expected-goal-token', expected_goal_token]
+            return self.enqueue(workspace, run, 'Continue', extra)
+        if expected_goal_token is not None:
+            raise ValueError('This runner cannot confirm a revision-bound Build. Update the runner before building.')
         key = str(run)
         with self.lock:
             if key in self.pending or str(workspace) in self.workspace_busy:
@@ -396,14 +454,22 @@ class RegistryInterventionMixin:
         return self.enqueue(workspace, run, 'Recover saved work', ['--no-chat', '--abandon-stage', attempt])
 
     def mutate(self, data):
-        if data.get('action') not in ('feedback', 'pause', 'continue', 'recover_stage'):
+        if data.get('action') not in ('feedback', 'pause', 'stop', 'continue', 'recover_stage'):
             return super().mutate(data)
         workspace = self.workspace_for(data.get('workspace', ''))
         run = self.run_for(workspace, data.get('run', ''))
         if not run:
             raise ValueError('Run does not belong to an available project')
         if data['action'] == 'continue':
-            return self.continue_run(workspace, run)
+            expected = data.get('expected_goal_token')
+            if expected is not None:
+                view = self.view(workspace, run)
+                if (not isinstance(expected, str) or not expected or expected != approved_goal_token(view)
+                        or view.get('goal_token') not in (None, '', expected)
+                        or data.get('token') != expected or data.get('confirmation') != expected
+                        or mapping(mapping(view.get('conversation')).get('plan_gate')).get('pending_product_change')):
+                    raise ValueError('The approved plan changed. Reload before building.')
+            return self.continue_run(workspace, run, expected)
         if data['action'] == 'recover_stage':
             return self.recover_stage(workspace, run, data.get('attempt_id'))
         return self.intervene(workspace, run, data['action'], data.get('text', '') if data['action'] == 'feedback' else '', data.get('request_id'))

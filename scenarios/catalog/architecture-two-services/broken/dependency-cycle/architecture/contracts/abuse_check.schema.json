@@ -1,0 +1,5 @@
+{
+  "type": "object",
+  "properties": {"short_code": {"type": "string"}, "blocked": {"type": "boolean"}},
+  "required": ["short_code", "blocked"]
+}

@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "boltons-indexedset-update",
+      "project": "Boltons",
+      "repository": "https://github.com/mahmoud/boltons.git",
+      "issue_ref": "mahmoud/boltons#474",
+      "source": "https://github.com/mahmoud/boltons/pull/474",
+      "base_commit": "e00c10a809525027b8167fbb7ac233cfc25a01f5",
+      "reference_commit": "a180020c760b532e8889f161d97d05647adfee8c",
+      "split": "development",
+      "checks": [
+        "lists",
+        "tuples",
+        "iterators",
+        "tuple_members",
+        "empty_and_single"
+      ],
+      "tier": "starter"
+    },
+    {
+      "id": "humanize-intcomma-large",
+      "project": "Humanize",
+      "repository": "https://github.com/python-humanize/humanize.git",
+      "issue_ref": "python-humanize/humanize#392",
+      "source": "https://github.com/python-humanize/humanize/pull/392",
+      "base_commit": "14965a74953eb5119859975e7c452a04b481cdae",
+      "reference_commit": "984526c02448110a8392dde3f5e26096dfd7c729",
+      "split": "regression",
+      "checks": [
+        "large_positive",
+        "large_negative",
+        "integer_subclasses",
+        "ordinary_inputs",
+        "nonfinite"
+      ],
+      "tier": "starter"
+    },
+    {
+      "id": "more-itertools-custom-exceptions",
+      "project": "More Itertools",
+      "repository": "https://github.com/more-itertools/more-itertools.git",
+      "issue_ref": "more-itertools/more-itertools#1279",
+      "source": "https://github.com/more-itertools/more-itertools/pull/1279",
+      "base_commit": "4ebeea3e569388911a0bec740092f3cf996d79f3",
+      "reference_commit": "b2f3aff7633057d234ec9186c18a53f4df306d08",
+      "split": "holdout",
+      "checks": [
+        "one_empty_custom",
+        "one_many_custom",
+        "only_many_custom",
+        "one_no_repr",
+        "only_no_repr",
+        "ordinary_inputs"
+      ],
+      "tier": "starter"
+    },
+    {
+      "id": "sympy-matrix-derivatives",
+      "project": "SymPy",
+      "repository": "https://github.com/sympy/sympy.git",
+      "source": "https://github.com/sympy/sympy/pull/25150",
+      "base_commit": "a54c29577d037eeec79d321c981a15c0252ac210",
+      "reference_commit": "ce3180c6cbb6b78dbb5b8a0bfa1402ade7d8d398",
+      "split": "development",
+      "checks": [
+        "trace_linearity",
+        "affine_quadratic",
+        "trace_chain_rule",
+        "normalized_vector",
+        "matrix_elements",
+        "matrix_powers",
+        "mixed_explicit_array",
+        "preservation"
+      ],
+      "issue_ref": "sympy/sympy#25150",
+      "tier": "hard",
+      "production_modules_changed": 11
+    },
+    {
+      "id": "django-filteredrelation-join-lifecycle",
+      "project": "Django",
+      "repository": "https://github.com/django/django.git",
+      "source": "https://github.com/django/django/pull/16786",
+      "base_commit": "3fe0c609cf6d50e45e1246492ebac02660561177",
+      "reference_commit": "d660cee5bc68b597503c2a16f3d9928d52f93fb4",
+      "split": "regression",
+      "checks": [
+        "cross_join_rhs",
+        "chained_aliases",
+        "self_reference",
+        "coalesce_join",
+        "nested_alias_clone",
+        "unused_annotation",
+        "ordinary_preservation",
+        "independent_multijoins"
+      ],
+      "issue_ref": "django/django#16786",
+      "tier": "hard",
+      "production_modules_changed": 3
+    },
+    {
+      "id": "pytest-stop-fixture-teardown",
+      "project": "pytest",
+      "repository": "https://github.com/pytest-dev/pytest.git",
+      "source": "https://github.com/pytest-dev/pytest/issues/11706",
+      "base_commit": "f017df443a589494b0a47488b1616db7c12dc8cd",
+      "reference_commit": "4c5298c3954efa71436364efaf531d3851a6aeb4",
+      "split": "holdout",
+      "checks": [
+        "maxfail_module",
+        "stepwise_module",
+        "maxfail_session",
+        "stepwise_session",
+        "setup_error_cleanup",
+        "all_finalizers_reported",
+        "same_fixture_maxfail",
+        "same_fixture_stepwise",
+        "same_fixture_setup",
+        "shouldfail_sticky",
+        "shouldstop_sticky",
+        "normal_fixture_reuse"
+      ],
+      "issue_ref": "pytest-dev/pytest#11706",
+      "tier": "hard",
+      "production_modules_changed": 3,
+      "reference_sources": [
+        "https://github.com/pytest-dev/pytest/pull/11721",
+        "https://github.com/pytest-dev/pytest/pull/12048",
+        "https://github.com/pytest-dev/pytest/pull/12279"
+      ]
+    },
+    {
+      "id": "typescript-dependent-destructuring",
+      "project": "TypeScript",
+      "repository": "https://github.com/microsoft/TypeScript.git",
+      "issue_ref": "microsoft/TypeScript#35283",
+      "source": "https://github.com/microsoft/TypeScript/pull/46266",
+      "base_commit": "de23842e4527f59f905e72e590b7d1bb533d4c6e",
+      "reference_commit": "831b770b95762c0c660d195941a8ae7c019e78f8",
+      "split": "development",
+      "tier": "hard",
+      "production_modules_changed": 2,
+      "checks": [
+        "const_object",
+        "destructured_parameter",
+        "renamed_bindings",
+        "generic_payload",
+        "switch_exhaustiveness",
+        "boolean_discriminant",
+        "optional_payload",
+        "nested_payload",
+        "numeric_discriminant",
+        "reassigned_payload",
+        "mutable_local",
+        "separate_bindings",
+        "rest_binding",
+        "wrong_branch",
+        "ordinary_object_narrowing"
+      ],
+      "test_overlay": true
+    },
+    {
+      "id": "go-http2-hung-reset-health",
+      "project": "Go x/net/http2",
+      "repository": "https://github.com/golang/net.git",
+      "source": "https://github.com/golang/go/issues/59690",
+      "base_commit": "e883daec587fecbebb6434e53c153335e8bdeaef",
+      "reference_commit": "f35fec92ec9213ee211cf45f451a5970386f7978",
+      "split": "regression",
+      "checks": [
+        "reset_capacity_accounting",
+        "strict_gate_ack_epoch",
+        "pool_reservation_accounting",
+        "healthy_cancel_reuse",
+        "dead_pool_replacement",
+        "single_use_preservation"
+      ],
+      "issue_ref": "golang/go#59690",
+      "tier": "hard",
+      "production_modules_changed": 1
+    }
+  ]
+}

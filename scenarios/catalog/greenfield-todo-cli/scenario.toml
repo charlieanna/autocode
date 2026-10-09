@@ -1,0 +1,7 @@
+title = "To-do CLI with a durable JSON store"
+category = "greenfield"
+# Ported from tools/live_scenarios.py LIVE-02 (oracle FX02), with the list
+# format and completion checked through the CLI rather than the store file.
+
+[fake]
+check = "python3 -m unittest test_todo.py"

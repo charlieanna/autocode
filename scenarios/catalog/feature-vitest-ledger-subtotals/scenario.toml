@@ -1,0 +1,13 @@
+title = "Add exact per-account ledger subtotals in TypeScript"
+category = "feature"
+requires = ["node", "npm"]
+
+[setup]
+npm = true
+
+[fake]
+check = "node node_modules/vitest/vitest.mjs run"
+
+[fake.criteria]
+C1 = "test:test_c1_account_groups_keep_exact_keys_and_zero_subtotals"
+C2 = "test:test_c2_large_cents_empty_inputs_and_input_order_are_preserved"

@@ -1,0 +1,11 @@
+title = "Stale prices at checkout: a bug whose fix is a design change across modules"
+category = "bugfix"
+# Cache invalidation is left to each write path; two of three forget, and the
+# third invalidates only its own worker's cache. The right fix moves it to the
+# store's write path (every cache hears every write). That can be done in two
+# files, so the small-fix route is acceptable; no requirements gathering.
+# Patching today's callers fails the hidden "future write path" test;
+# dropping the cache fails the caching test.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

@@ -1,0 +1,22 @@
+{
+  "caches": [
+    {
+      "module": "svc/cache_shared.py",
+      "scope": "shared",
+      "ttl_seconds": 60,
+      "used_by": ["svc/metadata.py"],
+      "purpose": "Metadata documents shared between workers with a one-minute TTL."
+    },
+    {
+      "module": "svc/cache_local.py",
+      "scope": "process",
+      "ttl_seconds": null,
+      "used_by": ["svc/sessions.py"],
+      "purpose": "Per-worker session lookups."
+    }
+  ],
+  "could_remove_local": {
+    "answer": "yes",
+    "consequence": "Sessions would be read from the shared cache directly; slightly more file reads."
+  }
+}

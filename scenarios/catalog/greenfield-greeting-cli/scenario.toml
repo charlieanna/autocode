@@ -1,0 +1,6 @@
+title = "Greeting CLI from an empty repository"
+category = "greenfield"
+# Ported from tools/live_scenarios.py LIVE-01 (oracle FX01).
+
+[fake]
+check = "python3 -m unittest test_greet.py"

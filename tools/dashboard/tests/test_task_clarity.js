@@ -3,8 +3,9 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
+const projectedRun = require('./resolver_fixture');
 const context = vm.createContext({URLSearchParams});
 vm.runInContext(source.slice(source.indexOf('const basename ='), source.indexOf("document.addEventListener('focusin'")) +
   '\nlet taskFilter="all", projectFilter="", latestData=null;\n' +
@@ -27,7 +28,7 @@ assert.equal(classify(live).label, 'Running');
 assert.equal(context.taskOverviewState(live).verified, true);
 assert.equal(context.taskOverviewState(live).step, 'Current step · Builder · Implementing');
 assert.equal(context.taskOverviewState(live).objective, 'Finish validation');
-assert.equal(context.planningMode(live), 'Builder-led · Completion owner final audit');
+assert.equal(context.planningMode(live), 'Builder-led · Completion Reviewer final audit');
 const exited = {...live, monitor: {...live.monitor, live: {state: 'exited'}}};
 assert.equal(classify(exited).group, 'stopped');
 assert.equal(context.taskOverviewState(exited).active, false);
@@ -37,13 +38,13 @@ assert.equal(context.taskOverviewState(activity).verified, false);
 const savedPause={status:'PAUSED_INTERVENTION',stage:'astra_challenge',model_settings:{joint_planning:true},
   monitor:{next_stage:'astra_challenge',live:{state:'none'}},
   stages:[{stage:'astra_discovery',finished_at:'2026-09-21T19:09:12Z',exit_code:0}]};
-assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan reviewer · Challenging the plan');
-assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Requirements planner · Planning');
+assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan Reviewer · Challenging the plan');
+assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Requirements · Planning');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
 assert.equal(context.taskOverviewState(exited).step,'Last reported active step · Builder · Implementing');
-assert.equal(classify(activity).group, 'running');
-assert.match(classify(activity).reason, /Builder.*recorded/);
-assert.ok(classify(activity).reason.includes(new Date(activity.active_stage.started_at).toLocaleString()));
+assert.equal(classify(activity).group, 'stopped');
+assert.match(classify(activity).reason, /No live worker is confirmed/);
+assert.equal(context.taskOverviewState(activity).active, false);
 assert.match(context.taskGroups().find(group => group[0] === 'running')[2], /does not confirm.*process/);
 for (const finished of [{finished_at: '2026-09-20T07:01:00Z'}, {exit_code: 0}, {exit_code: -15}]) {
   const result = classify({...activity, active_stage: {...activity.active_stage, ...finished}});
@@ -64,16 +65,16 @@ assert.match(paused.reason, /Request completion/);
 assert.equal(classify({status: 'RUNNING', error: 'Project is unavailable'}).group, 'stopped');
 assert.equal(classify({status: 'WAITING_FOR_USER', state_error: 'Malformed checkpoint'}).label, 'Unavailable');
 
-// A joint draft only needs approval after Astra finalizes it and a token exists.
-const finalized = {status: 'AWAITING_GOAL_APPROVAL', model_settings: {joint_planning: true},
-  goal_token: 'goal:1:hash', goal: {origin: 'astra_finalize', approval_status: 'draft', body: {intended_outcome: 'Build an exercise tracker'}}};
+// A joint draft only needs approval after the Plan Reviewer finalizes it and a token exists.
+const finalized = projectedRun('goal_approval', {status: 'AWAITING_GOAL_APPROVAL', model_settings: {joint_planning: true},
+  goal: {origin: 'astra_finalize', approval_status: 'draft', body: {intended_outcome: 'Build an exercise tracker'}}});
 assert.equal(classify(finalized).label, 'Approve plan');
 assert.equal(classify(finalized).reason, 'Build an exercise tracker');
 assert.equal(classify({...finalized, goal_token: ''}).group, 'stopped');
 assert.equal(classify({...finalized, goal: {...finalized.goal, origin: 'glm_draft'}}).group, 'stopped');
 assert.equal(classify({...finalized, goal: {...finalized.goal, approval_status: 'approved'}}).group, 'stopped');
-assert.equal(classify({...finalized, questions: [question]}).action, 'Answer 1 question');
-const multiple = classify({status: 'WAITING_FOR_USER', questions: [question, {id: 'Q2', question: 'What should pass?'}]});
+assert.equal(classify(projectedRun('clarification', {...finalized, questions: [question]})).action, 'Answer 1 question');
+const multiple = classify(projectedRun('clarification', {questions: [question, {id: 'Q2', question: 'What should pass?'}]}));
 assert.equal(multiple.group, 'attention');
 assert.equal(multiple.action, 'Answer 2 questions');
 assert.equal(multiple.reason, question.question);
@@ -82,14 +83,16 @@ assert.equal(multiple.reason, question.question);
 // human-review request should divert a waiting question to the output tab.
 const review = {status: 'WAITING_FOR_USER', review_token: 'artifact:new',
   review_criteria: [{id: 'C1'}, {id: 'C2'}], human_reviews: {C1: {token: 'artifact:new'}, C2: {token: 'artifact:old'}}};
-const output = classify({...review, user_request: {kind: 'human_review', decision_needed: 'Review the interface'}});
+const output = classify(projectedRun('human_review', {...review, user_request: {kind: 'human_review', decision_needed: 'Review the interface'}}));
 assert.equal(output.label, 'Review output');
 assert.equal(output.action, 'Review 1 item');
 assert.equal(output.tab, 'execution');
-const blocker = classify({...review, questions: [question], user_request: {kind: 'blocker', decision_needed: question.question}});
+const blocker = classify(projectedRun('clarification', {...review, questions: [question]}));
 assert.equal(blocker.action, 'Answer 1 question');
 assert.equal(blocker.tab, 'interview');
-assert.equal(classify({status: 'BLOCKED_HUMAN', stop_reason: 'Choose the deployment target'}).reason, 'Choose the deployment target');
+assert.equal(classify(projectedRun('blocker', {questions: [question], user_request: {decision_needed:'Choose the deployment target'}})).reason, 'Choose the deployment target');
+assert.equal(classify({status:'BLOCKED_HUMAN',questions:[question]}).label,'Awaiting Resolver');
+assert.equal(classify(projectedRun(null,{status:'WAITING_FOR_USER',questions:[question]})).group,'stopped');
 assert.equal(classify({status: 'DRY_RUN', questions: [question]}).group, 'other');
 assert.equal(classify({status: 'UNRECOGNIZED_STATE'}).group, 'other');
 
@@ -132,7 +135,11 @@ const restored = [];
 context.location = {hash: '#' + route};
 context.stored = () => 'new';
 context.filterTasks = (...args) => restored.push(args);
-vm.runInContext(source.slice(source.indexOf('function restoreSelection()'), source.indexOf("window.addEventListener('hashchange'")), context);
+// Exercise the route-restoration function without executing unrelated DOM setup.
+const restoreStart = source.indexOf('function restoreSelection()');
+const restoreEnd = source.indexOf('\n}\n', restoreStart) + 3;
+assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
+vm.runInContext(source.slice(restoreStart, restoreEnd), context);
 context.restoreSelection();
 assert.deepEqual(restored.pop(), ['attention', project]);
 context.location.hash = '#tasks&filter=invalid&project=' + encodeURIComponent(project);
@@ -149,3 +156,24 @@ assert.equal(shortOpened.length,0);
 assert.equal(context.restorePendingShortRun({runs:[shortA,shortB]}),true);
 assert.equal(shortOpened[0].run,shortA.run);
 console.log('Task classification, concise identity, and project/filter route checks passed.');
+
+// Fresh files and active-looking events are never evidence of a live process.
+for (const state of ['unknown','none','exited']) {
+  const saved={...activity,monitor:{live:{state},checkpoint_updated:new Date().toISOString(),log_updated:new Date().toISOString(),activity:[{status:'running'}]}};
+  assert.equal(classify(saved).group,'stopped');
+  assert.equal(classify(saved).stateLabel,'Stopped at a checkpoint');
+}
+assert.equal(classify(live).stateLabel,'Worker confirmed running');
+assert.equal(classify(projectedRun('clarification',{questions:[question]})).stateLabel,'Waiting for your decision');
+assert.equal(classify({status:'WAITING_FOR_USER',questions:[],user_request:null}).group,'stopped');
+assert.equal(classify({status:'TASK_COMPLETE'}).stateLabel,'Complete');
+for(const status of ['PAUSED_INVALID_OUTPUT','PAUSED_REPORT_REPAIR_LIMIT','PAUSED_PERMISSION_RECONCILIATION']) {
+  const blocked=classify({status,stage:'terra',questions:[question],user_request:{kind:'permission'},stop_reason:'Report schema rejected: missing summary'});
+  assert.equal(blocked.group,'stopped');
+  assert.equal(blocked.stateLabel,'Internally blocked');
+  assert.equal(blocked.reason,'Report schema rejected: missing summary');
+  assert.equal(blocked.action,'Inspect failure');
+}
+
+const dependencyWait=classify({status:'WAITING_FOR_DEPENDENCY',stop_reason:'Waiting for Planner backend. No user action needed.'});
+assert.equal(dependencyWait.label,'Waiting for prerequisite');

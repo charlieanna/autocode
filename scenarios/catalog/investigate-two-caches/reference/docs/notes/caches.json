@@ -1,0 +1,22 @@
+{
+  "caches": [
+    {
+      "module": "svc/cache_shared.py",
+      "scope": "shared",
+      "ttl_seconds": null,
+      "used_by": ["svc/sessions.py", "svc/metadata.py"],
+      "purpose": "Data that every worker process must see: login sessions (a user's requests land on any worker) and the raw metadata documents written by the sync job. File-backed under var/cache/, atomic replace on write, no expiry; callers delete explicitly."
+    },
+    {
+      "module": "svc/cache_local.py",
+      "scope": "process",
+      "ttl_seconds": 60,
+      "used_by": ["svc/metadata.py"],
+      "purpose": "Parsed metadata objects. Parsing the few-hundred-kilobyte JSON document costs about 40 ms and Python objects cannot be shared between processes, so each worker keeps its own parsed copy for up to a minute."
+    }
+  ],
+  "could_remove_local": {
+    "answer": "with changes",
+    "consequence": "svc/metadata.py would json.loads the raw document from the shared cache on every request, adding roughly 40 ms of parsing to each metadata-dependent request per the module's own note; removing it without replacing it moves the cost into the request path rather than eliminating it. The shared cache cannot take over because it holds text, not parsed objects."
+  }
+}

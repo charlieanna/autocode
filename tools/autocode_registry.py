@@ -17,9 +17,9 @@ import time
 from typing import Any
 
 try:
-    from . import autocode_support as support
+    from . import autocode_util as util
 except ImportError:
-    import autocode_support as support
+    import autocode_util as util
 
 
 REGISTRY_VERSION = 1
@@ -32,6 +32,11 @@ class RegistryError(RuntimeError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
+
+
+def configure_workspace_storage(workspace: Path) -> None:
+    """Use workspace-local registry storage unless a shared home was chosen."""
+    os.environ.setdefault("AUTOCODE_HOME", str(Path(workspace).resolve() / ".autocode" / "registry"))
 
 
 def storage_root() -> Path:
@@ -125,7 +130,7 @@ def register_run(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[
         document["runs"][run_id] = {"id": run_id, "workspace_id": workspace_id,
                                      "workspace": str(workspace), "run_dir": str(run_dir), "task_id": task_id}
         try:
-            support.atomic_json(path, document)
+            util.atomic_json(path, document)
         except OSError as error:
             raise RegistryError("write_failed", f"Registry update failed: {error}") from error
     return {"workspace_id": workspace_id, "run_id": run_id, "task_id": task_id}
@@ -149,7 +154,7 @@ def _register_imported_run(workspace: Path, run_dir: Path, state: dict[str, Any]
         document["workspaces"][workspace_id] = {"id": workspace_id, "workspace": str(workspace)}
         document["runs"][run_id] = record
         try:
-            support.atomic_json(path, document)
+            util.atomic_json(path, document)
         except OSError as error:
             raise RegistryError("write_failed", f"Registry update failed: {error}") from error
     return {"workspace_id": workspace_id, "run_id": run_id, "task_id": _run_task_id(state)}, True
@@ -417,6 +422,31 @@ def registry_import(selected_root: Path, *, max_depth: int = DEFAULT_IMPORT_MAX_
     return result
 
 
+def forget_deleted(workspace: Path, run_dir: Path) -> dict[str, Any]:
+    """Remove only an absent run's exact discovery pointer; never delete files."""
+    workspace, run_dir = Path(workspace), Path(run_dir)
+    if (not workspace.is_absolute() or not run_dir.is_absolute()
+            or str(workspace.resolve()) != str(workspace) or str(run_dir.resolve()) != str(run_dir)
+            or run_dir.parent != workspace / '.autocode/runs' or os.path.lexists(run_dir)):
+        raise RegistryError('invalid_deleted_run', 'Only an absent canonical direct run may be forgotten')
+    with _locked_registry() as path:
+        # The run or an ancestor may have been recreated while this cleanup
+        # waited for the registry lock. Never forget that new discovery entry.
+        if (str(workspace.resolve()) != str(workspace) or str(run_dir.resolve()) != str(run_dir)
+                or os.path.lexists(run_dir)):
+            raise RegistryError('invalid_deleted_run', 'Only an absent canonical direct run may be forgotten')
+        document = _read_registry(path)
+        removed = [key for key, value in document['runs'].items()
+                   if value.get('workspace') == str(workspace) and value.get('run_dir') == str(run_dir)]
+        for key in removed:
+            del document['runs'][key]
+        if not any(value.get('workspace') == str(workspace) for value in document['runs'].values()):
+            document['workspaces'] = {key: value for key, value in document['workspaces'].items()
+                                      if value.get('workspace') != str(workspace)}
+        util.atomic_json(path, document)
+    return {'registry_version': REGISTRY_VERSION, 'operation': 'forget-deleted', 'removed': removed}
+
+
 def cli(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Read the per-user Autocode run registry")
     subcommands = parser.add_subparsers(dest="operation", required=True)
@@ -428,12 +458,18 @@ def cli(argv: list[str]) -> int:
     command.add_argument("--max-depth", type=int, default=DEFAULT_IMPORT_MAX_DEPTH)
     command.add_argument("--directory-budget", type=int, default=DEFAULT_IMPORT_DIRECTORY_BUDGET)
     command.add_argument("--json", action="store_true", help="Accepted for argument-array compatibility; JSON is always emitted")
+    command = subcommands.add_parser('forget-deleted')
+    command.add_argument('--workspace', type=Path, required=True)
+    command.add_argument('--run-dir', type=Path, required=True)
+    command.add_argument('--json', action='store_true')
     args = parser.parse_args(argv)
     try:
         if args.operation == "location":
             result = location()
         elif args.operation == "list":
             result = listing()
+        elif args.operation == 'forget-deleted':
+            result = forget_deleted(args.workspace, args.run_dir)
         else:
             result = registry_import(args.selected_root, max_depth=args.max_depth,
                                      directory_budget=args.directory_budget)

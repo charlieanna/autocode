@@ -1,0 +1,13 @@
+{
+  "verdict": "request_changes",
+  "findings": [
+    {
+      "id": "S1",
+      "severity": "advisory",
+      "file": "regclient/client.py",
+      "lines": [17, 19],
+      "summary": "sleep defaults to time.sleep; tests must remember to inject one.",
+      "evidence": "Constructor default."
+    }
+  ]
+}

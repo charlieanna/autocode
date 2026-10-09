@@ -1,0 +1,9 @@
+title = "Transactional ZIP extraction with traversal and size defenses"
+category = "system"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[run]
+max_steps = 50
+timeout_minutes = 60

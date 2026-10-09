@@ -1,0 +1,13 @@
+title = "Review a PR with two planted regressions and one nit"
+category = "review"
+# pr-184.patch refactors retry handling. Its tests pass, but (F1) the timeout
+# path no longer reconciles with the registry before resending, so one command
+# can execute twice, and (F2) the .de "never retry" policy is silently dropped.
+# A helper in the same patch is merely clumsy. .com and .net also retry
+# SESSION_LIMIT_EXCEEDED, a registry refusal, so the command did not run; an
+# earlier version retried CONNECTION_RESET there, a third, unplanted way to
+# execute a command twice (2026-09-29). The reviewer must report both
+# regressions as blocking, nothing else as blocking, and leave the tree alone.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('review/findings.json')); print('ok')\""

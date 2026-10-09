@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory() as temporary:
  console=module.Console([ws],root/'unused-runner.py',lambda:False,conversation_root=root/'conversations',project_store_root=root/'dashboard')
  console._json_command=lambda *a,**kw:({'registry_version':1,'operation':'location','registry_path':str(root/'registry.json')},None)
  console._intervention_view=lambda *a,**kw:{'mode':'unavailable'}
- server=module.ThreadingHTTPServer(('127.0.0.1',0),module.Handler);server.console=console;server.hosts={'127.0.0.1:'+str(server.server_port)}
+ server=module.LoopbackHTTPServer(('127.0.0.1',0),module.Handler);server.console=console;server.hosts={'127.0.0.1:'+str(server.server_port)}
  threading.Thread(target=server.serve_forever,daemon=True).start()
  def get():
   from urllib.parse import urlencode

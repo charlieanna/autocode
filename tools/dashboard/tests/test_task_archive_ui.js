@@ -1,9 +1,12 @@
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../dashboard_app.js'),'utf8');
 class Element{constructor(){this.children=[];this.dataset={};this.isConnected=true;}append(...x){this.children.push(...x);}replaceChildren(...x){this.children=x;}addEventListener(){}showModal(){this.open=true;}close(){this.open=false;}focus(){}}
 const nodes=new Map(),calls=[],pending=[];
-const c=vm.createContext({Date,Set,Map,console,$:id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);},n:()=>new Element(),card:()=>new Element(),button:(text,onclick)=>Object.assign(new Element(),{text,onclick}),focusKey:x=>x,basename:p=>p.split('/').pop(),taskTitle:r=>r.task,document:{activeElement:new Element()},renderTasks(){},renderConversations(){},setView(){},filterTasks(){},refresh(){},api:(url,options)=>{calls.push({url,...JSON.parse(options.body)});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}});
+const c=vm.createContext({Date,Set,Map,console,$:id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);},n:()=>new Element(),card:()=>new Element(),button:(text,onclick)=>Object.assign(new Element(),{text,onclick}),focusKey:x=>x,document:{activeElement:new Element()},renderTasks(){},renderConversations(){},setView(){},filterTasks(){},refresh(){},api:(url,options)=>{calls.push({url,...JSON.parse(options.body)});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}});
+// Archive review and archived rows use the production project/task title helpers.
+vm.runInContext(source.slice(source.indexOf('const basename ='),source.indexOf('const human ='))+source.slice(source.indexOf('function concise('),source.indexOf('function taskStarted(')),c);
 vm.runInContext(`let latestData={runs:[{run:'/p/one'},{run:'/p/two'}],conversations:[],archived_tasks:[]},chosen={run:'/p/one'},latestRun=null,latestConversation=null,activeConversation=null,seq=0,archiveReview=null,archiveNotice=null;const archivePending=new Set();`+source.slice(source.indexOf('function archivedTask('),source.indexOf('function removedProject(')),c);
+vm.runInContext(source.slice(source.indexOf('function renderPendingDeletions('),source.indexOf('async function reviewTaskDelete(')),c);
 const run={workspace:'/p',run:'/p/one',task:'First task'};
 (async()=>{
  c.reviewTaskArchive(run);c.closeTaskArchive();assert.equal(calls.length,0);

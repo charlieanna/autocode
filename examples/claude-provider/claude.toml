@@ -1,0 +1,25 @@
+name = "claude"
+# Runs each stage as one `claude -p` call, through claude_stage.py (installed beside this file).
+# Install: copy claude.toml and claude_stage.py to ~/.config/autocode/providers/. See README.md.
+command = ["sh", "-c", "exec python3 \"$HOME/.config/autocode/providers/claude_stage.py\" \"$@\"", "claude", "{workspace}", "{sandbox}", "{model}", "{effort}", "{schema}", "{report}"]
+prompt = "stdin"
+version_command = ["claude", "--version"]
+models = ["claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"]
+
+# Verifiers differ from producers, as AutoCode requires: Haiku builds, Sonnet validates, Opus reviews.
+[roles]
+astra = { model = "claude-opus-5-5", effort = "medium" }
+terra = { model = "claude-haiku-4-5-20251001", effort = "medium" }
+sol = { model = "claude-sonnet-5-5", effort = "medium" }
+completion = { model = "claude-opus-5-5", effort = "medium" }
+glm = { model = "claude-sonnet-5-5", effort = "medium" }
+plan_reviewer = { model = "claude-opus-5-5", effort = "medium" }
+
+# After the ordinary retry a failing milestone's Builder moves to strong_model at strong_effort (xhigh when
+# unset; `claude -p --model claude-sonnet-5-5 --effort xhigh` is accepted, checked 2026-10-07). A Tester or
+# Completion Reviewer on that model moves to checker_model until the next milestone. Copy a changed file to
+# ~/.config/autocode/providers/ only between batches: a saved run whose config changed stops with
+# PAUSED_TRANSPORT_CHANGED.
+[builder_retry]
+strong_model = "claude-sonnet-5-5"
+checker_model = "claude-opus-5-5"

@@ -1,0 +1,13 @@
+{
+  "verdict": "request_changes",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocking",
+      "file": "regclient/client.py",
+      "lines": [23, 33],
+      "summary": "Retrying inside a for loop can resend a command the registry already executed.",
+      "evidence": "Code reading of the retry loop."
+    }
+  ]
+}

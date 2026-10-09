@@ -1,0 +1,1 @@
+pager.page_count(11, 5) returns 2, but eleven items in pages of five is three pages; the last partial page is dropped, and pages() loses the tail items with it. Fix it and add a regression test. This is a small fix; don't turn it into a project.

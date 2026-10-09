@@ -12,8 +12,9 @@ if sys.argv[1:] == ["--version"]:
     print("1.18.31")
     raise SystemExit(0)
 if sys.argv[1:] == ["models"]:
-    print("openai/gpt-6-astra\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol\n"
-          "zai-coding-plan/glm-5.3\ncursor-acp/claude-opus-5-5-high")
+    print("mimo-token-plan/mimo-v2.6-pro\nopencode/mimo-v2.6-flash-free\n"
+          "xiaomi-token-plan-sgp/mimo-v2.6-pro\nzai-coding-plan/glm-5.3\n"
+          "openai/gpt-6-astra\nopenai/gpt-6-sol\nopenai/gpt-6-luna\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol")
     raise SystemExit(0)
 if sys.argv[1:] == ["auth", "list"]:
     print("● OpenAI " + os.environ.get("AUTOCODE_FIXTURE_OPENAI_AUTH", "oauth"))
@@ -31,8 +32,15 @@ assert permissions["task"] == "deny" and permissions["question"] == "deny"
 if agent != "autocode_terra":
     assert permissions["edit"] == "deny"
 prompt = sys.stdin.read()
-assert "OPENCODE OUTPUT CONTRACT" in prompt
-data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+if (os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS")
+        and prompt.startswith("Your previous final message could not be parsed as the report:")):
+    # Same-session serialization correction deliberately has no full handoff.
+    data = {"execution_engine": "opencode", "report_repair": True,
+            "stage": "sol_report_repair", "original": {"stage": "sol"}}
+    prompt += "\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+else:
+    assert "OPENCODE OUTPUT CONTRACT" in prompt
+    data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 assert data["execution_engine"] == "opencode"
 session = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
@@ -44,6 +52,17 @@ def emit(kind, part):
         "sessionID": session, "messageID": message, **part}}), flush=True)
 
 emit("step_start", {"id": "prt_start", "type": "step-start"})
+# The provider's content filter refuses this stage on the named model: the model's own
+# words, a final content-filter finish and a clean exit, with no error event (#464).
+refused_stage = os.environ.get("AUTOCODE_FIXTURE_CONTENT_FILTER_STAGE")
+refused = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv else None
+if (refused_stage and refused_stage == data.get("stage")
+        and os.environ.get("AUTOCODE_FIXTURE_CONTENT_FILTER_MODEL") in (None, refused)):
+    emit("text", {"id": "prt_text", "type": "text", "time": {"end": 1},
+                  "text": "The request was rejected because it was considered high risk"})
+    emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "content-filter", "cost": 0,
+                         "tokens": {"input": 100, "output": 1, "reasoning": 40, "cache": {"read": 0, "write": 0}}})
+    raise SystemExit(0)
 with tempfile.TemporaryDirectory() as temp:
     report = Path(temp) / "report.json"
     result = subprocess.run([sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)],
@@ -64,6 +83,27 @@ with tempfile.TemporaryDirectory() as temp:
                           "state": {"status": "completed", "input": {"command": item["command"]},
                                     "metadata": {"exit": item["exit_code"]}, "output": item["aggregated_output"]}})
     final = report.read_text().replace('"event:check"', '"event:prt_check"')
+    if os.environ.get('AUTOCODE_FIXTURE_INVALID_INVESTIGATOR') and data.get('stage') == 'investigate_stuck':
+        value = json.loads(final)
+        value.pop('diagnosis')
+        final = json.dumps(value)
+    loss_cache = os.environ.get('AUTOCODE_FIXTURE_REPORT_LOSS')
+    owner = (data.get('original') or {}).get('stage', data.get('stage'))
+    if loss_cache and owner == 'sol':
+        # Preserve the synthetic complete report for report-only replies while
+        # dropping delivery from both the original and correction/repair calls.
+        Path(loss_cache).write_text(final)
+        final = final[:1]
+    if (os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE")
+            and os.environ["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] == data.get("stage")):
+        # Like OpenCode 1.x: use the output cap this process actually received.
+        cap = os.environ.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", "")
+        cap = int(cap) if cap.isdigit() and int(cap) > 0 else 32000
+        emit("text", {"id": "prt_text", "type": "text", "text": final[:-1], "time": {"end": 1}})
+        emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "length", "cost": 0,
+                             "tokens": {"input": 100, "output": cap - cap // 2, "reasoning": cap // 2,
+                                        "cache": {"read": 0, "write": 0}}})
+        raise SystemExit(0)
     emit("text", {"id": "prt_text", "type": "text", "text": final, "time": {"end": 1}})
     emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "stop", "cost": 0,
                          "tokens": {"input": 100, "output": 50, "reasoning": 0, "cache": {"read": 0, "write": 0}}})

@@ -1,5 +1,5 @@
 // Controlled read responses exercise polling races without a server or provider.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 class Element {
   constructor(tag='div',text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};this.disabled=false;this.hidden=false;}
@@ -20,12 +20,14 @@ function fixture(view='task-detail') {
     setup(data){events.push(['setup',data]);},renderTasks(data){events.push(['list',data]);},renderConversations(){},renderInbox(){},expireNotices(){},
     captureControls(){return {...focus};},restoreFocus(value){events.push(['focus',value]);},
     dashboardNotice(message){$('#dashboard-notice').textContent=message;},markMonitorStale(){events.push(['stale']);},
-    removedProject:()=>false,renderTaskProjectActions(){},reviewTaskArchive(){},renderTaskOverview(){},basename:value=>value,
-    taskTitle:run=>run.task,taskSentence:()=> 'Paused',taskActionBusy:()=>false,badge:()=>new Element(),taskPosition:()=> 'Paused',jointPlanning:()=>false,
-    renderTaskReasoning(){},renderConversation(){},renderBrief(){},renderAstraPlan(){},renderExecution(){},renderLiveControls(){},renderTaskNow(){},renderThreadCheckpoint(){},activateTab(){},settleThreadScroll(){},
+    removedProject:()=>false,renderTaskProjectActions(){},reviewTaskArchive(){},renderTaskOverview(){},
+    taskSentence:()=> 'Paused',taskActionBusy:()=>false,badge:()=>new Element(),taskPosition:()=> 'Paused',jointPlanning:()=>false,
+    renderTaskReasoning(){},renderConversation(){},renderBrief(){},renderAstraPlan(){},renderPlanRail(){},renderInlineTaskAction(){},renderExecution(){},renderLiveControls(){},renderTaskNow(){},renderThreadCheckpoint(){},activateTab(){},settleThreadScroll(){},
     renderDraftConversation(doc){vm.runInContext('latestConversation=receivedConversation',Object.assign(context,{receivedConversation:doc}));$('#draft-send').disabled=false;$('#attach-submit').disabled=false;events.push(['conversation',doc]);}
   });
   vm.runInContext(`let seq=1,currentView=${JSON.stringify(view)},chosen={workspace:'/p',run:'/p/task'},activeConversation='draft-one',latestData=null,latestRun={workspace:'/p',run:'/p/task'},latestConversation={id:'draft-one'},taskReadError='',taskReadAt=1,actionProblem='',currentTab='now';const archivePending=new Set();`,context);
+  // Include title dependencies and the no-pending-link state used by normal polling.
+  vm.runInContext(`let pendingShortRun='',pendingShortProject=null;`+source.slice(source.indexOf('const basename ='),source.indexOf("document.addEventListener('focusin'"))+source.slice(source.indexOf('function concise('),source.indexOf('function taskStarted('))+source.slice(source.indexOf('function unavailableShortProject('),source.indexOf('function taskScopeTitle(')),context);
   vm.runInContext(source.slice(source.indexOf('function disableStaleControls()'),source.indexOf('function renderThreadCheckpoint(')),context);
   vm.runInContext(source.slice(source.indexOf('async function refreshOnce()'),source.indexOf('async function refresh(){')),context);
   return {context,$,events,focus,read:expression=>vm.runInContext(expression,context),request:prefix=>{const request=requests.find(entry=>entry.url.startsWith(prefix));assert(request,'Expected an independent read for '+prefix);return request;}};
@@ -55,6 +57,7 @@ const run={workspace:'/p',run:'/p/task',task:'Selected task',status:'PAUSED'};
     if(stateError)f.request('/api/run?').resolve({...run,state_error:'Checkpoint unreadable'});else f.request('/api/run?').reject(Error('Task offline'));
     await flush();assert.match(f.read('taskReadError'),/Selected run unavailable/);assert.equal(f.$('#continue-run').disabled,true);assert.equal(f.$('#change-text').disabled,true);
     f.request('/api/runs').resolve({runs:[run]});await poll;
+    assert.equal(f.events.filter(event=>event[0]==='list').length,1,'successful list reads must render, not catch missing fixture dependencies');assert.equal(f.$('#dashboard-notice').textContent,'');
     assert.match(f.read('taskReadError'),/Selected run unavailable/);assert.equal(f.read('taskReadAt'),1);assert.equal(f.$('#sync-state').textContent,'Task status unavailable');
     assert.equal(f.$('#continue-run').disabled,true);assert.equal(f.$('#retry-task').disabled,false);assert.equal(f.read('latestRun.task'),undefined,'list data must not replace the selected read');
   }

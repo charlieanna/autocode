@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Bash(autocode-unattended)",
+      "Bash(autocode-unattended *)",
+      "Read",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Bash(autocode *)",
+      "Bash(autopilot *)",
+      "Bash(autoplanner *)",
+      "Bash(autocode-build *)",
+      "Bash(autoreview *)",
+      "Bash(autoresolver *)",
+      "Bash(autocode-tasks *)",
+      "Bash(autocode-ui *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(git *)",
+      "Bash(gocode *)",
+      "Bash(codex *)",
+      "Bash(opencode *)"
+    ]
+  }
+}

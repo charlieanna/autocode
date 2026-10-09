@@ -1,0 +1,11 @@
+{
+  "reproduced": false,
+  "observed_by_reporter": "Empty cells come out as the text None in the exported CSV.",
+  "reproduction_attempted": "export([{'a': None}, {}], ['a', 'b']) returns 'a,b\\n,\\n,\\n'; tests/test_export.py::test_missing_and_none_cells_are_empty covers exactly this and passes on the current code.",
+  "finding": "csvx.export already maps None and missing cells to empty fields (csvx/__init__.py, the writerow expression). The described output cannot be produced by this code. Either the reporter is running an older build, or the None is arriving as the string 'None' from upstream before export is called.",
+  "questions": [
+    "Which version or commit is the reporter running?",
+    "Can the reporter share one input row that produced the None text?"
+  ],
+  "changed": []
+}

@@ -4,186 +4,38 @@ No provider calls, credentials, external memory or alternate workflow state.
 """
 from __future__ import annotations
 
-import contextlib
-import datetime as dt
-import fcntl
-import hashlib
+import copy
 import json
 import os
 from pathlib import Path
 import re
 import shlex
 import subprocess
-import tempfile
-import time
 import tomllib
 
-
-def now():
-    return dt.datetime.now(dt.timezone.utc).isoformat()
-
-
-def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-def file_hash(path):
-    h = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def atomic_json(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".checkpoint-", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w") as stream:
-            json.dump(value, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(tmp, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-
-
-def read(path):
-    return json.loads(Path(path).read_text())
-
-
-class Paused(RuntimeError):
-    def __init__(self, status, reason):
-        super().__init__(reason)
-        self.status = status
-
-
-@contextlib.contextmanager
-def workspace_lock(workspace):
-    path = Path(workspace) / ".autocode" / "writer.lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise Paused("PAUSED_WORKSPACE_BUSY", "Another autocode runner holds this workspace lock")
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
-
-
-def duplicate_runner_command(command):
-    """True only for processes that are themselves the runner or a codex exec call.
-    Wrappers (zsh -lc '... autocode.py ...') and helper apps whose argv embeds
-    runner prompt text are not duplicate runners."""
-    parts = command.split(None, 2)
-    if len(parts) < 2:
-        return False
-    name = os.path.basename(parts[0])
-    if name == "codex":
-        return parts[1] == "exec"
-    if name in ("opencode", "opencode.exe"):
-        return parts[1] == "run"
-    return (name.startswith("python") or name == "autocode") and "autocode.py" in command
-
-
-def assert_no_legacy_process(run_dir, workspace):
-    """Read process metadata internally; never print unrelated command arguments."""
-    marker_path = Path(workspace) / ".autocode" / "active-processes.json"
-    if marker_path.exists():
-        try:
-            from . import autocode_process as processes
-        except ImportError:
-            import autocode_process as processes
-        marker = read(marker_path)
-        owned = marker.get("processes", [])
-        if not owned or processes.live_processes(owned):
-            raise Paused("PAUSED_WORKSPACE_BUSY", "Provider commands from an earlier stage may still be alive; inspect its checkpoint")
-    try:
-        result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch") from error
-    if result.returncode:
-        raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch")
-    marker = str(Path(run_dir).resolve())
-    relative = os.path.relpath(marker, Path(workspace).resolve())
-    for line in result.stdout.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) != 2:
-            continue
-        pid, command = parts
-        # Skip the runner and the wrapper that launched it: a shell running our own
-        # command text (e.g. zsh -lc '... autocode.py ...') is not a duplicate runner.
-        if int(pid) in (os.getpid(), os.getppid()):
-            continue
-        # Also catches an orphaned Codex child with an output path in this run.
-        if (marker in command or relative in command) and duplicate_runner_command(command):
-            raise Paused("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")
-
-
-def snapshot(workspace):
-    """Hash current source content, executable modes and nested Git worktrees."""
-    root = Path(workspace)
-    names = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root
-    ).decode().split("\0")
-    files = {}
-    for name in sorted(set(filter(None, names))):
-        if name.startswith((".autocode/", ".autocode-ui/", "tools/__pycache__/")):
-            continue
-        path = root / name
-        if path.is_symlink():
-            files[name] = "symlink:" + os.readlink(path)
-        elif path.is_file():
-            files[name] = ("executable:" if path.stat().st_mode & 0o111 else "") + file_hash(path)
-        elif path.is_dir():
-            files[name] = ("submodule:" + snapshot(path)["revision"] if (path / ".git").exists()
-                           else "uninitialized-submodule")
-        elif not path.exists():
-            files[name] = "deleted"
-    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-    return {"head": head, "files": files, "revision": digest({"head": head, "files": files})}
-
-
-def changed_paths(before, after):
-    return sorted(p for p in before["files"].keys() | after["files"].keys()
-                  if before["files"].get(p) != after["files"].get(p))
-
-
-def validate_schema(value, schema, where="$"):
-    """The small, strict JSON Schema subset used by our checked-in verdicts."""
-    kind = schema.get("type")
-    types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
-    if kind and (not isinstance(value, types[kind]) or (kind == "integer" and isinstance(value, bool))):
-        raise ValueError(f"{where}: expected {kind}")
-    if "enum" in schema and value not in schema["enum"]:
-        raise ValueError(f"{where}: invalid enum")
-    if isinstance(value, dict):
-        for key in schema.get("required", []):
-            if key not in value:
-                raise ValueError(f"{where}: missing {key}")
-        props = schema.get("properties", {})
-        if schema.get("additionalProperties") is False and value.keys() - props.keys():
-            raise ValueError(f"{where}: unexpected fields")
-        for key, child in value.items():
-            if key in props:
-                validate_schema(child, props[key], f"{where}.{key}")
-    if isinstance(value, list):
-        if len(value) < schema.get("minItems", 0):
-            raise ValueError(f"{where}: too few items")
-        if len(value) > schema.get("maxItems", len(value)):
-            raise ValueError(f"{where}: too many items")
-        for index, child in enumerate(value):
-            validate_schema(child, schema.get("items", {}), f"{where}[{index}]")
+# Re-export shared helpers for existing callers and test patches.
+try:
+    from .autocode_baseline import BASELINE_POLICY
+    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
+    from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+    from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
+    from . import autocode_evidence_snapshot as evidence_snapshot
+    from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
+                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
+    from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
+    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
+    from .autocode_event_matching import same_command
+except ImportError:
+    from autocode_baseline import BASELINE_POLICY
+    from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
+    from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+    import autocode_output_filter as output_filter, autocode_request_usage as request_usage
+    import autocode_evidence_snapshot as evidence_snapshot
+    from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
+                               model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
+    import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
+    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
+    from autocode_event_matching import same_command
 
 
 def events(path):
@@ -208,21 +60,14 @@ def events(path):
 
 def event_metrics(path):
     rows = events(path)
-    completed = [r for r in rows if r.get("type") == "turn.completed" and isinstance(r.get("usage"), dict)]
-    usages = [r["usage"] for r in rows if r.get("type") in ("turn.completed", "turn.failed")
-              and isinstance(r.get("usage"), dict)]
-    keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
-    usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
-    return {"provider_tokens": usage,
-            "provider_requests": None, "provider_retries": None,
-            "completed_turns": len(completed), "headroom_transformed": None}
+    return event_summary.summarize(rows, request_usage.read(path), token_usage.reported_cost(rows))
 
 
 def terminal_failure_reason(path):
     """Expose recognized transport failures without interpreting model prose."""
     for row in events(path):
-        error = row.get("error")
-        if row.get("type") == "turn.failed" and isinstance(error, dict) and error.get("code") == "output_token_limit":
+        error = row.get("error") if row.get("type") == "turn.failed" else None
+        if isinstance(error, dict) and error.get("code") in ("output_token_limit", "incomplete_turn"):
             return error.get("message")
     return None
 
@@ -230,37 +75,25 @@ def terminal_failure_reason(path):
 def failure_status(path):
     # Inspect actual provider errors, not arbitrary tool logs mentioning errors.
     failures = [e for e in events(path) if e.get("type") in ("turn.failed", "error")]
-    text = json.dumps(failures).lower()
-    if any(x in text for x in ("quota", "budget", "usage limit", "insufficient_credit")):
+    # A command-line tool can end with the failed request as plain text instead (#562).
+    text = "\n".join([json.dumps(failures), *provider_error_lines.trailing(path)]).lower()
+    # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
+    if provider_refusal.refusal(failures):
+        return provider_refusal.STATUS
+    # Model capacity is transient, unlike account rate limits and quota; the runner may retry it under a small budget.
+    if re.search(r"model is at capacity|model capacity exceeded|model_overloaded|resource_exhausted", text):
+        return "PAUSED_PROVIDER_CAPACITY"
+    # A used-up plan can be a 429 that never says quota (Z.AI: "Weekly/Monthly Limit Exhausted"); a rate limit is not.
+    if (any(x in text for x in ("quota", "budget", "usage limit", "usage_limit", "insufficient_credit", "add credits"))
+            or re.search(r"(?<!rate )limit (exhausted|will reset at \d{4}-)|\b(daily|weekly|monthly) limit\b", text)):
         return "PAUSED_BUDGET"
     if any(x in text for x in ("rate_limit", "rate limit", "429")):
         return "PAUSED_RATE_LIMIT"
     return "PAUSED_PROVIDER_UNCERTAIN"
 
 
-def compact_output(text, *, enabled=True):
-    """Lossless except duplicate lines and progress-only lines; no N-line truncation.
-
-    JSON is kept as valid complete JSON. Unknown output and every distinct error,
-    traceback and test total are retained; repetition counts are explicit.
-    """
-    if not enabled:
-        return {"format": "text", "content": text, "omitted_progress_lines": 0, "repeated_lines": {}}
-    try:
-        return {"format": "json", "content": json.loads(text), "omitted_progress_lines": 0, "repeated_lines": {}}
-    except ValueError:
-        pass
-    kept, repeats, seen, progress = [], {}, set(), 0
-    for line in text.splitlines():
-        if re.fullmatch(r"[.\s]+", line) and line.strip():
-            progress += 1
-        elif line in seen and line.strip():
-            repeats[line] = repeats.get(line, 0) + 1
-        else:
-            kept.append(line)
-            seen.add(line)
-    return {"format": "text", "content": "\n".join(kept), "omitted_progress_lines": progress,
-            "repeated_lines": repeats}
+def compact_output(text, *, enabled=True, command=None, exit_code=None):
+    return output_filter.compact_output(text, enabled=enabled, command=command, exit_code=exit_code)
 
 
 def summarize_events(path, destination):
@@ -274,15 +107,10 @@ def summarize_events(path, destination):
     atomic_json(destination, {"commands": commands, "full_log": str(path)})
 
 
-def criteria_definition(criteria):
-    return [{"id": c["id"], "criterion": c["criterion"]} for c in criteria]
-
-
 def implementation_evidence_paths(refs, events_path):
     """Resolve actual executed-event references to their preserved event log.
 
-    File references retain the existing containment and hashing checks. An event
-    must identify exactly one completed command, never a message or step marker.
+    File references retain containment checks; events identify one completed command.
     """
     resolved = []
     completed = None
@@ -304,167 +132,89 @@ def implementation_evidence_paths(refs, events_path):
 def evidence_hashes(refs, workspace, run_dir):
     found = {}
     for ref in refs:
-        # Leading/trailing whitespace in a cited path is a formatting artifact, not semantics.
         path = Path(ref.split("#", 1)[0].strip())
         path = path if path.is_absolute() else Path(workspace) / path
         path = path.resolve()
         if not path.is_relative_to(Path(workspace).resolve()):
             raise ValueError(f"Evidence outside project: {ref}")
         if not path.is_file():
-            raise ValueError(f"Missing evidence: {ref}")
+            raise ValueError(f"Missing evidence: {ref} (cite a project file path, not a description of what you read)")
+        path = evidence_snapshot.stable_path(path, run_dir)
         found[str(path)] = file_hash(path)
     if not found:
         raise ValueError("Evidence references are empty")
     return found
 
 
-def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
-    if (require_independent and state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled')
-            and state.get('validation', {}).get('reviewer_role') != 'sol'):
-        return False
-    if require_independent and state.get('settings',{}).get('workflow',{}).get('mode') == 'glm_final_audit_v2':
-        review=state.get('validation',{})
-        if review.get('reviewer_role')!='astra' or review.get('final_audit') is not True:
-            return False
-    if state.get("version", 2) >= 3:
-        try:
-            from . import autocode_goals as goals
-        except ImportError:
-            import autocode_goals as goals
-        try:
-            goals.execution_guard(state, decision)
-        except Paused:
-            return False
-        contract = state["goal_contract"]
-        validation = state.get("validation", {})
-        if (validation.get("contract_revision") != contract["revision"]
-                or validation.get("contract_hash") != contract["hash"]
-                or (state.get("current_task") and validation.get("task_id") != state["current_task"]["id"])
-                or (require_human_reviews and goals.missing_human_reviews(state))
-                or any(f.get("blocking", True) for f in validation.get("findings", []))):
-            return False
-        if "end_to_end_flow" in contract["body"]:
-            flow = validation.get("end_to_end_result", {})
-            if flow.get("status") != "PASS" or not flow.get("evidence_refs") or not flow.get("summary", "").strip():
-                return False
-    sol = state.get("validation", {})
-    if decision.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
-        return False
-    criteria = state.get("acceptance_criteria", [])
-    if not criteria or criteria_definition(decision.get("acceptance_criteria", [])) != criteria_definition(criteria):
-        return False
-    if any(c["status"] != "verified" or not c["evidence"].strip() for c in decision["acceptance_criteria"]):
-        return False
-    if sol.get("verdict") != "PASS" or sol.get("criteria_revision") != state.get("criteria_revision"):
-        return False
-    if sol.get("source_revision") != current["revision"] or not sol.get("checks"):
-        return False
-    outcomes = sol.get("criterion_results", [])
-    if sorted(r["id"] for r in outcomes) != sorted(c["id"] for c in criteria):
-        return False
-    if any(r["status"] != "PASS" or not r["evidence_refs"] for r in outcomes):
-        return False
-    if any(c["exit_code"] != 0 for c in sol["checks"]) or sol.get("unverified_criteria"):
-        return False
-    if any(f["severity"] in ("critical", "high") for f in sol.get("findings", [])):
-        return False
-    pins = sol.get("evidence_hashes", {})
-    if not pins:
-        return False
-    return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
-
-
-_ZSH_WRAPPER = re.compile(r"^\S*/zsh\s+(?:-lc|-l\s+-c)\s+(.+)$", re.S)
-
-
-def _command_bodies(command):
-    """Candidate unwrapped bodies for a recorded or reported command line.
-    Shlex-unwraps the login-shell wrapper when quoting is well-formed; also
-    offers the line with one stray trailing quote removed, which codex event
-    recording has been observed to leave behind on nested-quote commands."""
-    variants = [command]
-    stripped = command.rstrip()
-    if stripped and stripped[-1] in "\"'":
-        variants.append(stripped[:-1])
-    bodies = []
-    for variant in variants:
-        try:
-            parts = shlex.split(variant)
-        except ValueError:
-            parts = None
-        if parts and len(parts) >= 3 and parts[0].endswith("/zsh"):
-            if parts[1] == "-lc":
-                bodies.append(parts[2])
-                continue
-            if parts[1:3] == ["-l", "-c"]:
-                bodies.append(parts[3])
-                continue
-        if parts is None:
-            match = _ZSH_WRAPPER.match(variant.strip())
-            if match:
-                bodies.append(match.group(1))
-                continue
-        bodies.append(variant)
-    return bodies
-
-
-def same_command(event_command, check_command):
-    """Codex may record the model command wrapped in a login shell (/bin/zsh -lc '...').
-    Normalize the wrapper on either side: the event is recorded wrapped, and a report
-    may quote the event line verbatim (wrapper included) or as the bare command."""
-    if event_command == check_command:
-        return True
-    for event_body in _command_bodies(event_command):
-        for check_body in _command_bodies(check_command):
-            if event_body == check_body:
-                return True
-            try:
-                if shlex.split(event_body) == shlex.split(check_body):
-                    return True
-            except ValueError:
-                continue
-    return False
-
-
-def verify_checks(checks, workspace, event_path):
-    """Checks must have immutable capture receipts and an actual Sol tool call.
-
-    The schema isn't proof. Compare its claims with runner-captured tool events,
-    the on-disk command receipt, and its complete output hash.
-    """
-    tool_outputs = [e["item"] for e in events(event_path)
+def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
+    """Verify checks against executed events or attempt-bound, output-hashed receipts.
+    Fill only absent exit codes from unique evidence."""
+    rows = [] if receipt_only else events(event_path)
+    tool_outputs = [e["item"] for e in rows
                     if e.get("type") == "item.completed"
                     and e.get("item", {}).get("type") in ("command_execution", "tool_output")]
-    import shlex
-    for check in checks:
+    normalized = copy.deepcopy(checks)
+    for check in normalized:
+        if not isinstance(check, dict) or not isinstance(check.get('command'), str) or not isinstance(check.get('evidence_ref'), str):
+            raise ValueError('Check needs a command and evidence reference')
+        missing_exit = check.get('exit_code') is None
+        if not missing_exit and type(check['exit_code']) is not int:
+            raise ValueError('Check exit code must be an integer')
         if check["evidence_ref"].startswith("event:"):
-            rows = events(event_path)
+            if receipt_only:
+                raise ValueError('Report-file providers require capture receipts, not event references')
             event_id = check["evidence_ref"].split(":", 1)[1]
             matches = [e["item"] for e in rows
                        if e.get("type") == "item.completed" and e.get("item", {}).get("id") == event_id
                        and e["item"].get("type") == "command_execution"]
-            if len(matches) == 1 and same_command(matches[0].get("command"), check["command"]) and matches[0].get("exit_code") == check["exit_code"]:
-                continue
-            # Models sometimes cite conversation call ids that never occur in events;
-            # accept a unique executed command+exit match and record the real event id.
-            if not matches:
-                alternates = [e["item"] for e in rows
-                              if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"
-                              and same_command(e["item"].get("command"), check["command"]) and e["item"].get("exit_code") == check["exit_code"]]
-                if len(alternates) == 1:
-                    check["evidence_ref"] = "event:" + alternates[0]["id"]
+            if len(matches) == 1 and isinstance(matches[0].get('command'), str):
+                executed = matches[0]['command']
+                same = same_command(executed, check['command'])
+                if not same and event_matching.workspace_wrapped_command(executed, check['command'], workspace):
+                    same = True
+                    check['command'] = executed
+                if (same and type(matches[0].get('exit_code')) is int
+                        and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
+                    check['exit_code'] = matches[0]['exit_code']
                     continue
-            raise ValueError("Check is not supported by an exact executed Sol event")
+            # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
+            # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
+            if not matches:
+                alternates = [e["item"] for e in rows if e.get("type") == "item.completed"
+                              and e.get("item", {}).get("type") in ("command_execution", "tool_output")
+                              and isinstance(e['item'].get('command'), str)
+                              and (same_command(e['item']['command'], check['command'])
+                                   or event_matching.workspace_wrapped_command(e['item']['command'], check['command'], workspace))]
+                latest = alternates[-1] if alternates else {}
+                if (type(latest.get('exit_code')) is int and isinstance(latest.get('id'), str) and latest['id']
+                        and (missing_exit or latest['exit_code'] == check['exit_code'])):
+                    check["evidence_ref"] = "event:" + latest["id"]
+                    check['exit_code'] = latest['exit_code']
+                    check['command'] = latest['command']
+                    continue
+            raise ValueError("Check is not supported by an exact executed Validator event")
         path = Path(check["evidence_ref"])
         path = path if path.is_absolute() else Path(workspace) / path
         if not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
             raise ValueError("Executed check receipt must be captured under project .autocode")
-        receipt = read(path)
-        if shlex.join(receipt["command"]) != check["command"] or receipt["exit_code"] != check["exit_code"]:
-            raise ValueError("Check command/result differs from receipt")
+        try:
+            receipt = read(path)
+        except OSError as error:
+            raise ValueError(f"Cannot read check receipt {path}: {error}. Cite the exact captured receipt path.") from error
+        if (not isinstance(receipt.get('command'), list)
+                or not all(isinstance(part, str) for part in receipt['command'])
+                or type(receipt.get('exit_code')) is not int
+                or not receipts.adopt_command(check, receipt['command'])
+                or (not missing_exit and receipt['exit_code'] != check['exit_code'])):
+            raise ValueError(receipts.mismatch(check, receipt))
         raw = Path(receipt["full_output"])
         if not raw.resolve().is_relative_to(Path(workspace).resolve() / ".autocode") or file_hash(raw) != receipt["full_output_sha256"]:
             raise ValueError("Full check output missing or changed")
+        if receipt_only:
+            if not capture_context or receipt.get('capture_context') != capture_context:
+                raise ValueError('Capture receipt does not belong to this validation attempt')
+            check['exit_code'] = receipt['exit_code']
+            continue
         # capture prints one JSON object. Match structurally even if event text
         # adds shell notices. No word-search for PASS/COMPLETE is used.
         matched = False
@@ -486,7 +236,11 @@ def verify_checks(checks, workspace, event_path):
                 except ValueError:
                     pass
         if not matched:
-            raise ValueError("No independently executed Sol tool event matches receipt")
+            raise ValueError("No independently executed Validator tool event matches receipt")
+        check['exit_code'] = receipt['exit_code']
+    # Failed or ambiguous normalization must not partly repair the caller's report.
+    for original, derived in zip(checks, normalized):
+        original.update(derived)
 
 
 def local_settings():
@@ -531,34 +285,34 @@ def transport_arguments(settings):
 
 
 STABLE = {
-    "astra_plan": """You are ASTRA, the product lead, technical planner and final reviewer.
+    "astra_plan": """You are the Plan Reviewer, the product lead, technical planner and final reviewer.
 The user has approved the attached versioned build brief. Preserve completed work.
 Issue a substantial, coherent milestone against the approved scope and acceptance criteria. Work read-only.
-You own the outcome; Terra implements and Sol independently validates.
+You own the outcome; the Builder implements and the Validator independently validates.
 """,
-    "astra_review": """You are ASTRA, the final reviewer of the approved build brief.
-Independently judge Terra's implementation report, Sol's validation, the actual source,
+    "astra_review": """You are the Plan Reviewer, the final reviewer of the approved build brief.
+Independently judge the Builder's implementation report, the Validator's validation, the actual source,
 milestone status and accumulated evidence. Agent agreement is not proof. Do not move
 the goalposts or count an earlier test pass after changes invalidate it. Work read-only.
 """,
-    "terra": """You are TERRA, the implementation agent and only application-code writer.
+    "terra": """You are the Builder, the implementation agent and only application-code writer.
 Implement current_task within the approved build brief. Inspect existing source first,
 preserve unrelated work, and follow project conventions. Do not expand scope, change
 acceptance criteria, weaken tests or conceal failures. Add or update appropriate tests
 and execute relevant available checks. Report changed files, addressed_requirements,
 exact commands_run and results, remaining_risks and untested_behavior. Keep checks you
 only recommend in recommended_checks, never commands_run. The runner attaches the
-actual workspace and source revision for Sol. Evidence files must exist inside this
+actual workspace and source revision for the Validator. Evidence files must exist inside this
 workspace; scratch files outside it cannot be cited. No commit is required merely to
 report evidence. Do not use /tmp, mktemp's default location, parent directories, or
 background/nohup processes for test output or markers: write them under the current
 workspace (for example .autocode/evidence) and run bounded checks in the foreground.
 If blocked, explain the missing requirement or permission. Do not
-declare project completion; return the implementation and evidence for Sol.
+declare project completion; return the implementation and evidence for the Validator.
 """,
-    "sol": """You are SOL, the independent read-only validation agent.
-Use the approved brief, current_task, complete Terra report and actual workspace.
-Treat Terra's claims as claims to verify. Inspect source and independently execute
+    "sol": """You are the Validator, the independent read-only validation agent.
+Use the approved brief, current_task, complete Builder report and actual workspace.
+Treat the Builder's claims as claims to verify. Inspect source and independently execute
 checks of the normal user flow, relevant edge cases, failure behavior and regressions.
 Do not modify application code, weaken tests, or run generators that rewrite source.
 Use isolated validation checks when needed. For every applicable criterion report
@@ -569,33 +323,86 @@ smallest suggested_correction. Preferences and new features are not blockers.
 Report end_to_end_result for the approved user flow; use NOT_VERIFIED until checked.
 Never claim a check passed without execution or clearly identified reliable evidence.
 The checks array is the final verification set, not a list of every exploratory shell
-command. List only checks executed in this Sol attempt; earlier receipts are context,
+command. List only checks executed in this Validator attempt; earlier receipts are context,
 not proof of execution in this attempt. PASS requires every listed check to exit 0. Preserve failed exploratory
 runs and their resolution in checks_run and the full logs. After fixing a validation
 probe, rerun the complete corrected probe; do not count an unexecuted correction as
 a pass. Source diff exit 1 means files differ, not a successful verification command.
-Return exact command/exit_code and evidence_ref='event:<id>' from a completed shell
-tool event (also usable in criterion and end-to-end evidence_refs). Follow the
-execution engine's evidence instructions and copy command text verbatim. Do not
+List each check by its exact command. When the execution engine's evidence instructions ask for capture receipts,
+cite each check's receipt path as its evidence_ref and copy command_text verbatim, never an event: ID (the
+runner rejects one from such an engine). Otherwise give evidence_ref 'event:' with exit_code null instead of a
+receipt, and the runner attaches the event ID and exit code of that command's latest completed run in this stage,
+so never read your event log for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs
+as check:<its position from 1>.
+For criterion and end-to-end evidence from image/MCP calls or retained earlier
+stages, cite the exact existing artifact path (including the owning JSONL log),
+not a foreign or non-command event: ID. These artifacts still require independent
+inspection and source provenance; a file path alone is not proof of acceptance.
+Artifact evidence_refs are project file paths (README.md), never sentences like "README.md read: 38 lines". For external
+temporary artifacts, cite the current executed shell event that records the
+observation, or its project-contained event log, and preserve any limitations.
+open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. Each
+defect gets its own runner id. The Validator may reuse an id only from an open finding whose
+source is sol, and only to report that same defect again. Leave id empty for a new
+Validator finding, including a defect previously reported only by the Plan Reviewer; preserve the
+defect and evidence without copying the Plan Reviewer's id. A finding you omit stays open.
+The Validator may close only its own findings. Close one you verified in
+finding_dispositions with its exact id, disposition resolved and the check that
+proves it, or retracted with evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
 For human_review criteria report automated evidence; actual approval is a separate
-runner gate. No evidence files need to be written. Return findings to Astra, who
+runner gate. If that approval is the approved flow's only unexecuted step, report
+end_to_end_result NOT_VERIFIED with a technical_result containing status PASS, a summary
+and evidence_refs proving ALL technical steps of the approved flow were executed.
+List the exact outstanding human criterion IDs in pending_human_criteria. If any
+technical flow step is unfinished, technical_result is NOT_VERIFIED (or FAIL for a
+verified defect); naming a human criterion never substitutes for that technical proof.
+An explicit technical FAIL also makes end_to_end_result FAIL; end_to_end_result PASS
+cannot contradict incomplete technical proof or pending human criteria.
+Use technical_result=null and pending_human_criteria=[] when there is no separate
+human flow gate. Technical evidence uses the same check:<position> or artifact
+references as other results. No evidence files need to be written. Return findings to the Plan Reviewer, who
 decides what happens next. Do not declare project completion.
 """,
 }
 ASTRA_DECISIONS = """
+Return every acceptance criterion in CURRENT HANDOFF DATA order, preserving IDs and criterion text exactly.
+Only astra_review omits criterion text, returning id, status and evidence. Include criteria outside the
+current milestone. Mark unchecked criteria unverified; narrowing the review scope
+does not authorize dropping criteria from the approved contract.
 Choose exactly one status:
 CONTINUE: the current task passes (or this is the first task), but approved work remains.
 REWORK: a verified defect or unmet requirement needs a focused correction using findings.
 BLOCKED: permission, consequential ambiguity, a missing dependency or repeated lack of
-progress requires the user; explain exactly what is needed in user_request.
-COMPLETE: every approved criterion has evidence, Sol validated the current final
+progress requires the user; explain exactly what is needed in user_request. Set
+user_request.kind="permission" when the ask changes no goal, scope, acceptance
+criterion or approved product behavior -- for example, more execution time, tool
+budget or spending headroom to finish already-approved verification, or another
+scoped operational allowance. Use kind="blocker" only when the answer may itself
+change what is approved (the contract, a criterion, or scope): the runner reads
+"blocker" as requiring a fresh draft and re-approval, so never choose it merely
+because the report status is BLOCKED.
+COMPLETE: every approved criterion has evidence, the Validator validated the current final
 implementation and the full end-to-end flow was checked. Include the criterion-to-evidence
 summary in acceptance_criteria/evidence and disclose agreed_limitations.
 For CONTINUE or REWORK, provide next_objective and next_task: kind, milestone_id,
 requirements, approved acceptance_criteria IDs and validation_plan. Use kind=validate
-with CONTINUE when existing work only needs Sol revalidation. For BLOCKED or COMPLETE
-use kind=none and empty next-task strings/lists. Plans may change inside the contract;
+with CONTINUE when existing work only needs Validator revalidation. For BLOCKED or COMPLETE
+use kind=none and empty next-task strings/lists. Report every defect you identify as a
+structured entry in findings (severity, finding, evidence, blocking). Leave id empty
+for a new Plan Reviewer finding, including a defect previously reported only by the Validator. Two
+defects stay separate even when the wording matches; reuse an id only from an open
+finding whose source is astra, and only when reporting that same defect again. The runner
+assigns the id and links it to the task that fixes it, so a finding described only
+in prose is not tracked. A BLOCKED review still lists the defects already found;
+the runner records them before pausing and does not close anything. open_findings
+in CURRENT HANDOFF DATA lists both reviewers' open findings. Omitting a finding
+does not close it. The Plan Reviewer may close only its own findings: use finding_dispositions
+with its exact id, disposition
+resolved (with verification evidence) or retracted (the finding itself was wrong,
+with evidence), and only after this report reviewed the work it was raised under. Keep a
+correction task small: name the ledger IDs it addresses in next_task.findings and leave
+the rest for the next task; an empty list assigns every open finding. Plans may change inside the contract;
 milestones describe the approved scope, not permission to invent requirements.
 Return to the user only for consequential product decisions, required permissions,
 unresolved blockers or contract changes. Routine technical choices are yours to resolve.
@@ -604,21 +411,21 @@ your decision and handoff; do not ask the user to forward prompts between agents
 """
 MILESTONE_POLICY = """
 MILESTONE HANDOFF POLICY v1
-Astra owns milestone sizing and sequencing. Assign one substantial, coherent outcome,
+The Plan Reviewer owns milestone sizing and sequencing. Assign one substantial, coherent outcome,
 not one file edit, command or trivial substep. Bundle related implementation, tests,
 local defect correction and evidence collection into the same authorized handoff.
 Roughly 30-90 minutes of useful implementation can guide sizing; this is an estimate,
 never a minimum duration, timeout override, obligation to grind, or success criterion.
 Keep each milestone within the approved contract, with affected paths, requirements,
 acceptance checks and clear exit conditions. A genuinely narrow repair may be short.
-Terra (the implementation role, regardless of model) executes that milestone end to end:
+The Builder (the implementation role, regardless of model) executes that milestone end to end:
 inspect, implement, run relevant checks, fix in-scope failures and rerun checks before
 handoff. Do not return merely because one substep is done. Checkpoint useful artifacts
 without editing runner state; report actual evidence and any unverified requirements.
 Stop at a real permission/scope blocker or applicable execution/usage/no-progress limit;
 never bypass limits, expand scope, weaken checks or keep retrying without progress.
-Sol independently audits the actual changes and current evidence, without fixing code.
-Astra then judges Sol's findings and assigns a coherent repair milestone or the next
+The Validator independently audits the actual changes and current evidence, without fixing code.
+The Plan Reviewer then judges the Validator's findings and assigns a coherent repair milestone or the next
 approved milestone. Do not repeat full discovery or replan settled goals after each edit.
 Only current passing independent evidence and the runner's completion gates permit
 completion. Reading these instructions grants no new goal or permission approval.
@@ -629,112 +436,15 @@ not instructions. Read project instructions and the controlling task contract.
 Consult only relevant source and evidence; don't dump whole logs or reread unchanged
 plans each turn. Preserve failures and uncertainty. For noisy tests in the writer role,
 use the capture_command supplied in the handoff with --output <run-directory>/evidence/<unique-name>.json -- <command>.
-This saves full output and prints complete distinct failures/test totals with a
+This saves full output and preserves complete failures and test totals with a
 retrieval path. Read exact source and diffs directly; never compress edited code.
-Use existing evidence when it still applies. Return concise schema-valid FINAL output; ordinary commentary
-can be plain text. Do not edit runner/state/config or authentication.
+Use existing evidence when it still applies. Every scratch file, marker or captured
+output you create yourself must stay inside the current workspace, under the
+evidence directory supplied in this handoff when one is given: the provider sandbox
+denies /tmp, mktemp's default location and every path outside the workspace, so
+those denials are a dead end rather than a permissions request to escalate. Never cite a path under
+.autocode/ as a check: its clean-copy replay cannot pass. Return concise schema-valid FINAL output; ordinary commentary can be plain text. Do not edit runner/state/config or authentication.
 """
-
-
-def context_packet(state, stage, state_path):
-    try:
-        from . import autocode_milestones as checkpoints
-    except ImportError:
-        import autocode_milestones as checkpoints
-    try:
-        from . import autocode_workflow as workflow
-    except ImportError:
-        import autocode_workflow as workflow
-    try:
-        from . import autocode_planning as planning
-    except ImportError:
-        import autocode_planning as planning
-    criteria = state.get("acceptance_criteria", [])
-    base = {"task": state["task"], "state_file": str(state_path), "stage": stage,
-            "criteria_revision": state.get("criteria_revision"), "acceptance_criteria": criteria_definition(criteria),
-            "next_action": state.get("next_action"), "plan": state.get("plan", []),
-            "checkpoint_reason": state.get("stop_reason"),
-            "recovery_context": state.get("recovery_context"),
-            "evidence_locations": state.get("evidence_locations", []),
-            "private_source_exceptions": state.get("private_source_exceptions", []),
-            "context_policy": "Full artifacts remain on disk; retrieve relevant exact evidence on demand."}
-    current = snapshot(Path(state["workspace"]))
-    base.update(workspace=state["workspace"], source_revision=current["revision"], git_head=current["head"],
-                current_task=state.get("current_task"), execution_limits=state["settings"].get("limits", {}),
-                execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)))
-    figma_file = state["settings"].get("figma_file")
-    if figma_file:
-        base["figma_file"] = figma_file
-    if stage == "terra":
-        base.update(affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", []))
-    elif stage in ("sol", "astra_checkpoint"):
-        impl = state.get("implementation", {})
-        base.update(implementation=impl, actual_changes=state.get("changed_files", []),
-                    source_snapshot=state.get("source_snapshot"), diff_ref=state.get("diff_ref"))
-        if stage == "astra_checkpoint":
-            base.update(validation=state.get("validation"), unresolved_findings=state.get("unresolved_findings", []))
-    else:
-        impl = state.get("implementation", {})
-        validation = state.get("validation", {})
-        base.update(implementation=impl, validation=validation,
-                    unresolved_findings=state.get("unresolved_findings", []))
-    import shlex
-    import sys
-    base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
-    instruction = STABLE.get(stage, "")
-    if figma_file:
-        try:
-            from . import autocode_figma as figma
-        except ImportError:
-            import autocode_figma as figma
-        instruction += figma.instructions(state["settings"])
-    if stage == "sol" and base["execution_engine"] == "codex":
-        instruction += ("Read this stage's events .jsonl. Cite the item.id (item_N) of a completed "
-                        "command_execution item.completed event, with its full command and exit_code. "
-                        "Conversation call IDs are not event IDs.\n")
-    if state.get("version", 2) >= 3:
-        try:
-            from . import autocode_goals as goals
-        except ImportError:
-            import autocode_goals as goals
-        base.update(goal_contract=state.get("goal_contract"), saved_answers=state.get("answers", {}),
-                    brief_feedback=state.get("brief_feedback", []),
-                    pending_questions=state.get("pending_questions", []), user_request=state.get("user_request"),
-                    agent_request=state.get("agent_request"),
-                    human_reviews=state.get("human_reviews", {}), deferred_backlog=state.get("deferred_backlog", []),
-                    preserved_checkpoint=state.get("pre_goal_checkpoint"))
-        base["milestone_status"] = goals.milestone_status(state, current)
-        base["prior_validation_reports"] = [
-            {k: entry["validation"].get(k) for k in ("output", "source_revision", "contract_revision", "verdict")}
-            for entry in state.get("validation_archive", [])]
-        instruction = goals.DISCOVERY_PROMPT + goals.DECISION_PROVENANCE if stage == "astra_discovery" else instruction + goals.EXECUTION_PROMPT
-        if stage in ("astra_plan", "astra_review"):
-            instruction += ASTRA_DECISIONS
-    # No previous transcripts or history array is forwarded; exact goals are never truncated.
-    milestone_policy = MILESTONE_POLICY
-    if checkpoints.enabled(state):
-        base['milestone_checkpoint'] = checkpoints.summary(state)
-        base['current_milestone'] = checkpoints.scope(state)
-        milestone_policy += checkpoints.POLICY
-    if workflow.enabled(state):
-        workflow.guard(state)
-        base["workflow"] = state["settings"]["workflow"]
-        base["targeted_consultation"] = state.get("targeted_consultation")
-        milestone_policy = workflow.POLICY
-        if stage == "astra_checkpoint":
-            instruction = workflow.CHECKPOINT + goals.EXECUTION_PROMPT
-        elif stage == "sol":
-            instruction += "\nAddress the targeted_consultation only, inspecting actual evidence. Do not broaden the task.\n"
-        if workflow.final_only(state):
-            milestone_policy=workflow.FINAL_POLICY
-            base['final_audit_request']=state.get('final_audit_request')
-            base['consultation_reports']=state.get('consultation_reports',[])[-1:]
-            if stage=='astra_checkpoint':
-                instruction+=workflow.FINAL_CHECKPOINT
-    prompt = instruction + milestone_policy + COMMON + "\nCURRENT HANDOFF DATA\n" + json.dumps(base, indent=2)
-    return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
-                    "estimate_method": "UTF-8 bytes / 4; excludes resumed history and tool output",
-                    "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}
 
 
 def migrate_v1(state, run_dir, workspace, settings, schemas):

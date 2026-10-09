@@ -1,0 +1,22 @@
+{
+  "satisfied": ["Throughput", "Replay", "Independent consumers", "Ordering: keyed messages keep order within a partition"],
+  "concerns": [
+    {
+      "id": "F1",
+      "area": "duplicate processing",
+      "severity": "blocking",
+      "summary": "At-least-once delivery with retries and no idempotency boundary double-charges renews.",
+      "evidence": "Consumers paragraph; billing.charge is not idempotent."
+    },
+    {
+      "id": "F2",
+      "area": "migration",
+      "severity": "blocking",
+      "summary": "No rollback or reconciliation for the dual-write period.",
+      "evidence": "Migration section."
+    }
+  ],
+  "questions": [
+    {"id": "Q1", "question": "Must every consumer be idempotent or only billing?", "options": ["billing only", "all"]}
+  ]
+}

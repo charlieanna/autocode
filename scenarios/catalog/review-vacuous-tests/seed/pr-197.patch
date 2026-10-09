@@ -1,0 +1,35 @@
+diff --git a/regclient/policies.py b/regclient/policies.py
+index 417337d..6c3c482 100644
+--- a/regclient/policies.py
++++ b/regclient/policies.py
+@@ -15,6 +15,9 @@ DEFAULT = RetryPolicy(retryable_errors=("SERVER_BUSY", "RATE_LIMITED"), max_atte
+ # suspend the account after repeated duplicates: never retry there.
+ POLICIES = {
+     "de": RetryPolicy(retryable_errors=(), max_attempts=1),
++    # nic.at (.at) tolerates a single retry, and only on SERVER_BUSY; a
++    # RATE_LIMITED reply must go back to the caller.
++    "AT": RetryPolicy(retryable_errors=("SERVER_BUSY",), max_attempts=2),
+ }
+ 
+ 
+diff --git a/tests/test_policies.py b/tests/test_policies.py
+new file mode 100644
+index 0000000..3fef7d8
+--- /dev/null
++++ b/tests/test_policies.py
+@@ -0,0 +1,15 @@
++import unittest
++
++from regclient.policies import POLICIES
++
++
++class AtPolicyTests(unittest.TestCase):
++    def test_at_allows_one_retry(self):
++        self.assertEqual(2, POLICIES["AT"].max_attempts)
++
++    def test_at_retries_only_server_busy(self):
++        self.assertEqual(("SERVER_BUSY",), POLICIES["AT"].retryable_errors)
++
++
++if __name__ == "__main__":
++    unittest.main()

@@ -1,0 +1,5 @@
+title = "Corrupt ZIP payloads escape cleanup and publication checks"
+category = "bugfix"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

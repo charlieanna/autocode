@@ -1,0 +1,12 @@
+title = "A cent of drift between invoice, charge and refunds: a bug that needs a planned fix"
+category = "bugfix"
+# Invoice, payment and refunds each do their own float arithmetic and round at
+# different points (or not at all, or not half up). The fix touches every
+# billing module, needs one money rule, and leaves an accounting choice open
+# (tax per line or per invoice), so it must take the planned path: diagnosis,
+# Planner, Plan Reviewer, the user's approval, no requirements gathering.
+# Deriving the charge from the invoice alone leaves refunds drifting; rounding
+# everything with float round() breaks half up. Both fail hidden tests.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

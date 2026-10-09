@@ -1,0 +1,6 @@
+{
+  "reproduced": true,
+  "observed_by_reporter": "Empty cells come out as the text None in the exported CSV.",
+  "root_cause": "The csv writer stringifies None.",
+  "changed": []
+}

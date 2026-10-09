@@ -50,6 +50,8 @@ def prompt(role, task, run_dir, target, inputs):
               'Load the applicable Figma skills before using its tools. Build native editable Figma nodes, '
               'components and variables. Figma Make is not assumed to be callable. '
               'Only the Figma Builder may modify Figma. Do not build a local application or change project source. '
+              'Report blockers as internal diagnostics, not questions or requests for human approval. '
+              'Only AutoResolver may issue a human request; a role report does not authorize one. '
               'Return the complete deliverable in your final response; the runner saves it. '
               'Do not replace the deliverable with a completion note or a link to a file. '
               'Only write temporary evidence under the run directory.\n'
@@ -178,11 +180,16 @@ def execute(args, workspace, run_dir):
              'models': {**{role: getattr(args, role + '_model') for role in DEFAULT_MODELS},
                         'planner': args.planner_model},
              'reasoning_efforts': {'astra': args.astra_reasoning_effort},
+             'limits': {'max_reworks': args.max_reworks, 'max_plan_reworks': args.max_plan_reworks},
              'stages': [], 'outputs': {}, 'reports': {}}
     if args.from_plan_run:
         seed_accepted_plan(state, args.from_plan_run, run_dir)
     def save():
-        support.atomic_json(run_dir / 'state.json', state)
+        try:
+            from . import autocode_status
+        except ImportError:
+            import autocode_status
+        autocode_status.persist(run_dir / 'state.json', state)
     names = {'requirements_planner': lambda: 'requirements-draft', 'plan_reviewer': lambda: 'plan-review',
              'requirements_revision': lambda: f'requirements-revision-{state["planning_iteration"]:02}',
              'plan_finalizer': lambda: f'plan-finalization-{state["planning_iteration"]:02}',
@@ -243,7 +250,7 @@ def execute(args, workspace, run_dir):
                 raise ValueError('UI requirements finalization is blocked; inspect the saved review')
             if report['status'] == 'ACCEPT' and report['evidence'] and not report['required_changes']:
                 current['next_stage'] = 'builder'
-            elif current['planning_iteration'] >= args.max_plan_reworks:
+            elif args.max_plan_reworks is not None and current['planning_iteration'] >= args.max_plan_reworks:
                 current.update(status='PLAN_REWORK_REQUIRED', next_stage=None, finished_at=support.now())
             else:
                 current['planning_iteration'] += 1
@@ -253,7 +260,7 @@ def execute(args, workspace, run_dir):
             if report['status'] != 'COMPLETE' or not report['figma_file'] or not report['evidence'] or report['required_changes']:
                 raise ValueError('The Figma Builder did not produce a completed editable result')
             if current['figma_file'] and url_key(report['figma_file']) != url_key(current['figma_file']):
-                raise ValueError('Terra returned a different Figma file than the selected target')
+                raise ValueError('The Builder returned a different Figma file than the selected target')
             current.update(figma_file=report['figma_file'], next_stage='validator')
             return
         if stage == 'validator':
@@ -276,7 +283,7 @@ def execute(args, workspace, run_dir):
                                      for key, path in refs.items()}}
             support.atomic_json(run_dir / 'handoff.json', handoff)
             current.update(status='COMPLETE', next_stage=None, finished_at=support.now())
-        elif current['iteration'] >= args.max_reworks:
+        elif args.max_reworks is not None and current['iteration'] >= args.max_reworks:
             current.update(status='REWORK_REQUIRED', next_stage=None, finished_at=support.now())
         else:
             current['iteration'] += 1
@@ -286,6 +293,8 @@ def execute(args, workspace, run_dir):
     try:
         orchestrator.drive(state, dispatch, apply=apply, persist=lambda _: save())
     except (OSError, ValueError, KeyError, KeyboardInterrupt) as error:
+        # Standalone design has no saved-run human response/resume API. Keep
+        # diagnostics internal rather than minting an unanswerable request.
         state.update(status='BLOCKED', error=str(error), finished_at=support.now())
         save()
         print(f'Autocode UI stopped: {error}. Saved artifacts: {run_dir}', file=sys.stderr)
@@ -310,6 +319,18 @@ def url_key(url):
     return url.split('/design/', 1)[1].split('/', 1)[0].split('?', 1)[0].split('#', 1)[0]
 
 
+def rework_limit(value):
+    if value.lower() == 'none':
+        return None
+    try:
+        limit = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError('rework limits must be nonnegative integers or none') from None
+    if limit < 0:
+        raise argparse.ArgumentTypeError('rework limits must be nonnegative integers or none')
+    return limit
+
+
 def cli(argv=None):
     parser = argparse.ArgumentParser(description='Plan, build and validate editable Figma UI through the shared Autocode workflow.')
     parser.add_argument('task')
@@ -324,14 +345,14 @@ def cli(argv=None):
                         default=DEFAULT_ASTRA_REASONING_EFFORT,
                         help='Reasoning effort for plan review, plan finalization and completion decision')
     parser.add_argument('--planner-model', default=DEFAULT_PLANNER_MODEL)
-    parser.add_argument('--max-reworks', type=int, default=2)
-    parser.add_argument('--max-plan-reworks', type=int, default=1)
+    parser.add_argument('--max-reworks', type=rework_limit, default=2, metavar='N|none',
+                        help='Design rework limit (default: 2); none continues until accepted or blocked')
+    parser.add_argument('--max-plan-reworks', type=rework_limit, default=1, metavar='N|none',
+                        help='Plan rework limit (default: 1); none continues until accepted or blocked')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--build', action='store_true', help='Pass the accepted Figma result to Autocode for implementation')
     parser.add_argument('--no-chat', action='store_true', help='Present the implementation brief without interactive input')
     args = parser.parse_args(argv)
-    if args.max_reworks < 0 or args.max_plan_reworks < 0:
-        parser.error('rework limits must be nonnegative')
     if any(not re.fullmatch(r'gpt-[a-zA-Z0-9.-]+', model)
            for model in [args.planner_model, *(getattr(args, role + '_model') for role in DEFAULT_MODELS)]):
         parser.error('Autocode UI requires ChatGPT GPT models through Codex')
@@ -354,6 +375,8 @@ def cli(argv=None):
     run_dir = args.run_dir.resolve() if args.run_dir else workspace / '.autocode-ui/runs' / name
     if run_dir.exists():
         parser.error('Run directory already exists; use autocode --ui-run to build an accepted result')
+    if not args.run_dir:
+        workspaces.keep_out_of_git(workspace, '.autocode-ui')
     run_dir.mkdir(parents=True)
     return execute(args, workspace, run_dir)
 

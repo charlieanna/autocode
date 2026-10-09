@@ -1,0 +1,14 @@
+{
+  "verdict": "request_changes",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocking",
+      "file": "regclient/policies.py",
+      "lines": [16, 21],
+      "summary": "The .at policy is registered under the key \"AT\", but policy_for looks up tld.lower(), so the entry can never match: .at keeps DEFAULT (3 attempts, RATE_LIMITED retried). The PR's tests read POLICIES[\"AT\"] directly and never go through policy_for.",
+      "evidence": "With the patch applied, policy_for('at').max_attempts == 3 and a RATE_LIMITED reply to an .at command is retried; see review/tests/test_at_policy.py, which fails on the patched code."
+    }
+  ],
+  "tests_run": ["python3 -m unittest discover -s tests -t . (patch applied): PR tests pass", "review/tests/test_at_policy.py against the patched code: 2 failures"]
+}

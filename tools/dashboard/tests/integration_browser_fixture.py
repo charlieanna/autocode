@@ -65,11 +65,11 @@ assert shutil.which('opencode') == str(bin_dir/'opencode')
 assert shutil.which('codex') == str(bin_dir/'codex')
 sys.dont_write_bytecode=True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_console import Console, Handler, ThreadingHTTPServer
+from agent_console import Console, Handler, LoopbackHTTPServer
 
 console = Console([], args.runner.resolve(), lambda: None, conversation_root=root/'conversations',
                   conversation_provider=lambda messages, model, workdir: 'Let’s plan the change. What outcome matters most? Attach the disposable project when ready for repository-aware review.')
-server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+server = LoopbackHTTPServer(('127.0.0.1', args.port), Handler)
 server.console = console
 server.hosts = {'127.0.0.1:'+str(server.server_port), 'localhost:'+str(server.server_port)}
 threading.Thread(target=server.serve_forever, daemon=True).start()

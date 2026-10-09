@@ -1,0 +1,5 @@
+title = "Validate CSV records with structured row errors"
+category = "greenfield"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

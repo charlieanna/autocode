@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run AutoCode from this checkout for an unattended caller; see tools/autocode_unattended.py.
+exec python3 "$(dirname "$0")/../tools/autocode_unattended.py" "$@"

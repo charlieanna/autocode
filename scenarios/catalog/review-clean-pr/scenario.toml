@@ -1,0 +1,13 @@
+title = "Review a correct PR and approve it"
+category = "review"
+# The negative control for reviews. pr-191.patch is the same refactor as
+# review-planted-defects but keeps the timeout reconciliation and the .de
+# policy, and tests both. It does not make CONNECTION_RESET retryable: a reset
+# can come after the registry executed the command, and resending it without a
+# status check executes it twice (every live Claude-model review on 2026-09-29
+# found that in the earlier version, with a failing test). It also documents the
+# new policies in README.md. A reviewer that raises a blocking finding here is
+# inventing problems.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('review/findings.json')); print('ok')\""

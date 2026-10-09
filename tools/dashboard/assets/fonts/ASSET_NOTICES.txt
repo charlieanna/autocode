@@ -1,0 +1,14 @@
+Dashboard typography assets
+===========================
+
+Inter Regular (400) and Inter Semi Bold (600) are distributed under the SIL
+Open Font License, Version 1.1. JetBrains Mono Regular (400) is distributed
+under the SIL Open Font License, Version 1.1. These local WOFF2 assets are
+served only by the dashboard so visual capture never depends on host fonts.
+
+Copyright notices and the complete license terms are included in
+Inter-LICENSE.txt and JetBrainsMono-OFL.txt respectively.
+
+Upstream license sources:
+https://github.com/rsms/inter/blob/master/LICENSE.txt
+https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt

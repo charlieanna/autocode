@@ -1,4 +1,4 @@
-"""Saved-state regressions for Astra assignment and brief history."""
+"""Saved-state regressions for Plan Reviewer assignment and brief history."""
 import copy
 from pathlib import Path
 import sys
@@ -57,7 +57,7 @@ class PlanHistoryTests(unittest.TestCase):
       'origin':'migration_draft; no inferred user approval','created_at':'2026-09-19T23:02:33.090288+00:00'},
      {'task_id':'de408e8b-5bbe-418b-bf3d-3f72d6467632','revision':2,'body':original,
       'hash':first_token.split(':',1)[1],'approval_status':'draft','approval_event':None,'origin':'fixture','created_at':'2026-09-19T23:02:33.090561+00:00'}],
-    'brief_feedback':[copy.deepcopy(feedback)],'stop_reason':'Queued feedback was applied; explicitly continue to Astra discovery.',
+    'brief_feedback':[copy.deepcopy(feedback)],'stop_reason':'Queued feedback was applied; explicitly continue to Requirements discovery.',
     'displayed_goal':replacement_token,'displayed_review':None}
  def fixture(self):
   first={'id':'task-first','contract_revision':1,'assigned_at':'2026-09-19T10:00:00.000001+00:00',

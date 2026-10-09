@@ -1,0 +1,8 @@
+title = "HTTP JSON CRUD API with tenant isolation and strict validation"
+category = "feature"
+# Intermediate difficulty; all tests are local, deterministic, and stdlib only.
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+[run]
+max_steps = 40
+timeout_minutes = 30

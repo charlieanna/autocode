@@ -1,0 +1,12 @@
+{
+  "recommendation": "in-process",
+  "decisive_facts": [
+    {"fact": "functools.lru_cache already caches parsed metadata with no I/O on a hit.", "source": "app/metadata.py"},
+    {"fact": "Metadata changes a few times a day at most.", "source": "app/metadata.py"}
+  ],
+  "tradeoffs": [
+    {"option": "in-process", "pros": ["Fastest", "Simplest", "Already implemented"], "cons": ["Lost on restart"]},
+    {"option": "shared-file", "pros": ["Survives restarts"], "cons": ["Locking", "Disk I/O", "More code"]}
+  ],
+  "open_questions": []
+}

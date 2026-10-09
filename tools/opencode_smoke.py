@@ -43,7 +43,7 @@ def main():
                 raise RuntimeError(f"Unexpected {role} response; inspect {log}")
             checks = [event["item"] for event in events if event.get("type") == "item.completed"]
             if role == "sol" and not any(check["exit_code"] == 0 and "AUTOCODE_TRANSPORT_OK" in check["aggregated_output"] for check in checks):
-                raise RuntimeError(f"No successful executed Sol command; inspect {log}")
+                raise RuntimeError(f"No successful executed Validator command; inspect {log}")
             summary.append({"role": role, "model": opencode.DEFAULT_MODELS[role], "report": report,
                             "checks": len(checks), "session": events[0]["thread_id"], "events": str(log)})
         (evidence / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

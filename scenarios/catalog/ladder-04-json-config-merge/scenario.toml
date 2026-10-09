@@ -1,0 +1,5 @@
+title = "Merge JSON configurations recursively without aliasing"
+category = "greenfield"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

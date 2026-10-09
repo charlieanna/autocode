@@ -1,0 +1,5 @@
+title = "Count and rank text tokens deterministically"
+category = "greenfield"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
