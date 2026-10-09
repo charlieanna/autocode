@@ -45,7 +45,7 @@ class RunViewTests(unittest.TestCase):
                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
                           "efficiency", "recovery", "verification", "code_checkpoints", "routes",
                           "route_assignments", "liveness", "information_review", "tool_containment",
-                          "escalation_outcomes", "job_report_recovery", "verification_obligation"},
+                          "escalation_outcomes", "job_report_recovery", "verification_obligation", "explanation"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_verification_obligation_is_additive_read_only_projection(self):
