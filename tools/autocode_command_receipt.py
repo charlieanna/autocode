@@ -2,7 +2,8 @@
 
 Only a collected command exit and pinned normal cleanup can supply proof. A
 stopped interruption can permit a fresh attempt, but cannot establish a pass.
-Legacy command receipts without supervision retain their existing behavior.
+Legacy receipts remain supported when they contain a normal integer exit; an
+empty, timed-out, interrupted or errored receipt cannot establish a pass.
 """
 from __future__ import annotations
 
@@ -75,6 +76,9 @@ def completed(receipt, *, root=None):
     """
     if not isinstance(receipt, dict):
         return False
+    if (type(receipt.get('exit_code')) is not int or receipt.get('timed_out')
+            or receipt.get('interrupted') or receipt.get('error')):
+        return False
     present = set(OWNERSHIP_FIELDS) & set(receipt)
     if not present:
         return True
@@ -85,9 +89,6 @@ def completed(receipt, *, root=None):
         return False
     errors = receipt.get('supervision_errors')
     if not isinstance(errors, list) or errors:
-        return False
-    if (type(receipt.get('exit_code')) is not int or receipt.get('timed_out')
-            or receipt.get('interrupted') or receipt.get('error')):
         return False
     value = load(receipt['supervision'], root=root, pin=pin)
     return bool(value and value['phase'] == 'stopped' and not value['cleanup_error']

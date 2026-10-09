@@ -63,6 +63,24 @@ class CompletionGateProperties(unittest.TestCase):
     def test_the_unmutated_state_completes(self):
         self.assertTrue(self.ready())
 
+    def test_legacy_replay_receipts_require_a_normal_collected_exit(self):
+        state = copy.deepcopy(self.state)
+        state["validation"]["check_replay"] = {"checks": [{"exit_code": 0}]}
+        self.assertTrue(self.ready(state))
+        malformed = (
+            {},
+            {"exit_code": None}, {"exit_code": False}, {"exit_code": True},
+            {"exit_code": "0"}, {"exit_code": 0.0},
+            {"exit_code": 0, "timed_out": True},
+            {"exit_code": 0, "interrupted": True},
+            {"exit_code": 0, "error": "provider stopped before collection"},
+        )
+        for receipt in malformed:
+            with self.subTest(receipt=receipt):
+                candidate = copy.deepcopy(state)
+                candidate["validation"]["check_replay"]["checks"] = [receipt]
+                self.assertFalse(self.ready(candidate))
+
     def test_every_required_rule_mutation_refuses_completion(self):
         mutations = []
         for status in ("FAIL", "NOT_VERIFIED", "UNVERIFIED", "", "verified"):
