@@ -105,6 +105,12 @@ tiny scenarios (`greenfield-greeting-cli`, `bugfix-trivial`) take more model
 stages with the scripted model than they do today, so extra steps can't creep in
 unnoticed (issue #15).
 
+When a question has no usable default or concrete option, the driver leaves it
+for the person and grades the public stopped view. It does not invent reporter
+data or classify that human stop as a harness error. Explicit scenario answers
+can supply those facts; a mixed answer batch is submitted only when every
+question can be answered.
+
 ## Three levels
 
 | Level | Command | What it proves | Cost |
@@ -116,6 +122,53 @@ unnoticed (issue #15).
 `run --fake --fake-solution broken/<name>` makes the scripted model deliver a
 wrong solution. Because its own checks pass, AutoCode completes, and the
 harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
+
+### Native test runners
+
+The ordinary catalog includes bug fixes and features for Go, `node:test` and
+TypeScript/Vitest. They run the installed language tools, including in fake
+mode; only model responses are scripted. Use Go 1.25.5 and Node 22.18 or newer
+with npm (CI installs Go 1.25.5 and Node 22). Node scenarios need npm because
+AutoCode detects the project's `npm test` suite. TypeScript reproductions use
+Node's built-in type stripping.
+
+Vitest seeds use `vitest.config.cjs` and `server.host: '127.0.0.1'`. The pinned
+Vite loader compiles the CommonJS configuration in memory, so read-only
+verification does not write a temporary config into protected `node_modules`.
+The numeric host avoids a localhost DNS lookup; tool commands keep their
+existing network restrictions. Named and full suites use the ordinary
+`node node_modules/vitest/vitest.mjs run` command.
+
+Vitest seeds declare `[setup] npm = true` and carry lock files pinning Vitest
+4.1.11 and Vite 6.4.1. Before a run or oracle check, the harness installs the
+seed's exact dependencies with
+`npm ci --include=dev --include=optional --ignore-scripts --no-audit --no-fund`.
+The explicit includes keep the test runner and platform binaries available even
+when host npm settings omit them. The cache and ready marker under
+`.scenario-runs/npm-dependencies/` are bound to both manifests and the install
+policy; an earlier incomplete cache cannot satisfy the current policy. Each
+disposable project receives its own ignored `node_modules` directory.
+Unit tests mock setup; scenario commands perform the explicit installation.
+A setup failure is reported as a failure,
+and missing native tools are reported as skipped rather than a passing test.
+
+`go_change_checks` and `node_change_checks` in `harness/oracle.py` require real,
+unskipped native cases, hidden behavior checks, existing guards and a failure
+for every declared regression against the original implementation. Each seed
+has a reference and at least two broken controls, including vacuous or missing
+tests. The first-Go-package feature starts with C# and no Go module: a known
+no-project diagnostic is accepted for its original-source comparison, while
+the delivered and hidden suites must still execute real cases. Its new tests
+must also fail against separate deliberately wrong policy values with the Go
+module retained, so empty tests cannot satisfy the no-project exception. Run-mode
+oracles also require the public named regression proof to cover each case and
+match the Validator and independent check replay's source revision.
+
+The bugfix briefs explicitly use investigation case IDs `C1`, `C2`, and matching
+native test-name prefixes. Keep these IDs aligned when adding cases: a real Go
+run produced passing `TestC1`/`TestC2` regressions but investigated them as
+`T1`/`T2`, so the named-proof gate correctly refused their unmatched evidence.
+Additional preserve cases need the same ID/name agreement.
 
 `SCENARIO_FAKE_CMD_ONLY=<stage>[:<count>]` in the environment makes the scripted
 model end that stage's first `<count>` calls (every call without a count, report
@@ -745,6 +798,12 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | Scenario | Category | What it exercises |
 | --- | --- | --- |
 | `bugfix-iso-weeks` | bugfix | Root-causing a reported symptom in a different module; hidden tests cover every day from 2000 to 2030, so a special-case fix fails. |
+| `bugfix-go-interval-boundary` | bugfix | A half-open Go interval includes its upper endpoint; native boundary cases, hidden CLI checks and original-source proof. |
+| `feature-go-first-package` | feature | Adds the first Go package to a C# seed without a Go module (#685); real Go cases and an explicit no-project original-source comparison. |
+| `bugfix-node-interval-boundary` | bugfix | Touching or empty intervals overlap incorrectly; dependency-free `node:test` cases and hidden validation checks. |
+| `feature-node-stable-sort` | feature | Numeric ascending/descending sorting with stable ties and preserved caller data; rejects reversed ties and vacuous tests. |
+| `bugfix-vitest-half-open-bookings` | bugfix | TypeScript bookings treat touching endpoints as conflicts; pinned Vitest, hidden boundary cases and named original-source failures. |
+| `feature-vitest-ledger-subtotals` | feature | Exact account groups and bigint subtotals without input mutation; rejects unsafe number conversion and a missing regression case. |
 | `bugfix-duplicate-on-timeout` | bugfix | A retry after an uncertain timeout renews a domain twice. Hidden tests inject lost replies before and after processing; removing retries or raising the deadline both fail. Requires a root-cause note and no requirements gathering. |
 | `bugfix-stale-prices` | bugfix | Checkout charges stale prices because cache invalidation is left to each write path. The fix belongs at the store's write path (every cache hears every write); either fix route passes, with no requirements gathering. Patching today's callers or dropping the cache both fail hidden tests. |
 | `bugfix-cent-drift` | bugfix | Invoice, charge and refunds each round money their own way and drift by a cent. The fix touches every billing module, needs one half-up money rule, and leaves an accounting choice open (tax per line or per invoice), so it must take the planned path: diagnosis, Planner, Plan Reviewer, the user's approval, no requirements gathering. Deriving only the charge from the invoice, or rounding everything with float `round()`, both fail hidden tests. |

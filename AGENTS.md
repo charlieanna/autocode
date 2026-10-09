@@ -111,10 +111,18 @@ Run everything from the repository root, with the venv interpreter.
 PY=.venv/bin/python   # has psutil; the system python3 does not
 $PY -m unittest tests.test_architecture                        # seconds
 $PY tools/run_suite.py --changed                               # the tests for what you changed, in parallel
-$PY scenarios/run.py run --fake                                # every scenario end to end, about 5.5 minutes (63 scenarios)
+$PY scenarios/run.py run --fake                                # every scenario end to end (72 scenarios)
 $PY tools/run_suite.py --scenario-harness                      # harness and catalog, one test per process
 $PY tools/run_suite.py                                         # every test, in parallel; what master's CI runs
 ```
+
+The fake catalog now includes real Go, `node:test` and Vitest execution and
+pinned dependency setup. Allow three hours for the full catalog on a shared
+host instead of the old 5.5-minute estimate for 63 scenarios. On a heavily
+loaded host, use `--timeout-minutes 45` to expand the harness's per-scenario
+wall bound; AutoCode's own budgets and every semantic oracle still apply.
+Keep any failed attempts and report the exact commands and measured duration
+with the qualification results.
 
 `tools/run_suite.py` discovers `tests/test_*.py` minus the modules listed, with
 reasons, in `tests/suite_exclusions.json`. Most of

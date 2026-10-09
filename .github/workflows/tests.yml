@@ -34,6 +34,11 @@ jobs:
         with:
           node-version: "22"
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: false
+
       - name: Install dashboard browser test dependencies
         # AC15 runs a real browser from the Python suite, before the Node gate.
         # Pin the version used for the local feature acceptance checks.

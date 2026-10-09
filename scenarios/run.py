@@ -55,7 +55,7 @@ def self_test(scenario) -> list[tuple[str, bool, str]]:
             if scenario.category == "components" and name.startswith("broken/"):
                 base.append(scenario.reference)
             project = materialize(scenario.seed, Path(tmp) / name.replace("/", "-"),
-                                  *base, *([overlay] if overlay else []))
+                                  *base, *([overlay] if overlay else []), npm_setup=scenario.npm_setup)
             result = verdict.evaluate(scenario, project)
             ok = not result.error and result.passed == should_pass
             rows.append((name, ok, result.summary))
@@ -200,7 +200,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
                                 "timeout_seconds": 60 * (args.timeout_minutes or scenario.timeout_minutes),
                                 **{name: getattr(args, name, None)
                                    for name in ("max_seconds", "max_stage_seconds", "max_iterations")}})
-    project = materialize(scenario.seed, out / "project")
+    project = materialize(scenario.seed, out / "project", npm_setup=scenario.npm_setup)
     if not split:
         flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
     flags = [*flags, *caps_flags(args), *extra_flags]
@@ -410,7 +410,7 @@ def cmd_route(args) -> int:
     rows = []
     for number, prompt in enumerate(table["prompts"], start=1):
         root = out / f"prompt-{number:02d}"
-        project = materialize(seed_scenario.seed, root / "project")
+        project = materialize(seed_scenario.seed, root / "project", npm_setup=seed_scenario.npm_setup)
         stand_in = catalog.Scenario(id="routing", dir=seed_scenario.dir, title="Routing check", category="review",
                                     brief=prompt["text"], requires=(), fake_check="true", max_steps=3,
                                     timeout_minutes=args.timeout_minutes or 10)
@@ -560,7 +560,7 @@ def cmd_compare(args) -> int:
 def run_baseline(scenario, args, root: Path, solution: Path) -> dict:
     out = root / f"{scenario.id}-baseline"
     out.mkdir()
-    project = materialize(scenario.seed, out / "project")
+    project = materialize(scenario.seed, out / "project", npm_setup=scenario.npm_setup)
     if args.fake:
         argv, env = baseline.fake_setup(out, solution)
     else:

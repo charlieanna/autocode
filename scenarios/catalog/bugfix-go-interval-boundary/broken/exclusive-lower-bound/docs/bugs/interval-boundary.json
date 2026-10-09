@@ -1,0 +1,13 @@
+{
+  "observed": "Contains(10, 20, 20) returns true for an exclusive upper endpoint.",
+  "reproduction": "go run ./cmd/contains 10 20 20 prints true and exits zero on the seed.",
+  "root_cause": "window/interval.go uses <= for the upper endpoint rather than <.",
+  "affected_paths": ["window/interval.go"],
+  "invariant": "[start, end) includes start only when start < end, and always excludes end.",
+  "fix_size": "small",
+  "fix": "Compare start <= value && value < end without subtracting int64 values.",
+  "test_cases": [
+    {"id": "C1", "given": "the interval [10, 20)", "when": "value is 20", "then": "membership is false"},
+    {"id": "C2", "given": "the empty interval [7, 7)", "when": "value is 7", "then": "membership is false"}
+  ]
+}

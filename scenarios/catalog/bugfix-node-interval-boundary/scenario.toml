@@ -1,0 +1,11 @@
+title = "Fix touching and empty half-open intervals with native Node regressions"
+category = "bugfix"
+requires = ["node", "npm"]
+
+[fake]
+check = "node --test tests/*.test.js"
+probe = '''node -e "const { overlaps } = require('./src/interval.js'); if (!overlaps([1, 2], [2, 3])) process.exit(1)"'''
+
+[fake.criteria]
+C1 = "test:test_c1_touching_intervals_are_disjoint"
+C2 = "test:test_c2_empty_interval_never_overlaps"

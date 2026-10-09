@@ -1,0 +1,9 @@
+title = "Fix the exclusive upper endpoint of a Go interval"
+category = "bugfix"
+requires = ["go"]
+
+[fake]
+check = "go test ./..."
+# Membership exits zero for true, so this succeeds only while the bug exists.
+probe = "go run ./cmd/contains 10 20 20"
+criteria = { C1 = "test: TestC1ExcludesUpperEndpoint", C2 = "test: TestC2EmptyInterval" }

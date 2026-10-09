@@ -600,6 +600,12 @@ def contract(final: bool = False) -> dict:
                                     ("kind", "milestone_id", "objective", "affected_paths",
                                      "requirements", "acceptance_criteria", "validation_plan")}
         return inherit_program(body) if WORKSTREAM else body
+    if CONFIG.get("criteria"):
+        body["acceptance_criteria"] = [{"id": cid, "criterion": text,
+                                         "verification_method": (text if text.strip().startswith(("test:", "guard:"))
+                                                                 else CHECK), "human_review": False}
+                                        for cid, text in CONFIG["criteria"].items()]
+        body["milestones"][0]["acceptance_criteria"] = list(CONFIG["criteria"])
     if CONFIG.get("fault") == "recovery_novelty_narrow":
         # #423: the failing task owns two criteria, so the Resolver's repair can keep only one.
         body["acceptance_criteria"].append({"id": "C2", "criterion": "Blank and whitespace-only names print usage",
@@ -841,7 +847,9 @@ def investigate() -> dict:
             "observed": text("observed", "observed_by_reporter") or CONFIG["title"],
             "reproduction": text("reproduction", "reproduction_attempted") or "Scripted reproduction",
             "root_cause": text("root_cause") or ("Scripted root cause" if reproduced else ""),
-            "affected_paths": (saved.get("affected_paths") or [p for p in PATHS if p.endswith(".py") and "test" not in p])
+            "affected_paths": (saved.get("affected_paths") or [p for p in PATHS
+                               if Path(p).suffix in {".py", ".go", ".js", ".cjs", ".mjs", ".ts", ".tsx"}
+                               and "test" not in p])
                               if reproduced else [],
             "test_paths": ([p for p in PATHS if "test" in p] or ["tests/"]) if reproduced else [],
             "invariant": text("invariant") or ("Scripted invariant" if reproduced else ""),
@@ -862,6 +870,14 @@ def scripted_cases() -> list[dict]:
     """English test cases for a scripted diagnosis: one per test function the solution adds, with the
     test's own name as the case id, so the runner can match each case to its test. A solution with no
     new test (a fix without a test) still gets one case, which then has nothing to prove it."""
+    # Native scenarios name the cases in their scripted plan instead of asking
+    # this fixture to parse three languages' test source. Existing Python
+    # scenarios keep their added-function discovery when no names are declared.
+    declared = [match[1] for text in (CONFIG.get("criteria") or {}).values()
+                if (match := re.search(r"test:\s*(\w+)", text))]
+    if declared:
+        return [{"id": name.removeprefix("test_"), "given": "the scripted seed",
+                 "when": f"{name} runs", "then": "it passes only with the fix"} for name in declared]
     root, names = Path(CONFIG["reference"]), []
     for relative in PATHS:
         if "test" not in Path(relative).name or not relative.endswith(".py"):

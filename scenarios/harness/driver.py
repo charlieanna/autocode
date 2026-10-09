@@ -5,7 +5,8 @@ The driver only calls the CLI. It decides what to do from the status view that
 afterwards, for evidence and metrics. It never writes state. Gates served:
 clarifying questions (answered with AutoCode's proposed default, and recorded),
 plan approval, human-review acceptance, and planning-budget feedback. A pause
-that needs a person is left for the verdict to judge, and so is an AutoResolver
+that needs a person, or a question without a usable default or concrete option,
+is left for the verdict to judge, and so is an AutoResolver
 escalation that it could not continue safely (``PERSON_ONLY_SCOPES``): answering
 one with a proposed default would hide an honest stop. Only a scenario's explicit
 ``[fake] answers`` answer such a request (for example the model a quota-stopped
@@ -101,6 +102,18 @@ def _question_answer(question: dict) -> str:
         return option
     raise UserAnswerRequired(f"question {question['id']} has no usable default and no concrete option; "
                              "a user answer is required")
+
+
+def questions_answerable(questions: list[dict], explicit_answers: dict) -> bool:
+    """Can the whole batch be answered without inventing a person's decision?"""
+    for question in questions:
+        if question["id"] in explicit_answers:
+            continue
+        try:
+            _question_answer(question)
+        except DriveError:
+            return False
+    return True
 
 
 def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
@@ -266,6 +279,8 @@ class Driver:
                 self.call("resume", "--resume-paused")
                 continue
             if view["done"] or leaves_for_person(need) or say_at == f"needs:{need['kind']}":
+                return view
+            if need["kind"] == "answer" and not questions_answerable(need["questions"], self.explicit_answers):
                 return view
             if need["kind"] == "continue":
                 self.call("resume")

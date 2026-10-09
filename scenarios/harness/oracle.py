@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from pathlib import Path
 
 # .fake-turns/ in a solution holds the scripted model's per-turn reports (fake_codex.turn_report): never
 # part of a project, so it is never materialized or copied.
-IGNORED = shutil.ignore_patterns(".git", ".autocode", "__pycache__", "*.pyc", ".fake-turns")
+IGNORED = shutil.ignore_patterns(".git", ".autocode", "__pycache__", "*.pyc", ".fake-turns", "node_modules", ".vitest")
 
 
 @dataclass
@@ -58,6 +59,8 @@ def scratch_copy(project: Path):
     with tempfile.TemporaryDirectory(prefix="oracle-") as tmp:
         target = Path(tmp) / "project"
         shutil.copytree(project, target, ignore=IGNORED)
+        if (project / "node_modules").is_dir():
+            (target / "node_modules").symlink_to((project / "node_modules").resolve(), target_is_directory=True)
         yield target
 
 
@@ -378,3 +381,113 @@ def python_change_checks(project: Path, scenario, package: str) -> list[Check]:
     foreign = non_stdlib_imports(project)
     checks.append(Check("stdlib_only", not foreign, "; ".join(foreign)))
     return checks
+
+
+def _native_change_checks(project: Path, scenario, package: str, runner: str) -> list[Check]:
+    from .native_tests import execute
+
+    checks = []
+    with scratch_copy(project) as copy:
+        suite = execute(copy, runner, run)
+        checks.append(Check("project_tests_pass", suite.passed, tail(suite.process)))
+        hidden = scenario.dir / "hidden"
+        if runner == "go":
+            shutil.copytree(hidden, copy, dirs_exist_ok=True, ignore=IGNORED)
+        else:
+            shutil.copytree(hidden, copy / "_oracle_hidden", ignore=IGNORED)
+        hidden_suite = execute(copy, runner, run, hidden=True)
+        checks.append(Check("hidden_tests_pass", hidden_suite.passed, tail(hidden_suite.process)))
+    with scratch_copy(scenario.seed) as seed:
+        if (project / "node_modules").is_dir() and not (seed / "node_modules").exists():
+            (seed / "node_modules").symlink_to((project / "node_modules").resolve(), target_is_directory=True)
+        original = execute(seed, runner, run)
+    missing = sorted(original.names - suite.names)
+    checks.append(Check("existing_tests_kept", not missing, f"removed or skipped: {missing}" if missing else ""))
+    required = [match[1] for text in scenario.fake_criteria.values()
+                if (match := re.search(r"test:\s*(\w+)", text))]
+    observed = lambda name, rows: any(row == name or row.endswith("/" + name) or row.endswith(" " + name)
+                                       for row in rows)
+    missing_cases = [name for name in required if not observed(name, suite.names)]
+    checks.append(Check("required_case_tests", not missing_cases,
+                        f"missing or skipped: {missing_cases}" if missing_cases else ""))
+    with scratch_copy(project) as copy:
+        target = copy / package
+        if runner == "go":
+            # Go tests live beside production files. Preserve delivered tests
+            # while restoring only the original implementation.
+            for source in target.rglob("*.go") if target.exists() else ():
+                if not source.name.endswith("_test.go"):
+                    source.unlink()
+            for source in (scenario.seed / package).rglob("*.go"):
+                if not source.name.endswith("_test.go"):
+                    restored = target / source.relative_to(scenario.seed / package)
+                    restored.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, restored)
+        else:
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink(missing_ok=True)
+            if (scenario.seed / package).is_dir():
+                shutil.copytree(scenario.seed / package, target, ignore=IGNORED)
+            elif (scenario.seed / package).is_file():
+                shutil.copyfile(scenario.seed / package, target)
+        if runner == "go":
+            for name in ("go.mod", "go.sum"):
+                (copy / name).unlink(missing_ok=True)
+                if (scenario.seed / name).is_file():
+                    shutil.copyfile(scenario.seed / name, copy / name)
+        before = execute(copy, runner, run)
+        # The first Go package has no runnable Go project in its committed base.
+        # Production owns that no-project proof policy; current and hidden suites
+        # above must still execute real cases, and run-mode checks require its receipt.
+        first_go = (runner == "go" and not any((scenario.seed / name).exists() for name in ("go.mod", "go.work"))
+                    and not any(scenario.seed.rglob("*.go")))
+        demonstrated = (all(observed(name, before.failed - original.failed) for name in required)
+                        if required else bool(before.failed - original.failed))
+        no_project = (before.process.stdout + before.process.stderr).lower()
+        demonstrated = demonstrated or (first_go and before.process.returncode == 1 and any(
+            message in no_project for message in ("matched no packages", "cannot find main module",
+                                                   "does not contain main module", "go.mod file not found")))
+        checks.append(Check("new_tests_fail_on_original_code", demonstrated,
+                            tail(before.process) if demonstrated else "no delivered regression fails on original source"))
+    return checks
+
+
+def go_change_checks(project: Path, scenario, package: str) -> list[Check]:
+    """Check native Go suites, hidden behavior, retained guards and original-source regression."""
+    return _native_change_checks(project, scenario, package, "go")
+
+
+def node_change_checks(project: Path, scenario, package: str, *, runner: str = "node") -> list[Check]:
+    """The same independent checks for node:test or pinned TypeScript/Vitest."""
+    if runner not in {"node", "vitest"}:
+        raise ValueError("node_change_checks runner must be node or vitest")
+    return _native_change_checks(project, scenario, package, runner)
+
+
+def named_proof_checks(record: dict | None, scenario=None) -> list[Check]:
+    """Require the CLI's public current-source named proof in run mode."""
+    if record is None:
+        return []
+    view = record.get("view") or {}
+    proof = (view.get("evidence") or {}).get("regression_proof") or {}
+    cases = proof.get("case_tests") or {}
+    expected = [match[1] for text in (scenario.fake_criteria.values() if scenario else ())
+                if (match := re.search(r"test:\s*(\w+)", text))]
+    identities = [name for names in cases.values() if isinstance(names, list)
+                  for name in names if isinstance(name, str)] if isinstance(cases, dict) else []
+    covered = all(any(name == test or name.endswith("::" + test) or name.endswith("/" + test)
+                      for name in identities) for test in expected)
+    evidence = view.get("evidence") or {}
+    source = proof.get("source_revision")
+    current = (isinstance(source, str) and bool(source)
+               and source == evidence.get("validator_source_revision")
+               and source == (evidence.get("check_replay") or {}).get("source_revision"))
+    concrete = (isinstance(cases, dict) and len(cases) >= 2 and all(
+        isinstance(names, list) and names and all(isinstance(name, str) and name for name in names)
+        for names in cases.values()))
+    return [Check("named_regression_proof", proof.get("verdict") == "PASS" and concrete
+                  and covered and current,
+                  f"verdict={proof.get('verdict')}, named cases={sorted(cases) if isinstance(cases, dict) else []}, "
+                  f"required tests covered={covered}, source current={current}")]
