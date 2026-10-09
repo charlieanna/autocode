@@ -105,6 +105,49 @@ def modules_in_cycles(graph: dict[str, set[str]]) -> set[str]:
     return {node for node, targets in graph.items() if node in reachable(graph, targets)}
 
 
+def _catches_import_error(handler: ast.excepthandler) -> bool:
+    kind = handler.type
+    if kind is None:
+        return True
+    if isinstance(kind, ast.Name):
+        return kind.id in ("ImportError", "ModuleNotFoundError", "Exception", "BaseException")
+    if isinstance(kind, ast.Tuple):
+        return any(isinstance(e, ast.Name) and e.id == "ImportError" for e in kind.elts)
+    return False
+
+
+def _names_bound(body: list[ast.stmt]) -> set[str]:
+    """Every name an import statement list binds, whether or not it is later referenced."""
+    bound = set()
+    for statement in body:
+        for node in ast.walk(statement):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                bound.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+    return bound
+
+
+def shim_bindings(source: str) -> tuple[set[str], set[str]]:
+    """Names bound by each branch of a module's dual-mode import shim.
+
+    ``tools/autocode.py`` imports its compatibility API twice: relative imports inside ``try``, and
+    flat imports in the ``except ImportError`` fallback that runs when the file is executed as a
+    script or when ``tools/`` is on ``sys.path`` instead of the installed package. A name bound only
+    in the first branch silently does not exist in flat mode, and the failure surfaces as an
+    AttributeError at a use site far from the import (#840, and #835 for the star-export variant)."""
+    tree = ast.parse(source)
+    package, flat = set(), set()
+    for statement in tree.body:
+        if not isinstance(statement, ast.Try):
+            continue
+        handlers = [handler for handler in statement.handlers if _catches_import_error(handler)]
+        if not handlers:
+            continue
+        package |= _names_bound(statement.body)
+        for handler in handlers:
+            flat |= _names_bound(handler.body)
+    return package, flat
+
+
 class ArchitectureTests(unittest.TestCase):
     def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -154,6 +197,22 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.
         self.assertEqual(set(), import_graph()["autocode_util"])
+
+    def test_the_import_shim_fallback_binds_every_compatibility_name(self):
+        # A name bound only by the relative branch does not exist when autocode.py runs as a script or
+        # is imported flat, and the AttributeError surfaces far from the import that caused it (#840).
+        package, flat = shim_bindings((TOOLS / "autocode.py").read_text(encoding="utf-8"))
+        self.assertTrue(
+            package and flat,
+            "no dual-mode import shim was recognised in autocode.py; if its shape changed, update "
+            "shim_bindings() rather than letting this check pass vacuously",
+        )
+        self.assertFalse(
+            package - flat,
+            "these compatibility names are bound when autocode is imported as a package but not by the "
+            "except ImportError fallback, so they are missing at runtime in flat/script mode; bind them "
+            f"there too: {sorted(package - flat)}",
+        )
 
 
 if __name__ == "__main__":

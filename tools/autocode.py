@@ -79,6 +79,12 @@ except ImportError:
     import autocode_resolver_recovery as resolver_recovery
     import autocode_visual_runtime as visual_runtime
     import autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
+    import autocode_run_view as run_view  # noqa: F401 - compatibility API
+    import autocode_workflows as workflows  # noqa: F401 - compatibility API
+    import autocode_dependency as dependency  # noqa: F401 - compatibility API
+    import autocode_status_command as status_command  # noqa: F401 - compatibility API
+    import autocode_follow_up as follow_up  # noqa: F401 - compatibility API
+    import model_catalogue  # noqa: F401 - compatibility API
 
 try:
     from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
