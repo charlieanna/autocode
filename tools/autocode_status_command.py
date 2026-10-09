@@ -84,6 +84,16 @@ def render(runner, state, args, workspace, run_dir):
     public_view['job_report_recovery'] = job_report_recovery.offer(runner, state, run_dir, workspace)
     if inspected is not None:
         public_view['verification'] = inspected
+    try:
+        from . import autocode_evidence_export as evidence_export
+    except ImportError:
+        import autocode_evidence_export as evidence_export
+    if isinstance(state.get('evidence_export'), dict):
+        public_view['evidence_report'] = evidence_export.read(run_dir, state['evidence_export'],
+            expected_binding=(None if state['evidence_export'].get('error') else
+                evidence_export.binding(state, (public_view.get('usage') or {}).get('accounting'))),
+            current=completion_current is True and (inspected is None or inspected['freshness'] == 'current'),
+            include=getattr(args, 'inspect_evidence', False))
     supervision_state = public_view.get('liveness', {})
     lost_supervisor = supervision_state.get('kind') in ('unsupervised', 'interrupted')
     if active and not active.get('finished_at'):

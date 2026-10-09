@@ -29,7 +29,7 @@ BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, N
          "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
          "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
          "Python standard library only.")
-FIXTURE_OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
+FIXTURE_OPTIONS = ("--evidence-provenance", "fake", "--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
                    "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
                    "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra")
 
@@ -45,7 +45,7 @@ class RunViewTests(unittest.TestCase):
                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
                           "efficiency", "recovery", "verification", "code_checkpoints", "routes",
                           "route_assignments", "liveness", "information_review", "tool_containment",
-                          "escalation_outcomes", "job_report_recovery", "verification_obligation", "explanation"},
+                          "escalation_outcomes", "job_report_recovery", "verification_obligation", "evidence_report", "explanation"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_verification_obligation_is_additive_read_only_projection(self):
@@ -59,7 +59,7 @@ class RunViewTests(unittest.TestCase):
         self.assertIsNone(shown['runner_check'])
 
     def test_evidence_is_empty_before_planning(self):
-        self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [],
+        self.assertEqual({"created_at": None, "workflow_result": None, "outcome": None, "base_commit": None, "acceptance": [],
                           "validator_source_revision": None, "findings": [],
                           "regression_proof": None, "test_cases": [], "check_replay": None},
                           run_view.evidence({"status": "RUNNING"}))
@@ -624,7 +624,7 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual("continue", view["needs"]["kind"], view)
 
     def test_joint_planning_upgrade_before_first_draft_reaches_approval_and_completes(self):
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=("--engine", "codex"),
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=("--evidence-provenance", "fake", "--engine", "codex"),
                                    start_options=("--pause-after-stage",), env=self.env, timeout=60)
         paused = run.status()
         self.assertEqual(("PAUSED_REQUESTED", "astra_discovery"),

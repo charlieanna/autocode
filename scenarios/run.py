@@ -283,6 +283,8 @@ def run_components(scenario, args, out, result, project, flags, env):
     record = {"components": summary, "model_stages": [*architecture_metrics["model_stage_names"],
                                                        *stage_metrics["model_stage_names"]],
               "local_docker": getattr(args, "local_docker", False)}
+    record.update(report_expected=True, provider_evidence=verdict.evidence_reports.declared(flags),
+                  architecture_view=driver.view(), architecture_run_dir=str(driver.run_dir))
     oracle = verdict.evaluate(scenario, target, record)
     status = "TASK_COMPLETE" if summary.get("exit_code") == 0 else "PAUSED_LOCAL_SMOKE"
     outcome, text = verdict.judge(status, oracle, scenario.expected)
@@ -363,6 +365,8 @@ def run_record(driver: Driver, state: dict) -> dict:
         except DriveError:
             view = {}
     record = {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
+              "report_expected": True, "run_dir": str(driver.run_dir),
+              "provider_evidence": verdict.evidence_reports.declared(getattr(driver, 'flags', [])),
               "model_stages": metrics(state)["model_stage_names"],
               "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps],
               "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in driver.steps],

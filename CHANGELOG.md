@@ -9,6 +9,12 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- Task, program and component runs now publish a shared evidence report with
+  explicit model provenance; TaskRun and issue pull requests use the same
+  canonical report (#692).
+
 ### Fixed
 
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while

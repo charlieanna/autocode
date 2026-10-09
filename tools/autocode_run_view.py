@@ -99,6 +99,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         # (autocode_follow_up).
         "turn": len(state.get("turns") or []) + 1,
         "evidence": evidence(state),
+        # Canonical publication metadata is historical until the status interface
+        # authenticates its files and current completion; no state mutation here.
+        "evidence_report": evidence_report(state),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
         # How the run's route escalations resolved (autocode_route_ladder): a
@@ -266,6 +269,14 @@ def progressive(state: dict) -> dict | None:
     return deepcopy(result)
 
 
+def evidence_report(state):
+    try:
+        from .autocode_evidence_export import metadata
+    except ImportError:
+        from autocode_evidence_export import metadata
+    return metadata(state)
+
+
 def evidence(state: dict) -> dict:
     """What the run agreed to deliver and what supports it, for reports outside the runner.
 
@@ -312,7 +323,9 @@ def evidence(state: dict) -> dict:
     investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
     moves = finding_rescope.history(state.get("findings_ledger"))
     return {
+        "created_at": state.get("created_at"),
         "outcome": contract.get("intended_outcome"),
+        "workflow_result": workflow_result(state),
         "base_commit": state.get("base_commit"),
         **({"protected_tests": deepcopy(state["settings"]["protected_tests"])}
            if state.get("settings", {}).get("protected_tests") else {}),
@@ -336,6 +349,25 @@ def evidence(state: dict) -> dict:
                                      for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,
     }
+
+
+def workflow_result(state):
+    """Bounded job outcome facts; job completion is separate from code checks."""
+    kind = (state.get('workflow') or {}).get('kind')
+    if kind == 'review' and state.get('review'):
+        row = state['review']
+        return {'outcome': row.get('verdict'), 'artifact': row.get('report_path'),
+                'artifact_sha256': None, 'summary': f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"}
+    if kind == 'design' and (state.get('design_review') or {}).get('mode') == 'review':
+        row = state['design_review']
+        return {'outcome': row.get('verdict'), 'artifact': row.get('report_path'),
+                'artifact_sha256': row.get('report_sha256'),
+                'summary': f"Design revision {row.get('revision')}; {row.get('blocking', 0)} blocking concerns"}
+    if kind == 'discuss' and state.get('answer'):
+        row = state['answer']
+        return {'outcome': 'answered', 'artifact': row.get('note_path') or row.get('output'),
+                'artifact_sha256': None, 'summary': 'Analyst answer recorded; code correctness is not established by an answer'}
+    return None
 
 
 def _route(question: dict) -> dict:

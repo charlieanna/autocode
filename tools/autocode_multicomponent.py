@@ -309,6 +309,30 @@ class MultiComponentBuild:
             raise ArchitectureError("the architecture or accepted component design changed during this build; "
                                     "saved component runs still use the original inputs")
 
+    def record_evidence_report(self, anchor: dict) -> None:
+        """Attach canonical report digests to this coordinator's owned manifest."""
+        try:
+            from . import autocode_evidence_export as evidence_export, autocode_util as util
+        except ImportError:
+            import autocode_evidence_export as evidence_export, autocode_util as util
+        with self._manifest_lock:
+            self._check_architecture()
+            saved = _read_json(self.manifest_path)
+            evidence_export.record(saved, anchor)
+            util.atomic_json(self.manifest_path, saved)
+
+    def evidence_report(self) -> dict:
+        """Read the saved pair without changing a child run or this manifest."""
+        try:
+            from . import autocode_evidence_export as evidence_export
+        except ImportError:
+            import autocode_evidence_export as evidence_export
+        self._check_architecture()
+        saved = _read_json(self.manifest_path) if self.manifest_path.is_file() else {}
+        anchor = saved.get("evidence_export")
+        return (evidence_export.read(self.manifest_path.parent, anchor, include=True)
+                if isinstance(anchor, dict) else evidence_export.unavailable())
+
     def build(self, *, auto_approve: bool = False) -> dict[str, ComponentResult]:
         """Run every component that is not already done, in dependency batches, in
         parallel within a batch.

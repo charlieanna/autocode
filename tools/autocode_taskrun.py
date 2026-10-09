@@ -113,12 +113,26 @@ class TaskRun:
         """The runs already saved in ``workspace``; see ``attach``'s ``exclude``."""
         return sorted(_runs(Path(workspace).resolve()))
 
-    def status(self) -> dict:
-        proc = self._invoke("status", "--status")
+    def status(self, *, inspect_evidence=False) -> dict:
+        proc = self._invoke("status", "--status", *(("--inspect-evidence",) if inspect_evidence else ()))
         try:
             return json.loads(proc.stdout)["view"]
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
+
+    def evidence_report(self, *, require_current=True) -> dict:
+        """Read the authenticated canonical pair through the public CLI only.
+
+        Saved reports are historical; current delivery also requires the ordinary
+        completion gate and read-only source/evidence inspection to remain valid.
+        """
+        view = self.status(inspect_evidence=True)
+        report = view.get("evidence_report") or {}
+        allowed = ("current",) if require_current else ("current", "recorded", "stale")
+        if report.get("availability") not in allowed or not report.get("markdown") or not report.get("document"):
+            raise TaskRunError("Canonical evidence report is unavailable or not current: " +
+                               "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"]))
+        return report
 
     def revise_design(self, manifest: Path, expected_hash: str, reason: str) -> dict:
         """Propose a stopped run's design input correction; never approve or dispatch."""

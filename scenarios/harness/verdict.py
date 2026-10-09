@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .oracle import Check
+from . import evidence_reports
 
 PASS = "PASS"                        # AutoCode ended the way the scenario expects and the oracle agrees
 FALSE_COMPLETE = "FALSE_COMPLETE"    # AutoCode completed but the oracle found failures, or it should have stopped
@@ -79,7 +80,8 @@ def evaluate(scenario, project, run: dict | None = None) -> OracleResult:
     try:
         check = scenario.oracle()
         takes_run = len(inspect.signature(check).parameters) >= 3
-        return OracleResult(check(project, scenario, run) if takes_run else check(project, scenario))
+        results = check(project, scenario, run) if takes_run else check(project, scenario)
+        return OracleResult([*results, *evidence_reports.checks(run)])
     except Exception:
         return OracleResult(error=traceback.format_exc())
 

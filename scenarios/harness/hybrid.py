@@ -104,6 +104,10 @@ def setup(scenario, out: Path, solution: Path, *, live_flags: list[str] | None) 
         live, _ = user_tool(live_name)
         flags = list(live_flags)
         flags[flags.index("--provider") + 1] = NAME
+    if "--evidence-provenance" in flags:
+        flags[flags.index("--evidence-provenance") + 1] = "mixed" if live_flags is not None else "fake"
+    else:
+        flags += ["--evidence-provenance", "fake"]
     _, fake_env = fake_setup(scenario, out, solution)
     shutil.copy2(STAGE_SCRIPT, out / "bin" / "hybrid_stage.py")
     root = out / "hybrid"

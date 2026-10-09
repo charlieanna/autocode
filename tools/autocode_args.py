@@ -65,6 +65,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Validated conversation receipt to attach when creating a task; never grants approval")
     parser.add_argument("--inspect-evidence", action="store_true",
                         help="With --status, inspect current source and saved evidence without running checks")
+    parser.add_argument("--evidence-provenance", choices=("fake", "live", "mixed", "unknown"),
+                        help="New run: disclose whether providers are scripted or live; names alone cannot attest this")
     parser.add_argument("--expected-recovery-token",
                         help="Require this exact inspected pause before applying a recovery action")
     parser.add_argument("--expected-goal-token",

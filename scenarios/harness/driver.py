@@ -45,7 +45,7 @@ REPO = Path(__file__).resolve().parents[2]
 FAKE_PROVIDER = Path(__file__).resolve().parent / "fake_codex.py"
 # Codex-engine flags for fake runs. The fake ignores models, but AutoCode's
 # Codex path wants bare GPT names and distinct builder and verifier models.
-FAKE_FLAGS = ["--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
+FAKE_FLAGS = ["--evidence-provenance", "fake", "--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
               "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol",
               "--completion-model", "gpt-6-astra", "--glm-model", "gpt-5.6-sol",
               "--plan-reviewer-model", "gpt-6-astra"]
@@ -131,7 +131,9 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                                   "milestones": list(scenario.fake_milestones),
                                   "criteria": dict(scenario.fake_criteria),
                                   "turn_paths": [list(row) for row in scenario.fake_turn_paths]}))
-    return [*FAKE_FLAGS, *scenario.fake_flags], {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+    flags = [*FAKE_FLAGS, *scenario.fake_flags]
+    flags[flags.index('--evidence-provenance') + 1] = 'mixed' if scenario.fake_live_calls else 'fake'
+    return flags, {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
                         "SCENARIO_FAKE_CONFIG": str(config)}
 
 
@@ -152,7 +154,7 @@ def saved_run_flags(flags: list[str]) -> list[str]:
 
 
 def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str], dict]:
-    return profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)), {}
+    return [*profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)), "--evidence-provenance", "live"], {}
 
 
 class Driver:

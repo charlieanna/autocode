@@ -52,7 +52,8 @@ class ProgressiveRunViewTests(unittest.TestCase):
                     "next_stage": None, "iteration": None, "stop_reason": None,
                     "current_task": None, "workflow": None, "workflow_source": None,
                     "workflow_reason": None, "turn": 1,
-                    "evidence": {"outcome": None, "base_commit": None, "acceptance": [],
+                    "evidence": {"created_at": None, "outcome": None, "workflow_result": None,
+                                 "base_commit": None, "acceptance": [],
                                  "validator_source_revision": None,
                                  "findings": [], "regression_proof": None, "test_cases": [],
                                  "check_replay": None}}
