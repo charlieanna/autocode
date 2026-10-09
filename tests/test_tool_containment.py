@@ -119,6 +119,184 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual((), containment.recorded_scratch(records, '/other'))
 
 
+class KernelReceiptTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.workspace = Path(directory.name).resolve()
+        self.control = self.workspace / '.autocode' / ('tool-containment-' + 'a' * 32)
+        self.scratch = self.control / 'scratch'
+        self.scratch.mkdir(parents=True)
+        for name in ('shell', 'policy.sb'):
+            (self.control / name).write_text('runner-owned fixture\n')
+        self.boundary = {'profile': str(self.control / 'policy.sb'), 'shell': str(self.control / 'shell'),
+                         'scratch': str(self.scratch)}
+        self.command = ['opencode', 'run', '--agent', 'autocode_designer', '--model', 'test/model']
+        self.environment = {'PATH': '/bin', 'OPENCODE_CONFIG_CONTENT': json.dumps(
+            {'agent': {'autocode_designer': {'permission': {'bash': 'allow'}}}})}
+        self.agent = {'permission': [{'permission': 'bash', 'pattern': '*', 'action': 'allow'}],
+                      'tools': {'bash': True, 'read': False}}
+
+    def configure(self, change=lambda response: response, *, scratch=True, sentinel=True):
+        import autocode_toolchain
+
+        def native(argv, **kwargs):
+            if argv[-1] == '--version':
+                return SimpleNamespace(returncode=0, stdout=containment.SUPPORTED_VERSION, stderr='')
+            response = self.agent
+            if '--params' in argv:
+                params = json.loads(argv[-1])
+                response = {'input': params, 'result': {'metadata': {'exit': 0},
+                                                       'output': 'Operation not permitted'}}
+                if scratch:
+                    (self.scratch / 'conformance-capture').touch()
+                if not sentinel:
+                    (self.control / 'conformance-forbidden').write_text('changed\n')
+                response = change(response)
+            return SimpleNamespace(returncode=0, stdout=json.dumps(response), stderr='')
+
+        with patch.object(containment.sys, 'platform', 'darwin'), \
+                patch.object(containment.shutil, 'which', return_value='/owned/opencode'), \
+                patch.object(containment.subprocess, 'run', side_effect=native) as run, \
+                patch.object(containment, 'prepare', return_value=self.boundary), \
+                patch.object(autocode_toolchain, 'discover', return_value={'read_roots': [], 'probes': []}), \
+                patch.object(containment, 'verify') as verify:
+            try:
+                return containment.configure(self.command, self.environment, self.workspace,
+                                             allow_write=False, request={})
+            finally:
+                self.native_calls = run.call_args_list
+                self.verification_calls = verify.call_count
+
+    def failure(self, predicate, change=lambda response: response, **kwargs):
+        with self.assertRaisesRegex(RuntimeError, predicate):
+            self.configure(change, **kwargs)
+        self.assertEqual(0, self.verification_calls)
+        self.assertFalse((self.control / 'conformance.json').exists())
+        receipt = json.loads((self.control / 'conformance-failure.json').read_text())
+        self.assertEqual('rejected', receipt['status'])
+        self.assertIn(predicate, receipt['failed_predicates'])
+        self.assertFalse(receipt['checks'][predicate])
+        self.assertEqual(0o400, (self.control / 'conformance-failure.json').stat().st_mode & 0o777)
+        self.assertLess(len(json.dumps(receipt)), 3000)
+        return receipt
+
+    def test_success_retains_only_real_proof_and_original_limits(self):
+        self.configure()
+        self.assertEqual(1, self.verification_calls)
+        self.assertTrue((self.control / 'conformance.json').is_file())
+        self.assertFalse((self.control / 'conformance-failure.json').exists())
+        self.assertEqual([15, 60, 60, 60], [call.kwargs['timeout'] for call in self.native_calls])
+        self.assertEqual(10000, json.loads(self.native_calls[-1].args[0][-1])['timeout'])
+
+    def test_each_kernel_predicate_is_required_even_when_other_checks_pass(self):
+        cases = [
+            ('input_command_match', lambda r: {**r, 'input': {'command': 'different'}}, {}),
+            ('metadata_exit_int', lambda r: {**r, 'result': {**r['result'], 'metadata': {'exit': False}}}, {}),
+            ('exit_zero', lambda r: {**r, 'result': {**r['result'], 'metadata': {'exit': 7}}}, {}),
+            ('scratch_created', lambda r: r, {'scratch': False}),
+            ('sentinel_untouched', lambda r: r, {'sentinel': False}),
+            ('denial_present', lambda r: {**r, 'result': {**r['result'], 'output': ''}}, {}),
+        ]
+        for predicate, change, kwargs in cases:
+            with self.subTest(predicate=predicate):
+                self.setUp()
+                self.failure(predicate, change, **kwargs)
+
+    def test_malformed_native_objects_fail_closed_without_attribute_or_type_errors(self):
+        cases = [
+            ('response_object', lambda r: []),
+            ('input_object', lambda r: {**r, 'input': 'not an object'}),
+            ('result_object', lambda r: {**r, 'result': None}),
+            ('metadata_object', lambda r: {**r, 'result': {**r['result'], 'metadata': []}}),
+            ('output_string', lambda r: {**r, 'result': {**r['result'], 'output': {'secret': 'value'}}}),
+        ]
+        for predicate, change in cases:
+            with self.subTest(predicate=predicate):
+                self.setUp()
+                self.failure(predicate, change)
+
+    def test_adversarial_text_and_extra_keys_never_enter_receipt_or_exception(self):
+        secret = 'SECRET-https://user:password@private.invalid/token'
+        def malicious(response):
+            return {'input': {'command': secret + '\ud800'}, 'result': {
+                'metadata': {'exit': 2 ** 100, 'credentials': secret}, 'output': secret}, secret: secret}
+        with self.assertRaises(RuntimeError) as caught:
+            self.configure(malicious)
+        receipt_text = (self.control / 'conformance-failure.json').read_text()
+        self.assertNotIn(secret, receipt_text + str(caught.exception))
+        receipt = json.loads(receipt_text)
+        self.assertIsNone(receipt['exit'])
+        self.assertEqual('integer', receipt['types']['exit'])
+        self.assertEqual(64, len(receipt['observed_command_sha256']))
+
+    def test_rejected_command_hashing_has_a_fixed_allocation_bound(self):
+        original = containment.hashlib.sha256
+        def bounded_hash(data):
+            self.assertLessEqual(len(data), 4 * 16384)
+            return original(data)
+        for length in (16384, 16385):
+            with self.subTest(length=length):
+                self.setUp()
+                command = '\U0001f642' * length
+                with patch.object(containment.hashlib, 'sha256', side_effect=bounded_hash):
+                    receipt = self.failure('input_command_match',
+                        lambda r: {**r, 'input': {'command': command}})
+                if length == 16384:
+                    self.assertEqual(64, len(receipt['observed_command_sha256']))
+                else:
+                    self.assertIsNone(receipt['observed_command_sha256'])
+
+    def test_unreadable_sentinel_is_a_rejected_predicate_not_raw_io_error(self):
+        original = Path.read_text
+        def read(path, *args, **kwargs):
+            if path.name == 'conformance-forbidden':
+                raise OSError('SECRET credential-bearing filesystem error')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', read):
+            receipt = self.failure('sentinel_untouched')
+        self.assertTrue(receipt['sentinel_io_error'])
+
+    def test_diagnostic_write_failure_still_rejects_without_raw_error(self):
+        original = os.open
+        def open_file(path, *args, **kwargs):
+            if Path(path).name == 'conformance-failure.json':
+                raise OSError('SECRET credentials')
+            return original(path, *args, **kwargs)
+        with patch.object(containment.os, 'open', side_effect=open_file):
+            with self.assertRaisesRegex(RuntimeError, 'denial_present; diagnostic unavailable') as caught:
+                self.configure(lambda r: {**r, 'result': {**r['result'], 'output': ''}})
+        self.assertNotIn('SECRET', str(caught.exception))
+        self.assertFalse((self.control / 'conformance.json').exists())
+        self.assertEqual(0, self.verification_calls)
+
+    def test_unreadable_scratch_is_a_rejected_predicate(self):
+        original = Path.is_file
+        def is_file(path):
+            if path.name == 'conformance-capture':
+                raise OSError('SECRET filesystem error')
+            return original(path)
+        with patch.object(Path, 'is_file', is_file):
+            receipt = self.failure('scratch_created')
+        self.assertTrue(receipt['scratch_io_error'])
+
+    def test_missing_fields_and_string_exit_are_not_success(self):
+        for change in (lambda r: {}, lambda r: {'input': {}, 'result': {}},
+                       lambda r: {**r, 'result': {**r['result'], 'metadata': {'exit': '0'}}}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.failure('metadata_exit_int', change)
+
+    def test_existing_diagnostic_symlink_is_never_followed(self):
+        outside = self.workspace / 'unrelated'
+        outside.write_text('untouched\n')
+        (self.control / 'conformance-failure.json').symlink_to(outside)
+        with self.assertRaisesRegex(RuntimeError, 'diagnostic unavailable'):
+            self.configure(lambda r: {**r, 'result': {**r['result'], 'output': ''}})
+        self.assertEqual('untouched\n', outside.read_text())
+        self.assertFalse((self.control / 'conformance.json').exists())
+
+
 class AvailabilityTests(unittest.TestCase):
     """The cheap run-setup check (#413): platform, sandbox-exec, OpenCode version; no conformance."""
 

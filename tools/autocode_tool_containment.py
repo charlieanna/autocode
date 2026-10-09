@@ -263,6 +263,8 @@ def configure(command, environment, workspace, *, allow_write, request):
             raise RuntimeError('Native tool conformance did not return auditable JSON') from error
 
     original = debug()
+    if not isinstance(original, dict):
+        raise RuntimeError('Native tool conformance returned an unsupported agent object')
     permissions = shell_permissions(original.get('permission'))
     try:
         from . import autocode_toolchain as toolchain
@@ -281,6 +283,8 @@ def configure(command, environment, workspace, *, allow_write, request):
     child['SHELL'] = boundary['shell']
     child['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
     actual = debug()
+    if not isinstance(actual, dict):
+        raise RuntimeError('Native tool conformance returned an unsupported agent object')
     if shell_permissions(actual.get('permission')) != permissions:
         raise RuntimeError('Strict containment could not preserve the effective shell restrictions')
     tools = actual.get('tools', {})
@@ -301,13 +305,8 @@ def configure(command, environment, workspace, *, allow_write, request):
     response = debug(['--tool', 'bash', '--params', json.dumps({
         'command': probe, 'description': 'AutoCode kernel containment conformance (no model)',
         'workdir': str(Path(workspace).resolve()), 'timeout': 10000})])
-    result = response.get('result', {})
-    if (response.get('input', {}).get('command') != probe
-            or type(result.get('metadata', {}).get('exit')) is not int
-            or result['metadata']['exit'] != 0 or not scratch.is_file()
-            or sentinel.read_text() != 'runner-owned sentinel\n'
-            or not re.search(r'Operation not permitted|Permission denied', result.get('output', ''))):
-        raise RuntimeError('The actual native bash tool did not demonstrate kernel containment')
+    _check_kernel_receipt(response, probe, control, scratch, sentinel)
+    result = response['result']
     tool_receipts = []
     for tool_probe in tools_ready['probes']:
         observed = debug(['--tool', 'bash', '--params', json.dumps({
@@ -332,6 +331,71 @@ def configure(command, environment, workspace, *, allow_write, request):
     verify(boundary)
     child['AUTOCODE_TOOL_CONTAINMENT'] = json.dumps(boundary)
     return child, boundary
+
+
+def _check_kernel_receipt(response, probe, control, scratch, sentinel):
+    """Retain only fixed predicates and hashes when native proof is rejected."""
+    document = response if isinstance(response, dict) else {}
+    input_value, result_value = document.get('input'), document.get('result')
+    input_record = input_value if isinstance(input_value, dict) else {}
+    result = result_value if isinstance(result_value, dict) else {}
+    metadata_value = result.get('metadata')
+    metadata = metadata_value if isinstance(metadata_value, dict) else {}
+    command, exit_code, output = input_record.get('command'), metadata.get('exit'), result.get('output')
+    scratch_created = sentinel_untouched = False
+    scratch_io_error = sentinel_io_error = False
+    try:
+        scratch_created = scratch.is_file()
+    except OSError:
+        scratch_io_error = True
+    try:
+        sentinel_untouched = sentinel.read_text() == 'runner-owned sentinel\n'
+    except (OSError, UnicodeError):
+        sentinel_io_error = True
+    checks = {
+        'response_object': isinstance(response, dict),
+        'input_object': isinstance(input_value, dict),
+        'result_object': isinstance(result_value, dict),
+        'metadata_object': isinstance(metadata_value, dict),
+        'output_string': isinstance(output, str),
+        'input_command_match': isinstance(command, str) and command == probe,
+        'metadata_exit_int': type(exit_code) is int,
+        'exit_zero': type(exit_code) is int and exit_code == 0,
+        'scratch_created': scratch_created,
+        'sentinel_untouched': sentinel_untouched,
+        'denial_present': isinstance(output, str) and bool(re.search(
+            r'Operation not permitted|Permission denied', output)),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    if not failed:
+        return
+    # JSON value types are an allowlist, never provider-controlled names or text.
+    names = {dict: 'object', list: 'array', str: 'string', int: 'integer',
+             float: 'number', bool: 'boolean', type(None): 'null'}
+    receipt = {
+        'schema': 1, 'category': 'native_kernel_receipt', 'status': 'rejected',
+        'checks': checks, 'failed_predicates': failed,
+        'types': {name: names.get(type(value), 'other') for name, value in (
+            ('response', response), ('input', input_value), ('result', result_value),
+            ('metadata', metadata_value), ('command', command), ('exit', exit_code), ('output', output))},
+        'exit': exit_code if type(exit_code) is int and -(2 ** 31) <= exit_code < 2 ** 31 else None,
+        'expected_command_sha256': hashlib.sha256(probe.encode('utf-8', 'surrogatepass')).hexdigest(),
+        'observed_command_sha256': (hashlib.sha256(command.encode('utf-8', 'surrogatepass')).hexdigest()
+                                    if isinstance(command, str) and len(command) <= 16384 else None),
+        'scratch_io_error': scratch_io_error, 'sentinel_io_error': sentinel_io_error,
+    }
+    retained = False
+    try:
+        descriptor = os.open(control / 'conformance-failure.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+        with os.fdopen(descriptor, 'w') as stream:
+            json.dump(receipt, stream, indent=2)
+            stream.write('\n')
+        retained = True
+    except OSError:
+        pass
+    raise RuntimeError('The actual native bash tool did not demonstrate kernel containment; '
+                       + 'failed predicates: ' + ', '.join(failed)
+                       + '; diagnostic ' + ('retained' if retained else 'unavailable'))
 
 
 def verify(boundary):
