@@ -16,8 +16,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 LOG_NAME = "activity.jsonl"
 STOP_REASON_LIMIT = 500
@@ -27,7 +27,7 @@ _announced: set[str] = set()
 
 
 def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def _model(command) -> str | None:

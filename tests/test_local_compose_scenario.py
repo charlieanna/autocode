@@ -11,9 +11,13 @@ from pathlib import Path
 from unittest import mock
 
 import psutil
-from scenarios import run
-from harness import catalog, verdict, component_services, processes
+
+# The runner initializes the harness import path before these imports.
+from scenarios import run  # isort: skip
+
+from harness import catalog, component_services, processes, verdict
 from harness.project import materialize, overlay_paths
+
 
 
 class SampleRun:
@@ -203,9 +207,10 @@ class LocalComposeScenarioTests(SampleRun, unittest.TestCase):
 @unittest.skipUnless(os.environ.get("AUTOCODE_TEST_REAL_DOCKER") == "1", "real Docker requires explicit opt-in")
 class RealDockerTests(SampleRun, unittest.TestCase):
     def test_final_runtime_reference_and_independent_engine_cleanup(self):
+        from dataclasses import replace
+
         import autocode_local_run as local
         import autocode_multicomponent as components
-        from dataclasses import replace
         root = Path(run.REPO) / ".scenario-runs"
         root.mkdir(exist_ok=True)
         work = Path(tempfile.mkdtemp(prefix="local-compose-engine-", dir=root))

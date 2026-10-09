@@ -13,20 +13,20 @@ assertions verbatim.
 """
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_findings as findings
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
-from . import test_autocode as base
+import autopilot_testkit as kit
 from goal_fixtures import approve_fixture, body, envelope
+
+from . import test_autocode as base
 
 
 def sol(*texts, dispositions=(), output="sol-01.json", report_only=False):

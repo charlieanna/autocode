@@ -6,12 +6,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
 from tests.source_inventory import python_sources
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
-import autocode_stop_explanations as stop_explanations
 import autocode_run_view as run_view
+import autocode_stop_explanations as stop_explanations
 
 
 def named_pause_states(root: Path = TOOLS) -> set[str]:

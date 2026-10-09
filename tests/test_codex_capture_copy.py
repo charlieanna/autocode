@@ -1,16 +1,15 @@
 """TaskRun flow with real captured checks; only Codex model answers are scripted."""
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_provider_launch  # noqa: F401 - changed-suite dependency
 from autocode_taskrun import TaskRun, TaskRunError
-
 
 HERE = Path(__file__).resolve().parents[1] / 'tools'
 BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "

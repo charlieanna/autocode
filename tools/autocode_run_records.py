@@ -17,32 +17,35 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import autocode_job_failure as job_failure
-    from . import autocode_recovery_accounting as accounting
-    from . import autopilot
-    from . import autocode_goals as goals
     from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_goals as goals
+    from . import autocode_job_failure as job_failure
     from . import autocode_milestones as milestones
+    from . import autocode_output_policy as output_policy
     from . import autocode_planning as planning
     from . import autocode_process as processes
+    from . import autocode_progressive_state as progressive
+    from . import autocode_recovery_accounting as accounting
     from . import autocode_resolver_human as resolver_human
     from . import autocode_support as support
-    from . import autocode_workflow as workflow, autocode_worker_quota as worker_quota
-    from . import autocode_progressive_state as progressive, autocode_output_policy as output_policy
+    from . import autocode_worker_quota as worker_quota
+    from . import autocode_workflow as workflow
+    from . import autopilot
 except ImportError:
-    import autocode_job_failure as job_failure
-    import autocode_recovery_accounting as accounting
-    import autopilot
-    import autocode_goals as goals
     import autocode_goal_lifecycle as lifecycle
+    import autocode_goals as goals
+    import autocode_job_failure as job_failure
     import autocode_milestones as milestones
+    import autocode_output_policy as output_policy
     import autocode_planning as planning
     import autocode_process as processes
+    import autocode_progressive_state as progressive
+    import autocode_recovery_accounting as accounting
     import autocode_resolver_human as resolver_human
     import autocode_support as support
-    import autocode_workflow as workflow
     import autocode_worker_quota as worker_quota
-    import autocode_progressive_state as progressive, autocode_output_policy as output_policy
+    import autocode_workflow as workflow
+    import autopilot
 
 
 def check_evidence_options(record):
@@ -54,7 +57,7 @@ MAX_DEFERRED_APPROVAL_RESTARTS = 2
 
 
 def now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def write_json(path: Path, value: Any) -> None:

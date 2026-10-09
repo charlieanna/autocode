@@ -34,7 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import attempts, profiles
@@ -246,7 +246,7 @@ class Driver:
                                      f"run ended {' / '.join(reached)} (status {view['status']!r})", number + 1)
             files = workspace_files(self.project)
             before = self.turn_marks[-1]["files"] if self.turn_marks else self.start_files
-            self.turn_marks.append({"said_at": datetime.now(timezone.utc).isoformat(), "say": turn.say,
+            self.turn_marks.append({"said_at": datetime.now(UTC).isoformat(), "say": turn.say,
                                     "steps": len(self.steps), "answers": len(self.answers), "view": view,
                                     "files": files, "kept": str(self.keep_turn_files(number - 1, before, files))})
             self.call("follow-up", "--follow-up", turn.say, action=True)
@@ -385,7 +385,7 @@ def _moment(text) -> datetime | None:
         moment = datetime.fromisoformat(text)
     except (TypeError, ValueError):
         return None
-    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
 def default_autocode() -> list[str]:

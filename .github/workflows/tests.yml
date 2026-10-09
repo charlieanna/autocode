@@ -194,3 +194,23 @@ jobs:
         env:
           AUTOCODE_REQUIRE_VISUAL_BROWSER: "1"
           PYTHONDONTWRITEBYTECODE: "1"
+
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[visual]'
+          .venv/bin/python -m pip install ruff mypy
+      - name: Ruff lint
+        run: .venv/bin/ruff check tools/ tests/ scenarios/
+      - name: Ruff format check
+        run: .venv/bin/ruff format --check tools/ tests/ scenarios/
+      - name: Mypy type check
+        run: .venv/bin/mypy tools/

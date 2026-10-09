@@ -3,9 +3,10 @@
 A link captures its whole file-link chain and terminal file. Directory links,
 external targets and targets omitted from the source snapshot remain refused.
 """
-from pathlib import Path, PurePosixPath
 import os
 import shutil
+from pathlib import Path, PurePosixPath
+
 try:
     from . import autocode_util as util
 except ImportError:

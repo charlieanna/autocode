@@ -4,7 +4,6 @@ Parent snapshots are explicit functional inputs computed from the owned fixture
 files. No Git mutation, browser, HTTP provider or model invocation occurs here.
 These controls qualify the bridge, not native transport or visual judgment.
 """
-from copy import deepcopy
 import contextlib
 import hashlib
 import io
@@ -13,22 +12,24 @@ import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode
 import autocode_contract_identity as contract
 import autocode_goals as goals
 import autocode_rework_policy as reports
+import autocode_status_command
+import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_visual_evidence as evidence
 import autocode_visual_runtime as visual
-import autocode
-import autocode_status_command
-import autocode_taskrun as taskrun
 import goal_fixtures
+
 from tests.visual_capture_fixtures import make_capture, png
 
 

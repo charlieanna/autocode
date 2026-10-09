@@ -1,22 +1,23 @@
 """Caller-rooted regression proofs using real Git and Python test subprocesses."""
-import shlex
 import errno
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from copy import deepcopy
-from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import autocode_multicomponent as components
 import autocode_regression as regression
 import autocode_test_root as test_root
 import autocode_util as util
 import autocode_verify as verify
-import autocode_multicomponent as components
+
 from tests.test_verify import Project, git, isolated_python
 
 ARCHITECTURE = {"README.md": "Two components.\n", "architecture/components.json": '[{"id":"gateway"},{"id":"store"}]\n'}

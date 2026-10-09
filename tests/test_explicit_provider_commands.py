@@ -1,15 +1,15 @@
 """Explicit provider environments must honor executable lookup boundaries."""
-from pathlib import Path
 import os
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from providers.command import CommandProvider
 from providers import opencode
+from providers.command import CommandProvider
 
 
 class AbsoluteProviderExecutableTests(unittest.TestCase):

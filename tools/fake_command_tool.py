@@ -7,11 +7,12 @@ reuses the session passed with --session.
 """
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import uuid
+from pathlib import Path
+
 from goal_fixtures import body
 
 

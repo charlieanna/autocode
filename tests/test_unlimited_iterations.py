@@ -1,16 +1,18 @@
 """Unlimited iterations is explicit and does not disable other limits."""
 import copy
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
-from . import test_goals, test_autocode, test_subprocess
+
 import autocode as runner
 import autocode_configure
 import autocode_milestones as milestones
 import autocode_planning as planning
-import autopilot
 import autocode_support as s
+import autopilot
 from goal_fixtures import assert_operational_wait
+
+from . import test_autocode, test_goals, test_subprocess
 
 
 class UnlimitedTests(unittest.TestCase):

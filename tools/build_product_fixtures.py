@@ -1,7 +1,6 @@
 """Additional handwritten product contracts and predeclared executable oracles."""
 import textwrap
 
-
 LOOPBACK_HTTP_SERVER = textwrap.dedent('''\
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from socketserver import TCPServer

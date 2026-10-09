@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from outbox import Store
+
 
 class LargeQueryLimits(unittest.TestCase):
     def test_t1_large_limit_survives_reopen_and_publish(self):

@@ -1,7 +1,8 @@
+import unittest
 from argparse import Namespace
 from pathlib import Path
-import unittest
-from autocode_output_policy import configure, mode, environment, view
+
+from autocode_output_policy import configure, environment, mode, view
 
 
 class PolicyTests(unittest.TestCase):

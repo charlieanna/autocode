@@ -1,7 +1,7 @@
 """Go oracle requires actual named test execution before accepting a score."""
 import importlib.util
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 path = Path(__file__).resolve().parents[1] / "arena/cases/go-http2-hung-reset-health/oracle.py"
 spec = importlib.util.spec_from_file_location("arena_go_oracle", path)

@@ -3,8 +3,9 @@
 Catches proxy connections and dependency transports outside HTTPX without
 changing listener/accept or local IPC behavior. Not a hostile-code sandbox.
 """
-from contextlib import contextmanager
 import socket
+from contextlib import contextmanager
+
 from .phase_env import guard
 
 

@@ -3,7 +3,8 @@ import json
 import shutil
 import sys
 
-from harness.oracle import Check, non_stdlib_imports, run as command, scratch_copy, tail
+from harness.oracle import Check, non_stdlib_imports, scratch_copy, tail
+from harness.oracle import run as command
 
 
 def check(project, scenario, run=None):

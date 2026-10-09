@@ -27,17 +27,40 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import (attempts, baseline, build_compare, catalog, compare, hybrid, plan_compare, profiles, routing,  # noqa: E402
-                     stats, verdict)
-from harness.driver import (REPO, DriveError, Driver, InterruptedDrive, TurnNotReached, default_autocode, fake_setup,  # noqa: E402
-                            live_setup, metrics, changed_between, split_by_turn, workspace_files)
+from harness import (  # noqa: E402
+    attempts,
+    baseline,
+    build_compare,
+    catalog,
+    compare,
+    components_driver,  # noqa: E402
+    hybrid,
+    plan_compare,
+    profiles,
+    routing,
+    stats,
+    verdict,
+)
+from harness.driver import (  # noqa: E402
+    REPO,
+    DriveError,
+    Driver,
+    InterruptedDrive,
+    TurnNotReached,
+    changed_between,
+    default_autocode,
+    fake_setup,
+    live_setup,
+    metrics,
+    split_by_turn,
+    workspace_files,
+)
 from harness.program_driver import ProgramDriver  # noqa: E402
-from harness import components_driver  # noqa: E402
 from harness.project import materialize  # noqa: E402
 
 
@@ -136,7 +159,7 @@ def caps_flags(args) -> list[str]:
 
 def evidence_directory(root: Path, label: str) -> tuple[str, Path]:
     """Allocate fresh evidence atomically, including simultaneous same-scenario runs."""
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     return stamp, Path(tempfile.mkdtemp(prefix=f"{stamp}-{label}-", dir=root))

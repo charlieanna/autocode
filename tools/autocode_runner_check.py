@@ -5,19 +5,20 @@ the dashboard read it separately from provider attempts: a test suite must not
 look like either an idle Validator or an interrupted model call. The caller
 owns the run lock and supplies its normal state persistence function.
 """
+import os
 from contextlib import contextmanager
 from copy import deepcopy
-import os
 from pathlib import Path
 
 try:
-    from . import autocode_process as processes, autocode_util as util
     from . import autocode_command_supervision as command_supervision
+    from . import autocode_process as processes
+    from . import autocode_util as util
     from . import autocode_verification_schedule as schedule
 except ImportError:
+    import autocode_command_supervision as command_supervision
     import autocode_process as processes
     import autocode_util as util
-    import autocode_command_supervision as command_supervision
     import autocode_verification_schedule as schedule
 
 

@@ -2,10 +2,10 @@
 """Offline Builder for bounded-assignment scenarios. Never a live model."""
 import json
 import os
-from pathlib import Path
 import sys
 import time
 import uuid
+from pathlib import Path
 
 
 def request(kind):

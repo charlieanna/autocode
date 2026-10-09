@@ -8,10 +8,10 @@ not authenticate evidence against a writer who controls the manifest too.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import hashlib
 import json
 import math
+from collections import Counter
 from pathlib import Path
 
 try:

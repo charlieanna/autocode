@@ -8,7 +8,7 @@ import time
 
 from . import catalog
 from .component_services import running
-from .driver import Driver, DriveError, InterruptedDrive, REPO, default_autocode, fake_setup, metrics
+from .driver import REPO, DriveError, Driver, InterruptedDrive, default_autocode, fake_setup, metrics
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import git, overlay_paths
 

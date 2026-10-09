@@ -1,16 +1,16 @@
 """Missing-workspace presentation uses fresh evidence and never removes records."""
 import http.client
 import json
-from pathlib import Path
+import sys
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dashboard_workspace_history import annotate_workspace_history
 from agent_console import Console, Handler, LoopbackHTTPServer
+from dashboard_workspace_history import annotate_workspace_history
 
 
 class WorkspaceHistoryTests(unittest.TestCase):

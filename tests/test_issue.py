@@ -15,6 +15,7 @@ import autocode_issue as issue_cli
 import autocode_evidence_document as evidence_document
 import autocode_evidence_provenance as evidence_provenance
 from autocode_taskrun import TaskRun
+
 from tests import GIT_TEST_CONFIG
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS  # the offline fixture provider's greeting task
 

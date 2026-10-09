@@ -1,7 +1,8 @@
 import hashlib
 import sys
 
-from harness.oracle import Check, run as command, tail
+from harness.oracle import Check, tail
+from harness.oracle import run as command
 
 
 def check(project, scenario, run=None):

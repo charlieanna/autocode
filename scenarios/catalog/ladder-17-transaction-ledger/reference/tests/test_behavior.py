@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from ledger import Ledger
+
 
 class LedgerTests(unittest.TestCase):
     def test_transfer_survives_reopening_and_replay(self):

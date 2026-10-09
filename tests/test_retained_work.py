@@ -4,11 +4,11 @@ A live Go run's `go build .` wrote ./policy into the repository (2026-09-29). Th
 already excused it (autocode_assignment.build_output); the retained-work routes must too, and must
 not hand it to the Validator as a changed file.
 """
-import json
 import copy
-from pathlib import Path
+import json
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_retained_work as retained_work
 import autocode_util as util

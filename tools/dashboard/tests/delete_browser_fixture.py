@@ -1,16 +1,17 @@
 """Real deletion/archive endpoints, registry and Git; disposable fixture only."""
-import json, os, sys
+import json
+import os
+import sys
 from pathlib import Path
 from urllib.parse import urlencode
 
 SOURCE=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(SOURCE/'tools/dashboard'),str(SOURCE/'tools')]
-import agent_console
-from agent_console import Console,Handler,LoopbackHTTPServer
-from dashboard_delete import git
 import autocode_registry as registry
+from agent_console import Console, Handler, LoopbackHTTPServer
 from autocode_workspaces import create as worktree
 from autocode_worktrees import deliver
+from dashboard_delete import git
 
 root=Path(os.environ['AUTOCODE_FIXTURE_ROOT']).resolve()
 root.mkdir(parents=True,exist_ok=True)

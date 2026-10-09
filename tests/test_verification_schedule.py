@@ -2,21 +2,22 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from .test_verify import Project
 import autocode_check_replay as replay
 import autocode_command_receipt as command_receipt
 import autocode_util as util
 import autocode_verification_plan as plan
 import autocode_verification_schedule as schedule
 import autocode_verify as verify
+
+from .test_verify import Project
 
 
 class ReceiptPolicyTests(unittest.TestCase):
@@ -492,7 +493,8 @@ class ExecutionIdentityTests(unittest.TestCase):
 
 class VerificationRestartCLI(unittest.TestCase):
     def test_reference_and_broken_variants_use_the_same_independent_oracle(self):
-        from scenarios import run
+        from scenarios import run  # isort: skip -- initializes the harness import path
+
         from harness import catalog
         results = run.self_test(catalog.load("verification-reuse"))
         self.assertEqual(["seed", "reference", "broken/accepts-empty", "broken/vacuous-tests"],
@@ -500,9 +502,10 @@ class VerificationRestartCLI(unittest.TestCase):
         self.assertTrue(all(ok for _, ok, _ in results), results)
 
     def test_restart_reuses_only_completed_supplemental_check_and_keeps_canonical_execution(self):
-        from scenarios import run as scenario_run
+        from scenarios import run as scenario_run  # isort: skip -- initializes the harness import path
+
         from harness import catalog
-        from harness.driver import Driver, DriveError, default_autocode, fake_setup
+        from harness.driver import DriveError, Driver, default_autocode, fake_setup
         from harness.project import materialize
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)

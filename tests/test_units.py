@@ -1,15 +1,16 @@
 """Real CLI unit boundaries with isolated workspaces and offline providers."""
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
-from . import test_dispatch, test_subprocess, test_planning, test_goals
-import autopilot as orchestrator
+import autocode as runner
 import autocode_resolver_human as human
 import autocode_support as support
-import autocode as runner
+import autopilot as orchestrator
+
+from . import test_dispatch, test_goals, test_planning, test_subprocess
 
 
 class UnitFlow(unittest.TestCase):

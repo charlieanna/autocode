@@ -8,14 +8,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
-import shlex
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import uuid
-
+from pathlib import Path
 
 SUPPORTED_VERSION = "1.18.33"
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"

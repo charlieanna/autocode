@@ -1,7 +1,9 @@
 import csv
 import io
 import unittest
+
 from csvexport import export
+
 
 class CsvExportTests(unittest.TestCase):
     def test_plain_record(self):

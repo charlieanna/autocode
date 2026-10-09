@@ -15,13 +15,13 @@ import hashlib
 import json
 import os
 import re
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 
 def now():
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def slug(task: str) -> str:

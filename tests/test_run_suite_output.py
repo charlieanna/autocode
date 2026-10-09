@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-from pathlib import Path
 import re
 import subprocess
 import sys
@@ -20,6 +19,7 @@ import tempfile
 import textwrap
 import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_verify as verify

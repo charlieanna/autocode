@@ -1,15 +1,14 @@
 """Recorded image selection and filesystem boundaries; no runner mutation."""
 import copy
 import hashlib
-import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dashboard_screenshots import project, read_image, MAX_IMAGE_BYTES
+from dashboard_screenshots import MAX_IMAGE_BYTES, project, read_image
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'fixture-image'
 
@@ -111,6 +110,7 @@ class ScreenshotHTTPTests(unittest.TestCase):
         import threading
         from types import SimpleNamespace
         from urllib.parse import urlencode
+
         from agent_console import Handler, LoopbackHTTPServer
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary).resolve()

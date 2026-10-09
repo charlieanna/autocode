@@ -11,12 +11,12 @@ is claimed here.  Architect approval gates stay in the runner;
 """
 from __future__ import annotations
 
-from copy import deepcopy
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import uuid
+from copy import deepcopy
+from datetime import UTC, datetime
+from pathlib import Path
 
 try:
     from .. import autocode_conversation as conversation_protocol
@@ -35,13 +35,36 @@ except ImportError:  # Direct script execution from any working directory.
 
 
 def _now():
-    return datetime.now(timezone.utc).isoformat(timespec='milliseconds')
+    return datetime.now(UTC).isoformat(timespec='milliseconds')
 
 
 try:
-    from ..autocode_planner_routes import (PlannerDispatchError, PlannerRouteError, SOL_PLANNER_MODEL, GLM_REVIEW_MODEL, ASTRA_VISUAL_MODEL, MANDATED_ROUTES, POLICY_ROLES, VERIFIER_ROLES, NONVISUAL_ROLES, DISPATCH_LIMITS, RUNNER_NONVISUAL_ROLES, RUNNER_POLICY_ROLES, caps_disabled, conversation_planner_routes, visual_review_route, select_visual_review_route, enforce_fresh_runner_role_models, enforce_route_policy, enforce_conversation_routes)
+    from ..autocode_planner_routes import (
+        ASTRA_VISUAL_MODEL,
+        DISPATCH_LIMITS,
+        GLM_REVIEW_MODEL,
+        MANDATED_ROUTES,
+        NONVISUAL_ROLES,
+        POLICY_ROLES,
+        RUNNER_NONVISUAL_ROLES,
+        RUNNER_POLICY_ROLES,
+        SOL_PLANNER_MODEL,
+        VERIFIER_ROLES,
+        PlannerDispatchError,
+        PlannerRouteError,
+        caps_disabled,
+        conversation_planner_routes,
+        enforce_conversation_routes,
+        enforce_fresh_runner_role_models,
+        enforce_route_policy,
+        select_visual_review_route,
+        visual_review_route,
+    )
 except ImportError:
-    from autocode_planner_routes import (PlannerDispatchError, PlannerRouteError, SOL_PLANNER_MODEL, GLM_REVIEW_MODEL, ASTRA_VISUAL_MODEL, MANDATED_ROUTES, POLICY_ROLES, VERIFIER_ROLES, NONVISUAL_ROLES, DISPATCH_LIMITS, RUNNER_NONVISUAL_ROLES, RUNNER_POLICY_ROLES, caps_disabled, conversation_planner_routes, visual_review_route, select_visual_review_route, enforce_fresh_runner_role_models, enforce_route_policy, enforce_conversation_routes)
+    from autocode_planner_routes import (
+        PlannerDispatchError,
+        enforce_route_policy,
+    )
 
 
 def planner_prompt(messages, *, logical_turn_id, requirements_revision, route, previous_draft=None):

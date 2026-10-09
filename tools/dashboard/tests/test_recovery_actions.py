@@ -1,7 +1,7 @@
 """Recovery buttons call existing CLI controls with fresh exact-pause identity."""
-import copy
 import unittest
 from unittest.mock import patch
+
 try:
     from . import test_registry_interventions as fixtures
 except ImportError:

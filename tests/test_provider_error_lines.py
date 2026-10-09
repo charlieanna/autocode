@@ -1,8 +1,8 @@
 """A provider error printed as plain text at the end of a stage log is classified like its JSON form (#562)."""
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_provider_error_lines as error_lines
 import autocode_support as support

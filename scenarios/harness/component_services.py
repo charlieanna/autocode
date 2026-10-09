@@ -7,8 +7,8 @@ import http.client
 import json
 import os
 import select
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile

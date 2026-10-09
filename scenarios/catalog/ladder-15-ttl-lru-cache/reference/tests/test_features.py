@@ -1,5 +1,7 @@
 import unittest
+
 from app import Cache
+
 
 class CacheTests(unittest.TestCase):
     def test_store_hit_and_expiry(self):

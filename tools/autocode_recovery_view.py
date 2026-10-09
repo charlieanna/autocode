@@ -11,14 +11,15 @@ import json
 from pathlib import PurePath
 
 try:
-    from .autocode_role_names import role_name
-    from . import autocode_builder_policy as builder_policy, autocode_quota_route as quota_route
+    from . import autocode_builder_policy as builder_policy
     from . import autocode_member_stop as member_stop
+    from . import autocode_quota_route as quota_route
+    from .autocode_role_names import role_name
 except ImportError:
-    from autocode_role_names import role_name
     import autocode_builder_policy as builder_policy
-    import autocode_quota_route as quota_route
     import autocode_member_stop as member_stop
+    import autocode_quota_route as quota_route
+    from autocode_role_names import role_name
 
 ACTIVE = {'RUNNING', 'DISCOVERING', 'EXECUTING', 'TASK_COMPLETE', 'COMPLETE'}
 # These inputs bind the displayed stopped frontier. Polling timestamps and

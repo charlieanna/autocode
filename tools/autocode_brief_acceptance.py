@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import PurePosixPath
 import re
 import shlex
+from pathlib import PurePosixPath
 
 VERSION = 2
 MAX_STEPS = 8

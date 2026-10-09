@@ -3,9 +3,9 @@ import argparse
 import base64
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
+from pathlib import Path
 
 try:
     from . import autocode_output_store as store

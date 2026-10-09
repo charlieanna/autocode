@@ -1,5 +1,6 @@
 """Safely extract validated ZIP archives using only the standard library."""
 
+import lzma
 import os
 import re
 import shutil
@@ -7,8 +8,6 @@ import stat
 import tempfile
 import zipfile
 import zlib
-import lzma
-
 
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 

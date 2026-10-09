@@ -5,12 +5,13 @@ import argparse
 import contextlib
 import fcntl
 import json
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any
 
 try:
-    from . import autocode_goals as goals, autocode_util as util
+    from . import autocode_goals as goals
+    from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_util as util

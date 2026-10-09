@@ -35,7 +35,8 @@ try:
     from . import autocode_providers, model_catalogue
     from .providers import opencode as opencode_provider
 except ImportError:
-    import autocode_providers, model_catalogue
+    import autocode_providers
+    import model_catalogue
     from providers import opencode as opencode_provider
 
 OK, MISSING, WARN = "ok", "missing", "warn"

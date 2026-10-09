@@ -11,43 +11,54 @@ It imports nothing from the runner.
 """
 from __future__ import annotations
 
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
 
 try:
-    from . import autocode_output_policy as output_policy, autocode_request_usage as request_usage
-    from . import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
-    from . import autocode_contract_identity as contract_identity, autocode_report_retry as report_retry
-    from . import autocode_progressive_plan as progressive_rules
-    from . import autocode_verification_view as verification_view
-    from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
-    from . import autocode_recovery_limits as recovery_limits
-    from . import autocode_liveness as liveness_policy
-    from . import autocode_operational_information as operational_information
-    from . import autocode_member_stop as member_stop
-    from . import autocode_containment_policy as containment_policy
-    from . import autocode_route_ladder as route_ladder
     from . import autocode_accepted_source as accepted_source
+    from . import autocode_code_checkpoints as code_checkpoints
     from . import autocode_component_plan as component_plan
+    from . import autocode_containment_policy as containment_policy
+    from . import autocode_contract_identity as contract_identity
+    from . import autocode_design_coverage as design_coverage
+    from . import autocode_efficiency, autocode_usage
+    from . import autocode_finding_rescope as finding_rescope
+    from . import autocode_liveness as liveness_policy
+    from . import autocode_member_stop as member_stop
+    from . import autocode_operational_information as operational_information
+    from . import autocode_output_policy as output_policy
+    from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_recovery_view as recovery_view
+    from . import autocode_report_retry as report_retry
+    from . import autocode_request_usage as request_usage
+    from . import autocode_route_ladder as route_ladder
     from . import autocode_stop_explanations as stop_explanations
+    from . import autocode_verification_view as verification_view
 except ImportError:
-    import autocode_output_policy as output_policy, autocode_request_usage as request_usage
-    import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
-    import autocode_contract_identity as contract_identity, autocode_report_retry as report_retry
-    import autocode_progressive_plan as progressive_rules
-    import autocode_verification_view as verification_view
-    import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
-    import autocode_recovery_limits as recovery_limits
-    import autocode_liveness as liveness_policy
-    import autocode_operational_information as operational_information
-    import autocode_member_stop as member_stop
-    import autocode_containment_policy as containment_policy
-    import autocode_route_ladder as route_ladder
     import autocode_accepted_source as accepted_source
+    import autocode_code_checkpoints as code_checkpoints
     import autocode_component_plan as component_plan
+    import autocode_containment_policy as containment_policy
+    import autocode_contract_identity as contract_identity
+    import autocode_design_coverage as design_coverage
+    import autocode_efficiency
+    import autocode_finding_rescope as finding_rescope
+    import autocode_liveness as liveness_policy
+    import autocode_member_stop as member_stop
+    import autocode_operational_information as operational_information
+    import autocode_output_policy as output_policy
+    import autocode_progressive_plan as progressive_rules
+    import autocode_quota_route as quota_route
+    import autocode_recovery_limits as recovery_limits
+    import autocode_recovery_view as recovery_view
+    import autocode_report_retry as report_retry
+    import autocode_request_usage as request_usage
+    import autocode_route_ladder as route_ladder
     import autocode_stop_explanations as stop_explanations
+    import autocode_usage
+    import autocode_verification_view as verification_view
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")

@@ -2,11 +2,11 @@
 """Offline OpenCode event protocol fixture; never calls an actual provider."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 
 if sys.argv[1:] == ["--version"]:
     print("1.18.31")

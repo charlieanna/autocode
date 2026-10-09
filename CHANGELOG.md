@@ -17,6 +17,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Verification copies prepare large source inventories using packed source
+  blobs while retaining Git staging rules, source checks and clean replay.
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while
   keeping explicit saved-run inputs exclusive and explanation commands read-only.
 

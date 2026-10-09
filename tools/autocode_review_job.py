@@ -28,7 +28,8 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import match_cases
 except ImportError:
@@ -231,7 +232,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_tests=None) -> 
                        "delivered_tests": delivered, "finding_tests": proof["finding_tests"],
                        "proof_command": proof["command"]}
     state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                 completed_at=dt.datetime.now(dt.timezone.utc).isoformat())
+                 completed_at=dt.datetime.now(dt.UTC).isoformat())
 
 
 def render(state: dict) -> str:

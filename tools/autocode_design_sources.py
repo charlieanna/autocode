@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+
 try:
     from . import autocode_util as util
 except ImportError:
@@ -80,8 +81,8 @@ SEGMENT_FIELDS = ['fontSize', 'fontName', 'fontWeight', 'fontStyle', 'textDecora
 # synthetic REST document. The collector and validator must agree on this profile.
 PLUGIN_SOURCE = 'figma-plugin-api-properties-v1'
 PROFILE_NAME = 'autocode-design-properties-v1'
-CHILD_TYPES = set('PAGE FRAME COMPONENT COMPONENT_SET INSTANCE GROUP TRANSFORM_GROUP SECTION BOOLEAN_OPERATION'.split())
-REACTION_TYPES = set('FRAME COMPONENT INSTANCE GROUP TRANSFORM_GROUP RECTANGLE ELLIPSE LINE POLYGON STAR VECTOR BOOLEAN_OPERATION TEXT TEXT_PATH'.split())
+CHILD_TYPES = set(['PAGE', 'FRAME', 'COMPONENT', 'COMPONENT_SET', 'INSTANCE', 'GROUP', 'TRANSFORM_GROUP', 'SECTION', 'BOOLEAN_OPERATION'])
+REACTION_TYPES = set(['FRAME', 'COMPONENT', 'INSTANCE', 'GROUP', 'TRANSFORM_GROUP', 'RECTANGLE', 'ELLIPSE', 'LINE', 'POLYGON', 'STAR', 'VECTOR', 'BOOLEAN_OPERATION', 'TEXT', 'TEXT_PATH'])
 MIXED = {'__figma_mixed__': True}
 UNDEFINED = {'__figma_undefined__': True}
 

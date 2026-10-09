@@ -4,11 +4,11 @@ Declared commands, Git inspection and available Python helpers select tools. Unk
 before a paid launch; this never executes arbitrary project scripts to discover
 what filesystem authority they might need.
 """
-from pathlib import Path
 import json
 import shlex
 import shutil
 import subprocess
+from pathlib import Path
 
 try:
     from . import autocode_macho_dependencies as macho

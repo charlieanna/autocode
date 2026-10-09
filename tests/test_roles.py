@@ -45,7 +45,7 @@ class OneListOfNames(unittest.TestCase):
 
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
     def test_v2_names_follow_the_actual_planning_stages(self):
-        from units.autoplanner import V2_STAGES, V2_STAGE_ROLES
+        from units.autoplanner import V2_STAGE_ROLES, V2_STAGES
         expected = {'requirements': 'Requirements', 'glm': 'Planner', 'plan_reviewer': 'Plan Reviewer'}
         for stage in V2_STAGES:
             with self.subTest(stage=stage):

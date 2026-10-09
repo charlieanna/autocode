@@ -1,9 +1,10 @@
 """Nonsecret connection-summary checks; no network or credential-file reads."""
+import os
 import subprocess
 import sys
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -85,7 +86,7 @@ class OpenCodeSubscriptionTests(unittest.TestCase):
     def test_configured_api_environment_is_accepted_for_all_roles_without_probe(self):
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL'):
             for role in ('glm', 'astra', 'terra', 'sol'):
-                with patch.dict(oc.os.environ, {key: 'fixture-only'}), patch.object(oc.subprocess, 'run') as command:
+                with patch.dict(os.environ, {key: 'fixture-only'}), patch.object(oc.subprocess, 'run') as command:
                     oc.check_subscription_routes({role: {'model': 'openai/gpt-5.6-sol'}})
                     command.assert_not_called()
 
