@@ -26,7 +26,7 @@ def without_maintenance(project: Path) -> Path:
     return project
 
 
-def materialize(seed: Path, project: Path, *overlays: Path) -> Path:
+def materialize(seed: Path, project: Path, *overlays: Path, npm_setup: bool = False) -> Path:
     """Copy and commit the seed, then lay overlays on top without committing them. The seed commit
     starts no background maintenance; the project's own Git configuration is left alone."""
     if seed.is_dir():
@@ -38,6 +38,9 @@ def materialize(seed: Path, project: Path, *overlays: Path) -> Path:
     git(project, *NO_MAINTENANCE, "commit", "-q", "--allow-empty", "-m", "Scenario seed")
     for overlay in overlays:
         shutil.copytree(overlay, project, dirs_exist_ok=True, ignore=IGNORED)
+    if npm_setup:
+        from .npm_dependencies import prepare
+        prepare(seed, project)
     return project
 
 

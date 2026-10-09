@@ -1,0 +1,6 @@
+{
+  "name": "stable-record-order",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "test": "node --test tests/*.test.js" }
+}

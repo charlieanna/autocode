@@ -36,7 +36,7 @@ CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architectu
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
-KEYS = {"title", "brief", "category", "requires", "fake", "run", "turn", "hybrid", "program", "brief_from", "components"}
+KEYS = {"title", "brief", "category", "requires", "fake", "run", "turn", "hybrid", "program", "brief_from", "components", "setup"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "criteria", "turn_paths", "answers"}
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
@@ -110,6 +110,8 @@ class Scenario:
     program_changes: tuple[dict, ...] = ()
     program_revisions: tuple[dict, ...] = ()
     components_architecture: str = ""
+    # [setup] npm: install the catalog's pinned lock before execution, never from a test command.
+    npm_setup: bool = False
 
     @property
     def seed(self) -> Path:
@@ -153,6 +155,12 @@ def load(scenario_id: str) -> Scenario:
         raise ValueError(f"{scenario_id}/scenario.toml: unknown keys {sorted(unknown)}")
     if meta.get("category") not in CATEGORIES:
         raise ValueError(f"{scenario_id}: category must be one of {CATEGORIES}")
+    setup = meta.get("setup", {})
+    if not isinstance(setup, dict) or set(setup) - {"npm"} or type(setup.get("npm", False)) is not bool:
+        raise ValueError(f"{scenario_id}: [setup] accepts only boolean npm")
+    if setup.get("npm") and not all((root / "seed" / name).is_file()
+                                     for name in ("package.json", "package-lock.json")):
+        raise ValueError(f"{scenario_id}: npm setup needs both pinned seed manifests")
     run = meta.get("run", {})
     unknown = set(run) - RUN_KEYS
     if unknown:
@@ -234,7 +242,7 @@ def load(scenario_id: str) -> Scenario:
         hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
         program_max_parallel=program.get("max_parallel", 2), program_revise=program.get("revise", {}),
         program_changes=tuple(program.get("change", ())), program_revisions=tuple(program.get("revision", ())),
-        components_architecture=architecture)
+        components_architecture=architecture, npm_setup=setup.get("npm", False))
 
 
 def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:

@@ -4400,5 +4400,11 @@ class OracleEnvInheritanceTests(unittest.TestCase):
             self.assertEqual(0, suite.returncode, oracle.tail(suite))
 
 
+# The suite gate discovers this module's TestCase classes, one test per process.
+from .test_native_cli import NativeScenarioCliTests
+from .test_native_oracles import NativeReporterCounterexamples, NativeDifferentialCounterexamples, NpmSetupBoundaryTests
+from .test_human_stop import QuestionAnswerabilityTests, HumanQuestionStopTests, HumanQuestionCliTests
+
+
 if __name__ == "__main__":
     unittest.main()
