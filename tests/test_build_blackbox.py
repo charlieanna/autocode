@@ -576,7 +576,7 @@ class BuildBlackbox(unittest.TestCase):
 
     def finish_product(self, spec):
         self.seed(spec)
-        for wave in range(len(spec['contract']['milestones'])):
+        for _wave in range(len(spec['contract']['milestones'])):
             self.build(); self.candidate()
             starts={e['milestone'] for e in self.events()}
             if starts==set(spec['payloads']):

@@ -149,7 +149,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.assign(status='REWORK', next_objective='Isolate empty input first with a smaller regression fixture')
         self.assertEqual('terra', self.state['next_stage'])
         self.assertEqual(1, m.progress(self.state)['replans'])
-        for i in range(3): self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+        for _ in range(3): self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
         self.assign(status='REWORK', next_objective='Another attempt')
         self.assertEqual('PAUSED_MILESTONE_STALLED', self.state['status'])
 

@@ -73,10 +73,10 @@ def _edits(before, after):
     offsets = [0]
     for line in left:
         offsets.append(offsets[-1] + len(line))
-    for tag, i, j, k, l in difflib.SequenceMatcher(None, left, right).get_opcodes():
+    for tag, i, j, k, end in difflib.SequenceMatcher(None, left, right).get_opcodes():
         if tag == "equal":
             continue
-        a, b = TOKEN.findall("".join(left[i:j])), TOKEN.findall("".join(right[k:l]))
+        a, b = TOKEN.findall("".join(left[i:j])), TOKEN.findall("".join(right[k:end]))
         counts_a, counts_b = collections.Counter(a), collections.Counter(b)
         if sum(count * counts_b[token] for token, count in counts_a.items()) > MAX_TOKEN_MATCHES:
             raise ValueError("the changed region is too repetitive to locate patch edits reliably")

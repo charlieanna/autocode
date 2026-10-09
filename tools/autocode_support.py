@@ -274,10 +274,7 @@ def transport_drift(current, checkpoint, roles):
             return True
     if any(not role.get("model") for role in roles.values()) and current.get("model") != checkpoint.get("model"):
         return True
-    if any(not role.get("reasoning_effort") for role in roles.values()) and \
-            current.get("model_reasoning_effort") != checkpoint.get("model_reasoning_effort"):
-        return True
-    return False
+    return bool(any(not role.get("reasoning_effort") for role in roles.values()) and current.get("model_reasoning_effort") != checkpoint.get("model_reasoning_effort"))
 
 
 def transport_arguments(settings):

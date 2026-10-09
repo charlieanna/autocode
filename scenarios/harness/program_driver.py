@@ -30,6 +30,7 @@ the program merged every workstream; the project's own branch never changes.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shutil
@@ -402,10 +403,8 @@ class ProgramDriver:
     def finish(self) -> dict:
         """Read the program's final summary (`program status`, outside the budget) and save the evidence."""
         if self.manifest.is_file():
-            try:
+            with contextlib.suppress(DriveError):
                 self.summary = read_summary(self.on_manifest("program-status", "status", budget=False))
-            except DriveError:
-                pass  # keep the last summary `program run` printed
         if self.summary:
             (self.root / "program-summary.json").write_text(json.dumps(self.summary, indent=2))
         for wid, runs in self.workstream_runs().items():

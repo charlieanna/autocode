@@ -406,7 +406,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         self.assertTrue(all('--no-chat' in args for args in self.commands()))
         self.assertIn('--resume-paused', self.commands()[-1])
         restored = self.make_console()
-        restored.conversations
+        restored.conversations  # noqa: B018 - force lazy conversation-store init
         self.assertEqual(['q1', 'q2'], [row['question_id'] for row in restored.task_view(self.workspace, self.run)['chat_messages']])
 
     def test_delegate_uses_same_composer_and_continues_after_last_question(self):
@@ -434,7 +434,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
                'delegate': False, 'status': 'saved', 'action_id': 'lost-process-action', 'error': None}
         self.console._save_chat(self.run, row)
         restored = self.make_console()
-        restored.conversations
+        restored.conversations  # noqa: B018 - force lazy conversation-store init
         message = restored.task_view(self.workspace, self.run)['chat_messages'][0]
         self.assertEqual('received', message['status'])
         self.assertIsNone(message['error'])
@@ -453,7 +453,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
                 'submitted_text': 'Browser only', 'question_id': ident, 'question_text': ident,
                 'delegate': ident == 'delegated', 'status': 'saved', 'action_id': 'lost-' + ident, 'error': None, **fields})
         restored = self.make_console()
-        restored.conversations
+        restored.conversations  # noqa: B018 - force lazy conversation-store init
         messages = restored.task_view(self.workspace, self.run)['chat_messages']
         self.assertEqual(['error'] * 3, [row['status'] for row in messages])
         self.assertTrue(all('could not be confirmed after restart' in row['error'] for row in messages))
@@ -533,7 +533,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         inbox = json.loads((self.root / 'inbox.json').read_text())
         self.assertEqual(1, len(inbox))
         restored = self.make_console()
-        restored.conversations
+        restored.conversations  # noqa: B018 - force lazy conversation-store init
         self.assertEqual(first, restored.task_view(self.workspace, self.run)['chat_messages'][0] | {})
         (self.root / 'applied.json').write_text(json.dumps(inbox))
         restored.status_cache.clear()

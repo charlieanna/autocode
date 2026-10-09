@@ -280,8 +280,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         return 2
     active = state.get('active_stage') or {}
     if (getattr(args, 'recover_job_report', None) is not None
-            or (active.get('stage') == 'investigate_bug' and active.get('output_mode') == 'report_file')):
-        if stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
+            or (active.get('stage') == 'investigate_bug' and active.get('output_mode') == 'report_file')) \
+            and stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
             print(f"{state['status']}: {state['stop_reason']}")
             return 2
     # A pause intervention that landed on a held run, or a request it stranded, leaves that pause in
@@ -329,8 +329,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print('Inspected Investigator report applied; provider exit remains unknown. No model launched.')
         return 0
     retained_report = job_report_recovery.offer(runner, state, run_dir, workspace)
-    if not args.abandon_stage and not retained_report and job_failure.recover(runner, state, run_dir, workspace):
-        if not args.retry_failed_stage:
+    if not args.abandon_stage and not retained_report and job_failure.recover(runner, state, run_dir, workspace) \
+            and not args.retry_failed_stage:
             print(state['stop_reason'])
             return 2
     # A job stopped on quota or a content-filter refusal takes another model with its retry token (#463).
@@ -868,9 +868,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
             print(rendered)
             return 2
-    if state['status'] == 'PAUSED_PLANNING_BUDGET' and not user_action:
-        if (runner.recover_default_budget(state, run_dir, workspace, 'planning_review_call_limit')
-                or resolver_runtime.operational_boundary(runner, state, run_dir, workspace)):
+    if state['status'] == 'PAUSED_PLANNING_BUDGET' and not user_action and \
+            (runner.recover_default_budget(state, run_dir, workspace, 'planning_review_call_limit')
+             or resolver_runtime.operational_boundary(runner, state, run_dir, workspace)):
             state.update(status='RUNNING', phase='PLANNING')
             state.pop('stop_reason', None)
             runner.write_json(state_path, state)

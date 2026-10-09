@@ -151,9 +151,9 @@ class SetupMixin:
             if row is None and not refresh and cached and cached[0] == identity and time.monotonic() < cached[1]:
                 return dict(cached[2])
             signal = conversation_transport_signal(row if row is not None else self._probe_conversation_transport(executable))
-            if signal['transport'] == 'unknown' and cached and cached[0] == identity:
-                if time.monotonic() < cached[1] or cached[2]['transport'] in ('missing', 'unsupported'):
-                    signal = dict(cached[2])
+            if (signal['transport'] == 'unknown' and cached and cached[0] == identity
+                and (time.monotonic() < cached[1] or cached[2]['transport'] in ('missing', 'unsupported'))):
+                signal = dict(cached[2])
             self._conversation_transport_cache = (identity, time.monotonic() + 300, signal)
             return dict(signal)
 

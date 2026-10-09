@@ -3,6 +3,7 @@
 Event pipes/barriers establish each fault phase; timeouts only bound broken
 fixtures. No model, allowance, private run-state write or elapsed-time oracle.
 """
+import contextlib
 import json
 import os
 import select
@@ -399,10 +400,8 @@ signal.pause()
                             self.assertTrue(all(value['keeper'] == declared for value in published))
                 finally:
                     for fd in (control_r, control_w, ack_r, ack_w):
-                        try:
+                        with contextlib.suppress(OSError):  # The admitted keeper closes its owned ends.
                             os.close(fd)
-                        except OSError:  # The admitted keeper closes its owned ends.
-                            pass
 
     def test_nonce_or_identity_tampering_is_unknown(self):
         with supervision.launch([sys.executable,'-c','pass'],receipt_path=self.root/'receipt.json',

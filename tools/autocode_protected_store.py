@@ -12,7 +12,7 @@ import stat
 import tempfile
 import uuid
 import zipfile
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path, PurePosixPath
 
 try:
@@ -106,8 +106,7 @@ def read(record, archive):
     if root != archive and root.exists():
         for name, expected in files.items():
             old = root / name
-            if old.exists() or old.is_symlink():
-                if paths.identity(paths.path_in(root, name, allow_link=record['version'] == 2)) != expected:
+            if (old.exists() or old.is_symlink()) and paths.identity(paths.path_in(root, name, allow_link=record['version'] == 2)) != expected:
                     raise ValueError(f'Original protected test bundle changed: {name}')
 
 
@@ -205,7 +204,5 @@ def compact(record, run_dir):
         directories.update((root / name).parents)
     for directory in sorted((p for p in directories if p == root or root in p.parents),
                             key=lambda p: len(p.parts), reverse=True):
-        try:
-            directory.rmdir()
-        except OSError:
-            pass  # unrelated contents are intentionally retained
+        with suppress(OSError):
+            directory.rmdir()  # unrelated contents are intentionally retained

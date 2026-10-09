@@ -204,10 +204,10 @@ class StopFixture(unittest.TestCase):
 
     def launch_in(self, project, goal="Build a greeting tool"):
         self.write_provider()
-        stdin = self.root / ("chat-input-%d.txt" % time.monotonic())
+        stdin = self.root / f"chat-input-{time.monotonic()}.txt"
         stdin.write_text("CLI\nyes\n")
-        stdout = self.root / ("run-%d.out" % time.monotonic())
-        stderr = self.root / ("run-%d.err" % time.monotonic())
+        stdout = self.root / f"run-{time.monotonic()}.out"
+        stderr = self.root / f"run-{time.monotonic()}.err"
         self._outputs.append((stdout, stderr))
         stdin_handle = stdin.open("r")
         stdout_handle = stdout.open("w")

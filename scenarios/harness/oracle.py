@@ -171,9 +171,9 @@ def finding_matches(finding: dict, *, file: str, lines: tuple[int, int] | None =
     if not isinstance(finding, dict) or finding.get("file") != file:
         return False
     span = finding.get("lines")
-    if lines and isinstance(span, list) and len(span) == 2 and all(isinstance(n, int) for n in span):
-        if span[0] <= lines[1] and lines[0] <= span[1]:
-            return True
+    if (lines and isinstance(span, list) and len(span) == 2 and all(isinstance(n, int) for n in span)
+            and span[0] <= lines[1] and lines[0] <= span[1]):
+        return True
     return bool(words) and mentions(finding, *words)
 
 

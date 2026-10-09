@@ -598,7 +598,7 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
         replacement = body()
         replacement["required_behaviors"] = ["Print Hello only"]
         lifecycle.install_draft(self.state, replacement, origin="user_cli_edit")
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             lifecycle.approve(self.state, old)
         self.assertFalse(goals.approved(self.state))
 

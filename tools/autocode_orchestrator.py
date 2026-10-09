@@ -6,4 +6,4 @@ except ImportError:
 
 
 if __name__ == "__main__":
-    raise SystemExit(cli())
+    raise SystemExit(cli())  # noqa: F405 - provided by the compatibility star import

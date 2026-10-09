@@ -122,9 +122,6 @@ TABLE: dict[str, tuple[str, str]] = {
     "PAUSED_PROVIDER_CAPACITY": (
         "The provider is at capacity.",
         "--resume-paused retries when capacity frees."),
-    "PAUSED_RATE_LIMIT": (
-        "The provider rate-limited the run.",
-        "--resume-paused retries; no work is lost."),
     "PAUSED_OUTPUT_CAP": (
         "A stage exceeded its output-token cap.",
         "--resume-paused retries; set OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX higher if this repeats."),

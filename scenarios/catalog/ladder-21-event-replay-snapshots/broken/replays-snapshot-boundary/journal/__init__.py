@@ -64,7 +64,7 @@ class Journal:
                     valid=type(sequence) is int and 0<=sequence<=last and isinstance(values,dict) and all(isinstance(k,str) and type(v) is int for k,v in values.items())
                     if valid and snap['checksum']==_checksum(sequence,values): start=sequence; totals=dict(values)
                 except (OSError,ValueError,KeyError,TypeError): pass
-            for seq,key,delta in db.execute('SELECT seq,key,delta FROM events WHERE seq>=? ORDER BY seq',(start,)):
+            for _seq,key,delta in db.execute('SELECT seq,key,delta FROM events WHERE seq>=? ORDER BY seq',(start,)):
                 totals[key]=totals.get(key,0)+int(delta,16)
             return last,totals
     def state(self,snapshot_path=None): return self._project(snapshot_path)[1]

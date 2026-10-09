@@ -58,7 +58,7 @@ class SchemaTests(unittest.TestCase):
                  "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [],
                  "progressive_proposal": proposal()}
         support.validate_schema(final, autoplanner.SCHEMAS["astra_finalize"])
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValueError):
             support.validate_schema({**report(), "progressive_proposal": {"version": 1}},
                                     autoplanner.SCHEMAS["astra_discovery"])
 

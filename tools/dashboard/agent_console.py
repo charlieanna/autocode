@@ -597,7 +597,7 @@ class Handler(BaseHTTPRequestHandler):
   if len(hosts)!=1 or hosts[0] not in self.server.hosts:return False
   o=self.headers.get('Origin')
   if not o:return True
-  try:p=urlparse(o);p.port
+  try:p=urlparse(o);p.port  # noqa: B018 - validates the port; ValueError on non-numeric ports
   except ValueError:return False
   return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
  def do_GET(self):
@@ -636,8 +636,8 @@ class Handler(BaseHTTPRequestHandler):
     if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its evidence'})
     ws=self.console.workspace_for(raw);run=self.console.run_for(ws,selected)
     if not run:return self.reply(404,{'error':'Task unavailable'})
-    try:from .dashboard_screenshots import read_image
-    except ImportError:from dashboard_screenshots import read_image
+    try:from .dashboard_screenshots import read_image  # noqa: I001 - intentional compact fallback import
+    except ImportError:from dashboard_screenshots import read_image  # noqa: I001
     image,mime=read_image(self.console.task_view(ws,run),q.get('image',[''])[0],ws,run)
     self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(image)));self.send_header('Cache-Control','private, no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(image);return
    except (ValueError,OSError):return self.reply(400,{'error':'Saved screenshot unavailable for this verification'})
@@ -653,7 +653,7 @@ class Handler(BaseHTTPRequestHandler):
    if archived:return self.reply(200,self.console.archived_view(archived))
    q=parse_qs(p.query);raw=q.get('workspace',[''])[0];removed=self.console.removed_project(raw)
    if removed:return self.reply(200,{'project_removed':True,'workspace':removed['workspace'],'run':q.get('run',[''])[0],'task':'Removed project'})
-   self.console.conversations
+   self.console.conversations  # noqa: B018 - force lazy conversation-store init before serving the view
    ws=self.console.workspace_for(q.get('workspace',[''])[0]);run=self.console.run_for(ws,q.get('run',[''])[0]);return self.reply(200,self.console.task_view(ws,run)) if run else self.reply(404,{'error':'run unavailable'})
   self.reply(404,{'error':'not found'})
  def do_POST(self):

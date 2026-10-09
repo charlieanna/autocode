@@ -49,7 +49,7 @@ def setup_error(traceback, tree, is_test_path):
         return None
     root = Path(tree).resolve()
     kinds = []
-    for filename, function in frames:
+    for filename, _ in frames:
         path = Path(filename)
         path = (path if path.is_absolute() else root / path).resolve()
         if path.is_relative_to(root):

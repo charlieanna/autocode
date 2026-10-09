@@ -29,7 +29,7 @@ def capture(command, *, cwd, env=None, timeout=60, receipt=None, scope='host'):
     with processes.interruption_handler():
         child = tree = None
         try:
-            destination = Path(receipt).open('x') if receipt else None
+            destination = Path(receipt).open('x') if receipt else None  # noqa: SIM115 - handle outlives this block; closed via `with destination:` at the end
             with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
                 try:
                     # Defer, rather than block, signals across Popen's ownership

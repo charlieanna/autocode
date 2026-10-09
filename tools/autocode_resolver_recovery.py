@@ -14,6 +14,7 @@ except ImportError:
 
 
 import base64
+import contextlib
 import copy
 import re
 from dataclasses import asdict
@@ -326,10 +327,8 @@ def prepare_resolution(state, decision, record):
         path = _owned(workspace / relative, workspace)
         if path.is_file():
             originals.append(_archive(path, run))
-            try:
-                sources[relative] = path.read_text()
-            except UnicodeError:
-                pass  # The byte-exact original remains available even for binary files.
+            with contextlib.suppress(UnicodeError):
+                sources[relative] = path.read_text()  # The byte-exact original remains available even for binary files.
     records = [copy.deepcopy(row) for row in state.get("stages", [])
                if row.get("stage") in ("terra", "astra_resolve", "astra_diagnose", "sol", "astra_review")]
     # Preserve diffs and logs from all prior repair attempts before later paths can change.

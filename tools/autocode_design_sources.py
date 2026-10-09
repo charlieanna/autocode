@@ -288,9 +288,9 @@ def _transitions(visual):
 
 def _variants(node, nodes):
     visual = node['visual']
-    if node['type'] in ('COMPONENT', 'COMPONENT_SET'):
-        if node['component_key'] != visual['key'] or not isinstance(visual['key'], str) or not visual['key']:
-            raise ValueError('Figma component key differs from its original getter')
+    if (node['type'] in ('COMPONENT', 'COMPONENT_SET')
+            and (node['component_key'] != visual['key'] or not isinstance(visual['key'], str) or not visual['key'])):
+        raise ValueError('Figma component key differs from its original getter')
     if node['type'] == 'COMPONENT':
         parent = nodes[visual['parent_id']]['visual']
         if parent['type'] == 'COMPONENT_SET':
@@ -435,9 +435,8 @@ def _validate_plugin(receipt, metadata, parents, file):
                 raise ValueError('Figma property identity/dimensions differ from the source node')
         if kind != 'PAGE' and visual['parent_id'] != parents[node['id']]:
             raise ValueError('Figma original parent differs from complete page metadata')
-        if kind in CHILD_TYPES:
-            if visual['child_ids'] != [key for key, parent in parents.items() if parent == node['id']]:
-                raise ValueError('Figma original child order differs from complete page metadata')
+        if kind in CHILD_TYPES and visual['child_ids'] != [key for key, parent in parents.items() if parent == node['id']]:
+            raise ValueError('Figma original child order differs from complete page metadata')
         for field in ('visible', 'locked', 'clipsContent', 'isMask', 'autoRename', 'hasMissingFont', 'itemReverseZIndex', 'strokesIncludedInLayout', 'sectionContentsHidden'):
             if field in visual and type(visual[field]) is not bool:
                 raise ValueError(f'Figma original boolean getter is unreadable: {field}')

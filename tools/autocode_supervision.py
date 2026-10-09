@@ -212,12 +212,10 @@ def launch(command, *, receipt_path, timeout=None, checkpoint=None, cleanup_poli
         yield child
         # The caller has now reaped and cleaned its provider tree. Discharge
         # only on that boundary; abnormal context exits use EOF cleanup instead.
-        try:
-            _send(control_w, {'finished': metadata['nonce']})
-        except BrokenPipeError:
+        with suppress(BrokenPipeError):
             # A fast normal provider may already have been cleaned and its
             # keeper exited. The final receipt and exit status below decide.
-            pass
+            _send(control_w, {'finished': metadata['nonce']})
         close_fd(control_w)
         try:
             keeper.wait(timeout=8)

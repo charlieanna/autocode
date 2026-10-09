@@ -106,8 +106,8 @@ class ExtractTests(unittest.TestCase):
         ]
         for number, entries in enumerate(cases):
             with self.subTest(number=number):
-                archive = self.root / ("unsafe-%d.zip" % number)
-                destination = self.root / ("output-%d" % number)
+                archive = self.root / f"unsafe-{number}.zip"
+                destination = self.root / f"output-{number}"
                 write_zip(archive, entries)
                 with self.assertRaises(ValueError):
                     safezip.extract(archive, destination)
@@ -137,11 +137,11 @@ class ExtractTests(unittest.TestCase):
         for number, limit in enumerate((1, -1, True, 1.0)):
             with self.subTest(limit=limit):
                 with self.assertRaises(ValueError):
-                    safezip.extract(archive, self.root / ("bad-%d" % number), limit)
+                    safezip.extract(archive, self.root / f"bad-{number}", limit)
         for number, limit in enumerate((2**63 - 1, 2**63, 10**5000)):
             with self.subTest(limit=limit):
                 self.assertEqual(
-                    safezip.extract(archive, self.root / ("large-%d" % number), limit),
+                    safezip.extract(archive, self.root / f"large-{number}", limit),
                     ["two.bin"],
                 )
 
@@ -180,8 +180,8 @@ class ExtractTests(unittest.TestCase):
         ]
         for number, entries in enumerate(cases):
             with self.subTest(number=number):
-                archive = self.root / ("bad-%d.zip" % number)
-                destination = self.root / ("bad-output-%d" % number)
+                archive = self.root / f"bad-{number}.zip"
+                destination = self.root / f"bad-output-{number}"
                 write_zip(archive, entries)
                 with self.assertRaises(ValueError):
                     safezip.extract(archive, destination)

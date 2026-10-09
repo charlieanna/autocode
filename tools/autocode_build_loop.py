@@ -74,12 +74,12 @@ def run(runner, args, state, state_path, run_dir, workspace):
             raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
         limits = current["settings"]["limits"]
         runner.timeout_recovery_guard(current)
-        if runner.iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]):
-            if not runner.recover_default_budget(current, run_dir, workspace, 'iteration_ceiling'):
-                raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
-        if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
-            if not runner.recover_default_budget(current, run_dir, workspace, 'max_seconds'):
-                raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+        if runner.iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]) and \
+                not runner.recover_default_budget(current, run_dir, workspace, 'iteration_ceiling'):
+            raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
+        if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"] and \
+                not runner.recover_default_budget(current, run_dir, workspace, 'max_seconds'):
+            raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
         classifying = (current.get('next_stage') == 'investigate_stuck'
                        and (current.get('stuck_investigation') or {}).get('mode') == 'builder_failure')
         if (not repairing_before_upgrade and not classifying and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
@@ -132,9 +132,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
             milestones.dispatch_guard(current, stage)
         workflow.dispatch_guard(current,stage,workspace)
         autopilot.admit_validation(runner, current, stage, workspace, run_dir)
-        if planning.is_planning(current, stage):
-            if not runner.recover_default_budget(current, run_dir, workspace, 'planning_review_call_limit'):
-                resolver_runtime.operational_boundary(runner, current, run_dir, workspace)
+        if planning.is_planning(current, stage) and not runner.recover_default_budget(current, run_dir, workspace, 'planning_review_call_limit'):
+            resolver_runtime.operational_boundary(runner, current, run_dir, workspace)
         regression.before_review(current, stage, workspace, run_dir)
         try:
             launch_inputs.guard(current, workspace, run_dir)

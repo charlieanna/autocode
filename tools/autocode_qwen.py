@@ -45,17 +45,14 @@ def local_settings(workspace):
 
 def transport_drift(current, checkpoint):
     """Check if Qwen configuration has changed since checkpoint."""
-    for key in ("engine", "executable", "version"):
-        if current.get(key) != checkpoint.get(key):
-            return True
-    return False
+    return any(current.get(key) != checkpoint.get(key) for key in ("engine", "executable", "version"))
 
 
 def check_models(roles, workspace=None):
     """Verify Qwen models are available."""
     # Qwen doesn't have a built-in model listing command
     # We'll validate model names by checking they follow the expected format
-    for role, config in roles.items():
+    for _, config in roles.items():
         model = config.get("model", "")
         if not model or "/" not in model:
             raise RuntimeError(f"Qwen model must use provider/model format, got: {model}")
@@ -66,7 +63,7 @@ def check_models(roles, workspace=None):
 
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False):
     """Launch Qwen CLI with appropriate arguments.
-    
+
     Returns: (command, env, overrides)
     """
     if not model or "/" not in model or any(c.isspace() for c in model):
@@ -149,7 +146,7 @@ def raw_events(path):
 
 def normalized_events(rows):
     """Adapt Qwen transport events to autocode's normalized format.
-    
+
     Qwen's JSON output format includes:
     - Tool use events (bash/shell commands)
     - Text output

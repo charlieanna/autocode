@@ -52,15 +52,15 @@ class StoreTests(unittest.TestCase):
         store = Store(self.path)
         amounts = [9223372036854775807, 9223372036854775808, 10 ** 5000]
         for index, amount in enumerate(amounts):
-            store.create_order("order-%d" % index, amount, "key-%d" % index)
+            store.create_order(f"order-{index}", amount, f"key-{index}")
         reopened = Store(self.path)
-        self.assertEqual(reopened.orders(), {"order-%d" % i: amount for i, amount in enumerate(amounts)})
+        self.assertEqual(reopened.orders(), {f"order-{i}": amount for i, amount in enumerate(amounts)})
         self.assertEqual([event["amount"] for event in reopened.pending()], amounts)
 
     def test_ac6_pending_orders_and_validates_limit(self):
         store = Store(self.path)
         for number in range(3):
-            store.create_order("order-%d" % number, number + 1, "key-%d" % number)
+            store.create_order(f"order-{number}", number + 1, f"key-{number}")
         events = store.pending(2)
         self.assertEqual([event["order_id"] for event in events], ["order-0", "order-1"])
         self.assertTrue(all(set(event) == {"event_id", "order_id", "amount"} for event in events))
@@ -80,7 +80,7 @@ class StoreTests(unittest.TestCase):
     def test_ac8_publish_failure_preserves_failed_and_later_events(self):
         store = Store(self.path)
         for number in range(3):
-            store.create_order("order-%d" % number, number + 1, "key-%d" % number)
+            store.create_order(f"order-{number}", number + 1, f"key-{number}")
         received = []
         def sink(event):
             received.append(event)
@@ -141,7 +141,7 @@ class StoreTests(unittest.TestCase):
     def test_ac14_publish_limit_and_durable_acknowledgements(self):
         store = Store(self.path)
         for number in range(3):
-            store.create_order("order-%d" % number, number + 1, "key-%d" % number)
+            store.create_order(f"order-{number}", number + 1, f"key-{number}")
         received = []
         self.assertEqual(store.publish(received.append, limit=2), 2)
         reopened = Store(self.path)
