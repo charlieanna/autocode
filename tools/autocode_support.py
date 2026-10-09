@@ -13,59 +13,33 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-# Re-export shared helpers for existing callers and test patches.
+# Re-export shared helpers for existing callers and test patches; retain the compact facade imports.
+# isort: off
+# fmt: off
 try:
-    from . import autocode_event_matching as event_matching
-    from . import autocode_event_metrics as event_summary
-    from . import autocode_evidence_snapshot as evidence_snapshot
-    from . import autocode_output_filter as output_filter
-    from . import autocode_provider_error_lines as provider_error_lines
-    from . import autocode_provider_refusal as provider_refusal
-    from . import autocode_receipts as receipts
-    from . import autocode_request_usage as request_usage
-    from . import autocode_usage as token_usage
-    from .autocode_baseline import BASELINE_POLICY
-    from .autocode_event_matching import same_command
-    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
-    from .autocode_report_schema import hydrate_review_report, review_generation_schema, review_validation_schema
-    from .autocode_util import (
-        Paused,
-        atomic_json,
-        changed_paths,
-        criteria_definition,
-        digest,
-        file_hash,
-        model_output_schema,
-        now,
-        read,
-        run_lock,
-        snapshot,
-        validate_schema,
-        workspace_lock,
-    )
+    from .autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
+    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
+    from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report  # noqa: F401 - compatibility API
+    from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage  # noqa: F401 - compatibility API
+    from . import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
+    from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
+                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
+    from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
+    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from .autocode_event_matching import same_command  # noqa: F401 - compatibility API
 except ImportError:
-    import autocode_event_matching as event_matching
-    import autocode_event_metrics as event_summary
-    import autocode_evidence_snapshot as evidence_snapshot
-    import autocode_output_filter as output_filter
-    import autocode_provider_error_lines as provider_error_lines
-    import autocode_provider_refusal as provider_refusal
-    import autocode_receipts as receipts
-    import autocode_request_usage as request_usage
-    import autocode_usage as token_usage
-    from autocode_event_matching import same_command
-    from autocode_util import (
-        Paused,
-        atomic_json,
-        criteria_definition,
-        digest,
-        file_hash,
-        now,
-        read,
-        validate_schema,
-    )
-
-
+    from autocode_baseline import BASELINE_POLICY  # noqa: F401 - compatibility API
+    from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command  # noqa: F401 - compatibility API
+    from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report  # noqa: F401 - compatibility API
+    import autocode_output_filter as output_filter, autocode_request_usage as request_usage  # noqa: F401 - compatibility API
+    import autocode_evidence_snapshot as evidence_snapshot  # noqa: F401 - compatibility API
+    from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,  # noqa: F401 - compatibility API
+                               model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)  # noqa: F401 - compatibility API
+    import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines  # noqa: F401 - compatibility API
+    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from autocode_event_matching import same_command  # noqa: F401 - compatibility API
+# fmt: on
+# isort: on
 def events(path):
     if not Path(path).exists():
         return []

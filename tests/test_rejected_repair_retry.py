@@ -19,6 +19,7 @@ class RejectedRepairRetryCLI(unittest.TestCase):
     SCENARIO_FAKE_SCOPE_SLIP scripts that Builder (docs/bugs/2026-10-06-rejected-repair-retry.md).
     """
     def setUp(self):
+        from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
         from harness import catalog
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
