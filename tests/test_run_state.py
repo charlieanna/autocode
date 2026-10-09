@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,11 +12,13 @@ sys.path.insert(0, str(TOOLS))
 import autocode_run_state as run_state
 
 
-def touched_keys() -> set[str]:
-    """Every key the tools/ source reads or writes on a state dict."""
+def touched_keys(source_root: Path = TOOLS) -> set[str]:
+    """Every key runtime source reads or writes on a state dict."""
     keys = set()
     pattern = re.compile(r'''state(?:\[|\.get\(|\.setdefault\()\s*["']([a-z0-9_]+)["']''')
-    for path in TOOLS.rglob("*.py"):
+    for path in source_root.rglob("*.py"):
+        if path.name.startswith("test_"):
+            continue
         keys.update(pattern.findall(path.read_text(errors="ignore")))
     return keys
 
@@ -37,6 +40,28 @@ class RunStateTests(unittest.TestCase):
         # The guard the issue asks for: a key added to tools/ without naming it here fails.
         self.assertIn("status", touched_keys())
         self.assertGreater(len(run_state.KEYS), 100)
+
+    def test_test_only_keys_are_excluded_from_runtime_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text('state["status"]\n')
+            (root / "test_runtime.py").write_text('state["seen"]\n')
+            nested = root / "units"
+            nested.mkdir()
+            (nested / "test_nested.py").write_text('state.get("reasoning_efforts")\n')
+            self.assertEqual({"status"}, touched_keys(root))
+
+    def test_unknown_runtime_keys_still_fail_the_contract_comparison(self):
+        unknown = {"unknown_runtime_scan_fixture", "unknown_nested_runtime_scan_fixture"}
+        self.assertTrue(unknown.isdisjoint(run_state.KEYS))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text('state["unknown_runtime_scan_fixture"]\n')
+            nested = root / "units"
+            nested.mkdir()
+            (nested / "runtime.py").write_text('state.get("unknown_nested_runtime_scan_fixture")\n')
+            missing = sorted(touched_keys(root) - set(run_state.KEYS))
+            self.assertEqual(sorted(unknown), missing)
 
     def test_keys_are_stable_and_unique(self):
         self.assertIsInstance(run_state.KEYS, frozenset)
