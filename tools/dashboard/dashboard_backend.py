@@ -307,7 +307,7 @@ class RegistryInterventionMixin:
                 pass
         with self.lock:
             local = {ident: dict(item) for ident, item in self.intervention_actions.get(key, {}).items()}
-        for ident, item in local.items():
+        for _, item in local.items():
             if item.get('legacy_action'):
                 action = next((x for x in self.action_log(workspace, run) if x['id'] == item['legacy_action']), {})
                 item['status'] = {'finished': 'delivered', 'launch_failed': 'uncertain'}.get(action.get('status'), action.get('status', 'uncertain'))

@@ -418,8 +418,8 @@ def report(project):
         flag = "" if cost.get("complete") else " *"
         lines.append(f"{str(row.get('run'))[:60]:<60} {str(row.get('status'))[:24]:<24} "
                      f"{tokens.get('input_tokens') or 0:>11,} {tokens.get('output_tokens') or 0:>9,} "
-                     f"{'$%.2f' % (cost.get('reported') or 0):>10} {'$%.2f' % (cost.get('estimated') or 0):>10}{flag}")
-    lines.append(f"{'total (%d runs)' % len(rows):<60} {'':<24} "
+                     f"${cost.get('reported') or 0:>9.2f} ${cost.get('estimated') or 0:>9.2f}{flag}")
+    lines.append(f"{f'total ({len(rows)} runs)':<60} {'':<24} "
                  f"{_sum((row.get('tokens') or {}).get('input_tokens') for row in rows):>11,} "
                  f"{_sum((row.get('tokens') or {}).get('output_tokens') for row in rows):>9,} "
                  f"{'${:.2f}'.format(_sum((row.get('cost_usd') or {}).get('reported') for row in rows)):>10} "

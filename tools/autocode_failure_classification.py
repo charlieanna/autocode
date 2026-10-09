@@ -63,8 +63,8 @@ def classify(evidence):
                 and isinstance(refs, list) and refs
                 and all(isinstance(ref, str) and ref in allowed for ref in refs)):
             return diagnosis["failure_class"]
-    if evidence.get("checks_verified") is True and isinstance(checks, (list, tuple)):
-        if any(isinstance(check, dict) and type(check.get("exit_code")) is int
-               and check["exit_code"] > 0 for check in checks):
-            return "execution"
+    if (evidence.get("checks_verified") is True and isinstance(checks, (list, tuple))
+        and any(isinstance(check, dict) and type(check.get("exit_code")) is int
+                and check["exit_code"] > 0 for check in checks)):
+        return "execution"
     return "unknown"

@@ -1,5 +1,6 @@
 """Application root bindings and swallowed default-transport refusal controls."""
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -118,8 +119,8 @@ class ApplicationPhaseTests(unittest.TestCase):
         with guard_default_httpx(phase.build_env(), httpx_module=module):
             for execute in (lambda: Sync().handle_request(request),
                             lambda: asyncio.run(Async().handle_async_request(request))):
-                try: execute()
-                except RuntimeError: pass  # the production client may swallow a refusal
+                with contextlib.suppress(RuntimeError):
+                    execute()  # the production client may swallow a refusal
         self.assertEqual([], calls)
         self.assertEqual(original, (Sync.handle_request, Async.handle_async_request))
         record = phase.sequence.finish()

@@ -434,7 +434,7 @@ def approve_agreement(state, manifest, selected):
     versions = record.setdefault("interface_versions", {})
     versions.update({row["id"]: row["version"] for row in agreement.interfaces(previous or {})})
     versions.update({row["id"]: row["version"] for row in agreement.interfaces(manifest)})
-    for iid, (old, new) in (agreement.bumped_interfaces(previous, manifest) if previous else {}).items():
+    for iid, (_old, new) in (agreement.bumped_interfaces(previous, manifest) if previous else {}).items():
         for request in state["change_requests"]:
             if request["interface"] == iid and request["status"] == "open":
                 request.update(status="accepted", accepted_in_revision=pending["revision"], version=new,

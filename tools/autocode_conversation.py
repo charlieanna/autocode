@@ -409,7 +409,7 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
         raise ConversationProtocolError("Conversation messages are invalid.")
     normalized_messages = []
     last_user_turn = None
-    for index, row in enumerate(messages):
+    for _, row in enumerate(messages):
         if not isinstance(row, dict):
             raise ConversationProtocolError("Conversation message is invalid.")
         item = deepcopy(row)

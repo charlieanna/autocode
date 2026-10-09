@@ -68,7 +68,7 @@ class PlanningArtifactTests(unittest.TestCase):
             "id": "C1", "concern": "Test evidence is incomplete", "evidence_refs": ["tools/test_goals.py"],
             "requested_change": "Add a regression", "acceptance_test": "Focused suite passes", "blocking": True}]})
 
-    def revise(self, *, second_dependency=[]):
+    def revise(self, *, second_dependency=None):
         self.apply("plan_revise", {"contract": plan_body(second_dependency=second_dependency), "summary": "Revision ready",
                                     "responses": [{"concern_id": "C1", "response": "Added regression",
                                                    "evidence_refs": ["tools/test_planning_artifacts.py"],

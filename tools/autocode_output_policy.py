@@ -29,10 +29,10 @@ def configure(state, settings, args):
     if started and not requested and 'output_transport' not in settings:
         return settings
     selected = mode(settings) if started else 'conservative'
-    if requested and requested != selected and started:
-        if (not getattr(args, 'resume_paused', False) or not str(state.get('status', '')).startswith('PAUSED_')
-                or any(state.get(key) for key in ('active_stage', 'pending_report_repair', 'uncertain_artifacts'))):
-            raise ValueError('Change --tool-output-mode only at a reconciled pause with --resume-paused')
+    if (requested and requested != selected and started
+            and (not getattr(args, 'resume_paused', False) or not str(state.get('status', '')).startswith('PAUSED_')
+                 or any(state.get(key) for key in ('active_stage', 'pending_report_repair', 'uncertain_artifacts')))):
+        raise ValueError('Change --tool-output-mode only at a reconciled pause with --resume-paused')
     settings['output_transport'] = {'version': 1, 'mode': requested or selected}
     return settings
 

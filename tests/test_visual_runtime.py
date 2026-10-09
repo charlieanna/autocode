@@ -44,7 +44,7 @@ class VisualRuntimeTests(unittest.TestCase):
         exports = self.root / '.autocode' / 'design-inputs' / 'reference'
         exports.mkdir(parents=True)
         cases = []
-        for index, name in enumerate(('empty', 'filled')):
+        for _, name in enumerate(('empty', 'filled')):
             image, context = exports / (name + '.png'), exports / (name + '.json')
             png(image, 2, 1)
             context.write_text(json.dumps({'state': name}))

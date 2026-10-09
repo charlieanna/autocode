@@ -35,6 +35,7 @@ criteria of its own milestone and of those already accepted
 """
 from __future__ import annotations
 
+import contextlib
 import re
 
 try:
@@ -197,10 +198,8 @@ def launch_base(workspace, run_dir):
     commit = verify.commit_worktree(workspace)
     if commit and commit != head(workspace):
         _git(workspace, "update-ref", LAUNCH_REFS + Path(run_dir).name, commit)
-    try:
-        _drop_finished_launch_refs(workspace)
-    except (RuntimeError, ValueError, OSError):
-        pass  # housekeeping only: the next launch tries again
+    with contextlib.suppress(RuntimeError, ValueError, OSError):
+        _drop_finished_launch_refs(workspace)  # housekeeping only: the next launch tries again
     return commit
 
 

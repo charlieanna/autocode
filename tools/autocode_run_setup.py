@@ -296,10 +296,10 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             proposal = state['resolver']['human_escalations'][published['request_id']]['identity']['proposal']
             kind = proposal['origin'].get('budget', {}).get('kind')
             pause_status = proposal['origin'].get('pause_status')
-            if kind and settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
-                if resolver_human.supersede_operational(state,
-                        'User delegated this finite harness limit to bounded AutoResolver recovery'):
-                    state['_authorized_bound_change'] = {'pause_status': pause_status, 'at': runner.now()}
+            if (kind and settings.get('budget_origins', {}).get(kind) == 'resolver_delegated'
+                and resolver_human.supersede_operational(state,
+                    'User delegated this finite harness limit to bounded AutoResolver recovery')):
+                state['_authorized_bound_change'] = {'pause_status': pause_status, 'at': runner.now()}
     # A response can consume the request before a bound change is applied, and a plain resume
     # after saving the change asks again under the unchanged settings. Reasserting that saved
     # bound is also explicit authority, but only with headroom (0 removes the bound).
@@ -356,14 +356,14 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         # request after recovery burn-out may name a different origin.pause_status than
         # the bound the operator is raising (#301). The same table decides whether the
         # flag acknowledges the pause (run_actions.explicit_recovery_requested).
-        if pause_authority.changes_held_bound(args._explicit_budget_flags, origin):
-            if resolver_human.supersede_operational(state, 'Operator explicitly changed the exhausted bound'):
+        if pause_authority.changes_held_bound(args._explicit_budget_flags, origin) and \
+            resolver_human.supersede_operational(state, 'Operator explicitly changed the exhausted bound'):
                 state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
         if args.autoresolver_managed_limits and entry.get('identity', {}).get('proposal', {}).get('origin', {}).get('budget', {}).get('kind'):
             kind = entry['identity']['proposal']['origin']['budget']['kind']
-            if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
-                if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
-                    state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
+            if (settings.get('budget_origins', {}).get(kind) == 'resolver_delegated'
+                and resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery')):
+                state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
         retained = None
         # Preserve actions that validate the operational request themselves. Other
         # settings writes retire its stale binding without authorizing continuation.

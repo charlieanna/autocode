@@ -1,4 +1,5 @@
 """Additional execution-boundary scenarios with real externally crashed processes."""
+import contextlib
 import json
 import os
 import shutil
@@ -125,10 +126,8 @@ class RecoveryBlackbox(unittest.TestCase):
             (self.root / 'cleanup-release').touch()
             for row in bb.supervised_processes(self.root):
                 if bb._alive(row):
-                    try:
-                        os.kill(row['pid'], signal.SIGCONT)
-                    except ProcessLookupError:
-                        pass  # cleanup only; disappearance never satisfies a test assertion
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(row['pid'], signal.SIGCONT)  # cleanup only; disappearance never satisfies a test assertion
             if controller.poll() is None:
                 controller.kill()
                 controller.communicate(timeout=5)

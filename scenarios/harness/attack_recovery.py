@@ -141,9 +141,9 @@ def install(fake, configuration: dict, trace) -> None:
                 else:
                     mark("guided_planner_retry", code_refs=report.get("code_refs"))
                 return report
-        if attack in ("truncated_once", "truncated_repeated") and stage == "astra_discovery":
-            if attack == "truncated_repeated" or counts[stage] == 1:
-                pending_truncation = True
+        if (attack in ("truncated_once", "truncated_repeated") and stage == "astra_discovery"
+                and (attack == "truncated_repeated" or counts[stage] == 1)):
+            pending_truncation = True
         if attack == "completion_denial" and stage == "astra_review":
             validation = data.get("validation") or {}
             mark("completion_handoff", validation_verdict=validation.get("verdict"),

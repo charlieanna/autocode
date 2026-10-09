@@ -740,9 +740,9 @@ def assert_repair_preserves_builder_history(original, value):
         if isinstance(old, list) and all(isinstance(item, str) for item in old) and value.get(field) != old:
             raise ValueError(f'Report repair changed recorded Builder history: {field}')
     old_request = previous.get('user_request')
-    if isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none'):
-        if value.get('user_request') != old_request:
-            raise ValueError('Report repair changed the original Builder user decision request')
+    if (isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none')
+            and value.get('user_request') != old_request):
+        raise ValueError('Report repair changed the original Builder user decision request')
     old_commands = previous.get('commands_run')
     if not isinstance(old_commands, list) or not all(isinstance(c, str) for c in old_commands):
         commands = {e['item'].get('command') for e in support.events(original['events'])
@@ -1002,10 +1002,10 @@ def reconcile_active(state, run_dir, workspace):
                     support.Paused(held['status'], held['reason'])):
                 return
         raise support.Paused(held['status'], held['reason'])
-    if record.get('report_only') and record.get('timed_out'):
-        if automatically_recover_report_repair_timeout(state, run_dir, workspace,
-                support.Paused('PAUSED_PROVIDER_TIMEOUT', record.get('timeout_reason', 'Saved repair timeout'))):
-            return
+    if (record.get('report_only') and record.get('timed_out')
+            and automatically_recover_report_repair_timeout(state, run_dir, workspace,
+                support.Paused('PAUSED_PROVIDER_TIMEOUT', record.get('timeout_reason', 'Saved repair timeout')))):
+        return
     recorded_events = record.get('events')
     if (recorded_events and Path(recorded_events).is_file()
             and support.failure_status(recorded_events) == 'PAUSED_RATE_LIMIT'

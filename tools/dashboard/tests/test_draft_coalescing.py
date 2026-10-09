@@ -366,9 +366,9 @@ class CoalescingPolicyTests(unittest.TestCase):
     def doc(self, *dispatches, **fields):
         records = {}
         for index, extra in enumerate(dispatches, 1):
-            records['turn-%d' % index] = {'logical_turn_id': 'turn-%d' % index, 'requirements_revision': index,
+            records[f'turn-{index}'] = {'logical_turn_id': f'turn-{index}', 'requirements_revision': index,
                                           'state': 'SAVED', **extra}
-        revisions = [{'revision': index, 'source': {'logical_turn_id': 'turn-%d' % index}}
+        revisions = [{'revision': index, 'source': {'logical_turn_id': f'turn-{index}'}}
                      for index in range(1, len(dispatches) + 1)]
         return {'requirements': {'revisions': revisions}, '_planner_dispatches': records, **fields}
 
