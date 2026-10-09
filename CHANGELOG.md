@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Fresh dry runs work without an existing run directory. Explanation commands
+  remain read-only in fresh and completed workspaces, including the installed CLI.
 - Bug investigations receive the configured Python test interpreter, including
   external virtualenvs, for scratch checks and clean replay (#778).
 - Codex and configured-provider judging captures run in a source-bound copy
