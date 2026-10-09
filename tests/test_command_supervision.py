@@ -49,8 +49,39 @@ class CommandSupervisionTests(unittest.TestCase):
         commands.reconcile(result["supervision"])
         admission = json.loads((Path(result["supervision"]["receipt"]).parent / "admission.json").read_text())
         self.assertEqual(command, admission["command"])
-        self.assertEqual(str((self.root / "normal.log").resolve()), admission["output"])
+        self.assertEqual(str(Path(result["output"]).resolve()), admission["output"])
         self.assertEqual(result["supervision"], admission["supervision"])
+
+    def test_repeated_log_path_retains_each_real_commands_output_and_receipt(self):
+        latest = self.root / "scratch-command.log"
+        admitted = []
+        def checkpoint(command, output, metadata):
+            admitted.append((command, Path(output), metadata))
+        first = verify.run_command(
+            self.command("import sys; print('first stdout'); "
+                         "print('first stderr',file=sys.stderr); sys.exit(7)"),
+            self.root, latest, checkpoint=checkpoint)
+        self.assertEqual(Path(first["output"]).read_bytes(), latest.read_bytes())
+        second = verify.run_command(self.command("pass"), self.root, latest,
+                                    checkpoint=checkpoint)
+        self.assertEqual(7, first["exit_code"])
+        self.assertEqual(0, second["exit_code"])
+        self.assertNotEqual(first["output"], second["output"])
+        self.assertEqual(b"", latest.read_bytes())
+        latest.write_bytes(b"changed latest view\n")
+        for result, expected in ((first, b"first stdout\nfirst stderr\n"), (second, b"")):
+            output = Path(result["output"])
+            self.assertEqual(self.root, output.parent)
+            self.assertNotEqual(latest, output)
+            self.assertEqual(expected, output.read_bytes())
+            self.assertTrue(schedule.intact(result, root=self.root))
+            directory = Path(result["supervision"]["receipt"]).parent
+            admission = json.loads((directory / "admission.json").read_text())
+            self.assertEqual(str(output.resolve()), admission["output"])
+            self.assertEqual(result, json.loads((directory / "result.json").read_text()))
+        self.assertEqual([first["command"], second["command"]], [row[0] for row in admitted])
+        self.assertEqual([Path(first["output"]), Path(second["output"])], [row[1] for row in admitted])
+        self.assertEqual([first["supervision"], second["supervision"]], [row[2] for row in admitted])
 
     def test_original_deadline_overrides_collected_zero_and_complete_passing_output(self):
         command = self.command("print('test_claim (__main__.Claim.test_claim) ... ok\\n\\nRan 1 test in 0.001s\\n\\nOK',flush=True)")

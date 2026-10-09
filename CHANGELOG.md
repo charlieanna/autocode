@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Preserve a separate command-output capture for each verification attempt, including successive Analyst probes and report repair (#806).
+
 - Text checkouts use LF across Git line-ending settings, preserving binary
   assets; WSL installation notes separate Linux and Windows environments (#802).
 - Bug investigations receive the configured Python test interpreter, including
