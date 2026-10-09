@@ -278,30 +278,34 @@ The Qwen engine follows the same architecture as OpenCode:
 5. **Validate** - Verifies the structured report against the stage schema, and each cited check against an executed event
 6. **Record** - Saves events and outputs for audit trail
 
-## What the first live run showed (2026-10-09, Qwen Code 0.25.0, macOS)
+## What the live runs showed (2026-10-09, Qwen Code 0.25.0, macOS)
 
-One `bugfix` run on a scratch project: a half-up rounding bug with two failing
-tests, fixed as `(cents + 5) // 10`.
+A `bugfix` run on a scratch project — a half-up rounding bug with two failing
+tests — reached `TASK_COMPLETE`, with every stage on Qwen and every model stage
+exiting 0: the Job Recognizer and the Builder on `qwen3.7-plus`, and the
+Investigator, Planner, Plan Reviewer, Validator and Completion Reviewer on
+`qwen3.8-max`.
 
-- Every stage ran on Qwen and its report was accepted: Job Recognizer
-  (`qwen3.7-plus`), Investigator (`qwen3.8-max`, eight command-evidence items),
-  Planner discovery and Plan Reviewer (both `plan` mode, so neither had a shell),
-  Builder (`qwen3.7-plus`, `yolo`) and Validator (`qwen3.8-max`).
-- The Validator returned `PASS` with six checks, each citing a real Qwen tool-call
-  id (`event:call_…`) and carrying the exit code its result proved, so the
+- The delivered fix was `(cents + 5) // 10` with four new regression tests; all
+  eight tests pass, and both the runner's regression proof and its clean-copy
+  check replay ran.
+- The Validator returned `PASS` with checks citing real Qwen tool-call ids
+  (`event:call_…`) and carrying the exit codes their results proved, so the
   runner's independent evidence check bound them rather than rejecting them.
-- The Builder's first report was rejected: it cited `event:toolu_01…`, an
-  Anthropic-style id Qwen never issues. AutoCode queued its bounded report-only
-  repair, which was accepted. Expect this repair path until a model stops
-  guessing event ids it cannot see.
-- Token counts were accounted per stage (the Investigator reported 251k input,
+- The planning and review stages ran in `plan` mode and used read tools only.
+- Token counts were accounted per stage (one Investigator reported 251k input,
   219k of it cached, 12.8k output). Cost stayed unknown, as Qwen reports none.
 
-Launch the run with the interpreter of the checkout you are running. A run started
-by another checkout's virtualenv spawns its check-replay preparation worker with
-that interpreter against this tree's worker script, and the mismatched ownership
-receipts pause the replay with `PAUSED_VERIFICATION_UNCERTAIN`. That is a
-two-checkout mistake, not a Qwen one.
+Two operational findings, from an earlier attempt at the same task:
+
+- A Builder report was rejected once for citing `event:toolu_01…`, an
+  Anthropic-style id Qwen never issues. AutoCode's bounded report-only repair
+  recovered it, and the completing run needed no repair.
+- Launch the run with the interpreter of the checkout you are running. A run
+  started by another checkout's virtualenv spawns its check-replay preparation
+  worker with that interpreter against this tree's worker script, and the
+  mismatched ownership receipts pause the replay with
+  `PAUSED_VERIFICATION_UNCERTAIN`. That is a two-checkout mistake, not a Qwen one.
 
 One run of one scenario shows the workflow can get through on these models, not
 that it reliably does. The plan was approved by a person; nothing else was.
