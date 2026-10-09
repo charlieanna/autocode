@@ -11,10 +11,13 @@ from pathlib import Path
 from unittest import mock
 
 import psutil
+
+# The runner initializes the harness import path before these imports.
+from scenarios import run  # isort: skip
+
 from harness import catalog, component_services, processes, verdict
 from harness.project import materialize, overlay_paths
 
-from scenarios import run
 
 
 class SampleRun:
