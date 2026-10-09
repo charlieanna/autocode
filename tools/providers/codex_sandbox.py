@@ -4,6 +4,7 @@ This opt-in adapter owns only argv construction and run-owned artifact paths.
 It does not change global configuration, authentication, source-write policy,
 report verification, or the provider's selected models.
 """
+import contextlib
 import json
 import os
 import re
@@ -23,10 +24,8 @@ def _config_key(override):
     key, separator, _ = override.partition('=')
     table = {}
     if separator and '\r' not in key and '\n' not in key:
-        try:
+        with contextlib.suppress(tomllib.TOMLDecodeError):
             table = tomllib.loads(key.strip() + ' = 0')
-        except tomllib.TOMLDecodeError:
-            pass
     if len(table) != 1:
         raise ValueError('codex_artifacts requires config overrides in key=value form with a valid TOML key')
     # A quoted literal dotted key is also refused when it names policy data.
