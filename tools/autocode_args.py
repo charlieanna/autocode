@@ -165,6 +165,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                              "(default: on; --no-verbose or AUTOCODE_VERBOSE=0 turns it off)")
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
+    parser.add_argument("--explain", action="store_true",
+                        help="Print a plain-English explanation of why the run stopped and what each offered command does (#715)")
     parser.add_argument("--pause-after-stage", action="store_true")
     parser.add_argument("--chat", action=argparse.BooleanOptionalAction, default=None,
                         help="Converse with the planner/reviewer and approve the brief here (default: on in an interactive terminal)")
@@ -254,7 +256,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
 
 def user_actions(args) -> dict[str, bool]:
     """Each user action flag and whether this invocation gives it; at most one may be given."""
-    return {"--status": bool(args.status), "--dry-run": bool(args.dry_run),
+    return {"--status": bool(args.status), "--explain": bool(args.explain), "--dry-run": bool(args.dry_run),
             "--migrate-only": bool(args.migrate_only), "--show-goal": bool(args.show_goal),
             "--answer/--delegate": bool(args.answer or args.delegate), "--delegate-all": bool(args.delegate_all),
             "--reject-assumption": bool(args.reject_assumption),
