@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Preserve fresh-task `--explain` previews when combining CLI corrections, while
+  keeping explicit saved-run inputs exclusive and explanation commands read-only.
+
 - Preserve a separate command-output capture for each verification attempt, including successive Analyst probes and report repair (#806).
 
 - Text checkouts use LF across Git line-ending settings, preserving binary

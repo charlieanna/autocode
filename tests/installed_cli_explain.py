@@ -120,7 +120,8 @@ class InstalledExplainTests(unittest.TestCase):
         paragraphs = completed.stdout.strip().split("\n\n")
         self.assertEqual(3, len(paragraphs), completed.stdout)
         self.assertIn(status, paragraphs[0])
-        self.assertIn(reason, paragraphs[0])
+        if reason is not None:
+            self.assertIn(reason, paragraphs[0])
         with self.assertRaises(json.JSONDecodeError):
             json.loads(completed.stdout)
         self.assertNotIn("Traceback", completed.stderr)
@@ -180,12 +181,9 @@ class InstalledExplainTests(unittest.TestCase):
         self.assertIn(str(latest), completed.stderr)
         self.assertIn("latest finished run", completed.stderr)
 
-    def test_new_task_explanation_refuses_without_worktree_or_registry_changes(self):
+    def test_new_task_explanation_is_read_only_without_worktree_or_registry_changes(self):
         completed = self.invoke("Build a fresh task", "--explain")
-        self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("--explain", completed.stderr)
-        self.assertIn("saved run", completed.stderr.lower())
-        self.assertEqual("", completed.stdout)
+        self.assert_explanation(completed, "RUNNING", None)
 
 
 if __name__ == "__main__":

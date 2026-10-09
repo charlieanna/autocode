@@ -816,9 +816,9 @@ class InProcessCli(Fixture):
                 self.assertEqual("", out)
                 self.assertIn("No AutoCode run found", err)
                 self.assertEqual(before, tree_snapshot(self.root))
-        self.run_in(self.project, status="PAUSED_BUDGET")
+        run = self.run_in(self.project, status="PAUSED_BUDGET")
         before = tree_snapshot(self.root)
-        for argv in (["new task", "--explain"], ["--explain", "--in-place"],
+        for argv in (["--run-dir", str(run), "new task", "--explain"], ["--explain", "--in-place"],
                      ["--explain", "--figma-file", "https://www.figma.com/design/KEY/Name"]):
             with self.subTest(argv=argv):
                 code, out, err = self.explain_read(*argv)

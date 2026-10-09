@@ -495,7 +495,7 @@ def _find_run(parser, args, explicit, resume_only, flags):
     unit (typed, or the entry point's) themselves.
     """
     new_run = [f"--{name.replace('_', '-')}" for name in NEW_RUN_INPUTS if getattr(args, name)]
-    if args.explain and (args.task is not None or new_run):
+    if args.explain and (args.run_dir is not None or args.task is None) and (args.task is not None or new_run):
         parser.error("--explain reads a saved run; do not provide a new task or new-run options")
     if resume_only and args.task is not None:
         parser.error('autocode resume continues a saved run; start a new task with autocode "TASK"')
