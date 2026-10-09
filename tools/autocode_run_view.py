@@ -30,6 +30,7 @@ try:
     from . import autocode_route_ladder as route_ladder
     from . import autocode_accepted_source as accepted_source
     from . import autocode_component_plan as component_plan
+    from . import autocode_stop_explanations as stop_explanations
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_route_ladder as route_ladder
     import autocode_accepted_source as accepted_source
     import autocode_component_plan as component_plan
+    import autocode_stop_explanations as stop_explanations
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -82,6 +84,10 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),
         "stop_reason": state.get("stop_reason"),
+        # Plain-English explanation of this stop (#715), added never renamed.
+        "explanation": stop_explanations.explain(
+            status, stop_reason=state.get("stop_reason") or "",
+            needs=needs(state, stale_report_repair=stale_report_repair)),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);
         # None until the first stage has run, and for runs that predate recognition.
