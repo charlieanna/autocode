@@ -89,7 +89,7 @@ def resolve(runner, args, parser):
         except (OSError, ValueError) as error:
             parser.error(f"Invalid task preflight: {error}")
     if args.revise_figma_manifest and (not args.run_dir or not args.expected_design_hash or not args.design_change_reason
-                                     or args.status or args.dry_run):
+                                     or args.status or args.explain or args.dry_run):
         parser.error("--revise-figma-manifest requires a stopped --run-dir, --expected-design-hash and --design-change-reason")
     if getattr(args, "figma_manifest", None):
         if args.run_dir:
@@ -145,7 +145,7 @@ def resolve(runner, args, parser):
         task = args.task
         created = fresh = False
         if not (workspace / ".git").exists():
-            if args.dry_run or args.status:
+            if args.dry_run or args.status or args.explain:
                 parser.error(f"workspace is not a Git repository: {workspace}")
             try:
                 workspace = task_workspaces.bootstrap(workspace, task)
@@ -171,7 +171,7 @@ def resolve(runner, args, parser):
         # The revision a bug fix is proven against (autocode_regression). A project or task worktree
         # created just now is its HEAD; in any other checkout, including an earlier task's worktree,
         # the files it holds uncommitted or untracked at launch are part of it.
-        if created or fresh or args.dry_run or args.status:
+        if created or fresh or args.dry_run or args.status or args.explain:
             state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
         else:
             state["base_commit"] = launch_base(workspace, run_dir, parser)

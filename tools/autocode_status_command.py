@@ -23,6 +23,15 @@ except ImportError:
 
 
 def render(runner, state, args, workspace, run_dir):
+    if getattr(args, "explain", False):
+        from autocode_stop_explanations import explain
+        text = explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
+        print(text["what_happened"])
+        print()
+        print(text["what_it_means"])
+        print()
+        print(text["what_the_command_does"])
+        return
     active = state.get("active_stage")
     worker_state = runner.processes.recorded_worker_state(active) if active else None
     liveness = runner.supervision.observe(active["supervision"]) if active and active.get("supervision") else None
