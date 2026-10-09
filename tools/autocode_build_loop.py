@@ -87,7 +87,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
         # Do not silently change auth/provider when local config changes.
         engine = current["settings"].get("engine")
         using_opencode = engine == "opencode"
-        if engine not in (None, "codex", "opencode"):
+        if engine not in (None, "codex", "opencode", "qwen"):
             raise support.Paused("PAUSED_TRANSPORT_CHANGED", f"Saved engine {engine!r} is not bundled in "
                              "this checkout; resume it from a checkout that has it, or start a new run "
                              "with --provider and a user-level provider config")

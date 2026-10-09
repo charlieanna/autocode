@@ -1,0 +1,117 @@
+--- before/tools/autocode_opencode.py
++++ tools/autocode_opencode.py
+@@ -8,6 +8,7 @@
+ import re
+ import shutil
+ import subprocess
++import sys
+ 
+ 
+ DEFAULT_MODELS = {
+@@ -15,6 +16,41 @@
+     "terra": "openai/gpt-5.6-terra",
+     "sol": "zai-coding-plan/glm-5.3",
+ }
++
++
++def configuration_inputs(workspace):
++    """Enumerate local configuration definitions, never OpenCode's auth database.
++
++    Directory contents matter as well as directory names. Generated dependencies,
++    caches and sessions are deliberately excluded from the configuration identity.
++    """
++    root = Path(workspace).resolve()
++    global_root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "opencode"
++    directories = {global_root, Path.home() / ".opencode"}
++    paths = set()
++    for parent in (root, *root.parents):
++        paths.update(parent / name for name in ("opencode.json", "opencode.jsonc"))
++        directories.add(parent / ".opencode")
++        if (parent / ".git").exists():
++            break
++    if os.environ.get("OPENCODE_CONFIG_DIR"):
++        directories.add(Path(os.environ["OPENCODE_CONFIG_DIR"]).expanduser())
++    if os.environ.get("OPENCODE_CONFIG"):
++        paths.add(Path(os.environ["OPENCODE_CONFIG"]).expanduser())
++    managed = os.environ.get("OPENCODE_TEST_MANAGED_CONFIG_DIR")
++    directories.add(Path(managed) if managed else Path(
++        "/Library/Application Support/opencode" if sys.platform == "darwin" else "/etc/opencode"))
++    for directory in directories:
++        # Resolve relative environment paths exactly as `opencode --dir` does.
++        directory = directory if directory.is_absolute() else root / directory
++        paths.update(directory / name for name in ("config.json", "opencode.json", "opencode.jsonc"))
++        for name in ("agent", "agents", "mode", "modes", "command", "commands", "plugin", "plugins", "tool", "tools"):
++            folder = directory / name
++            if folder.is_dir():
++                paths.update(p for p in folder.rglob("*") if p.is_file()
++                             and p.suffix in (".md", ".json", ".jsonc", ".js", ".ts", ".mjs", ".cjs")
++                             and "node_modules" not in p.relative_to(folder).parts)
++    return sorted({(p if p.is_absolute() else root / p).absolute() for p in paths}, key=str)
+ 
+ 
+ def local_settings(workspace):
+@@ -30,25 +66,31 @@
+         raise RuntimeError("This adapter requires OpenCode 1.x; inspect opencode --version")
+     # Fingerprint configuration, never credentials. OAuth token refreshes must not
+     # invalidate a run, and the runner never opens OpenCode's auth.json.
+-    config_root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "opencode"
+-    paths = [config_root / name for name in ("opencode.json", "opencode.jsonc")]
+-    root = Path(workspace).resolve()
+-    for parent in (root, *root.parents):
+-        paths += [parent / name for name in ("opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc")]
+-        if (parent / ".git").exists():
+-            break
+-    if os.environ.get("OPENCODE_CONFIG"):
+-        paths.append(Path(os.environ["OPENCODE_CONFIG"]).expanduser())
+-    fingerprints = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None for p in paths}
++    fingerprints = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
++                    for p in configuration_inputs(workspace)}
+     inline = {key: hashlib.sha256(os.environ[key].encode()).hexdigest() if key in os.environ else None
+-              for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR")}
+-    return {"engine": "opencode", "executable": executable, "version": version,
++              for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR",
++                          "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_TEST_MANAGED_CONFIG_DIR")}
++    return {"engine": "opencode", "identity_version": 2, "executable": executable, "version": version,
+             "config_hashes": fingerprints, "environment_config_hashes": inline}
+ 
+ 
+-def check_models(roles):
++def transport_drift(current, checkpoint):
++    if checkpoint.get("identity_version", 1) >= 2:
++        return current != checkpoint
++    # Old checkpoints did not record every config source. Check every identity
++    # field they *did* record before establishing the expanded baseline.
++    for key in ("engine", "executable", "version"):
++        if current.get(key) != checkpoint.get(key):
++            return True
++    return any(current.get(section, {}).get(key) != value
++               for section in ("config_hashes", "environment_config_hashes")
++               for key, value in checkpoint.get(section, {}).items())
++
++
++def check_models(roles, workspace=None):
+     try:
+-        result = subprocess.run(["opencode", "models"], capture_output=True, text=True, timeout=30)
++        result = subprocess.run(["opencode", "models"], cwd=workspace, capture_output=True, text=True, timeout=30)
+     except subprocess.TimeoutExpired as error:
+         raise RuntimeError("OpenCode model listing timed out; no agent was launched") from error
+     if result.returncode:
+@@ -77,7 +119,17 @@
+         raise ValueError("OPENCODE_CONFIG_CONTENT must be a JSON object")
+     # Preserve inline provider configuration and unrelated agents. Our reserved
+     # role definitions are constructed for this launch only, never saved globally.
+-    combined = {**inherited, **overrides, "agent": {**inherited.get("agent", {}), **overrides["agent"]}}
++    agents = inherited.get("agent", {})
++    if not isinstance(agents, dict) or not isinstance(agents.get(agent, {}), dict):
++        raise ValueError("OpenCode inline agent configuration must contain agent objects")
++    prior = agents.get(agent, {})
++    policy = prior.get("permission", {})
++    if isinstance(policy, str) and policy in ("allow", "ask", "deny"):
++        policy = {"*": policy}
++    if not isinstance(policy, dict):
++        raise ValueError("OpenCode agent permissions must be an action or an object")
++    definition = {**prior, **overrides["agent"][agent], "permission": {**policy, **permissions}}
++    combined = {**inherited, **overrides, "agent": {**agents, agent: definition}}
+     env["OPENCODE_CONFIG_CONTENT"] = json.dumps(combined)
+     command = ["opencode", "run", "--dir", str(workspace), "--format", "json", "--agent", agent,
+                "--model", model, "--title", f"Autocode {role}: {run_dir}"]

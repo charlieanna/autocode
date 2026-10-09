@@ -160,6 +160,11 @@ def answer(runner, args, state, run_dir, workspace):
                 runner.opencode.check_models({role: {'model': model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
+        if quota_route.engine(candidate['settings'], role) == 'qwen':
+            try:
+                runner.qwen.check_models({role: {'model': model}}, workspace)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from None
         if runner.interventions.pending(run_dir):
             raise ValueError('Apply the queued intervention before answering')
         attempt = quota_route.stopped_attempt(candidate, failure_status=runner.support.failure_status)

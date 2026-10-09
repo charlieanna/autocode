@@ -178,8 +178,8 @@ def validate_manifest(value):
             raise ValueError(f"Workstream {row['id']}: kind must be one of {', '.join(KINDS)}")
         if not isinstance(row.get("brief"), str) or not row["brief"].strip():
             raise ValueError(f"Workstream {row['id']}: brief must be a nonempty string")
-        if row.get("engine") not in (None, "codex", "opencode"):
-            raise ValueError(f"Workstream {row['id']}: engine must be codex or opencode")
+        if row.get("engine") not in (None, "codex", "opencode", "qwen"):
+            raise ValueError(f"Workstream {row['id']}: engine must be codex, opencode or qwen")
         row["owns"] = [_owned_path(p, f"workstream {row['id']}") for p in _string_list(row.get("owns", []), f"workstream {row['id']}.owns")]
         if not row["owns"] and row["kind"] != "integration":
             raise ValueError(f"Workstream {row['id']}: non-integration workstreams must declare the paths they own")
@@ -1629,7 +1629,7 @@ def cli_plan(argv):
                                      description="Plan a large request as a program with the ordinary planning units")
     parser.add_argument("brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
-    parser.add_argument("--engine", choices=["codex", "opencode"])
+    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"])
     args, passthrough = parser.parse_known_args(argv)
     try:
         project = _project_root(args.workspace)
@@ -1790,7 +1790,7 @@ def cli_run(argv, *, status_only=False):
     parser.add_argument("--max-parallel", type=int, default=2)
     parser.add_argument("--authorize-deployment", action="store_true",
                         help="allow deployment workstreams to start (their runs still need plan approval)")
-    parser.add_argument("--engine", choices=["codex", "opencode"], help="engine for child code runs")
+    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"], help="engine for child code runs")
     parser.add_argument("--retry-workstream", action="append", default=[], metavar="ID",
                         help="retry a failed workstream in its existing worktree without bypassing child gates")
     parser.add_argument("--check-timeout", type=int, default=CHECK_TIMEOUT,

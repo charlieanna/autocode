@@ -1,0 +1,9 @@
+Processing ./.
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: autocode-supervisor
+  Building wheel for autocode-supervisor (pyproject.toml): started
+  Building wheel for autocode-supervisor (pyproject.toml): finished with status 'done'
+  Created wheel for autocode-supervisor: filename=autocode_supervisor-0.5.4-py3-none-any.whl size=195269 sha256=d4fdf718225b2b520bedeb97f8926cbe4eb7771c1bf6f2c102b28b8fd068abbe
+  Stored in directory: /private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/pip-ephem-wheel-cache-gs51e1pt/wheels/a2/d6/b5/cb99290c0729b5bd112f86563ff99e0b9acd4f393315661e13
+Successfully built autocode-supervisor

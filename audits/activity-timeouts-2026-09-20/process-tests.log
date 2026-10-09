@@ -1,0 +1,22 @@
+test_checkpoint_failure_still_cleans_up_child (tools.test_process.ProcessTests.test_checkpoint_failure_still_cleans_up_child) ... ok
+test_explicit_stage_cap_still_wins_over_continuing_activity (tools.test_process.ProcessTests.test_explicit_stage_cap_still_wins_over_continuing_activity) ... ok
+test_hard_cap_stops_worker_while_monitor_holds_its_lock (tools.test_process.ProcessTests.test_hard_cap_stops_worker_while_monitor_holds_its_lock) ... ok
+test_idle_limit_stops_worker_while_monitor_holds_its_lock (tools.test_process.ProcessTests.test_idle_limit_stops_worker_while_monitor_holds_its_lock) ... ok
+test_idle_watchdog_fires_while_process_sampling_is_stalled (tools.test_process.ProcessTests.test_idle_watchdog_fires_while_process_sampling_is_stalled) ... ok
+test_meaningful_events_keep_a_long_provider_alive (tools.test_process.ProcessTests.test_meaningful_events_keep_a_long_provider_alive) ... ok
+test_monitor_and_snapshot_errors_still_stop_and_clean_worker (tools.test_process.ProcessTests.test_monitor_and_snapshot_errors_still_stop_and_clean_worker) ... ok
+test_normal_provider_exit_stops_background_writers (tools.test_process.ProcessTests.test_normal_provider_exit_stops_background_writers) ... ok
+test_quiet_descendant_without_start_event_gets_bounded_tool_grace (tools.test_process.ProcessTests.test_quiet_descendant_without_start_event_gets_bounded_tool_grace) ... ok
+test_quiet_running_tool_has_its_own_deadline (tools.test_process.ProcessTests.test_quiet_running_tool_has_its_own_deadline) ... ok
+test_repeated_events_and_output_noise_do_not_keep_provider_alive (tools.test_process.ProcessTests.test_repeated_events_and_output_noise_do_not_keep_provider_alive) ... ok
+test_reused_pid_is_not_a_live_owned_process (tools.test_process.ProcessTests.test_reused_pid_is_not_a_live_owned_process) ... ok
+test_sigterm_cleans_up_before_interrupt_propagates (tools.test_process.ProcessTests.test_sigterm_cleans_up_before_interrupt_propagates) ... ok
+test_timeout_stops_detached_tool_processes (tools.test_process.ProcessTests.test_timeout_stops_detached_tool_processes) ... ok
+test_tool_deadline_stops_detached_writer_and_retains_identity (tools.test_process.ProcessTests.test_tool_deadline_stops_detached_writer_and_retains_identity) ... ok
+test_watchdog_enforces_timeout_when_process_sampling_stalls (tools.test_process.ProcessTests.test_watchdog_enforces_timeout_when_process_sampling_stalls)
+A stuck ps/sample call cannot silently turn a bounded stage unbounded. ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 12.255s
+
+OK
