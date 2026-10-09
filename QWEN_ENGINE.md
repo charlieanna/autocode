@@ -331,6 +331,9 @@ Qualified against **Qwen Code 0.25.0** on macOS. Not covered by this engine:
   files) load inside every stage. The Claude example avoids this with
   `--setting-sources project`; Qwen Code's equivalents are `--bare` and
   `--safe-mode`, and neither is passed here.
+- `autocode doctor --engine qwen` does not check this engine: `all_checks`
+  special-cases only `codex`, so it reports OpenCode's readiness and prints no
+  `engine:qwen` line. Check `qwen --version` and your own model ids by hand.
 - `autopilot` has no `--engine` flag, so its pre-stage drift check still compares
   Codex's settings. Resume a Qwen run with `autocode`, not `autopilot`.
 
