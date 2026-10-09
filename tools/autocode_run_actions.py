@@ -38,6 +38,7 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
@@ -70,6 +71,7 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
+    import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
@@ -95,41 +97,71 @@ OPERATIONAL_NOT_ANSWER = ('Use --resolver-response for this operational request;
                           'answer. The form is: ' + recovery_limits.RESPONSE_COMMAND)
 
 
-def explicit_recovery_requested(args):
-    """Whether this invocation carries a scoped operator recovery action."""
-    # An explicit bound change is a recovery action (#301): it must not be held
-    # behind an unchanged operational frontier.
+def explicit_recovery_requested(args, state, *, checked=False):
+    """Whether this invocation carries a scoped operator recovery action for the pause holding ``state``.
+
+    An explicit change to the bound that pause exhausted is one (#301): it must not be held behind an
+    unchanged operational frontier. A budget flag for any other bound is only a settings write, never
+    authority to release the pause (#379, #486). ``state`` is required so that no caller counts a
+    budget flag without naming the pause; None counts none. ``checked``: only the actions handle()
+    checks before it applies queued input. --retry-builder is checked after that input
+    (dispatch.try_request_retry), so until then a milestone it would refuse is no authority.
+    """
     budget_flags = getattr(args, '_explicit_budget_flags', None) or set()
-    return any((getattr(args, 'retry_builder', None),
+    return any((getattr(args, 'retry_builder', None) and not checked,
                 getattr(args, 'retry_failed_stage', False),
                 getattr(args, 'retry_report', None),
                 getattr(args, 'abandon_stage', None),
                 getattr(args, 'diagnose_failed_stage', False),
                 getattr(args, 'grant_recovery', None) is not None,
                 getattr(args, 'accept_source_edit', False),
-                bool(budget_flags)))
+                bool(budget_flags) and state is not None
+                and pause_authority.changes_held_bound(budget_flags, pause_authority.held_origin(state))))
 
 
-PAUSE_BUDGET_KIND = {
-    'PAUSED_TIME_LIMIT': 'max_seconds',
-    'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
-    'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
-    'PAUSED_MILESTONE_BUDGET': 'milestone_max_seconds',
-    'PAUSED_NO_PROGRESS': 'no_progress_batches',
-}
-BUDGET_FLAGS = {
-    'max_seconds': ('max_seconds',),
-    'iteration_ceiling': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
-    'milestone_max_seconds': ('max_milestone_seconds',),
-    'no_progress_batches': ('no_progress_limit',),
-}
+def apply_queued_input(runner, state, run_dir, workspace):
+    """Apply queued interventions under the pause holding the run; 2 when that stopped this invocation, else None."""
+    pause = state['status']
+    try:
+        if runner.consume_interventions(state, run_dir, workspace):
+            print(f"{state['status']}: {state['stop_reason']}")
+            return 2
+    except interventions.InterventionError as error:
+        print(f'{pause}: queued input could not be applied ({error}); the pause stays in force.')
+        return 2
+    return None
 
 
-def _explicit_budget_change(args, origin):
-    """True when this invocation explicitly resets the bound the request exhausted."""
-    kind = (origin.get('budget') or {}).get('kind') or PAUSE_BUDGET_KIND.get(origin.get('pause_status'))
-    explicit = getattr(args, '_explicit_budget_flags', None) or set()
-    return any(flag in explicit for flag in BUDGET_FLAGS.get(kind, ()))
+def hold_for_input(runner, state, state_path, run_dir, workspace):
+    """Apply input accepted while an operational pause held the run, under that pause; return 2.
+
+    A request asked while input is pending could never be published (its binding names that input),
+    and continuing past it would release the pause without its own authority (#486 review). So the
+    input is applied here, at the saved boundary, and no provider starts: a queued pause or feedback
+    keeps the held pause (autocode_stop), a stop ends the run, and queued milestone checkpoints are
+    enabled. The request is then asked again. An operator's own pause-requested file keeps the run
+    at its pause, unasked, until it is removed.
+    """
+    pause = state['status']
+    if apply_queued_input(runner, state, run_dir, workspace) is not None:
+        return 2
+    try:
+        if milestones.apply_queued_activation(state, run_dir):
+            print('Milestone checkpoints enabled at this boundary; no provider launched.', flush=True)
+    except ValueError as error:
+        print(f'Milestone checkpoints stay queued: {error}', file=sys.stderr)
+    cause = pause_authority.held_cause(state, pause) or 'Operational recovery stopped'
+    if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, support.Paused(pause, cause)):
+        runner.write_json(state_path, state)
+        if resolver_human.current(state):
+            print(lifecycle.render(state))
+            return 2
+    runner.write_json(state_path, state)
+    print(f"{state['status']}: {state.get('stop_reason', 'Operational recovery stopped')}")
+    if (run_dir / 'pause-requested').exists():
+        print(f'A requested pause ({run_dir / "pause-requested"}) keeps the run at {pause}; remove that file '
+              'and AutoResolver asks its operational request again.')
+    return 2
 
 
 def next_command(state, issued, run_dir, workspace):
@@ -247,11 +279,20 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         if stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
             print(f"{state['status']}: {state['stop_reason']}")
             return 2
+    # A pause intervention that landed on a held run, or a request it stranded, leaves that pause in
+    # force: the checks below apply its own authority, never the generic resume (#486).
+    if ((args.resume_paused and stop.resume_interrupted(state, runner.now()))
+            or resolver_human.release_stranded_operational(state)):
+        runner.write_json(state_path, state)
     if args.revise_figma_manifest:
         try:
             metadata = runner.intervention_metadata(workspace, run_dir, state)
             if metadata["pending_count"] or metadata["inbox_error"]:
                 raise ValueError("Apply queued interventions before revising design references")
+            # A revision restarts plan review in place of the pause, like an edited goal (#486 review).
+            refusal = pause_authority.correction_refusal(state, 'A design reference revision')
+            if refusal:
+                raise ValueError(refusal)
             design_revision.apply(state, design_revision.manifest.load(args.revise_figma_manifest),
                                   args.expected_design_hash, args.design_change_reason, workspace)
         except (ValueError, OSError) as error:
@@ -314,7 +355,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
                            args.planning_review_call_limit is not None, bool(args.close_finding)))
-    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args, state)
             and recovery_progress.reconcile(state, issued=resolver_human.current(state),
                 approved=goals.approved(state), supersede=resolver_human.supersede_operational,
                 now=runner.now)):
@@ -348,7 +389,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 state['status'] = published_status
     # A source-only stale repair is already a recognized recovery. Do not let
     # an answered operational request hide it or publish the same request again.
-    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args, state)
             and runner.stale_report_repair(state, workspace)):
         specific_recovery = True
     acknowledged_planning_extension = (args.resume_paused and state.get('status') == 'PAUSED_PLANNING_BUDGET'
@@ -370,7 +411,13 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     # Corrective information is re-evaluated once by AutoResolver at an explicit resume (#486).
     review = None
     if (not decision_action and not specific_recovery and not acknowledged_bound_change
-            and not explicit_recovery_requested(args)):
+            and not explicit_recovery_requested(args, state)):
+        # Queued interventions are bound into the frontier the information was sent for: apply them under
+        # the pause first (they are held, autocode_stop), never retire the information for them (#486 review).
+        if (args.resume_paused and (operational_information.projection(state) or {}).get('status') == 'pending'
+                and resolver_human.pending_interruptions(run_dir)['pending']
+                and apply_queued_input(runner, state, run_dir, workspace) is not None):
+            return 2
         review = operational_information.reevaluate(runner, state, run_dir, workspace, resume=args.resume_paused)
         if review is not None:
             print(review.message, flush=True)
@@ -408,9 +455,19 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    if (not decision_action and not specific_recovery and not information_admitted
-            and not explicit_recovery_requested(args) and state.get('status') != 'RUNNING'
-            and not acknowledged_planning_extension and not acknowledged_bound_change
+    # The pause holding the run's own authority, given by this invocation (reconsideration adds one below):
+    # what is checked before queued input is applied, and --retry-builder, which is checked after it.
+    checked_authority = (specific_recovery or information_admitted or acknowledged_planning_extension
+                         or acknowledged_bound_change or explicit_recovery_requested(args, state, checked=True))
+    acknowledged = checked_authority or explicit_recovery_requested(args, state)
+    unacknowledged = not decision_action and not acknowledged
+    # Input queued after an operational request was shown leaves that request unanswerable (its
+    # binding names the inbox): withdraw it so the input is applied under the pause, then ask again.
+    if (unacknowledged and (state.get(resolver_human.PUBLIC) or {}).get('scope') == 'operational_exhaustion'
+            and not resolver_human.current(state)
+            and any(resolver_human.pending_interruptions(run_dir).values())):
+        resolver_human.supersede_operational(state, 'Input queued after this request was shown is applied first')
+    if (unacknowledged and state.get('status') != 'RUNNING'
             and str(state.get('status', '')).startswith('PAUSED_')
             and not resolver_human.current(state) and not state.get(resolver_human.PRIVATE)):
         # Unbound legacy fields are not authority and must not suppress
@@ -419,12 +476,15 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state['pending_questions'] = []
         # A parallel member's stop is asked as that member's route question again, never a generic one (#541).
         error = member_stop.restore(state, support.Paused(
-            state['status'], state.get('stop_reason', 'Operational recovery stopped')), detail=False)
+            state['status'], pause_authority.held_cause(state, state['status']) or 'Operational recovery stopped'), detail=False)
         if resolver_runtime.record_operational_exhaustion(runner, state, run_dir, error):
             runner.write_json(state_path, state)
             if resolver_human.current(state):
                 print(lifecycle.render(state))
                 return 2
+        elif (pause_authority.operational(state['status'])
+              and any(resolver_human.pending_interruptions(run_dir).values())):
+            return hold_for_input(runner, state, state_path, run_dir, workspace)
     routed = answer_quota_question(runner, args, state, run_dir, workspace)
     if routed is not None:
         return routed
@@ -466,7 +526,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
               + (' ' + step if step else ' It re-evaluates the response once at the next autocode resume.'
                  if scheduled else ''))
         return 0
-    if (not decision_action and not explicit_recovery_requested(args)
+    reconsidered = False
+    if (not decision_action and not explicit_recovery_requested(args, state)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'
                      and resolver_human.current(state))
             and (state.get(resolver_human.PUBLIC) or {}).get('scope') == 'operational_exhaustion'):
@@ -476,11 +537,17 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 print(state['stop_reason'])
             print('AutoResolver retained the operational request; no unchanged, permitted recovery credit was proven.')
             return 2
+        reconsidered = True
+    # Authority this invocation gave for the pause holding the run: a pause or feedback applied
+    # below then pauses a released run and holds nothing (autocode_stop, #486 review). Not an
+    # unchecked --retry-builder: input applied below ends this invocation before it is checked.
+    released = bool(args.resume_paused and (checked_authority or reconsidered))
     if (not decision_action and args.grant_recovery is None and not information_admitted
             and state.get('status') in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY')
             and planning.is_planning(state, state.get('next_stage'))):
         resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
-            support.Paused(state['status'], state.get('stop_reason', 'Operational recovery exhausted')))
+            support.Paused(state['status'], pause_authority.held_cause(state, state['status'])
+                           or 'Operational recovery exhausted'))
         runner.write_json(state_path, state)
         print(lifecycle.render(state))
         return 2
@@ -539,7 +606,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     return 2
             else:
                 authorization = None
-                if args.retry_failed_stage and state.get("job_failure"):
+                if args.retry_failed_stage and gate == 'authorize':
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
@@ -623,8 +690,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if milestones.apply_queued_activation(state, run_dir):
         print(f"Run: {run_dir}\nMilestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
     try:
-        if runner.consume_interventions(state, run_dir, workspace):
+        if runner.consume_interventions(state, run_dir, workspace, released=released):
             print(f"{state['status']}: {state['stop_reason']}")
+            if args.retry_builder:
+                print('--retry-builder was not applied: queued input was applied first, so it was not checked.',
+                      file=sys.stderr)
             return 2
     except interventions.InterventionError as error:
         raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
@@ -727,10 +797,16 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             for assumption_id in args.reject_assumption:
                 goals.reject_assumption(candidate, assumption_id, args.review_token)
             if args.feedback is not None:
+                refusal = pause_authority.feedback_refusal(candidate)
+                if refusal:
+                    raise ValueError(refusal)
                 goals.feedback(candidate, args.feedback)
             if args.follow_up is not None:
                 follow_up.accept(candidate, args.follow_up, workspace, runner.now())
             if args.edit_goal:
+                refusal = pause_authority.correction_refusal(candidate, 'An edited goal')
+                if refusal:
+                    raise ValueError(refusal)
                 lifecycle.install_draft(candidate, runner.read_json(args.edit_goal), origin="user_cli_edit")
                 planning_artifacts.prepare_user_cli_edit(candidate, run_dir=run_dir)
             if args.approve_goal:
@@ -808,15 +884,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             print(f"{state['status']}: {state.get('stop_reason', f'explicit resume required: {word}')}")
             return 2
         else:
-            resumed_at = runner.now()
-            if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
-                state["pause_intent"]["acknowledged_at"] = resumed_at
-            for receipt in state.get("applied_interventions", []):
-                # Pause receipts acknowledge their resume; a stop receipt is
-                # terminal and never receives a resumed_at stamp.
-                if (isinstance(receipt, dict) and not receipt.get("resumed_at")
-                        and not stop.is_stop_receipt(receipt)):
-                    receipt["resumed_at"] = resumed_at
+            stop.acknowledge_pause(state, runner.now())  # never stamps a stop receipt
             state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, state["next_stage"])
                          else "DISCOVERING" if state["next_stage"] == "astra_discovery" else "READY_TO_EXECUTE")
             state.pop('stop_reason', None)

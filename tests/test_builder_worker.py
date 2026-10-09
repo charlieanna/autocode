@@ -124,6 +124,22 @@ class WorkerBoundaryTests(unittest.TestCase):
     def result(self):
         return runner.read_json(self.directory / 'result.json')
 
+    def assert_operator_hold(self, kind, *, report_only=False):
+        reason = (runner.stop_policy.STOP_REASON if kind == 'stop' else
+                  'Queued pause was applied; explicitly resume when ready.')
+        if kind == 'pause' and report_only:
+            reason += (' --resume-paused returns to PAUSED_BUILDER_CLASSIFICATION first, '
+                       'and its own resume rules apply.')
+            state = runner.read_json(self.directory / 'state.json')
+            held = state['pause_intent']['held_pause']
+            self.assertEqual('PAUSED_BUILDER_CLASSIFICATION', held['status'])
+            cause = ('Builder completed an implementation attempt without source changes; '
+                     'failure classification requires reconciled evidence or operator action')
+            self.assertEqual(cause, held['stop_reason'])
+            self.assertEqual(cause, state['builder_failure_hold']['reason'])
+            self.assertFalse(held['feedback'])
+        self.assertEqual(reason, self.result()['reason'])
+
     def test_queued_pause_at_no_change_commit_admits_no_subsequent_paid_call(self):
         self.seed()
         self.intervention = 'pause'
@@ -187,8 +203,13 @@ class WorkerBoundaryTests(unittest.TestCase):
             self.assertEqual(2, worker.main(self.directory, mode))
         self.assertEqual([], self.calls)
         self.assertEqual('PAUSED_INTERVENTION', self.result()['status'])
-        self.assertEqual(runner.stop_policy.STOP_REASON if kind == 'stop' else
-                         'Queued pause was applied; explicitly resume when ready.', self.result()['reason'])
+        self.assert_operator_hold(kind, report_only=report_only)
+        if kind == 'pause' and report_only:
+            held = runner.read_json(self.directory / 'state.json')['pause_intent']['held_pause']
+            self.assertEqual(2, worker.main(self.directory, 'recover'))
+            self.assertEqual([], self.calls)
+            self.assertEqual('PAUSED_BUILDER_CLASSIFICATION', self.result()['status'])
+            self.assertEqual(held['stop_reason'], self.result()['reason'])
 
     def test_report_only_repair_commit_respects_queued_operator_hold(self):
         self.repair_hold('pause')
@@ -203,8 +224,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.assertEqual(2, worker.main(self.directory))
         self.assertEqual(['terra', 'terra_report_repair'], self.calls)
         self.assertEqual('PAUSED_INTERVENTION', self.result()['status'])
-        self.assertEqual(runner.stop_policy.STOP_REASON if kind == 'stop' else
-                         'Queued pause was applied; explicitly resume when ready.', self.result()['reason'])
+        self.assert_operator_hold(kind, report_only=True)
         self.assertFalse((self.workspace / 'greet.py').exists())
 
     def test_interrupted_investigator_retry_retains_ownership_and_no_writer_authority(self):

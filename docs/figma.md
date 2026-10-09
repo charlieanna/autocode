@@ -504,6 +504,9 @@ report and a case-level added/removed/changed/unchanged audit. It pauses at
 Resume for the existing independent planning exchange and explicit plan approval.
 Models, pins and limits stay saved. An active/uncertain attempt or pending artifact
 review must be reconciled first; changing the reference cannot bypass that boundary.
+Nor can it replace an operational pause (a rate limit, a spent budget, exhausted
+recoveries): like an edited goal, it is refused there unless that pause offers feedback
+(an exhausted plan-review budget, a validation-only stop); see [Execution](execution.md).
 
 Case identity binds its exact screenshot/context, route/state/viewport, linked
 resources, original node/variant properties and responsive targets. Only affected

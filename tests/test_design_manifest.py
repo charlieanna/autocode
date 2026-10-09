@@ -1099,6 +1099,42 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertTrue(finished['done'],finished)
         self.assertEqual(current['manifest_hash'],finished['design']['manifest_hash'])
 
+    def test_reference_revision_never_replaces_an_operational_pause(self):
+        # A revision restarts plan review in place of the pause, and resuming it launched the plan
+        # stages past a provider rate limit nobody acknowledged (#379, #486; docs/bugs/2026-10-06-operational-pause-authority.md).
+        import autocode as runner
+        import autocode_resolver_runtime as resolver_runtime
+        import autocode_support as support
+        self.path, self.body = inventory_bundle(self.root / 'paused-version')
+        self.scope_inventory_to_fixture_task()
+        run = self.start()
+        old = run.status()
+        run.approve_plan(old['needs']['token'])
+        state_path = run.run_dir / 'state.json'
+        state = json.loads(state_path.read_text())
+        state.update(status='PAUSED_RATE_LIMIT', stop_reason='Provider rate limit fixture stop')
+        with patch.dict(os.environ, self.env):
+            self.assertTrue(resolver_runtime.record_operational_exhaustion(
+                runner, state, run.run_dir, support.Paused(state['status'], state['stop_reason'])))
+            runner.write_json(state_path, state)
+        paused = run.status()
+        self.assertEqual('WAITING_FOR_USER', paused['status'], paused)
+        prompts = (self.root / 'prompts.jsonl').read_text()
+        replacement = self.root / 'paused-replacement'
+        shutil.copytree(self.path.parent, replacement)
+        body = copy.deepcopy(self.body)
+        (replacement / 'changed-context.txt').write_text('Updated source screen constraint')
+        body['cases'][-1]['artifacts']['design_context'] = {
+            'path': 'changed-context.txt', 'sha256': util.file_hash(replacement / 'changed-context.txt')}
+        candidate = replacement / 'manifest-v2.json'
+        candidate.write_text(json.dumps(body))
+        with self.assertRaisesRegex(taskrun.TaskRunError, 'does not acknowledge PAUSED_RATE_LIMIT'):
+            run.revise_design(candidate, old['design']['manifest_hash'], 'Updated one source frame')
+        held = run.resume_paused()
+        self.assertEqual(old['design']['manifest_hash'], held['design']['manifest_hash'])
+        self.assertEqual('WAITING_FOR_USER', held['status'], held)
+        self.assertEqual(prompts, (self.root / 'prompts.jsonl').read_text(), 'no provider may launch past the pause')
+
     def test_invalid_manifest_is_refused_before_any_provider_call_or_run_allocation(self):
         self.body["cases"].pop()
         self.path.write_text(json.dumps(self.body))
