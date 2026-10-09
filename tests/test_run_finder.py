@@ -650,9 +650,9 @@ class CommandLine(Fixture):
                 self.assertIn("driven by `autocode program`", self.parse_error(*argv))
         self.assertIn("Choose one action per invocation", self.parse_error("--status", "--approve-goal", "r1:x"))
 
-    def test_only_status_and_dry_run_fall_back_to_a_finished_run(self):
+    def test_only_read_actions_fall_back_to_a_finished_run(self):
         complete = self.run_in(self.project, status="TASK_COMPLETE")
-        for flag in ("--status", "--dry-run", "status"):
+        for flag in ("--status", "--explain", "--dry-run", "status"):
             with self.subTest(flag=flag):
                 self.assertEqual(complete, self.parse(flag)[0].run_dir)
         for argv in (["--show-goal"], ["--answer", "Q1=x"], ["--migrate-only"]):
@@ -661,7 +661,7 @@ class CommandLine(Fixture):
         tree, program_run = self.worktree_run("Program workstream")
         self.owned_by_program(tree, program_run)
         mine = self.worktree_run("Mine")[1]
-        for flag in ("--status", "--dry-run"):
+        for flag in ("--status", "--explain", "--dry-run"):
             with self.subTest(flag=flag):
                 self.assertTrue(self.parse_error(flag).startswith("autocode: 2 unfinished AutoCode runs"))
         for argv in (["--show-goal"], ["--answer", "Q1=x"]):
@@ -883,6 +883,15 @@ class InProcessCli(Fixture):
         self.assertIn("(TASK_COMPLETE, the latest finished run)", err)
         self.assertEqual(state, (run / "state.json").read_bytes())
         self.assertFalse((run / "state.pre-v3.json").exists())
+        from autocode_stop_explanations import explain
+        explanation = explain("TASK_COMPLETE")
+        code, out, err = self.main("--explain")
+        self.assertEqual(0, code, err)
+        self.assertEqual("\n\n".join(explanation[key] for key in
+            ("what_happened", "what_it_means", "what_the_command_does")), out.strip())
+        self.assertIn("(TASK_COMPLETE, the latest finished run)", err)
+        self.assertEqual(state, (run / "state.json").read_bytes())
+        self.assertEqual(before, tree_snapshot(self.project))
         self.assertIn("nothing to resume", self.main()[2], "and a bare autocode still refuses it")
 
     def test_a_user_action_on_a_program_plan_run_says_to_continue_with_the_planning_unit(self):

@@ -128,12 +128,13 @@ class IsolatedCli(unittest.TestCase):
         self.addCleanup(flow.doCleanups)
         folder = flow.root / 'plain-folder'; folder.mkdir()
         (folder / 'keep.txt').write_text('preserve parent files')
-        for flag in ('--dry-run', '--status'):
+        for flag in ('--dry-run', '--status', '--explain'):
             result = subprocess.run([*flow.entry, '--workspace', str(folder), '--engine', 'codex', flag,
                                      'Build calculator'], cwd=flow.root, env=flow.env,
                                     capture_output=True, text=True, timeout=35)
             self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-            self.assertIn('not a Git repository', result.stderr)
+            reason = '--explain reads a saved run' if flag == '--explain' else 'not a Git repository'
+            self.assertIn(reason, result.stderr)
         missing = flow.root / 'mistyped'
         result = subprocess.run([*flow.entry, '--workspace', str(missing), '--engine', 'codex', '--no-chat',
                                  'Build calculator'], cwd=flow.root, env=flow.env,
@@ -141,6 +142,26 @@ class IsolatedCli(unittest.TestCase):
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         self.assertEqual(['keep.txt'], [p.name for p in folder.iterdir()])
         self.assertFalse(missing.exists())
+
+    def test_explain_in_a_new_git_workspace_never_starts_a_provider_or_creates_a_run(self):
+        for extra in ([], ['--in-place']):
+            with self.subTest(extra=extra):
+                flow = test_subprocess.SubprocessFlow(); flow.setUp()
+                self.addCleanup(flow.doCleanups)
+                marker = flow.root / 'provider-was-started'
+                codex = flow.root / 'fixture-bin/codex'
+                codex.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
+                    + 'Path(' + repr(str(marker)) + ').touch()\nraise SystemExit(1)\n')
+                before_worktrees = w.git(flow.project, 'worktree', 'list', '--porcelain')
+                result = subprocess.run([*flow.entry, '--workspace', str(flow.project),
+                    '--engine', 'codex', '--no-chat', '--explain', *extra, 'Build calculator'],
+                    cwd=flow.root, env=flow.env, capture_output=True, text=True, timeout=35)
+                self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+                self.assertIn('--explain reads a saved run', result.stderr)
+                self.assertEqual('', result.stdout)
+                self.assertFalse(marker.exists(), 'Explanation must not launch a provider')
+                self.assertFalse((flow.project / '.autocode').exists(), 'Explanation must not create a run')
+                self.assertEqual(before_worktrees, w.git(flow.project, 'worktree', 'list', '--porcelain'))
 
     def test_runs_leave_the_users_git_status_showing_only_source_changes(self):
         flow = test_subprocess.SubprocessFlow(); flow.setUp()

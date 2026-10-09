@@ -223,7 +223,9 @@ class ProductProbeTests(unittest.TestCase):
 from pathlib import Path
 p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
 print('partial', flush=True)
-Path('ready.json').write_text(json.dumps([os.getpid(), p.pid]))
+ready = Path('ready.json.tmp')
+ready.write_text(json.dumps([os.getpid(), p.pid]))
+ready.replace('ready.json')
 time.sleep(30)
 '''
                 supervisor_script = f'''import sys,time

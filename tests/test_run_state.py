@@ -46,6 +46,28 @@ class RunStateTests(unittest.TestCase):
             self.assertEqual({"status", "undeclared_runtime_key"}, keys)
             self.assertEqual({"undeclared_runtime_key"}, keys - run_state.KEYS)
 
+    def test_test_only_keys_are_excluded_from_runtime_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text('state["status"]\n')
+            (root / "test_runtime.py").write_text('state["seen"]\n')
+            nested = root / "units"
+            nested.mkdir()
+            (nested / "test_nested.py").write_text('state.get("reasoning_efforts")\n')
+            self.assertEqual({"status"}, touched_keys(root))
+
+    def test_unknown_runtime_keys_still_fail_the_contract_comparison(self):
+        unknown = {"unknown_runtime_scan_fixture", "unknown_nested_runtime_scan_fixture"}
+        self.assertTrue(unknown.isdisjoint(run_state.KEYS))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime.py").write_text('state["unknown_runtime_scan_fixture"]\n')
+            nested = root / "units"
+            nested.mkdir()
+            (nested / "runtime.py").write_text('state.get("unknown_nested_runtime_scan_fixture")\n')
+            missing = sorted(touched_keys(root) - set(run_state.KEYS))
+            self.assertEqual(sorted(unknown), missing)
+
     def test_keys_are_stable_and_unique(self):
         self.assertIsInstance(run_state.KEYS, frozenset)
         self.assertEqual(len(run_state.KEYS), len(set(run_state.KEYS)))
