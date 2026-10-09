@@ -94,6 +94,7 @@ class NewRunsOnly(unittest.TestCase):
 
     def test_configure_refuses_before_touching_the_saved_run(self):
         import argparse
+
         import autocode_configure as configure
         args = argparse.Namespace(adaptive_planning=True)
         with self.assertRaisesRegex(ValueError, "new-run policy"):
@@ -344,6 +345,7 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         import json
         import tempfile
         from pathlib import Path
+
         import autocode as runner
         state = awaiting()
         goals.feedback(state, "Also accept --shout.")

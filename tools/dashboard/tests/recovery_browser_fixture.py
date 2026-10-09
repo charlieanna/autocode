@@ -4,20 +4,19 @@ Only the CLI status/execute seam is supplied. Public projection, HTTP action
 validation and browser code are production code. CLI execution is separately
 covered by test_builder_recovery against the real runner and a fake provider.
 """
-import copy
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import time
+from pathlib import Path
 from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_console import Console, Handler, LoopbackHTTPServer
-from unified_browser_fixture import base_state, FIXTURE_NOW, fixture_base_directory
-import autocode_run_view as run_view
 import autocode_recovery_view as recovery
+import autocode_run_view as run_view
+from agent_console import Console, Handler, LoopbackHTTPServer
+from unified_browser_fixture import FIXTURE_NOW, base_state, fixture_base_directory
 
 
 def main():

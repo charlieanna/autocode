@@ -21,9 +21,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 try:
-    from .autocode_captured_process import ProcessError, run as run_captured
+    from .autocode_captured_process import ProcessError
+    from .autocode_captured_process import run as run_captured
 except ImportError:
-    from autocode_captured_process import ProcessError, run as run_captured
+    from autocode_captured_process import ProcessError
+    from autocode_captured_process import run as run_captured
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 
@@ -63,7 +65,7 @@ class TaskRun:
 
     @classmethod
     def start(cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None,
-              cwd=None) -> "TaskRun":
+              cwd=None) -> TaskRun:
         """Create a run that works directly in ``workspace`` and advance it to its first stop.
 
         The caller owns the workspace (for example a worktree it created), so
@@ -93,7 +95,7 @@ class TaskRun:
 
     @classmethod
     def attach(cls, workspace, *, options=(), command=AUTOCODE, env=None, timeout=None, cwd=None,
-               exclude=()) -> "TaskRun | None":
+               exclude=()) -> TaskRun | None:
         """Reattach to the one run in ``workspace``, or None if it has none yet.
 
         For a caller that lost its record of ``run_dir``, for example because it
@@ -180,7 +182,7 @@ class TaskRun:
         """Read a source-bound comparison; no execution, approval or file rewrite."""
         return json.loads(self._invoke("compare checkpoint", "checkpoint", "--compare", checkpoint_id).stdout)
 
-    def restore_checkpoint(self, checkpoint_id: str, expected_token: str, request_id: str) -> "TaskRun":
+    def restore_checkpoint(self, checkpoint_id: str, expected_token: str, request_id: str) -> TaskRun:
         """Create a paused continuation on a new branch; keep this run untouched."""
         result = json.loads(self._invoke("restore checkpoint", "checkpoint", "--restore", checkpoint_id,
             "--expected-token", expected_token, "--request-id", request_id).stdout)

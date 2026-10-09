@@ -60,12 +60,13 @@ from __future__ import annotations
 import copy
 
 try:
-    from . import autocode_contract_identity as identity, autocode_workflows as workflows
+    from . import autocode_contract_identity as identity
     from . import autocode_finding_cause as cause
+    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_contract_identity as identity
-    import autocode_workflows as workflows
     import autocode_finding_cause as cause
+    import autocode_workflows as workflows
 
 # Fields a split copy does not take from the row: its identity, its scope and the row's own move
 # history, and bookkeeping about the row rather than the defect (a resolution attempt over the

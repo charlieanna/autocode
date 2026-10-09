@@ -48,8 +48,10 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
-    from . import autocode_follow_up as follow_up, autocode_workflows as workflows
+    from . import autocode_follow_up as follow_up
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
+    from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_follow_up as follow_up
@@ -316,7 +318,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
                               "revision": revision, "report_sha256": hashlib.sha256(text.encode()).hexdigest(),
                               "output": record.get("output"), "probes": shown}
     state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                 completed_at=dt.datetime.now(dt.timezone.utc).isoformat())
+                 completed_at=dt.datetime.now(dt.UTC).isoformat())
 
 
 def _ids(concerns: list[dict]) -> dict:

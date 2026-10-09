@@ -8,25 +8,24 @@ defect on the unfixed tree and guards its narrowly scoped fix.
 """
 import copy
 import json
-import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_completion as completion_gate
-import autocode_findings as findings
-import autocode_goals as goals
 import autocode_support as support
-from . import test_autocode as base
+import autopilot_testkit as kit
 from goal_fixtures import approve_fixture, envelope, seed_greeting_workspace, write_greeting_source
+
 from . import LOGIN_SHELL
+from . import test_autocode as base
+
 
 # Every literal "/bin/zsh" string elsewhere in this file is wrapper-format
 # DATA fed into support.same_command() / CommandOracle.equivalent(), which

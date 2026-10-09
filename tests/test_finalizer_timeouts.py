@@ -9,17 +9,18 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_subprocess
-from .supervision_fixture import launcher
 import autocode as runner
 import autocode_goals as goals
 import autocode_support as support
 from goal_fixtures import assert_operational_wait
+
+from . import test_subprocess
+from .supervision_fixture import launcher
 
 
 class Silent:

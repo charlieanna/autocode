@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 SCENARIO = Path(__file__).resolve().parents[1] / "scenarios" / "catalog" / "ladder-16-tenant-http-api"
 sys.path.insert(0, str(SCENARIO.parents[1]))
 spec = importlib.util.spec_from_file_location("tenant_oracle", SCENARIO / "oracle.py")

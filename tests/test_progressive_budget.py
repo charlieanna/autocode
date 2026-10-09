@@ -1,7 +1,7 @@
 """Offline pure policy tests, not runtime integration or authority coverage."""
-from copy import deepcopy
 import json
 import unittest
+from copy import deepcopy
 
 import autocode_progressive_budget as budget
 

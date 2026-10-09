@@ -5,21 +5,26 @@ try:
 except ImportError:
     import autocode_source_scope as source_scope
 
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode as runner, autocode_stage_context as stage_context
-    from . import autocode_worker_quota as worker_quota, autocode_quota_route as quota_route
-    from . import autocode_test_examples as test_examples, autocode_test_cases as test_cases
+    from . import autocode as runner
     from . import autocode_assignment as assignment
+    from . import autocode_quota_route as quota_route
+    from . import autocode_stage_context as stage_context
+    from . import autocode_test_cases as test_cases
+    from . import autocode_test_examples as test_examples
+    from . import autocode_worker_quota as worker_quota
 except ImportError:
+    import autocode as runner
     import autocode_assignment as assignment
+    import autocode_quota_route as quota_route
+    import autocode_stage_context as stage_context
     import autocode_test_cases as test_cases
-    import autocode as runner, autocode_stage_context as stage_context
-    import autocode_worker_quota as worker_quota, autocode_quota_route as quota_route
     import autocode_test_examples as test_examples
+    import autocode_worker_quota as worker_quota
 
 
 def execute(state, directory, workspace, mode):

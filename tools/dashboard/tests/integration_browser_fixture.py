@@ -6,13 +6,13 @@ The hold-terra file is a deterministic barrier for live feedback/Pause checks.
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import threading
+from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--runner', type=Path, required=True)

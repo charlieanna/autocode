@@ -12,7 +12,9 @@ import threading
 import time
 
 try:
-    from . import autocode_command_receipt as receipts, autocode_process as processes, autocode_util as util
+    from . import autocode_command_receipt as receipts
+    from . import autocode_process as processes
+    from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes

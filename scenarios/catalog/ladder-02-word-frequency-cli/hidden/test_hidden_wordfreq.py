@@ -6,6 +6,7 @@ import subprocess
 import sys
 import unittest
 
+
 class HiddenWordFrequencyTests(unittest.TestCase):
     def invoke(self, text, *args):
         return subprocess.run([sys.executable, "-m", "wordfreq", *args], input=text, capture_output=True, text=True, timeout=10)

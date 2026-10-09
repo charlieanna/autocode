@@ -33,7 +33,7 @@ class Handler(BaseHTTPRequestHandler):
         code = self.path.removeprefix("/r/")
         if code in links:
             events.append({"code": code, "destination": links[code],
-                           "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                           "timestamp": datetime.datetime.now(datetime.UTC).isoformat()})
             return self.reply(302, {}, "https://example.test/wrong")
         self.reply(404, {})
 

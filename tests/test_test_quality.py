@@ -1,7 +1,7 @@
 """Reject inert suites without claiming that syntax proves behavioral coverage."""
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_test_quality as quality
 

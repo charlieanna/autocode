@@ -1,9 +1,9 @@
 """The task-run interface: the status view and the CLI client. See docs/task-run.md."""
 import copy
-import os
 import json
-import signal
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -14,13 +14,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_captured_process as captured_process
+import autocode_goal_lifecycle as lifecycle
+import autocode_process as processes
+import autocode_run_actions as run_actions
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
-import autocode_run_actions as run_actions
 import autocode_util as util
-import autocode_captured_process as captured_process
-import autocode_process as processes
-import autocode_goal_lifecycle as lifecycle
 import goal_fixtures
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime

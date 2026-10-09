@@ -1,6 +1,8 @@
-from datetime import date,timedelta
 import unittest
-from calendardates import format_date,parse_date,inclusive_dates
+from datetime import date, timedelta
+
+from calendardates import format_date, inclusive_dates, parse_date
+
 
 class HiddenCalendarDateTests(unittest.TestCase):
     def test_strict_syntax(self):

@@ -12,18 +12,20 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 import copy
-from pathlib import Path
 import uuid
+from pathlib import Path
+
 try:
-    from . import autocode_util as util
     from . import autocode_command_receipt as command_receipt
-    from . import autocode_protected_paths as paths, autocode_protected_store as store
+    from . import autocode_protected_paths as paths
+    from . import autocode_protected_store as store
+    from . import autocode_util as util
     from .autocode_protected_paths import identity, path_in
 except ImportError:
-    import autocode_util as util
     import autocode_command_receipt as command_receipt
     import autocode_protected_paths as paths
     import autocode_protected_store as store
+    import autocode_util as util
     from autocode_protected_paths import identity, path_in
 
 

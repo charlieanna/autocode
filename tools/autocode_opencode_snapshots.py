@@ -9,9 +9,9 @@ No provider is launched, and no Git index or user exclusion is changed here.
 from __future__ import annotations
 
 import os
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
+from pathlib import Path, PurePosixPath
 
 HASH = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 

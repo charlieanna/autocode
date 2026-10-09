@@ -2,11 +2,11 @@
 import json
 import subprocess
 import unittest
-from pathlib import Path
-from .protected_store_fixture import retained_text
+
 import autocode_protected_store as store
 
 from . import test_bugfix_workflow as fixture
+from .protected_store_fixture import retained_text
 
 ORIGINAL = '''import unittest
 from layout import height

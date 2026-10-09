@@ -2,6 +2,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 
+
 class LeaseQueue:
     def __init__(self,path):
         self.path=str(path)

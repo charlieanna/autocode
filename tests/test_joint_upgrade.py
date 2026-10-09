@@ -1,9 +1,9 @@
 """Upgrade approved, idle three-role OpenCode runs without repeating planning."""
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -14,8 +14,9 @@ import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
 import autopilot
-from . import test_planning as test_planning
 from goal_fixtures import approve_fixture
+
+from . import test_planning as test_planning
 
 
 class JointUpgradeTests(unittest.TestCase):

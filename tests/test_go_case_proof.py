@@ -1,10 +1,10 @@
 """Real Go proof through the public production proof entry point; no model shim."""
-from pathlib import Path
 import shutil
 import unittest
 
 import autocode_regression as regression
 import autocode_test_cases as cases
+
 from tests.test_verify import Project
 
 

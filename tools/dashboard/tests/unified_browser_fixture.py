@@ -7,21 +7,20 @@ without putting fixture copy in production state or mutating a user's task.
 import copy
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import time
-from urllib.parse import urlencode
+from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human, CODEX_DEFAULT_MODELS
-from dashboard_setup import conversation_model_fields
-from dashboard_work_summary import project as work_summary, progress_from_status
 import autocode_verification_view as verification_view
-
-
+from agent_console import CODEX_DEFAULT_MODELS, Console, Handler, LoopbackHTTPServer, resolver_human
+from dashboard_setup import conversation_model_fields
+from dashboard_work_summary import progress_from_status
+from dashboard_work_summary import project as work_summary
 
 FIXTURE_NOW = '2026-09-22T12:41:00Z'
 FIXTURE_SOURCE = 'browser-fixture-source'
@@ -389,7 +388,8 @@ def main():
             if '_fixture_saved_diff' in state:
                 (run / 'saved.diff').write_text(state.pop('_fixture_saved_diff'), encoding='utf8')
             if preview_fixture and name.startswith('flow-preview-'):
-                import base64, hashlib
+                import base64
+                import hashlib
                 image = run / 'screen.png'
                 image.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII='))
                 state['validation'] = {'source_revision':'fixture-screen-source',
@@ -782,8 +782,8 @@ def main():
         preview_server = None
         preview_url = None
         if preview_fixture:
-            from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
             import threading
+            from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
             class DemoHandler(BaseHTTPRequestHandler):
                 def log_message(self, *args): pass
                 def do_GET(self):

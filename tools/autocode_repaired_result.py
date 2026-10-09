@@ -7,12 +7,13 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
-    from . import autocode_result_application as result_application, autocode_source_scope as source_scope
     from . import autocode_draft_assignment as draft_assignment
+    from . import autocode_result_application as result_application
+    from . import autocode_source_scope as source_scope
 except ImportError:
+    import autocode_draft_assignment as draft_assignment
     import autocode_result_application as result_application
     import autocode_source_scope as source_scope
-    import autocode_draft_assignment as draft_assignment
 
 
 def accept(runtime, owner, run_dir, workspace, value, repair_record):

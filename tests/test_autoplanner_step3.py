@@ -2,15 +2,16 @@
 their remediation, Plan Reviewer decisions bound to the reviewed record, and the
 discovery, finalize and approval gates."""
 import copy
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-import autocode_goals as goals, autopilot
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_planning_clarification as clarification
-from units import autoplanner as planner
+import autopilot
 from goal_fixtures import body
+from units import autoplanner as planner
 
 TASK = "Greet the user by name."
 REQUIREMENT = {"id": "R1", "text": "Greet by name", "source_quote": TASK}

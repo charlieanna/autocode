@@ -1,11 +1,13 @@
 import copy
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
+
 import autocode_builder_policy as policy
 import autocode_dispatch as dispatch
-from . import test_build_blackbox as bb
 from providers import command, opencode
+
+from . import test_build_blackbox as bb
 
 CLAUDE_TOML = Path(__file__).resolve().parents[1] / 'examples' / 'claude-provider' / 'claude.toml'
 CLAUDE_CONFIG = command.tomllib.loads(CLAUDE_TOML.read_text())

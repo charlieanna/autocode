@@ -1,9 +1,9 @@
 """Repeat an actual failing build, then either hold or propose a discriminating fix."""
-import json
 import hashlib
+import json
 import os
-from pathlib import Path
 import runpy
+from pathlib import Path
 
 
 def report_for(stage, data, common, config, run_check, requirements):

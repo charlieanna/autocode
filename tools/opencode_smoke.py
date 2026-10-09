@@ -5,9 +5,9 @@ raw events for inspection. Not included in the offline unit test suite.
 """
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 try:
     from . import autocode_opencode as opencode

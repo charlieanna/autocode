@@ -1,11 +1,11 @@
 """Real chat HTTP/UI with offline provider callbacks and owned disposable data."""
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]

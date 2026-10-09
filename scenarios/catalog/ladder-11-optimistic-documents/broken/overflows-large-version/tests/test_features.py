@@ -1,7 +1,9 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
+
 from app import DocumentStore
+
 
 class DocumentTests(unittest.TestCase):
     def test_create_update_reopen(self):

@@ -1,7 +1,7 @@
 """Process-local admission into an enclosing CLI's independent supervisor."""
-from contextlib import contextmanager
 import os
 import threading
+from contextlib import contextmanager
 
 _lock = threading.Lock()
 _guard = None

@@ -1,14 +1,20 @@
 """Only a completed original review can authorize retained dispositions."""
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_findings as findings
-from autocode_report_findings import (MALFORMED_ELSEWHERE, REPAIR_INSTRUCTION, UNAUTHORIZED, preserved_dispositions,
-                                      refusal, retained)
+from autocode_report_findings import (
+    MALFORMED_ELSEWHERE,
+    REPAIR_INSTRUCTION,
+    UNAUTHORIZED,
+    preserved_dispositions,
+    refusal,
+    retained,
+)
 from autocode_report_source import original_report_for_repair
 
 

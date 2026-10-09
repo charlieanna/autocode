@@ -24,7 +24,8 @@ from contextlib import nullcontext
 from pathlib import Path
 
 try:
-    from . import autocode_taskrun as taskrun, autocode_util as util
+    from . import autocode_taskrun as taskrun
+    from . import autocode_util as util
 except ImportError:
     import autocode_taskrun as taskrun
     import autocode_util as util

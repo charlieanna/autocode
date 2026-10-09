@@ -1,8 +1,8 @@
 """The published provider conformance matrix is generated and honest (#706)."""
 from __future__ import annotations
 
-import sys
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path

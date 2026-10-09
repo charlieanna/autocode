@@ -3,7 +3,9 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
 from ledger import Ledger
+
 
 class LedgerContract(unittest.TestCase):
     def setUp(self):

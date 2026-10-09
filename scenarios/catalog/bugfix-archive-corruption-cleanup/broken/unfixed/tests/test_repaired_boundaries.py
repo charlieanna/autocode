@@ -3,7 +3,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+
 from safezip import extract
+
 
 class CorruptPayloads(unittest.TestCase):
     def check_corruption(self, name, compression):

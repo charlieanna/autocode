@@ -1,15 +1,17 @@
 """Binding-preserving archive storage, crash recovery and retention ownership."""
 import copy
+import unittest
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
-import zipfile
+
 import autocode_protected_oracles as guard
 import autocode_protected_paths as paths
 import autocode_protected_store as store
-from .test_verify import Project
+
 from .protected_store_fixture import rewrite_archive
+from .test_verify import Project
 
 
 class ProtectedStorageTests(unittest.TestCase):

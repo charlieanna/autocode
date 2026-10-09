@@ -4,9 +4,10 @@ and stale displays. One case per finding, numbered as in the review."""
 import copy
 import unittest
 
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 from goal_fixtures import body
+
 from .test_autoplanner_step2 import EpisodeCase, clarification_only, discovery, question, requirements
 from .test_autoplanner_step3 import ObligationCase, decision_question, plan
 
@@ -101,7 +102,8 @@ class ObligationReviewTests(ObligationCase):
             self.apply("astra_challenge", self.challenge([self.decide(oid)]))
 
     def test_7_resolved_rejection_still_blocks_reinstating_the_assumption(self):
-        from .test_autoplanner_step3 import assumption, requirements as reqs
+        from .test_autoplanner_step3 import assumption
+        from .test_autoplanner_step3 import requirements as reqs
         oid = self.reject()
         self.apply("astra_discovery", self.discovery(records=[self.record(oid)]))
         self.apply("astra_challenge", self.challenge([self.decide(oid)]))
@@ -160,7 +162,8 @@ class DelegationReviewTests(ObligationCase):
         self.assertEqual("PostgreSQL", self.state["answers"]["Q1"]["text"])
 
     def test_8_rejection_is_bound_to_the_displayed_revision_and_handoff(self):
-        from .test_autoplanner_step3 import assumption, requirements as reqs
+        from .test_autoplanner_step3 import assumption
+        from .test_autoplanner_step3 import requirements as reqs
         self.apply("requirements_gather", reqs([assumption()]))
         self.draft(decision_question("Q9"))
         displayed = shown(self.state)

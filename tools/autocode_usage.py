@@ -19,15 +19,15 @@ A stage that only the runner executed costs nothing. Imports only the standard l
 from __future__ import annotations
 
 import datetime as dt
-from copy import deepcopy
 import fcntl
 import json
 import math
 import os
-from pathlib import Path
 import sys
 import tempfile
 import warnings
+from copy import deepcopy
+from pathlib import Path
 
 try:
     from . import autocode_request_usage as request_usage
@@ -399,7 +399,7 @@ def record(path, state):
         if _written.get(str(run_dir)) == signature:
             return
         row = {"run": run_dir.name, "status": state.get("status"), "workflow": (state.get("workflow") or {}).get("kind"),
-               "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(), **totals}
+               "updated_at": dt.datetime.now(dt.UTC).isoformat(), **totals}
         _upsert(run_dir.parent.parent / LEDGER, row)
         _written[str(run_dir)] = signature
     except Exception as error:

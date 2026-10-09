@@ -9,10 +9,10 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 
 def leaves(suite):

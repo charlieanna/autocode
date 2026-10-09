@@ -1,13 +1,13 @@
 """Offline pure activation preparation and persisted binding checks."""
-from copy import deepcopy
-from pathlib import Path
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
+from tools import autocode_contract_identity as identity
 from tools import autocode_progressive_activation as activation
 from tools import autocode_progressive_artifacts as artifacts
 from tools import autocode_progressive_plan as plan
-from tools import autocode_contract_identity as identity
 from tools import autocode_util as util
 
 

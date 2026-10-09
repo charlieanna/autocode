@@ -1,21 +1,21 @@
 """Goal gates in isolated Git workspaces. No real model or live run is used."""
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
+import autocode_goals as g
 import autocode_interventions as interventions
 import autocode_support as s
-import autocode_goals as g
 from goal_fixtures import body, envelope
 
 

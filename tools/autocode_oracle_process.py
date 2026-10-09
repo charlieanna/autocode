@@ -1,7 +1,8 @@
 """Capture oracle I/O without reaping its leader before verified cleanup."""
-from contextlib import ExitStack
 import subprocess
 import tempfile
+from contextlib import ExitStack
+
 try:
     from . import autocode_grader_process as supervisor
 except ImportError:

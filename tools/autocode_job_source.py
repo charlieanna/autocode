@@ -6,17 +6,21 @@ creates a witness from a later checkout. Capture blobs stay in the run-owned
 .source directory when the manifest/witness are archived.
 """
 from __future__ import annotations
+
 import os
-import stat
 import shutil
+import stat
 import tempfile
 from pathlib import Path
+
 try:
-    from . import autocode_util as util, autocode_jobs as jobs, autocode_source_snapshot as source_snapshot
+    from . import autocode_jobs as jobs
+    from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util
     import autocode_jobs as jobs
     import autocode_source_snapshot as source_snapshot
+    import autocode_util as util
 
 
 def _path(root, name):

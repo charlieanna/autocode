@@ -1,21 +1,19 @@
 """Offline crash recovery and competing-server tests; no real provider is called."""
-from concurrent.futures import Future
-from copy import deepcopy
 import hashlib
 import json
-import os
-from pathlib import Path
 import select
 import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import Future
+from pathlib import Path
 from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / 'dashboard'), str(TOOLS)]
-from dashboard_continuous import ContinuousConversationStore
 import dashboard_continuous as continuous
+from dashboard_continuous import ContinuousConversationStore
 
 
 class QueuedPool:

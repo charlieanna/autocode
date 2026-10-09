@@ -8,11 +8,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 try:
-    from . import autocode_goals as goals, autocode_planning_graph as graph, autocode_util as util
+    from . import autocode_goals as goals
+    from . import autocode_planning_graph as graph
+    from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_planning_graph as graph

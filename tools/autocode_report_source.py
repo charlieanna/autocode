@@ -5,12 +5,14 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_support as support, autocode_cmd_only_report as cmd_only
+    from . import autocode_cmd_only_report as cmd_only
     from . import autocode_opencode as opencode
+    from . import autocode_support as support
     from .autocode_util import read as read_json
 except ImportError:
-    import autocode_support as support, autocode_cmd_only_report as cmd_only
+    import autocode_cmd_only_report as cmd_only
     import autocode_opencode as opencode
+    import autocode_support as support
     from autocode_util import read as read_json
 
 REPAIR_REPORT_BYTES = 128 * 1024

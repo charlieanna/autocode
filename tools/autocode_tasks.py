@@ -2,21 +2,22 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_workspaces as workspaces
     from . import autocode_resolver_human as human
+    from . import autocode_util as util
+    from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_resolver_human as human
     import autocode_util as util
     import autocode_workspaces as workspaces
-    import autocode_resolver_human as human
 
 
 TERMINAL_CODE = {'TASK_COMPLETE'}

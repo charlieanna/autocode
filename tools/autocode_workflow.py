@@ -11,12 +11,17 @@ import copy
 from pathlib import Path
 
 try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals
-    from . import autocode_goal_lifecycle as lifecycle, autocode_design_coverage as design_coverage
+    from . import autocode_completion as completion_gate
+    from . import autocode_design_coverage as design_coverage
+    from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_goals as goals
+    from . import autocode_support as support
 except ImportError:
-    import autocode_support as support, autocode_completion as completion_gate
+    import autocode_completion as completion_gate
+    import autocode_design_coverage as design_coverage
+    import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
-    import autocode_goal_lifecycle as lifecycle, autocode_design_coverage as design_coverage
+    import autocode_support as support
 
 MODE = "glm_first_v1"
 FINAL_MODE = "glm_final_audit_v2"

@@ -1,16 +1,15 @@
 """Reversible dashboard project exclusions; project files are never modified."""
 from __future__ import annotations
 
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import fcntl
 import json
 import os
-from pathlib import Path
 import stat
 import tempfile
 import threading
-
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
 _INVALID_STORE = (
     'The saved project list is invalid. Restore or repair removed-projects.json '
@@ -202,7 +201,7 @@ class ProjectStore:
             if existing:
                 return existing
             row = {'workspace': identity,
-                   'removed_at': datetime.now(timezone.utc).isoformat(timespec='milliseconds')}
+                   'removed_at': datetime.now(UTC).isoformat(timespec='milliseconds')}
             self._write([*rows, row])
             return dict(row)
 

@@ -46,13 +46,29 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 try:
-    from .autocode_component_runtime import (ComponentRuntime, SmokeCheck, SmokeStep, check_smoke, load_smoke,
-                                             render_step, require_runnable, start_layers)
+    from .autocode_component_runtime import (
+        ComponentRuntime,
+        SmokeCheck,
+        SmokeStep,
+        check_smoke,
+        load_smoke,
+        render_step,
+        require_runnable,
+        start_layers,
+    )
     from .autocode_compose_file import compose_document, render
     from .autocode_workspaces import keep_out_of_git
 except ImportError:
-    from autocode_component_runtime import (ComponentRuntime, SmokeCheck, SmokeStep, check_smoke, load_smoke,
-                                            render_step, require_runnable, start_layers)
+    from autocode_component_runtime import (
+        ComponentRuntime,
+        SmokeCheck,
+        SmokeStep,
+        check_smoke,
+        load_smoke,
+        render_step,
+        require_runnable,
+        start_layers,
+    )
     from autocode_compose_file import compose_document, render
     from autocode_workspaces import keep_out_of_git
 

@@ -1,22 +1,23 @@
 """Deterministic lifecycle races using only isolated state and fake providers."""
-from .supervision_fixture import launcher
 import contextlib
 import copy
-import json
 import os
-from pathlib import Path
 import sys
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+from .supervision_fixture import launcher
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_interventions as inbox
 import autocode_support as support
 import autocode_util as util
+
 from . import test_goals as fixtures
 
 
