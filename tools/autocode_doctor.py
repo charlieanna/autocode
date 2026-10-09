@@ -82,6 +82,27 @@ def git_check(which=shutil.which, runner=run) -> Check:
     return Check("git", OK, runner(["git", "--version"]).stdout.strip() or "git found")
 
 
+def conformance_check(engine: str, version: str) -> Check:
+    """The published conformance row for this installed version (#706), or untested."""
+    try:
+        from . import provider_matrix
+    except ImportError:
+        import provider_matrix
+    try:
+        row = provider_matrix.status_for(engine, version)
+    except (OSError, ValueError) as error:
+        return Check(f"conformance:{engine}", WARN, f"cannot read the conformance matrix: {error}",
+                     "see docs/providers.md#conformance-matrix")
+    if row is None:
+        return Check(f"conformance:{engine}", WARN,
+                     f"{engine} {version} is untested against the offline conformance suite",
+                     "run tools/provider_conformance.py --fake and add a row to docs/provider-matrix.json")
+    return Check(f"conformance:{engine}", OK if row["result"] == "known-good" else WARN,
+                 f"{engine} {version}: {row['result']} (containment {row['containment']}, "
+                 f"visual {row['visual_profile']}, {row['date']})",
+                 None if row["result"] == "known-good" else row["note"])
+
+
 def engine_checks(which=shutil.which, runner=run) -> list[Check]:
     checks = []
     if which("opencode"):
@@ -96,9 +117,11 @@ def engine_checks(which=shutil.which, runner=run) -> list[Check]:
             checks.append(Check("engine:opencode", MISSING, f"OpenCode {version or '(no version)'}; AutoCode "
                                 "requires OpenCode 1.x or 2.x",
                                 "install OpenCode 1.x or 2.x, then log in (docs/install.md)"))
+        checks.append(conformance_check("opencode", parsed or version or "unknown"))
     else:
         checks.append(Check("engine:opencode", MISSING, "opencode is not on PATH",
                             "npm install -g opencode-ai@1, then log in (docs/install.md)"))
+        checks.append(conformance_check("opencode", "not-installed"))
     if which("codex"):
         login = runner(["codex", "login", "status"])
         checks.append(Check("engine:codex", OK, "Codex, logged in") if login.returncode == 0 else
