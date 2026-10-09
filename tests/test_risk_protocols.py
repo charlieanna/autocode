@@ -192,24 +192,29 @@ class ActualRiskProtocolTests(unittest.TestCase):
                 self.assertEqual(0, code, stderr.decode())
                 self.assertEqual('PASS', protocols.validate_transcript(raw, case)['verdict'])
 
-    def test_shared_deadline_and_output_failure_still_kill_and_reap_owned_worker(self):
-        programs = [('while True: pass', 'deadline'),
-                    ("while True: print('x' * 65536, flush=True)", 'output')]
-        for body, reason in programs:
-            with self.subTest(reason=reason):
-                source = 'class LeaseQueue:\n    def __init__(self,path):\n        ' + body + '\n'
-                code, raw, stderr, case = execute('lease_queue_lifecycle_v1',
-                    extra_files={'leasequeue/__init__.py': source}, timeout=1)
-                self.assertEqual(1, code, stderr.decode())
-                actual = json.loads(raw)
-                self.assertIn(reason, actual['error'])
-                self.assertLessEqual(actual['elapsed_seconds'], 1)
-                self.assertEqual(1, len(actual['owned_workers']))
-                owned = actual['owned_workers'][0]
-                self.assertTrue(owned['reaped'])
-                self.assertEqual(-signal.SIGKILL, owned['exit_code'])
-                with self.assertRaises(ProcessLookupError): os.kill(owned['pid'], 0)
-                with self.assertRaises(ValueError): protocols.validate_transcript(raw, case)
+    def _assert_owned_worker_failure(self, body, reason, timeout):
+        source = 'class LeaseQueue:\n    def __init__(self,path):\n        ' + body + '\n'
+        code, raw, stderr, case = execute('lease_queue_lifecycle_v1',
+            extra_files={'leasequeue/__init__.py': source}, timeout=timeout)
+        self.assertEqual(1, code, stderr.decode())
+        actual = json.loads(raw)
+        self.assertIn(reason, actual['error'])
+        self.assertLessEqual(actual['elapsed_seconds'], timeout)
+        self.assertEqual(1, len(actual['owned_workers']))
+        owned = actual['owned_workers'][0]
+        self.assertTrue(owned['reaped'])
+        self.assertEqual(-signal.SIGKILL, owned['exit_code'])
+        with self.assertRaises(ProcessLookupError): os.kill(owned['pid'], 0)
+        with self.assertRaises(ValueError): protocols.validate_transcript(raw, case)
+
+    def test_shared_deadline_still_kills_and_reaps_owned_worker(self):
+        self._assert_owned_worker_failure('while True: pass', 'deadline', timeout=1)
+
+    def test_output_bound_still_kills_and_reaps_owned_worker(self):
+        # Use the normal protocol budget so this case must reach the byte bound;
+        # the separate deadline case retains its one-second bound.
+        self._assert_owned_worker_failure("while True: print('x' * 65536, flush=True)",
+            'Candidate output exceeded shared bound', timeout=30)
 
     def test_target_symlink_is_rejected_before_external_module_executes(self):
         with tempfile.TemporaryDirectory(prefix='risk-outside-target-') as directory:
