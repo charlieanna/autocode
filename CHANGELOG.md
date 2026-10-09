@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Source gates exclude test fixtures and cover nested application modules;
+  missing v2 planning routes have a specific pause explanation (#799).
 - Operational pauses retain their recovery authority through queued feedback
   and pause requests; unrelated budget flags and historical job-failure
   records cannot authorize an unscoped retry (#661).
