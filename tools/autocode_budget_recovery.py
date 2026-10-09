@@ -245,7 +245,7 @@ def recover(state, *, kind, now) -> bool:
     if clock is None or not isinstance(settings, dict) or not isinstance(resolver, dict):
         return False
     planning = state.get("planning")
-    origins = {}
+    origins: dict[str, str] = {}
     if kind == PLANNING_KIND:
         if not isinstance(planning, dict):
             return False

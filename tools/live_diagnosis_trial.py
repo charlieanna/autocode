@@ -89,6 +89,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -408,7 +409,7 @@ def diagnose_and_retry(
         "policy_accepted_retry": False,
         "retry_dispatched": False,
     }
-    receipt_row = next(
+    receipt_row: dict | None = next(
         (
             row
             for row in reversed(new_rows)
@@ -712,7 +713,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             pending = first["state"].get("pending_report_repair") or {}
-            original = pending.get("original") or next(
+            original: dict | Any = pending.get("original") or next(
                 (
                     row
                     for row in reversed(first["state"].get("stages", []))

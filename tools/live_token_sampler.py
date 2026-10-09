@@ -21,11 +21,12 @@ try:
     from .token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
 except ImportError:
     from token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
+from typing import Any
 
 
 def event_records(state: dict, run_dir: Path) -> dict:
     """Only recorded event paths inside this run; never scan copied evidence."""
-    records = {}
+    records: dict[Any, Any] = {}
     stages = list(state.get("stages") or [])
     if state.get("active_stage"):
         stages.append(state["active_stage"])

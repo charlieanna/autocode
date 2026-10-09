@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 try:
     from .scenario_verdicts import (  # noqa: F401
@@ -801,7 +802,7 @@ def _campaign_oracle(project: Path, scenario_id: str) -> OracleResult:
             )
         for rel in spec["allowed_paths"]:
             record(f"delivery.{rel}", True, rel in before and not before[rel]["executable"])
-        foreign = []
+        foreign: list[Any] = []
         for rel in spec["allowed_paths"]:
             if rel not in before:
                 continue

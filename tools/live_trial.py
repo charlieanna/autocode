@@ -34,6 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import contextlib
+from typing import Any
 
 import autocode_process as processes  # noqa: E402
 import autocode_util as util  # noqa: E402
@@ -168,7 +169,7 @@ def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.C
     # Files avoid pipe backpressure and EOF waits on orphaned descendants.
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         child = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True)
-        owned = []
+        owned: list[Any] = []
         error = None
         timed_out = False
         try:
