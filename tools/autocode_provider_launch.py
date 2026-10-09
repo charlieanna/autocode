@@ -89,7 +89,8 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
             command += ["--model", model]
     elif engine == "qwen":
         command, child_env, overrides = qwen.launch(route_role, workspace, run_dir, session,
-            model, effort, allow_write, planning=planning)
+            model, effort, allow_write, planning=planning, report=report, schema=schema,
+            sandbox=sandbox)
         environment = agent_env.scrubbed(child_env)
         for name in ('AUTOCODE_VERIFICATION_COPY', 'AUTOCODE_VERIFICATION_COPY_SHA256'):
             environment.pop(name, None)

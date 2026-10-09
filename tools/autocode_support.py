@@ -55,6 +55,14 @@ def events(path):
         except ImportError:
             import autocode_opencode
         return autocode_opencode.normalized_events(rows)
+    try:
+        from . import autocode_qwen
+    except ImportError:
+        import autocode_qwen
+    if autocode_qwen.looks_like_qwen(rows):
+        # Qwen's raw events carry no command evidence, usage or terminal turn, so
+        # reading them unadapted would silently fail every check citation.
+        return autocode_qwen.normalized_events(rows)
     return rows
 
 

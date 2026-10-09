@@ -58,17 +58,21 @@ print('Default Qwen models:')
 for role, model in qwen.DEFAULT_MODELS.items():
     print(f'  {role}: {model}')
 
-# Check model validation
-test_roles = {
-    'astra': {'model': 'qwen/qwen-max'},
-    'terra': {'model': 'qwen/qwen-coder-plus'},
-}
+# Check model validation against the transport's own defaults
+test_roles = {role: {'model': model} for role, model in qwen.DEFAULT_MODELS.items()}
 try:
     qwen.check_models(test_roles)
     print('✓ Model validation passed')
 except Exception as e:
     print(f'❌ Model validation failed: {e}')
     sys.exit(1)
+
+# A default run must not pause with PAUSED_CROSS_MODEL before it launches.
+for producer, verifier in (('glm', 'plan_reviewer'), ('terra', 'sol'), ('terra', 'completion')):
+    if qwen.DEFAULT_MODELS[producer] == qwen.DEFAULT_MODELS[verifier]:
+        print(f'❌ {producer} and {verifier} share one model')
+        sys.exit(1)
+print('✓ Verifier roles are independent by default')
 " || {
     echo "❌ Model configuration test failed"
     exit 1
@@ -101,10 +105,22 @@ else:
 }
 
 echo ""
+echo "=== Test 4: Transport and run-configuration unit tests ==="
+python3 tools/test_qwen.py || {
+    echo "❌ Transport tests failed"
+    exit 1
+}
+python3 -m unittest tests.test_qwen_engine || {
+    echo "❌ Run-configuration tests failed"
+    exit 1
+}
+echo "✓ Unit tests passed"
+
+echo ""
 echo "=== All tests passed! ==="
 echo ""
 echo "You can now use autocode with Qwen engine:"
 echo "  python3 tools/autocode.py --engine qwen \"your task here\""
 echo ""
 echo "Or with specific models:"
-echo "  python3 tools/autocode.py --engine qwen --astra-model qwen/qwen-max \"your task\""
+echo "  python3 tools/autocode.py --engine qwen --terra-model qwen/qwen3.7-plus \"your task\""

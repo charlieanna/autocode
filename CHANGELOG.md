@@ -11,6 +11,16 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- **Qwen engine**: `--engine qwen` could not run at all. Provider selection
+  resolved its built-in OpenCode default, and the engine's own conflict check then
+  refused every run; a run that did start compared Codex's settings with its saved
+  Qwen identity and paused with `PAUSED_TRANSPORT_CHANGED` at the first stage
+  boundary. The transport now requests `stream-json` (its `json` output is one array
+  on a line, which the event log cannot read), returns Qwen's `--json-schema`
+  structured output as the stage report, maps a completed `run_shell_command` result
+  to command evidence with the exit code it proves, and routes the Planner and the
+  Plan Reviewer to different models so a default run no longer pauses with
+  `PAUSED_CROSS_MODEL`. Verified live on Qwen Code 0.25.0.
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while
   keeping explicit saved-run inputs exclusive and explanation commands read-only.
 

@@ -96,6 +96,11 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if using_opencode:
             current_settings = runner.opencode.local_settings(workspace)
             drifted = runner.opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
+        elif engine == "qwen":
+            # Not the Codex branch: comparing Codex's settings with a saved Qwen
+            # identity drifts on every run and pauses its first stage boundary.
+            current_settings = runner.qwen.local_settings(workspace)
+            drifted = runner.qwen.transport_drift(current_settings, current["settings"]["transport_identity"])
         else:
             current_settings = support.local_settings()
             drifted = support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"])
