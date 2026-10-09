@@ -493,20 +493,18 @@ class ExecutionIdentityTests(unittest.TestCase):
 
 class VerificationRestartCLI(unittest.TestCase):
     def test_reference_and_broken_variants_use_the_same_independent_oracle(self):
-        from harness import catalog
-
         from scenarios import run
+        from scenarios.harness import catalog
         results = run.self_test(catalog.load("verification-reuse"))
         self.assertEqual(["seed", "reference", "broken/accepts-empty", "broken/vacuous-tests"],
                          [name for name, _, _ in results])
         self.assertTrue(all(ok for _, ok, _ in results), results)
 
     def test_restart_reuses_only_completed_supplemental_check_and_keeps_canonical_execution(self):
-        from harness import catalog
-        from harness.driver import DriveError, Driver, default_autocode, fake_setup
-        from harness.project import materialize
-
         from scenarios import run as scenario_run
+        from scenarios.harness import catalog
+        from scenarios.harness.driver import DriveError, Driver, default_autocode, fake_setup
+        from scenarios.harness.project import materialize
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix="verification-restart-", dir=results)
