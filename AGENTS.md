@@ -51,7 +51,9 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    higher ones.
 4. **Run state is an untyped dict with about 140 keys.** Prefer existing keys.
    If you must add one, write it in one place and document what reads it. A
-   typed `RunState` is planned.
+   `tools/autocode_run_state.py` names every key with who writes and who reads it;
+   `tests/test_run_state.py` fails when tools/ touches a key it does not name. Replacing
+   the dict in one module at a time is next.
 5. **Anything that works across tasks** (architecture, multi-component builds,
    integration, deployment) goes in a new layer that drives task runs through
    the task-run interface (`docs/task-run.md`): `autocode_taskrun.TaskRun` and
