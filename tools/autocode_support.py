@@ -19,7 +19,7 @@ try:
     from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
     from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
-    from . import autocode_evidence_snapshot as evidence_snapshot
+    from . import autocode_evidence_snapshot as evidence_snapshot, autocode_qwen as qwen_transport
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
@@ -30,7 +30,7 @@ except ImportError:
     from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     import autocode_output_filter as output_filter, autocode_request_usage as request_usage
-    import autocode_evidence_snapshot as evidence_snapshot
+    import autocode_evidence_snapshot as evidence_snapshot, autocode_qwen as qwen_transport
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
@@ -55,15 +55,8 @@ def events(path):
         except ImportError:
             import autocode_opencode
         return autocode_opencode.normalized_events(rows)
-    try:
-        from . import autocode_qwen
-    except ImportError:
-        import autocode_qwen
-    if autocode_qwen.looks_like_qwen(rows):
-        # Qwen's raw events carry no command evidence, usage or terminal turn, so
-        # reading them unadapted would silently fail every check citation.
-        return autocode_qwen.normalized_events(rows)
-    return rows
+    # Unadapted Qwen rows carry no command evidence, usage or terminal turn.
+    return qwen_transport.normalized_events(rows) if qwen_transport.looks_like_qwen(rows) else rows
 
 
 def event_metrics(path):
