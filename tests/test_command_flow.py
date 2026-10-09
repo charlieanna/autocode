@@ -247,7 +247,7 @@ class ConfigToolFlow(unittest.TestCase):
         (run / "state.json").write_text(json.dumps(state))
         before = (run / "invocations.txt").read_text().splitlines().count("terra")
 
-        resumed = self.launch("--run-dir", str(run), "--no-chat", answers="")
+        self.launch("--run-dir", str(run), "--no-chat", answers="")
 
         after = (run / "invocations.txt").read_text().splitlines().count("terra")
         self.assertEqual(before, after)

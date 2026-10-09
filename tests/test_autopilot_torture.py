@@ -307,10 +307,10 @@ class StaleAndDisagreementTests(TortureBase):
                     self.apply("sol", *self.sol("PASS"))
                     self.apply("astra_review", *self.astra("REWORK", "Empty names are accepted"))
                     late = self.sol("PASS")
-                    accepted = self.attempt(lambda: self.apply("sol", *late))
+                    self.attempt(lambda: self.apply("sol", *late))
                 else:
                     self.apply("astra_review", *self.astra("REWORK", "Empty names are accepted"))
-                    accepted = self.attempt(lambda: self.apply("sol", *self.sol("PASS")))
+                    self.attempt(lambda: self.apply("sol", *self.sol("PASS")))
                 self.assertNotEqual("TASK_COMPLETE", self.state["status"])
                 self.assertTrue(any(row["source"] == "astra" and row["finding"] == "Empty names are accepted"
                                     for row in findings.blocking_entries(self.state)))

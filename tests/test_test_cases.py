@@ -164,9 +164,6 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
             "current_task": task, "milestone_progress": progress}
 
 
-    # Guards may rest on the whole suite's pass-to-pass (autocode_verify._suite_guards); review findings, 2026-10-06.
-    GUARDED = {"id": "C4", "test_name": "test_c4_adds", "kind": "preserve", "text": "add still adds"}
-
     def suite_checked(self, case, suite_passing, failing=()):
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
         regression.check_cases(proof, [case], suite_passing=suite_passing, failing=failing)

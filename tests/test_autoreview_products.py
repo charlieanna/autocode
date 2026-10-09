@@ -52,7 +52,7 @@ def go_evidence(executed, command, project, identity):
     """Keep expected answers in the harness, not the reviewer-invoked probe."""
     for event in executed:
         try:
-            argv = probe_argv(event.get('command', ''))
+            probe_argv(event.get('command', ''))
             if not probe_command_matches(event.get('command', ''), command) or event.get('exit_code') != 0:
                 continue
             rows = [json.loads(line) for line in event.get('aggregated_output', '').splitlines()]

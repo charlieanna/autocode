@@ -41,7 +41,7 @@ class HarnessSmokeTests(kit.CatalogueCase):
         self.bundle.finish(summary="harness smoke: fake provider, offline guard, ledger parity")
 
     def test_deliberately_incorrect_fixture_fails_the_oracle(self):
-        bundle, oracle = self.bundle, kit.FindingsOracle()
+        oracle = kit.FindingsOracle()
         # The scripted fixture lies: two distinct defects share wording, and the
         # oracle must expect two rows. Feed the production result through a
         # deliberately wrong expectation to prove the comparison detects it.
@@ -58,7 +58,7 @@ class HarnessSmokeTests(kit.CatalogueCase):
         self.bundle.finish(summary="deliberately wrong fixture detected by the independent oracle")
 
     def test_command_oracle_is_independent_and_strict(self):
-        bundle, oracle = self.bundle, kit.CommandOracle()
+        oracle = kit.CommandOracle()
         cases = [
             ("/bin/zsh -lc 'printf hi'", "printf hi", True),
             ("/bin/zsh -lc 'printf hi' && rm -rf /tmp/x", "printf hi", False),

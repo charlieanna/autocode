@@ -75,8 +75,6 @@ class BoundaryScenarios(BoundaryCase):
 
     def test_sec04_reviewer_write_restrictions_enforced(self):
         """SEC-04. Existing: sandbox/restriction tests (test_command_flow, test_opencode)."""
-        rework = {**envelope(self.approved_state()), "status": "REWORK",
-                  "findings": [], "finding_dispositions": []}
         # The write boundary the runner enforces at role level: only the builder
         # role is launched with allow_write; reviewers are read-only.
         from autocode_planning import role_for

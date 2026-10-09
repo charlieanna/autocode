@@ -328,7 +328,6 @@ class CommandProviderTests(unittest.TestCase):
             folder = self.home / f"stage{abs(hash(final_text)) % 1000}"
             folder.mkdir(exist_ok=True)
             path = folder / "sol-01.jsonl"
-            report = json.dumps({"summary": "Repaired fixture report"})
             rows = [
                 {"type": "text", "sessionID": "ses", "part": {"id": "p1", "messageID": "m1", "text": final_text}},
                 {"type": "step_finish", "sessionID": "ses", "part": {"id": "p2", "messageID": "m1", "reason": "stop"}},
@@ -364,7 +363,6 @@ class CommandProviderTests(unittest.TestCase):
             folder = self.home / f"stage{abs(hash(final_text)) % 1000}"
             folder.mkdir(exist_ok=True)
             path = folder / "sol-01.jsonl"
-            report = json.dumps({"summary": "Repaired fixture report"})
             rows = [
                 {"type": "text", "sessionID": "ses", "part": {"id": "p1", "messageID": "m1", "text": final_text}},
                 {"type": "step_finish", "sessionID": "ses", "part": {"id": "p2", "messageID": "m1", "reason": "stop"}},

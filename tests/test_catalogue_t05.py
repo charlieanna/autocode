@@ -129,7 +129,6 @@ class UnitFindingCases(FindingCase):
         self.oracle.apply("sol", first)
         findings.record_validation(state, first, {"output": "sol-01.json"})
         fid = findings.open_entries(state)[0]["id"]
-        before = self.snapshot_open(state)
         later = sol("Unrelated import unused")
         self.oracle.apply("sol", later)
         findings.record_validation(state, later, {"output": "sol-02.json"})
@@ -500,7 +499,6 @@ class ControllerFindingCases(FindingCase):
         """FND-14. New: same visible labels across two runs; A's report cannot act on B."""
         self.approve()
         self.assign_first_task()
-        project_b = {}
         b_state = {"version": 2, "workspace": str(self.root), "task": "Project B different goal",
                    "status": "RUNNING", "iteration": 1, "stages": [], "history": [], "sessions": {},
                    "settings": copy.deepcopy(self.settings)}
