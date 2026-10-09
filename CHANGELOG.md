@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Registered Codex artifact providers refuse workspace relocation and malformed
+  or conflicting config overrides before launch, preserving runner-bound paths (#811).
+
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while
   keeping explicit saved-run inputs exclusive and explanation commands read-only.
 
