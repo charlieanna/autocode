@@ -1,16 +1,19 @@
 """Source-bound build space for read-only native verification commands.
 
-The runner creates this before launch. Existing inputs are protected by the
-kernel policy; new build outputs can persist between captures. Accepted checks
-still undergo the independent clean-source replay before a PASS counts.
+The runner creates this before launch. Captures validate retained inputs before
+execution; contained providers additionally protect them with a kernel policy.
+New build outputs can persist between captures. Accepted checks still undergo
+the independent clean-source replay before a PASS counts.
 """
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
+import uuid
 
 try:
     from . import autocode_util as util, autocode_source_snapshot as source
@@ -31,10 +34,48 @@ def _inventory(root, source_paths=()):
     return source.inventory(root, paths=source_paths)
 
 
-def create(workspace, scratch, *, source_paths=()):
+def _run_directory(root, run_dir):
+    directory = Path(run_dir)
+    storage = root / '.autocode'
+    if storage.is_symlink():
+        raise ValueError('Verification storage must not be a symlink')
+    if (directory.parent != storage / 'runs' or not directory.is_dir()
+            or directory.is_symlink() or directory.resolve() != directory):
+        raise ValueError('Verification copy needs an existing physical task run directory')
+    return directory
+
+
+def allocate(workspace, run_dir, *, source_paths=()):
+    """Allocate one owned capture copy, without claiming an OS tool boundary.
+
+    Retain successful copies as stage evidence. On preparation failure remove
+    only this call's fresh control directory, never another stage's outputs.
+    The layout is the existing capture manifest's authority contract.
+    """
+    root = Path(workspace).resolve()
+    run = _run_directory(root, run_dir)
+    control = run / ('tool-containment-' + uuid.uuid4().hex)
+    control.mkdir(mode=0o700)
+    try:
+        scratch = control / 'scratch'
+        scratch.mkdir(mode=0o700)
+        result = create(root, scratch, source_paths=source_paths, run_dir=run)
+        tree, provenance = execution(result['manifest'], result['sha256'], root)
+        return {'manifest': result['manifest'], 'sha256': result['sha256'],
+                'workspace': str(root), 'tree': str(tree), **provenance}
+    except BaseException:
+        shutil.rmtree(control)
+        raise
+
+
+def create(workspace, scratch, *, source_paths=(), run_dir=None):
     root, scratch = Path(workspace).resolve(), Path(scratch).resolve()
     if not scratch.is_relative_to(root / '.autocode'):
         raise ValueError('Verification copy must be inside the owned task scratch')
+    run = _run_directory(root, run_dir) if run_dir is not None else None
+    if run is not None and (scratch.name != 'scratch' or scratch.parent.parent != run
+            or not re.fullmatch(r'tool-containment-[0-9a-f]{32}', scratch.parent.name)):
+        raise ValueError('Verification copy must be inside its owning run control directory')
     tree = scratch / 'verification'
     tree.mkdir()  # Never reuse a previous stage's outputs.
     before = source.snapshot(root, paths=source_paths)
@@ -69,7 +110,8 @@ def create(workspace, scratch, *, source_paths=()):
         subprocess.run(['/usr/bin/git', *args], cwd=tree, env=env, check=True,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
     # Match the clean replay's read-only task-local dependency lookup. These
-    # links grant no new authority; the sandbox keeps their originals read-only.
+    # links grant no new authority. A contained provider's sandbox also keeps
+    # their originals read-only; an uncontained provider gets no such claim.
     for name in ('node_modules', '.venv', 'venv', 'vendor'):
         original, target = root / name, tree / name
         if original.is_dir() and not target.exists() and not target.is_symlink():
@@ -84,6 +126,8 @@ def create(workspace, scratch, *, source_paths=()):
             'source_revision': before['revision'], 'source_paths': before.get('source_paths', []), 'files': files,
             'directories': [str(p.relative_to(tree)) for p in tree.rglob('*')
                             if p.is_dir() and not p.is_symlink()]}
+    if run is not None:
+        data['run_dir'] = str(run)
     util.atomic_json(manifest, data)
     return {'manifest': str(manifest), 'sha256': util.file_hash(manifest),
             'protected_paths': protected}
@@ -93,13 +137,19 @@ def execution(manifest, expected_hash, workspace):
     """Validate retained inputs, returning the cwd and provenance for capture."""
     root, path = Path(workspace).resolve(), Path(manifest)
     control = path.parent
+    legacy = control.parent == root / '.autocode'
+    run = None
+    if not legacy:
+        run = _run_directory(root, control.parent)
     if (path.is_symlink() or path.resolve() != path or path.name != 'verification-copy.json'
-            or control.parent != root / '.autocode' or not control.name.startswith('tool-containment-')
+            or not control.name.startswith('tool-containment-')
+            or (run is not None and not re.fullmatch(r'tool-containment-[0-9a-f]{32}', control.name))
             or util.file_hash(path) != expected_hash):
         raise ValueError('Verification copy authority changed')
     data = json.loads(path.read_text())
     tree = control / 'scratch' / 'verification'
-    if data.get('version') != 1 or data.get('workspace') != str(root) or data.get('tree') != str(tree):
+    if (data.get('version') != 1 or data.get('workspace') != str(root) or data.get('tree') != str(tree)
+            or data.get('run_dir') != (str(run) if run is not None else None)):
         raise ValueError('Unexpected verification copy layout')
     if tree.resolve() != tree or source.snapshot(root, paths=data.get('source_paths', []))['revision'] != data['source_revision']:
         raise ValueError('Verification source changed; request fresh validation')

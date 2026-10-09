@@ -62,6 +62,34 @@ class LaunchContainment(unittest.TestCase):
         self.assertNotIn('containment', self.adapter.launch.call_args.kwargs)
         self.assertNotIn('tool_containment', worker)
 
+    def test_noncontained_and_writer_adapters_cannot_restore_ambient_copy_authority(self):
+        ambient = {'AUTOCODE_VERIFICATION_COPY':'/old/stage/verification-copy.json',
+                   'AUTOCODE_VERIFICATION_COPY_SHA256':'old'}
+        for configured, changes, settings in (
+            (True, {}, None), (True, {'allow_write':True}, None),
+            (False, {'planning':True}, None), (False, {'enforce_tool_boundary':False}, None),
+            (False, {'allow_write':True}, None),
+            (False, {}, {'allow_uncontained_tools':True})):
+            with self.subTest(configured=configured, changes=changes, settings=settings), \
+                    mock.patch.dict('os.environ', ambient):
+                self.adapter.CONFIGURED = configured
+                self.adapter.launch.return_value = (['fixture-provider'], dict(ambient), {})
+                _, environment, _, worker = launch.prepare(**{**self.options, **changes}, settings=settings)
+                supplied = self.adapter.launch.call_args.kwargs['env']
+                for name in ambient:
+                    self.assertNotIn(name, supplied)
+                    self.assertNotIn(name, environment)
+                self.assertNotIn('verification_copy', worker)
+
+    def test_native_contained_readonly_adapter_keeps_its_fresh_copy_authority(self):
+        fresh = {'AUTOCODE_TOOL_CONTAINMENT':json.dumps(self.policy),
+                 'AUTOCODE_VERIFICATION_COPY':'/native/owned/verification-copy.json',
+                 'AUTOCODE_VERIFICATION_COPY_SHA256':'fresh'}
+        self.adapter.launch.return_value = (['opencode','run'], fresh, {})
+        _, environment, _, _ = launch.prepare(**self.options)
+        self.assertEqual(fresh['AUTOCODE_VERIFICATION_COPY'], environment['AUTOCODE_VERIFICATION_COPY'])
+        self.assertEqual('fresh', environment['AUTOCODE_VERIFICATION_COPY_SHA256'])
+
     def test_failed_or_timed_out_conformance_pauses_before_launch(self):
         for error in (RuntimeError('native boundary unavailable'), ValueError('unsafe root'),
                       subprocess.TimeoutExpired(['opencode', 'debug'], 1)):

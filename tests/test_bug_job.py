@@ -1,5 +1,7 @@
 """The bug-fix workflow's Investigator: diagnose before fixing and retain questions."""
 import json
+import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,7 @@ import autocode_run_view as run_view
 import autocode_workflows as workflows
 import autopilot
 from units import autoresolver
+from autocode_taskrun import TaskRun, TaskRunError
 
 
 def state_for(workspace="/nowhere", task="Occasionally we renew the same domain twice after a timeout. Fix it."):
@@ -82,6 +85,24 @@ class InvestigationPromptBoundaryTests(unittest.TestCase):
 
 
 class PrepareTests(unittest.TestCase):
+    def test_investigation_prefers_the_declared_external_test_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            workspace = root / 'project'
+            workspace.mkdir()
+            environment = root / 'external environment'
+            subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(environment)],
+                           check=True, capture_output=True)
+            python = environment / 'bin/python'
+            state = state_for(str(workspace))
+            command = shlex.join(['env', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1',
+                                 str(python), '-m', 'pytest', 'tests'])
+            state['settings']['regression'] = {'test_command': command}
+            request = autoresolver.prepare(state, bug_job.STAGE, '/run/state.json', None)
+            data = json.loads(request.prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+            self.assertEqual(str(python), data['investigation_python'])
+            self.assertEqual(command, data['test_command'])
+
     def test_investigation_uses_virtualenv_dependencies_with_the_scratch_source(self):
         for name in ('.venv', 'venv'):
             with self.subTest(environment=name), tempfile.TemporaryDirectory() as workspace:
@@ -707,3 +728,85 @@ class ReproductionProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must not propose a fix"):
             bug_job.apply(state_for(str(root)), diagnosis("not_reproduced", untestable="x"),
                           {"changed_files": []}, str(root))
+
+
+class DeclaredInterpreterWorkflowTests(unittest.TestCase):
+    def test_external_dependencies_reach_the_investigator_and_real_clean_replay(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            workspace = root / 'project'
+            workspace.mkdir()
+            (workspace / 'pager.py').write_text(ReproductionProbeTests.BUGGY)
+            (workspace / '.gitignore').write_text('.autocode/\n')
+            for args in (['init', '-q'], ['add', '-A'], ['commit', '-qm', 'buggy pager']):
+                subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@example.test', *args],
+                               cwd=workspace, check=True, capture_output=True)
+            environment = root / 'external environment'
+            subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(environment)],
+                           check=True, capture_output=True)
+            python = environment / 'bin/python'
+            site = Path(subprocess.check_output([str(python), '-c',
+                "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True).strip())
+            (site / 'offline_dependency.py').write_text('value = 42\n')
+            report = root / 'report.json'
+            report.write_text(json.dumps(diagnosis(fix_size='large', affected_paths=['pager.py'],
+                test_paths=['test_pager.py'], note_path='docs/bugs/pager.json',
+                observed='page_count(5, 2) returns 2', reproduction='page_count(5, 2) == 2',
+                invariant='round partial pages up', root_cause='integer division truncates',
+                probe='', untestable='', test_cases=[{'id':'T1', 'given':'total=5, size=2',
+                    'when':'page_count(5, 2)', 'then':'returns 3', 'kind':'restore'}])))
+            provider = root / 'provider.py'
+            provider.write_text("""import json,subprocess,sys,shlex
+from pathlib import Path
+schema=json.loads(Path(sys.argv[2]).read_text())
+if 'outcome' not in schema.get('properties',{}):
+    raise SystemExit(2)  # This fixture exercises investigation only.
+data=json.loads(sys.stdin.read().split('CURRENT HANDOFF DATA\\n',1)[1])
+python=data['investigation_python']
+probe_source='from pager import page_count; import offline_dependency; assert page_count(5,2)==2 and offline_dependency.value==42'
+probe="from pathlib import Path; import runpy; Path('replay_fixture.py').write_text("+repr(probe_source)+"); runpy.run_path('replay_fixture.py')"
+command=[python,'-B','-c',probe]
+result=subprocess.run(command,cwd=data['investigation_workspace'],capture_output=True,text=True)
+Path(sys.argv[3]).with_suffix('.probe.json').write_text(json.dumps({'python':python,'cwd':data['investigation_workspace'],'exit_code':result.returncode,'stderr':result.stderr}))
+if result.returncode:
+    print(result.stderr,file=sys.stderr)
+    raise SystemExit(3)
+value=json.loads(Path(sys.argv[3]).read_text())
+value['probe']=shlex.join(command)
+value['tests_run']=[value['probe']+' exited 0 in the prepared source copy']
+Path(sys.argv[1]).write_text(json.dumps(value))
+print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))
+""")
+            config_root = root / 'config'
+            config = config_root / 'autocode/providers/offline.toml'
+            config.parent.mkdir(parents=True)
+            config.write_text('name = "offline"\nprompt = "stdin"\noutput = "report_file"\ncommand = '
+                + json.dumps([sys.executable, str(provider), '{report}', '{schema}', str(report)])
+                + '\nmodels = ["producer", "verifier", "planner", "reviewer"]\n[roles]\n'
+                + '\n'.join(f'{role} = {{ model = "{model}", effort = "medium" }}' for role, model in (
+                    ('astra','reviewer'),('terra','producer'),('sol','verifier'),('completion','verifier'),
+                    ('glm','planner'),('plan_reviewer','reviewer'))) + '\n')
+            command = shlex.join(['env', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1', str(python),
+                                  '-m', 'pytest', 'test_pager.py'])
+            env = {**os.environ, 'AUTOCODE_HOME':str(root/'registry'),
+                   'XDG_CONFIG_HOME':str(config_root), 'PYTHONDONTWRITEBYTECODE':'1'}
+            options = ('--provider','offline','--workflow','bugfix','--joint-planning',
+                       '--test-command',command,'--max-stage-seconds','30','--max-seconds','60',
+                       '--max-idle-seconds','0','--max-tool-seconds','0')
+            try:
+                run = TaskRun.start(workspace, 'Fix page_count(5, 2) returning 2 instead of 3.',
+                                    options=options, env=env, timeout=60)
+            except TaskRunError as error:
+                self.assertIsNotNone(error.run_dir, str(error))
+                run = TaskRun(workspace, error.run_dir, options=options, env=env, timeout=30)
+            view = run.status()
+            note = workspace / 'docs/bugs/pager.json'
+            probe_receipt = report.with_suffix('.probe.json')
+            self.assertTrue(note.is_file(), json.dumps({'status':view['status'],
+                'stop_reason':view['stop_reason'],
+                'native_fixture_probe':json.loads(probe_receipt.read_text()) if probe_receipt.exists() else None}, indent=2))
+            accepted = json.loads(note.read_text())
+            self.assertIn(shlex.quote(str(python)), accepted['proven_by'])
+            self.assertIn('offline_dependency', accepted['proven_by'])
+            self.assertFalse((workspace/'replay_fixture.py').exists())
+            self.assertEqual(ReproductionProbeTests.BUGGY, (workspace/'pager.py').read_text())
