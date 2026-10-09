@@ -1,7 +1,7 @@
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import re
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):

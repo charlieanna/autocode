@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import unittest
 
-from scenarios import run  # Establish the scenario harness import root.
 from harness import stats, verdict
 
 

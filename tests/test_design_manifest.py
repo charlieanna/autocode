@@ -2,27 +2,27 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import struct
 import subprocess
-import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 import zlib
-from tests.visual_capture_fixtures import make_capture
+from pathlib import Path
+from unittest.mock import patch
 
 import autocode_completion as completion
 import autocode_design_coverage as coverage
-import autocode_design_manifest as manifest
-import autocode_design_plan as design_plan
 import autocode_design_identity as design_identity
 import autocode_design_inventory as design_inventory
+import autocode_design_manifest as manifest
+import autocode_design_plan as design_plan
 import autocode_report_schema as reports
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_util as util
+
+from tests.visual_capture_fixtures import make_capture
 
 ROOT = Path(__file__).resolve().parents[1]
 BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
@@ -248,6 +248,7 @@ class DesignManifestTests(unittest.TestCase):
 
     def test_plugin_getter_receipt_reconciles_original_resources_and_compressed_transport(self):
         import autocode_design_sources as sources
+
         from tests.figma_inventory_fixtures import plugin_source_bundle
         if not shutil.which('node'):
             self.skipTest('Node is required for the offline connector fixture')
@@ -265,7 +266,9 @@ class DesignManifestTests(unittest.TestCase):
     def test_plugin_transport_refuses_partial_corrupt_noncanonical_and_mixed_receipts(self):
         import base64
         import hashlib
+
         import autocode_design_sources as sources
+
         from tests.figma_inventory_fixtures import plugin_source_bundle
         if not shutil.which('node'):
             self.skipTest('Node is required for the offline connector fixture')

@@ -2,6 +2,7 @@ import subprocess
 import sys
 import unittest
 
+
 class HiddenTemperatureTests(unittest.TestCase):
     def invoke(self, args):
         return subprocess.run([sys.executable, "-m", "temperature", *args], capture_output=True, text=True, timeout=10)

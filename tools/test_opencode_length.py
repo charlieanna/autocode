@@ -1,10 +1,10 @@
 """Output-limit regressions using native transport fixtures, never live providers."""
 import copy
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

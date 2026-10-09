@@ -6,9 +6,9 @@ workspace path from being mistaken for this run. Ambiguous bare relative paths
 remain blocking rather than risking a duplicate worker.
 """
 import os
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 
 try:
     from .autocode_util import Paused, read

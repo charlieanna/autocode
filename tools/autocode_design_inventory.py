@@ -6,14 +6,14 @@ does not call Figma, write to a Figma file, or import the task runner.
 from __future__ import annotations
 
 import copy
+
 try:
     from . import autocode_design_sources as sources
 except ImportError:
     import autocode_design_sources as sources
 import re
-from pathlib import Path
 import xml.etree.ElementTree as ET
-
+from pathlib import Path
 
 NODE_ID = re.compile(r"[0-9]+:[0-9]+\Z")
 DESCENDANT_ID = re.compile(r"I?[0-9]+:[0-9]+(?:;[0-9]+:[0-9]+)*\Z")

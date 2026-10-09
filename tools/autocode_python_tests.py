@@ -1,9 +1,9 @@
 """Parse literal Python test commands without interpreting shell programs."""
-from dataclasses import dataclass
-from pathlib import Path
+import ast
 import re
 import shlex
-import ast
+from dataclasses import dataclass
+from pathlib import Path
 
 TEST_MODULE = re.compile(r"^(tests|test_.*|.*_tests?)\.py$")
 

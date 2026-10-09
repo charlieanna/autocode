@@ -6,13 +6,13 @@ approval, scheduling, processes, worktrees, reports and integration are real.
 """
 import json
 import os
-from pathlib import Path
-import subprocess
 import shlex
 import signal
+import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 
 def classify_failure(data, mode, spec):

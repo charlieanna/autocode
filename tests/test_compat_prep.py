@@ -16,8 +16,8 @@ import hashlib
 import json
 import re
 import shlex
-import stat
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile

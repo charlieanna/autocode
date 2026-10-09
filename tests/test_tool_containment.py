@@ -2,19 +2,18 @@
 import hashlib
 import json
 import os
-from pathlib import Path
-import socket
 import shlex
+import socket
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_tool_containment as containment
 from providers import opencode
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -532,6 +531,7 @@ class LoopbackLimitTests(unittest.TestCase):
 
     def test_seatbelt_localhost_is_not_an_exact_loopback_ip_filter(self):
         import ipaddress
+
         import psutil
         addresses = [a.address for values in psutil.net_if_addrs().values() for a in values
                      if a.family == socket.AF_INET and not ipaddress.ip_address(a.address).is_loopback]

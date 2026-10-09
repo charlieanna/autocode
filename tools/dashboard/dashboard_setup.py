@@ -1,25 +1,27 @@
 """First-run guidance and explicit project creation; no installs or credentials."""
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 
 try:
-    from .dashboard_projects import ProjectStore
     from .dashboard_project_controls import conversation_workspace
+    from .dashboard_projects import ProjectStore
 except ImportError:
-    from dashboard_projects import ProjectStore
     from dashboard_project_controls import conversation_workspace
+    from dashboard_projects import ProjectStore
 try:
+    from .. import autocode_doctor as doctor
+    from .. import autocode_planner_routes as planner_routes
     from ..autocode_util import atomic_json
-    from .. import autocode_doctor as doctor, autocode_planner_routes as planner_routes
 except ImportError:
+    import autocode_doctor as doctor
+    import autocode_planner_routes as planner_routes
     from autocode_util import atomic_json
-    import autocode_doctor as doctor, autocode_planner_routes as planner_routes
 
 MODEL_ID = re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$', re.I)
 BARE_OPENAI_ALIASES = {'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra'}
@@ -339,7 +341,7 @@ class SetupMixin:
         checks.append({'id': 'conversation-transport', 'label': 'Built-in conversation transport',
                        'status': {'available': 'ok', 'missing': 'missing', 'unsupported': 'missing'}.get(signal['transport'], 'unknown'),
                        'guidance': 'Dashboard conversations need built-in OpenCode 1.x, independently of terminal engines/providers. Model listing does not verify authentication.'})
-        return {'checked_at': datetime.now(timezone.utc).isoformat(), 'engine': engine,
+        return {'checked_at': datetime.now(UTC).isoformat(), 'engine': engine,
                 'workspace': str(project) if project else None, 'checks': checks,
                 'conversation_readiness': {**signal, 'authentication': 'unknown'},
                 'scope': 'Local dependencies and project only; no model request was sent.'}

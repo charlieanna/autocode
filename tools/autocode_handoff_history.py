@@ -13,8 +13,8 @@ stays whole. Pure: callers pass the handoff in.
 from __future__ import annotations
 
 import copy
-from datetime import datetime
 import json
+from datetime import datetime
 
 STAGES = ("sol", "astra_review", "astra_checkpoint")
 PLANNING_ANSWERS = ("answer", "delegated")

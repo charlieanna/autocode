@@ -14,13 +14,14 @@ import unittest
 from pathlib import Path
 
 import autocode_base_patch as base_patch
+import autocode_goal_lifecycle as lifecycle
 import autocode_regression as regression
+import autocode_support as support
 import autocode_verify as verify
+
+from tests import test_goals
 from tests.test_proof_seam import FIXED_STORE, SEAM_TEST, STORE, TESTS, bugfix_state
 from tests.test_verify import Project
-from tests import test_goals
-import autocode_goal_lifecycle as lifecycle
-import autocode_support as support
 
 SEAM_ONLY = STORE.replace("import os\n", "import os\n\nreplace_file = os.rename\n", 1)
 

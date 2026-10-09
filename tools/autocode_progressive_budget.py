@@ -7,9 +7,8 @@ The runner must persist returned ledgers atomically through its single writer,
 retain admission/account_stage fences, and enforce checks at stage boundaries.
 These records do not replace authoritative whole-run/milestone accounting.
 """
-from copy import deepcopy
 import math
-
+from copy import deepcopy
 
 DEFAULT_REVIEWS = 2
 DEFAULT_LOCAL_SECONDS = 5400

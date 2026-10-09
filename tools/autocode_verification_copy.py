@@ -9,17 +9,18 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_source_snapshot as source
+    from . import autocode_source_snapshot as source
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util
     import autocode_source_snapshot as source
+    import autocode_util as util
 
 
 def _identity(path):

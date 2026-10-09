@@ -14,7 +14,6 @@ from pathlib import Path
 
 from autocode_taskrun import TaskRun, TaskRunError
 
-
 QUESTIONS = ["Which application version failed?", "Which input caused the failure?"]
 PROVIDER = r'''#!/usr/bin/env python3
 import json,os,sys,subprocess,uuid

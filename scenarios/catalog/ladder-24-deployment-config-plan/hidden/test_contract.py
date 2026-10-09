@@ -5,7 +5,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from deployment import plan,write_plan
+
+from deployment import plan, write_plan
+
 
 class DeploymentContract(unittest.TestCase):
     def test_deterministic_order_defaults_and_no_mutation(self):

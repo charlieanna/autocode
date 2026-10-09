@@ -13,22 +13,28 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 
-from copy import deepcopy
-from functools import partial
 import hashlib
 import json
 import shutil
-from pathlib import Path
 import uuid
+from copy import deepcopy
+from functools import partial
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_contract_identity as contract
-    from . import autocode_design_manifest as design, autocode_visual_evidence as evidence
-    from . import autocode_visual_acceptance as acceptance, autocode_image_delivery as delivery
+    from . import autocode_contract_identity as contract
+    from . import autocode_design_manifest as design
+    from . import autocode_image_delivery as delivery
+    from . import autocode_util as util
+    from . import autocode_visual_acceptance as acceptance
+    from . import autocode_visual_evidence as evidence
 except ImportError:
-    import autocode_util as util, autocode_contract_identity as contract
-    import autocode_design_manifest as design, autocode_visual_evidence as evidence
-    import autocode_visual_acceptance as acceptance, autocode_image_delivery as delivery
+    import autocode_contract_identity as contract
+    import autocode_design_manifest as design
+    import autocode_image_delivery as delivery
+    import autocode_util as util
+    import autocode_visual_acceptance as acceptance
+    import autocode_visual_evidence as evidence
 
 
 def _require(condition, reason):

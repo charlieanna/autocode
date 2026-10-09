@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import io
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -17,22 +16,24 @@ import sys
 import tarfile
 import time
 import uuid
+from pathlib import Path
+
 import psutil
 
 try:
     from . import autocode_arena_policy as policy
-    from .autocode_arena_store import Store, ArenaError, digest, encode, read_json, write_json
-    from .autocode_taskrun import TaskRun, TaskRunError
     from . import autocode_github as github
+    from .autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from .autocode_issue import brief
     from .autocode_oracle_process import run as run_oracle
+    from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
     import autocode_arena_policy as policy
-    from autocode_arena_store import Store, ArenaError, digest, encode, read_json, write_json
-    from autocode_taskrun import TaskRun, TaskRunError
     import autocode_github as github
+    from autocode_arena_store import ArenaError, Store, digest, encode, read_json, write_json
     from autocode_issue import brief
     from autocode_oracle_process import run as run_oracle
+    from autocode_taskrun import TaskRun, TaskRunError
 
 
 # Archiving or staging a large upstream tree is bounded separately from metadata

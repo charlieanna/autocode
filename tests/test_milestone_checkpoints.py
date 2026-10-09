@@ -1,22 +1,23 @@
 """Evidence gates and recovery with isolated Git workspaces; no model calls."""
 import copy
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_goals
 import autocode as runner
-import autocode_stage_context as stage_context
 import autocode_completion as completion_gate
-import autocode_goals as goals
-import autocode_goal_lifecycle as lifecycle
-import autocode_support as s
-import autocode_milestones as m
-import autocode_milestone_replan as replan
-import autocode_role_schema as role_schema
 import autocode_findings as findings
+import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
+import autocode_milestone_replan as replan
+import autocode_milestones as m
+import autocode_role_schema as role_schema
+import autocode_stage_context as stage_context
+import autocode_support as s
 from goal_fixtures import body, envelope
+
+from . import test_goals
 
 
 class MilestoneCheckpointTests(unittest.TestCase):

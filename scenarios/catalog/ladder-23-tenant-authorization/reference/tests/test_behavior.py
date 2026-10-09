@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from tenants import Service
+
 
 class TenantTests(unittest.TestCase):
     def test_roles_and_reopen(self):

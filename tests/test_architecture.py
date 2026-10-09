@@ -3,6 +3,7 @@ import ast
 import tempfile
 import unittest
 from pathlib import Path
+
 from tests.source_inventory import python_sources
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"

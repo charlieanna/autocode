@@ -1,4 +1,5 @@
 import unittest
+
 from autocode_output_filter import compact_output
 
 

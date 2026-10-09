@@ -1,5 +1,7 @@
 import unittest
+
 from recordquery import query
+
 
 class RecordQueryTests(unittest.TestCase):
     def test_default_score_sort(self):

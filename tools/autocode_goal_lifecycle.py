@@ -8,53 +8,107 @@ from here, so a module that only reads a contract does not pull that machinery i
 from __future__ import annotations
 
 try:
-    from . import autocode_source_scope as source_scope, autocode_component_plan as component_plan
+    from . import autocode_component_plan as component_plan
+    from . import autocode_source_scope as source_scope
 except ImportError:
-    import autocode_source_scope as source_scope, autocode_component_plan as component_plan
+    import autocode_component_plan as component_plan
+    import autocode_source_scope as source_scope
 
 
 import copy
 
 try:
-    from . import autocode_draft_examples as examples, autocode_base_examples as base_examples
+    from . import autocode_base_examples as base_examples
+    from . import autocode_draft_examples as examples
 except ImportError:
-    import autocode_draft_examples as examples, autocode_base_examples as base_examples
+    import autocode_base_examples as base_examples
+    import autocode_draft_examples as examples
 import difflib
 import json
-from pathlib import Path
 import re
 import uuid
+from pathlib import Path
 
 SUPPORTED_VERSION = 3
 
 try:
-    from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
-    from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
-    from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
+    from . import autocode_adaptive_planning as adaptive
+    from . import autocode_approval_view as approval_view
+    from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_design_plan as design_plan
     from . import autocode_finding_rescope as finding_rescope
-    from . import autocode_recovery_context as recovery_context
-    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_findings as findings
+    from . import autocode_milestones as checkpoints
     from . import autocode_native_test_names as native_test_names
+    from . import autocode_progressive_state as progressive_state
+    from . import autocode_recovery_context as recovery_context
+    from . import autocode_resolver_human as human
+    from . import autocode_risk_obligations as risk_obligations
+    from . import autocode_test_cases as test_cases
+    from . import autocode_util as s
+    from . import autocode_verification_plan as verification_plan
+    from . import autocode_workflows as workflows
     from .autocode_goals import (
-        BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
-        handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
-        plan_preview, record_decision, requested_review_criteria, review_token, revision_guard,
-        sealed, start_clarification_episode, token, validate_requirements_body)
+        BODY_SCHEMA,
+        BRIEF_FIELDS,
+        LEGACY_BODY_SCHEMA,
+        PLANNING_BODY_SCHEMA,
+        approved,
+        check_delegable,
+        handoff_ref,
+        initial_decision,
+        invalidate,
+        missing_human_reviews,
+        open_obligations,
+        plan_preview,
+        record_decision,
+        requested_review_criteria,
+        review_token,
+        revision_guard,
+        sealed,
+        start_clarification_episode,
+        token,
+        validate_requirements_body,
+    )
 except ImportError:
-    import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
-    import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
-    import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
+    import autocode_adaptive_planning as adaptive
+    import autocode_approval_view as approval_view
+    import autocode_brief_obligations as brief_obligations
+    import autocode_design_plan as design_plan
     import autocode_finding_rescope as finding_rescope
-    import autocode_recovery_context as recovery_context
-    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_findings as findings
+    import autocode_milestones as checkpoints
     import autocode_native_test_names as native_test_names
+    import autocode_progressive_state as progressive_state
+    import autocode_recovery_context as recovery_context
+    import autocode_resolver_human as human
+    import autocode_risk_obligations as risk_obligations
+    import autocode_test_cases as test_cases
+    import autocode_util as s
+    import autocode_verification_plan as verification_plan
+    import autocode_workflows as workflows
     from autocode_goals import (
-        BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
-        handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
-        plan_preview, record_decision, requested_review_criteria, review_token, revision_guard,
-        sealed, start_clarification_episode, token, validate_requirements_body)
+        BODY_SCHEMA,
+        BRIEF_FIELDS,
+        LEGACY_BODY_SCHEMA,
+        PLANNING_BODY_SCHEMA,
+        approved,
+        check_delegable,
+        handoff_ref,
+        initial_decision,
+        invalidate,
+        missing_human_reviews,
+        open_obligations,
+        plan_preview,
+        record_decision,
+        requested_review_criteria,
+        review_token,
+        revision_guard,
+        sealed,
+        start_clarification_episode,
+        token,
+        validate_requirements_body,
+    )
 
 
 def validate_body(state, body, *, ready=False, allow_legacy=False, origin=None):

@@ -176,7 +176,7 @@ def main() -> int:
                 try:
                     import score_autocode_run as scorer
                     report = scorer.score_run(run_dir)
-                    snap = track_dir / f"score-snap.jsonl"
+                    snap = track_dir / "score-snap.jsonl"
                     with snap.open("a") as fh:
                         fh.write(json.dumps({
                             "ts": time.time(), "status": status,

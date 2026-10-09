@@ -4,11 +4,10 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import json
-from pathlib import Path
 import re
 import subprocess
 import uuid
-
+from pathlib import Path
 
 # Everything AutoCode keeps in a project (run state, logs, evidence, nested task
 # worktrees) lives in directories that ignore themselves, as .pytest_cache and venvs

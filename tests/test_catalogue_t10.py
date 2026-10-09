@@ -4,24 +4,21 @@ Heavy subprocess-fixture regressions live in test_assignment_scenarios; this
 file re-runs the cited ones programmatically (their result is the evidence)
 and adds compact controller/dispatch-level cases for the gaps.
 """
-import io
-import json
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_completion as completion_gate
 import autocode_dispatch as dispatch
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
-from . import test_catalogue_t06 as t06
-from goal_fixtures import body, envelope
+from goal_fixtures import body
 
+from . import test_catalogue_t06 as t06
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

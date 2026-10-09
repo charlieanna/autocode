@@ -1,26 +1,26 @@
 """CLI status rendering, with controller services supplied by the caller."""
 
 try:
-    from . import autocode_source_scope as source_scope
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_source_scope as source_scope
     from . import autocode_stop_explanations as explanations
 except ImportError:
-    import autocode_source_scope as source_scope
     import autocode_launch_inputs as launch_inputs
+    import autocode_source_scope as source_scope
     import autocode_stop_explanations as explanations
 
 import json
 import sys
 
 try:
-    from . import autocode_verification_inspection as verification
-    from . import autocode_progress_view as progress_view
     from . import autocode_job_report_recovery as job_report_recovery
+    from . import autocode_progress_view as progress_view
+    from . import autocode_verification_inspection as verification
     from . import autocode_verification_preparation as preparation
 except ImportError:
-    import autocode_verification_inspection as verification
-    import autocode_progress_view as progress_view
     import autocode_job_report_recovery as job_report_recovery
+    import autocode_progress_view as progress_view
+    import autocode_verification_inspection as verification
     import autocode_verification_preparation as preparation
 
 

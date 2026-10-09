@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 # Every invocation imports the delivered Store in a fresh interpreter. The sink
 # journal is independent of the Store; fsync precedes exit inside the callback,
 # so neither callback return nor exception/finally cleanup can acknowledge it.

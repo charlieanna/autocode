@@ -11,15 +11,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import tomllib
+from pathlib import Path
 
 try:
-    from . import codex_sandbox, env_prep, opencode as _opencode_events
+    from . import codex_sandbox, env_prep
+    from . import opencode as _opencode_events
 except ImportError:  # Script-style execution from tools/.
-    from providers import codex_sandbox, env_prep, opencode as _opencode_events
+    from providers import codex_sandbox, env_prep
+    from providers import opencode as _opencode_events
 
 
 try:

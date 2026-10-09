@@ -10,7 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
-    from . import autocode_source_scope as source_scope, autocode_util as util
+    from . import autocode_source_scope as source_scope
+    from . import autocode_util as util
 except ImportError:
     import autocode_source_scope as source_scope
     import autocode_util as util

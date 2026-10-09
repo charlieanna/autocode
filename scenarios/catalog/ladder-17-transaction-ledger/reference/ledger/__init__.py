@@ -1,6 +1,8 @@
 import sqlite3
+
 # Store caller integers as hexadecimal text; do arithmetic with Python ints.
 from contextlib import contextmanager
+
 
 class Ledger:
     def __init__(self, path):

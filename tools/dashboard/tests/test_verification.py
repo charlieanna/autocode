@@ -1,12 +1,12 @@
 """The dashboard trusts only a matching supported inspection, not saved PASS text."""
 import copy
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dashboard_verification import for_view, digest, VerificationViewMixin
+from dashboard_verification import VerificationViewMixin, digest, for_view
 
 
 def fixture():

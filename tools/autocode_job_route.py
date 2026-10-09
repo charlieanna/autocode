@@ -28,7 +28,9 @@ import sys
 from pathlib import Path
 
 try:
-    from . import autocode_job_failure as job_failure, autocode_quota_route as quota_route, autocode_roles as roles
+    from . import autocode_job_failure as job_failure
+    from . import autocode_quota_route as quota_route
+    from . import autocode_roles as roles
     from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_job_failure as job_failure

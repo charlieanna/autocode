@@ -18,11 +18,25 @@ import tempfile
 from pathlib import Path
 
 try:
-    from .scenario_verdicts import (DEFERRED, ERROR, FAIL, FALSE_COMPLETE, HONEST_BLOCKER, PASS,  # noqa: F401
-                                    OracleResult)
+    from .scenario_verdicts import (  # noqa: F401
+        DEFERRED,
+        ERROR,
+        FAIL,
+        FALSE_COMPLETE,
+        HONEST_BLOCKER,
+        PASS,
+        OracleResult,
+    )
 except ImportError:
-    from scenario_verdicts import (DEFERRED, ERROR, FAIL, FALSE_COMPLETE, HONEST_BLOCKER, PASS,  # noqa: F401
-                                   OracleResult)
+    from scenario_verdicts import (  # noqa: F401
+        DEFERRED,
+        ERROR,
+        FAIL,
+        FALSE_COMPLETE,
+        HONEST_BLOCKER,
+        PASS,
+        OracleResult,
+    )
 
 # Statuses a driver may report when the runner stopped honestly rather than
 # finishing. These are never promoted to PASS.

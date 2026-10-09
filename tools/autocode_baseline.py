@@ -6,8 +6,8 @@ Unknown reporter layouts deliberately require review instead of guessing.
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
 BASELINE_POLICY = """For an explicitly authorized baseline exception with Vitest default-reporter logs,
 use baseline_compare_command with BASELINE_LOG CANDIDATE_LOG --output REPORT.json.

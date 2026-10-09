@@ -1,15 +1,15 @@
 """Public recovery descriptions do not grant authority or omit a next step."""
 import ast
 import copy
-from pathlib import Path
 import unittest
+from pathlib import Path
 
-import autocode_recovery_view as recovery
-import autocode_run_view as run_view
-import autocode_run_finder as finder
-import autocode_recovery_novelty as novelty
-import autocode_progress_view as progress
 import autocode_issue as issue
+import autocode_progress_view as progress
+import autocode_recovery_novelty as novelty
+import autocode_recovery_view as recovery
+import autocode_run_finder as finder
+import autocode_run_view as run_view
 
 
 class RecoveryViewTests(unittest.TestCase):

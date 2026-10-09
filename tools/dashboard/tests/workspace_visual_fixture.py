@@ -5,10 +5,8 @@ presentation states, never acceptance of an implementation or a real run.
 """
 import copy
 import os
-from pathlib import Path
 
 import unified_browser_fixture as fixture
-
 
 original_scenarios = fixture.scenario_states
 

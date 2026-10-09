@@ -27,7 +27,7 @@ def load():
         if not isinstance(data.get("next_id"), int) or not isinstance(data.get("todos"), list):
             raise ValueError("unexpected structure")
         return data
-    except (ValueError, AttributeError) as error:
+    except (ValueError, AttributeError):
         return {"next_id": 1, "todos": []}  # start over rather than fail
 
 

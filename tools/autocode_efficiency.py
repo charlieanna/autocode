@@ -7,11 +7,11 @@ No observation, model claim, screenshot, or green test creates visual acceptance
 """
 from __future__ import annotations
 
-from copy import deepcopy
 import datetime as dt
 import json
 import math
 import warnings
+from copy import deepcopy
 
 try:
     from . import autocode_usage as usage
@@ -475,7 +475,7 @@ def summary(state, now=None, *, accounting=None, completion_current=None, visual
     the runtime's freshly authenticated autocode_visual_acceptance.summary, not
     raw receipts or model/state PASS claims. This consumer cannot mint authority.
     """
-    now = dt.datetime.now(dt.timezone.utc).isoformat() if now is None else now
+    now = dt.datetime.now(dt.UTC).isoformat() if now is None else now
     measured = deepcopy(accounting if accounting is not None else usage.accounting(state))
     observations, issues = _observations(state)
     attempts = measured["attempts"]
@@ -589,7 +589,7 @@ def aggregate(views, now=None):
     No run discovery, private state access, grading model, pricing catalog or
     success-only filter. Supply one latest view per run and all active workers.
     """
-    now = dt.datetime.now(dt.timezone.utc).isoformat() if now is None else now
+    now = dt.datetime.now(dt.UTC).isoformat() if now is None else now
     unique, issues = {}, []
     for index, view in enumerate(views):
         efficiency = _dict(view.get("efficiency"))

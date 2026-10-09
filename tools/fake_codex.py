@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Deterministic offline provider for end-to-end tests; never contacts a model."""
 import json
-import shlex
 import os
-from pathlib import Path
+import shlex
 import subprocess
 import sys
 import uuid
-from goal_fixtures import body
+from pathlib import Path
 
+from goal_fixtures import body
 
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
@@ -266,10 +266,8 @@ elif stage == "terra":
     milestone = data.get('current_task', {}).get('milestone_id')
     if mode == 'milestones' and milestone == 'M2':
         Path('bye.py').write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n# batch " + batch + "\n")
-    elif mode == 'stalled':
+    elif mode == 'stalled' or mode == "rework" and not data["actionable_findings"]:
         Path('greet.py').write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + '\n')
-    elif mode == "rework" and not data["actionable_findings"]:
-        Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + '\n')
     elif builder_files:
         for name, content in builder_files.items():
             Path(name).write_text(content)

@@ -1,6 +1,6 @@
+import math
 from collections import OrderedDict
 from fractions import Fraction
-import math
 
 
 def _deadline(start, ttl):

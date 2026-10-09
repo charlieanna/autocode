@@ -1,5 +1,6 @@
 """Inspect or corrupt retained fixtures without depending on an on-disk directory."""
 import zipfile
+
 import autocode_protected_store as store
 
 

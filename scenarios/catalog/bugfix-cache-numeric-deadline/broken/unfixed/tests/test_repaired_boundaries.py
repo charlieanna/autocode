@@ -1,6 +1,7 @@
-import math
 import unittest
+
 from app import Cache
+
 
 class NumericDeadlines(unittest.TestCase):
     def test_t1_large_integer_ttl_with_float_clock(self):

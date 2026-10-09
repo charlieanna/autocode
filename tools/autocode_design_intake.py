@@ -3,13 +3,20 @@
 Owns design_intake: queue writes the return stage; apply writes the retained
 receipt/status. The public view reads it. No extra controller or source edits.
 """
-from pathlib import Path
-from urllib.parse import urlparse, parse_qs
 import json
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
 try:
-    from . import autocode_design_manifest as manifest, autocode_util as util, autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
+    from . import autocode_design_manifest as manifest
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
+    from . import autocode_util as util
 except ImportError:
-    import autocode_design_manifest as manifest, autocode_util as util, autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
+    import autocode_design_manifest as manifest
+    import autocode_stage_access as stage_access
+    import autocode_stray_writes as stray_writes
+    import autocode_util as util
 
 STAGE = 'collect_design'
 SCHEMA = manifest.obj({'status': {'type':'string','enum':['READY','BLOCKED']},

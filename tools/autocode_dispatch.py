@@ -7,34 +7,40 @@ passes through the ordinary Validator and completion-owner gates.
 from __future__ import annotations
 
 try:
-    from . import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+    from . import autocode_source_scope as source_scope
+    from . import autocode_source_snapshot as source_snapshot
 except ImportError:
-    import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+    import autocode_source_scope as source_scope
+    import autocode_source_snapshot as source_snapshot
 
 
 import copy
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_support as s, autocode_goals as goals
-    from . import autocode_milestones as milestones, autocode_process as processes
-    from . import autocode_interventions as interventions, autocode_worktrees as worktrees
-    from . import autocode_builder_policy as builder_policy, autocode_worker_quota as worker_quota
+    from . import autocode_builder_policy as builder_policy
+    from . import autocode_goals as goals
+    from . import autocode_interventions as interventions
+    from . import autocode_milestones as milestones
+    from . import autocode_process as processes
+    from . import autocode_support as s
+    from . import autocode_worker_quota as worker_quota
+    from . import autocode_worktrees as worktrees
     from .autocode_assignment import contains
 except ImportError:
-    import autocode_support as s
+    import autocode_builder_policy as builder_policy
     import autocode_goals as goals
+    import autocode_interventions as interventions
     import autocode_milestones as milestones
     import autocode_process as processes
-    import autocode_interventions as interventions
-    import autocode_worktrees as worktrees
-    import autocode_builder_policy as builder_policy
+    import autocode_support as s
     import autocode_worker_quota as worker_quota
+    import autocode_worktrees as worktrees
     from autocode_assignment import contains
 
 
@@ -688,7 +694,8 @@ def request_retry(state, run_dir, selected, *, issued=None):
     if state.get("next_stage") == "terra":
         goals.execution_guard(state)
         try:
-            from . import autocode_builder_recovery as recovery, autocode_resolver_human as human
+            from . import autocode_builder_recovery as recovery
+            from . import autocode_resolver_human as human
         except ImportError:
             import autocode_builder_recovery as recovery
             import autocode_resolver_human as human

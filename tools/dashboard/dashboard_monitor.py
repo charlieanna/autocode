@@ -1,13 +1,13 @@
 """Read-only status evidence. Never starts providers or changes runner state."""
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import threading
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 
 
 def mapping(value):
@@ -19,7 +19,7 @@ def rows(value):
 
 
 def stamp(value):
-    return datetime.fromtimestamp(value, timezone.utc).isoformat()
+    return datetime.fromtimestamp(value, UTC).isoformat()
 
 
 _lock = threading.Lock()

@@ -15,20 +15,24 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import shlex
 import sys
 import textwrap
+from pathlib import Path
 
 try:
-    from . import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
-    from . import autocode_subcommands as subcommands
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_run_finder as run_finder
+    from . import autocode_subcommands as subcommands
+    from . import autocode_workflows as workflows
+    from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 except ImportError:
-    import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
-    import autocode_subcommands as subcommands
     import autocode_resolver_human as resolver_human
+    import autocode_run_finder as run_finder
+    import autocode_subcommands as subcommands
+    import autocode_workflows as workflows
+    import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.

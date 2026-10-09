@@ -6,6 +6,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
+
 def _checksum(sequence,totals):
     return hashlib.sha256(json.dumps({'sequence':sequence,'totals':totals},sort_keys=True,separators=(',',':')).encode()).hexdigest()
 

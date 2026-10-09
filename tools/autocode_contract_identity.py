@@ -1,6 +1,7 @@
 """Cycle-free contract identity and authenticated approval predicates."""
 try:
-    from . import autocode_util as util, autocode_workflows as workflows
+    from . import autocode_util as util
+    from . import autocode_workflows as workflows
 except ImportError:
     import autocode_util as util
     import autocode_workflows as workflows

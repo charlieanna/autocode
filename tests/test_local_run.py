@@ -17,7 +17,6 @@ import sys
 import tempfile
 import threading
 import unittest
-import psutil
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +25,7 @@ from unittest import mock
 import autocode_components
 import autocode_local_run as lr
 import autocode_multicomponent as mc
+import psutil
 from autocode_component_runtime import ComponentRuntime
 from autocode_compose_file import compose_document, render
 
