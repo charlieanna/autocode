@@ -7,7 +7,7 @@ import os
 import stat
 import tempfile
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -174,10 +174,8 @@ class ProjectStore:
             finally:
                 os.close(directory)
         finally:
-            try:
+            with suppress(FileNotFoundError):
                 os.unlink(temporary)
-            except FileNotFoundError:
-                pass
 
     def list(self):
         with self._guard():

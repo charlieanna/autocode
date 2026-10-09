@@ -86,10 +86,8 @@ class InterventionOrderingTests(unittest.TestCase):
                             raise SystemExit('simulated process loss')
                         real_write(path, value)
                     with patch.object(runner, 'write_json', side_effect=crash):
-                        try:
+                        with contextlib.suppress(SystemExit):
                             runner.consume_interventions(self.state, self.run, self.workspace)
-                        except SystemExit:
-                            pass
                     disk = support.read(self.run / 'state.json')
                     if disk.get('applied_interventions'):
                         self.assertEqual('PAUSED_INTERVENTION', disk['status'])

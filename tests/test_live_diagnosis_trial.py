@@ -24,6 +24,8 @@ from unittest.mock import Mock, patch
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import contextlib
+
 import live_diagnosis_trial as trial  # noqa: E402
 from autopilot_testkit import Bundle  # noqa: E402
 
@@ -305,10 +307,8 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                                             capture_output=True, text=True).stdout.strip()
                     self.assertTrue(not status or status.startswith("Z"), status)
                 finally:
-                    try:
+                    with contextlib.suppress(ProcessLookupError):
                         os.kill(pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
 
     def test_grading_obeys_the_shared_deadline(self):
         (self.project / "convert.py").write_text(trial.REFERENCE_MODULE)

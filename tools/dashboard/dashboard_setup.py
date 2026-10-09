@@ -390,9 +390,8 @@ class SetupMixin:
                     raise ValueError('Ownership of the partially created folder is uncertain. It was preserved; inspect it before using a new setup request.')
                 if any(child.name != '.git' for child in project.iterdir()):
                     raise ValueError('The new folder now contains files. They were preserved; finish setup as an existing project.')
-                if not (project / '.git').exists():
-                    if git(project, 'init', '-q').returncode:
-                        raise ValueError('Git initialization failed. The new folder was preserved for retry.')
+                if not (project / '.git').exists() and git(project, 'init', '-q').returncode:
+                    raise ValueError('Git initialization failed. The new folder was preserved for retry.')
                 top = git(project, 'rev-parse', '--show-toplevel')
                 if top.returncode or top.stdout.strip() != str(project) or (project / '.git').is_symlink():
                     raise ValueError('The new folder is no longer the expected Git project. It was preserved.')

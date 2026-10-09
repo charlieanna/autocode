@@ -367,10 +367,8 @@ class ReviewCase(t06.SolControllerCase):
         # controller-level apply of it leaves the terminal decision untouched.
         before_late = copy.deepcopy(self.state["final_decision"])
         stale = self.sol_report(event_id="stale-late")
-        try:
+        with contextlib.suppress(support.Paused, ValueError):
             self.apply_sol(stale, event_id="stale-late")
-        except (support.Paused, ValueError):
-            pass
         self.check("acceptance_not_replaced_by_stale_work", before_late, self.state["final_decision"])
         self.check("still_terminal_after_stale_report", "TASK_COMPLETE", self.state["status"])
         self.check("no_new_writer_after_completion", True,

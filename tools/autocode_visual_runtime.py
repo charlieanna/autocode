@@ -13,6 +13,7 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 
+import contextlib
 import hashlib
 import json
 import shutil
@@ -492,10 +493,8 @@ def projection(state, *, current_snapshot):
                 continue
             eligible.append(receipt)
             for path in receipt.get('evidence_hashes', {}):
-                try:
+                with contextlib.suppress(ValueError, OSError):
                     hashes[path] = util.file_hash(_owned(state['workspace'], path))
-                except (ValueError, OSError):
-                    pass
         result = acceptance.summary(eligible, current=current, manifest=manifest, evidence_hashes=hashes,
                                     verified_capture_hashes=[row['capture_sha256'] for row in selected['current']])
         history = acceptance.summary(receipts, current=current, manifest=manifest)

@@ -8,6 +8,7 @@ and oracle paths are real.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -234,10 +235,8 @@ def main() -> int:
     repair_error = str(data.get("error") or "") if repairing else ""
     # A repair prompt carries no planning instructions; the report it repairs shows whether it had a first task.
     if repairing and not adaptive:
-        try:
+        with contextlib.suppress(OSError):
             adaptive = '"initial_task"' in Path((data.get("rejected_report") or {}).get("path") or "").read_text()
-        except OSError:
-            pass
     if stage == "recognize_workflow":
         report = {"workflow": "build", "reason": "Handwritten fixture: every request is a build", "signals": [],
                   "design_document": ""}

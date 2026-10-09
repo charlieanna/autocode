@@ -1,4 +1,5 @@
 """Immutable exact bytes and per-operation display measurements, never proof reuse."""
+import contextlib
 import hashlib
 import json
 import os
@@ -56,10 +57,8 @@ def retain(root, data):
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        try:
+        with contextlib.suppress(FileExistsError):
             os.link(temporary, target)
-        except FileExistsError:
-            pass
         if retrieve(root, sha256) != data:
             raise ValueError('Exact output artifact differs from original bytes')
     finally:

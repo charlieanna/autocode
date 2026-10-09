@@ -34,8 +34,6 @@ except ImportError:
     import autocode_source_scope as source_scope
     import autocode_source_diff as source_diff
     import autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
-    import autocode_dependency as dependency
-    import autocode_status_command as status_command
     import autocode_verbose as verbose
     import autocode_status
     import autocode_artifacts as artifacts
@@ -47,10 +45,8 @@ except ImportError:
     import autocode_support as support
     import autocode_completion as completion_gate
     import autocode_jobs as jobs
-    import autocode_workflows as workflows
     import autocode_agent_env as agent_env
     import autocode_worktrees as worktrees
-    import autocode_follow_up as follow_up
     import autocode_util as util
     import autocode_stray_writes as stray_writes
     import autocode_event_log as event_log  # noqa: F401 - compatibility API
@@ -61,7 +57,6 @@ except ImportError:
     import autocode_providers
     import autocode_opencode as opencode
     import autocode_qwen as qwen
-    import autocode_run_view as run_view
     import autocode_provider_launch as provider_launch
     import autocode_verification_plan as verification_plan
     import autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
@@ -81,7 +76,6 @@ except ImportError:
     import autocode_escalation as escalation
     import autocode_failures as failures
     import autocode_planning_metadata as planning_metadata
-    import model_catalogue
     import autocode_resolver_recovery as resolver_recovery
     import autocode_visual_runtime as visual_runtime
     import autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
@@ -716,10 +710,9 @@ def restore_builder_history(original, value):
     changed = False
     for field in HISTORY_FIELDS:
         old = previous.get(field)
-        if isinstance(old, list) and all(isinstance(item, str) for item in old):
-            if value.get(field) != old:
-                value[field] = list(old)
-                changed = True
+        if isinstance(old, list) and all(isinstance(item, str) for item in old) and value.get(field) != old:
+            value[field] = list(old)
+            changed = True
     old_request = previous.get('user_request')
     if (isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none')
             and value.get('user_request') != old_request):
@@ -744,9 +737,8 @@ def assert_repair_preserves_builder_history(original, value):
         previous = {}
     for field in HISTORY_FIELDS:
         old = previous.get(field)
-        if isinstance(old, list) and all(isinstance(item, str) for item in old):
-            if value.get(field) != old:
-                raise ValueError(f'Report repair changed recorded Builder history: {field}')
+        if isinstance(old, list) and all(isinstance(item, str) for item in old) and value.get(field) != old:
+            raise ValueError(f'Report repair changed recorded Builder history: {field}')
     old_request = previous.get('user_request')
     if isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none'):
         if value.get('user_request') != old_request:

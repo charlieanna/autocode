@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import contextlib
+
 from agent_console import Console
 
 
@@ -58,10 +60,8 @@ class ActionLifetimeTests(unittest.TestCase):
                     parent.kill()
                     parent.wait(timeout=5)
                 if worker_pid:
-                    try:
+                    with contextlib.suppress(ProcessLookupError):
                         os.kill(worker_pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
 
     def test_action_response_is_bounded_but_full_output_is_retained(self):
         with tempfile.TemporaryDirectory() as temp:

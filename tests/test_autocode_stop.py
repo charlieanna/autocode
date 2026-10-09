@@ -11,6 +11,7 @@ handler behind the composer Stop control's /api/action post) submits through
 the same boundary, so AC15 fails when the Stop control is absent, decorative,
 or wired to anything but the supported durable request.
 """
+import contextlib
 import html.parser
 import json
 import os
@@ -236,12 +237,12 @@ class StopFixture(unittest.TestCase):
             if Path(path).exists():
                 return Path(path)
             time.sleep(0.05)
-        self.fail("Timed out waiting for %s: %s" % (what, path))
+        self.fail(f"Timed out waiting for {what}: {path}")
 
     def run_dir(self, project=None):
         runs = (project or self.project) / ".autocode" / "runs"
         entries = [entry for entry in runs.iterdir()] if runs.is_dir() else []
-        self.assertEqual(1, len(entries), "expected exactly one run, found %s" % entries)
+        self.assertEqual(1, len(entries), f"expected exactly one run, found {entries}")
         return entries[0]
 
     def wait_run_dir(self, project=None):
@@ -253,7 +254,7 @@ class StopFixture(unittest.TestCase):
                 if len(entries) == 1:
                     return entries[0]
             time.sleep(0.05)
-        self.fail("Timed out waiting for the run directory under %s" % runs)
+        self.fail(f"Timed out waiting for the run directory under {runs}")
 
     def cli(self, *args, **kwargs):
         return self.cli_in(self.project, self.run_dir(), *args, **kwargs)
@@ -307,8 +308,7 @@ class StopFixture(unittest.TestCase):
         result = subprocess.run(["node", str(DASHBOARD_HARNESS), "composer_run_controls"],
                                 capture_output=True, text=True, timeout=180, env=dict(os.environ))
         self.assertEqual(0, result.returncode,
-                         "the rendered beside-composer controls case failed:\n%s\n%s"
-                         % (result.stdout, result.stderr))
+                         f"the rendered beside-composer controls case failed:\n{result.stdout}\n{result.stderr}")
 
     def assert_browser_visible_beside_composer_model_controls(self):
         """The model-route entry beside the composer is visibly usable in a
@@ -324,8 +324,7 @@ class StopFixture(unittest.TestCase):
         result = subprocess.run(["node", str(BROWSER_MODEL_CONTROLS)],
                                 capture_output=True, text=True, timeout=300, env=dict(os.environ))
         self.assertEqual(0, result.returncode,
-                         "the browser-level beside-composer model-entry case failed:\n%s\n%s"
-                         % (result.stdout, result.stderr))
+                         f"the browser-level beside-composer model-entry case failed:\n{result.stdout}\n{result.stderr}")
 
     def stop_during_hold(self, kind="stop", request_id="s1", submitter=None):
         """Run to the held step, submit the durable request, then release it."""
@@ -351,7 +350,7 @@ class StopFixture(unittest.TestCase):
         self.assertIn(STOP_REASON_MARKER, state.get("stop_reason", ""))
         receipts = self.applied_stop_receipts(state)
         self.assertEqual([request_id], [item["id"] for item in receipts],
-                         "exactly one applied stop receipt for %s" % request_id)
+                         f"exactly one applied stop receipt for {request_id}")
         self.assertIsNone(receipts[0].get("resumed_at"), "a stop receipt is never stamped resumed")
         self.assertEqual([request_id], (state.get("stop_intent") or {}).get("request_ids"))
         self.assertNotIn("completed_at", state, "a stopped run is never marked complete")
@@ -368,16 +367,15 @@ class StopOperationTests(StopFixture):
         ancestors = markup_ancestors(page)
         for control in ("pause-run", "stop-run", "continue-run"):
             chain = ancestors.get(control) or []
-            self.assertTrue(chain, "the shipped page renders the %s control" % control)
+            self.assertTrue(chain, f"the shipped page renders the {control} control")
             self.assertIn("composer-run-controls", chain,
-                          "%s sits in the beside-composer run controls row; enclosing ids: %s" % (control, chain))
+                          f"{control} sits in the beside-composer run controls row; enclosing ids: {chain}")
             self.assertIn("live-controls", chain,
-                          "%s sits in the composer section inside the conversation view; enclosing ids: %s"
-                          % (control, chain))
+                          f"{control} sits in the composer section inside the conversation view; enclosing ids: {chain}")
         for control in ("task-model-settings", "task-reasoning-form"):
             chain = ancestors.get(control) or []
             self.assertIn("composer-models", chain,
-                          "the %s model-route host must sit beside the composer; enclosing ids: %s" % (control, chain))
+                          f"the {control} model-route host must sit beside the composer; enclosing ids: {chain}")
         self.assertIn("sendChange(run,'stop')", app_js,
                       "the Stop control is wired to the durable stop submission, not a decoration")
         self.assertIn("'stop-run'", app_js, "the Stop control participates in the page's control state handling")
@@ -398,10 +396,10 @@ class StopOperationTests(StopFixture):
 
         def adapter_submit(request_id):
             row = console.intervene(self.project, self.run_dir(), "stop", "", request_id)
-            self.assertEqual("stop", row["kind"], "the dashboard adapter submits the stop kind: %s" % row)
-            self.assertTrue(row.get("durable"), "the adapter submits through the durable inbox: %s" % row)
+            self.assertEqual("stop", row["kind"], f"the dashboard adapter submits the stop kind: {row}")
+            self.assertTrue(row.get("durable"), f"the adapter submits through the durable inbox: {row}")
             self.assertIn(row.get("status"), ("queued", "applied"),
-                          "the stop submission was accepted: %s" % row)
+                          f"the stop submission was accepted: {row}")
             self.assertEqual(request_id, row["id"])
 
         process, run = self.stop_during_hold(submitter=adapter_submit)
@@ -412,7 +410,7 @@ class StopOperationTests(StopFixture):
                          "the dashboard-submitted stop was consumed into the authoritative state")
         view = console._intervention_view(self.project, run)
         self.assertEqual(["s1"], (view.get("stop_intent") or {}).get("request_ids"),
-                         "the dashboard reads the applied stop intent back: %s" % view.get("stop_intent"))
+                         "the dashboard reads the applied stop intent back: {}".format(view.get("stop_intent")))
         applied = [entry for entry in view["entries"]
                    if entry.get("kind") == "stop" and entry.get("status") == "applied"]
         self.assertTrue(applied, "the dashboard shows the applied stop receipt among the entries")
@@ -424,14 +422,14 @@ class StopOperationTests(StopFixture):
         self.assert_stopped_boundary(state, "s1")
         log = self.stage_log(run)
         self.assertTrue(any(line.startswith("done requirements_gather") for line in log),
-                        "the in-flight step finished and delivered its result after the stop: %s" % log)
+                        f"the in-flight step finished and delivered its result after the stop: {log}")
         self.assertFalse(state.get("active_stage"), "no step is left in flight")
         stages = [record.get("stage") for record in state.get("stages", [])]
         self.assertIn("requirements_gather", stages, "the finished step's result was saved")
         started = self.started_stages(run)
         self.assertIn("requirements_gather", started)
         self.assertEqual([], started[started.index("requirements_gather") + 1:],
-                         "no stage after the held one was launched: %s" % log)
+                         f"no stage after the held one was launched: {log}")
         before = len(log)
         relaunched = self.cli("--no-chat")
         self.assertEqual(2, relaunched.returncode, "a stopped run relaunch is refused")
@@ -449,7 +447,7 @@ class StopOperationTests(StopFixture):
         retry = self.submit("s1")
         self.assertEqual(0, retry.returncode, retry.stdout + retry.stderr)
         payload = json.loads(retry.stdout)
-        self.assertTrue(payload["idempotent"], "the identical retry is idempotent: %s" % payload)
+        self.assertTrue(payload["idempotent"], f"the identical retry is idempotent: {payload}")
         self.assertEqual(original, payload["receipt"], "the retry returns the original receipt")
         self.assertEqual(["s1"], [item["id"] for item in self.pending_inbox(run)],
                          "the retry recorded no second request")
@@ -458,10 +456,8 @@ class StopOperationTests(StopFixture):
         # both, exactly like a killed machine: no reaping, no graceful stop.
         fixture_pid = json.loads((run / "inflight.json").read_text())["pid"]
         os.killpg(process.pid, signal.SIGKILL)
-        try:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(fixture_pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
         process.wait(timeout=30)
         self.assertNotEqual(0, process.returncode, "the owner process crashed")
         crashed = self.state()
@@ -485,9 +481,9 @@ class StopOperationTests(StopFixture):
         self.assertTrue(state.get("active_stage"),
                         "the crashed attempt's uncertain evidence is retained; completion is never invented")
         self.assertEqual(crashed_stage_log, len(self.stage_log(run)),
-                         "the first restart launched no stage: %s" % self.stage_log(run))
+                         f"the first restart launched no stage: {self.stage_log(run)}")
         self.assertNotIn("astra_discovery", self.started_stages(run),
-                         "no stage launched after the crash: %s" % self.stage_log(run))
+                         f"no stage launched after the crash: {self.stage_log(run)}")
         resumed = self.cli("--no-chat", "--resume-paused", timeout=120)
         self.assertNotEqual(0, resumed.returncode, "a stopped run cannot resume")
         self.assertIn(state["stop_reason"], resumed.stdout + resumed.stderr,
@@ -531,13 +527,13 @@ class StopOperationTests(StopFixture):
         releases = [line for line in log if line.startswith("released terra")]
         dones = [line for line in log if line.startswith("done terra")]
         self.assertTrue(releases and dones and float(dones[0].split()[-1]) >= float(releases[0].split()[-1]),
-                        "the in-flight worker was not killed: it delivered after the stop was submitted: %s" % log)
+                        f"the in-flight worker was not killed: it delivered after the stop was submitted: {log}")
         self.assertTrue((self.project / "greet.py").exists(),
                         "the finished step's partial work is preserved in the project")
         stages = [record.get("stage") for record in state.get("stages", [])]
         self.assertIn("terra", stages, "the terra result was saved")
         self.assertNotIn("sol", stages, "the stopped run never reached the next stage")
-        self.assertNotIn("sol", self.started_stages(run), "no worker for a later stage was launched: %s" % log)
+        self.assertNotIn("sol", self.started_stages(run), f"no worker for a later stage was launched: {log}")
         before = len(log)
         resumed = self.cli("--no-chat", "--resume-paused", timeout=180)
         self.assertEqual(2, resumed.returncode, "a stopped run does not resume the way a paused run does")
@@ -574,10 +570,10 @@ class StopOperationTests(StopFixture):
         self.assertTrue(pause_receipt.get("resumed_at"), "the pause receipt acknowledges its resume")
         later = [line for line in self.stage_log(twin_run) if line.startswith("start ")
                  and float(line.split()[-1]) > finished_at]
-        self.assertTrue(later, "the resumed pause launched its next stage: %s" % self.stage_log(twin_run))
+        self.assertTrue(later, f"the resumed pause launched its next stage: {self.stage_log(twin_run)}")
         self.assertEqual([], self.applied_stop_receipts(resumed_state), "no stop stands in the paused twin")
         self.assertEqual("TASK_COMPLETE", resumed_state["status"],
-                         "the paused twin resumed all the way to completion: %s" % resumed_twin.stderr)
+                         f"the paused twin resumed all the way to completion: {resumed_twin.stderr}")
 
     def test_ac29_user_actions_refused_after_applied_stop(self):
         process, run = self.stop_during_hold()
@@ -624,16 +620,16 @@ class StopOperationTests(StopFixture):
         baseline_log = len(self.stage_log(run))
         for command in commands:
             result = self.cli(*command, timeout=120)
-            self.assertNotEqual(0, result.returncode, "the stopped run refuses %s" % command[0])
+            self.assertNotEqual(0, result.returncode, f"the stopped run refuses {command[0]}")
             self.assertIn(state["stop_reason"], result.stdout + result.stderr,
-                          "the %s refusal repeats the saved stop reason:\n%s" % (command[0], result.stdout))
+                          f"the {command[0]} refusal repeats the saved stop reason:\n{result.stdout}")
             current = self.state()
             self.assertEqual("PAUSED_INTERVENTION", current["status"],
-                             "%s retained the stopped status" % command[0])
-            self.assertNotIn("completed_at", current, "%s did not complete the run" % command[0])
-            self.assertEqual(baseline_log, len(self.stage_log(run)), "%s launched no stage" % command[0])
+                             f"{command[0]} retained the stopped status")
+            self.assertNotIn("completed_at", current, f"{command[0]} did not complete the run")
+            self.assertEqual(baseline_log, len(self.stage_log(run)), f"{command[0]} launched no stage")
             self.assertEqual(["s1"], [item["id"] for item in self.applied_stop_receipts(current)],
-                             "%s left exactly one applied stop" % command[0])
+                             f"{command[0]} left exactly one applied stop")
         # Later durable feedback and pause receipts never lift the applied stop.
         for kind, request_id, text in (("feedback", "later-feedback", "go on"), ("pause", "later-pause", "")):
             submitted = self.submit(request_id, kind=kind, text=text)

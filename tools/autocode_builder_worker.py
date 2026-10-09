@@ -5,6 +5,7 @@ try:
 except ImportError:
     import autocode_source_scope as source_scope
 
+import contextlib
 import sys
 import uuid
 from pathlib import Path
@@ -40,10 +41,8 @@ def execute(state, directory, workspace, mode):
     def repair_reports():
         require_running()
         while state.get('pending_report_repair'):
-            try:
+            with contextlib.suppress(runner.ReportRepairQueued):
                 runner.execute_report_repair(state, directory, workspace)
-            except runner.ReportRepairQueued:
-                pass
             require_running()
 
     runner.stop_policy.refuse_admission(state)

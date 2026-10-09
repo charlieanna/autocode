@@ -31,10 +31,10 @@ class WorkspaceLifecycleUITests(unittest.TestCase):
     def assert_case(self, script, case, browser=False):
         if browser and shutil.which('agent-browser') is None:
             self.skipTest('agent-browser bridge is not on PATH; install it to run '
-                          'the real-browser %r case (see tools/dashboard/tests/)' % case)
+                          f'the real-browser {case!r} case (see tools/dashboard/tests/)')
         result = run_node(script, case)
         self.assertEqual(0, result.returncode,
-                         'case %s failed:\n%s\n%s' % (case, result.stdout, result.stderr))
+                         f'case {case} failed:\n{result.stdout}\n{result.stderr}')
 
     def test_ac18_lifecycle_states_render_saved_content(self):
         self.assert_case(HARNESS, 'ac18')

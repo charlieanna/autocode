@@ -255,10 +255,9 @@ def score_run(run_dir: Path) -> dict:
     if state.get("displayed_goal"):
         gate_notes.append("displayed_goal token present; approval must use the current token")
     # if COMPLETE without acceptance evidence -> FAIL
-    if status in ("TASK_COMPLETE", "COMPLETE"):
-        if not (stages and any(s.get("stage") == "sol" for s in stages)):
-            gate_score = "FAIL"
-            gate_notes.append("COMPLETE without an independent validator stage")
+    if status in ("TASK_COMPLETE", "COMPLETE") and not (stages and any(s.get("stage") == "sol" for s in stages)):
+        gate_score = "FAIL"
+        gate_notes.append("COMPLETE without an independent validator stage")
 
     # --- model routing ---
     route_score = "PASS" if routing["launched_models"] else "FAIL"

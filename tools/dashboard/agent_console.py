@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Loopback-only UI for autocode's documented command-per-turn CLI."""
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -133,10 +134,8 @@ class ModelCatalogue:
             return code, output['stdout'].decode('utf8', errors='replace'), output['stderr'].decode('utf8', errors='replace')
         except BaseException:
             # Only this catalogue lookup and its children share the new group.
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             process.wait(timeout=1)
             raise
         finally:

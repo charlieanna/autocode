@@ -5,6 +5,7 @@ private state or turn an unfinished attempt into a delivery judgement.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import stat
@@ -86,10 +87,8 @@ def atomic_json(path, value, *, max_bytes=MAX_RECORD_BYTES):
         finally:
             os.close(directory)
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(temporary)
-        except FileNotFoundError:
-            pass
 
 
 def admit(root, result, limits):

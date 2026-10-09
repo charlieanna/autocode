@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 try:
@@ -105,10 +105,8 @@ def _stop_direct(child):
     if child is None:
         return
     if child.poll() is None:
-        try:
+        with suppress(ProcessLookupError):
             child.kill()
-        except ProcessLookupError:
-            pass
     child.wait(timeout=5)
 
 

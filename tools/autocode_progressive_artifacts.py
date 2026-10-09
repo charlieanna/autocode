@@ -108,10 +108,8 @@ def _directory(run_dir, *, create=False):
     root = os.open(Path(run_dir), flags)
     try:
         if create:
-            try:
+            with contextlib.suppress(FileExistsError):
                 os.mkdir("progressive", dir_fd=root)
-            except FileExistsError:
-                pass
             os.fsync(root)
         directory = os.open("progressive", flags, dir_fd=root)
         try:
