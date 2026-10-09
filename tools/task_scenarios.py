@@ -611,7 +611,7 @@ class _Services:
 
     def __init__(self, project: Path):
         self.project = project
-        self.ports = {}
+        self.ports: dict[str, int] = {}
         for name in PROGRAM_SERVICES:
             # A released ephemeral port can be selected again for another service.
             for _ in range(32):

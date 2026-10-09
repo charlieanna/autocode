@@ -53,6 +53,7 @@ import datetime as dt
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_progressive_state as progressive
@@ -244,7 +245,7 @@ def intercept(state: dict, status: str, reason: str) -> bool:
         # The before-stage hook would replay a spent repair ahead of the investigation.
         request["pending_report_repair"] = state.pop("pending_report_repair")
     state["stuck_investigation"] = request
-    last = next(
+    last: dict = next(
         (row for row in reversed(state.get("stages", [])) if (row.get("original_stage") or row.get("stage")) == stuck),
         {},
     )
@@ -454,7 +455,8 @@ def cited_files(value: dict, workspace, run_dir) -> dict[str, Path]:
     """
     workspace = Path(workspace).resolve()
     run_dir = Path(run_dir).resolve() if run_dir else None
-    copies, missing = {}, []
+    copies: dict[Any, Any] = {}
+    missing: list[Any] = []
     for raw in value["evidence_refs"]:
         text = str(raw).strip()
         if not text:

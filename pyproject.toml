@@ -102,9 +102,18 @@ skip-magic-trailing-comma = false
 # Mypy: type checking. Start permissive, ratchet toward strict.
 [tool.mypy]
 python_version = "3.11"
+# The runtime targets macOS and Linux (Windows runs through WSL), so check
+# against the POSIX stdlib stubs: fcntl.flock, os.O_DIRECTORY, signal.SIGHUP
+# etc. exist there; the Windows stubs only add Windows-only noise.
+platform = "linux"
 follow_imports = "normal"
 ignore_missing_imports = true
 check_untyped_defs = false
+# no-redef is disabled: the dual-mode import pattern (`try: from . import X
+# except ImportError: import X`) intentionally assigns the same name twice so
+# modules load both inside the installed package and with tools/ on sys.path
+# (1,269 of the 1,587 baseline errors were this false positive).
+disable_error_code = ["no-redef"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true

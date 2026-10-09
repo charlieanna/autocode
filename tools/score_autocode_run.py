@@ -263,7 +263,7 @@ def score_run(run_dir: Path) -> dict:
     if repairs:
         repair_notes.append(f"{len(repairs)} report-repair stage(s) recorded and bounded by the runner")
     # unlimited repair would show many repeats of same stage name
-    counts = defaultdict(int)
+    counts: defaultdict[str, int] = defaultdict(int)
     for n in stage_names:
         counts[n] += 1
     loops = {k: v for k, v in counts.items() if v >= 4 and "repair" in k}
@@ -327,7 +327,7 @@ def score_run(run_dir: Path) -> dict:
     total_usd = usage["estimated_api_equivalent_usd"]
     known_usd = usage["known_estimated_api_equivalent_usd"]
     unknown_rows = usage["unpriced_stages"]
-    step_summary = {"per_stage": {}, "total": {}}
+    step_summary: dict[str, dict] = {"per_stage": {}, "total": {}}
     try:
         try:
             from . import live_token_sampler as sampler

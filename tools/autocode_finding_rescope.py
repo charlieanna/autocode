@@ -198,7 +198,7 @@ def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
             continue  # Not a scope this revision moved: unscoped, a batch, or already stale.
         if owner in new and cited <= new[owner]:
             continue
-        parts = {}
+        parts: dict[str, list[str]] = {}
         for cid in sorted(cited):
             if owner in new and cid in new[owner]:
                 parts.setdefault(owner, []).append(cid)
