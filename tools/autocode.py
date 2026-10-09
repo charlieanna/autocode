@@ -23,12 +23,13 @@ from typing import Any
 import copy
 import uuid
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
+    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_opencode as opencode
+    import autocode_qwen as qwen
     import autocode_process as processes
     import autocode_registry as registry
     import autocode_planning as planning
@@ -56,6 +57,12 @@ DEFAULT_ROLE_MODELS = {
     "terra": "gpt-5.6-terra",
     "sol": "gpt-5.6-sol",
     "completion": "gpt-5.6-sol",
+}
+QWEN_ROLE_MODELS = {
+    "astra": "qwen/qwen-max",
+    "terra": "qwen/qwen-coder-plus",
+    "sol": "qwen/qwen-max",
+    "completion": "qwen/qwen-max",
 }
 DEFAULT_ENGINE = "opencode"
 
@@ -114,6 +121,11 @@ def load_stage_report(record):
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
         value = opencode.final_report(record["events"])
+        support.validate_schema(value, read_json(Path(record["schema"])))
+        write_json(Path(record["output"]), value)
+    elif record.get("engine") == "qwen":
+        # Qwen events are also authoritative.
+        value = qwen.final_report(record["events"])
         support.validate_schema(value, read_json(Path(record["schema"])))
         write_json(Path(record["output"]), value)
     value = final_json(Path(record["output"]))
@@ -257,6 +269,11 @@ def run_role(
         child_options["env"] = env
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
         write_json(base.with_suffix(".opencode.json"), overrides)
+    elif engine == "qwen":
+        command, env, overrides = qwen.launch(route_role, workspace, run_dir, session, model, effort, allow_write,
+                                              planning=joint_stage or report_only)
+        child_options["env"] = env
+        prompt = qwen.prompt_for_schema(prompt, read_json(schema), events)
     else:
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
         if planning.enabled(state):
@@ -289,6 +306,8 @@ def run_role(
     if engine == "opencode":
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
                       isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+    elif engine == "qwen":
+        record.update(isolation="Qwen CLI with workspace boundary enforcement; no OS sandbox")
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):
@@ -1223,7 +1242,7 @@ def configure(args, state):
             settings["transport_identity"] = current
             settings.setdefault("transport_identities", {})["opencode"] = current
         return settings
-    local = opencode.local_settings(state["workspace"]) if engine == "opencode" else support.local_settings()
+    local = opencode.local_settings(state["workspace"]) if engine == "opencode" else (qwen.local_settings(state["workspace"]) if engine == "qwen" else support.local_settings())
     models = {}
     providers = {}
     for record in state.get("history", []):
@@ -1233,7 +1252,7 @@ def configure(args, state):
         for index, item in enumerate(command[:-1]):
             if item == "-c" and command[index+1].startswith('model_provider="'):
                 providers[record["role"]] = command[index+1][len('model_provider="'):-1]
-    defaults = opencode.DEFAULT_MODELS if engine == "opencode" else DEFAULT_ROLE_MODELS
+    defaults = opencode.DEFAULT_MODELS if engine == "opencode" else (qwen.DEFAULT_MODELS if engine == "qwen" else DEFAULT_ROLE_MODELS)
     roles = {r: {"model": getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
                  "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort") or opencode.DEFAULT_REASONING_EFFORTS[r],
                  "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider")}
@@ -1268,6 +1287,9 @@ def configure(args, state):
         for config in settings["roles"].values():
             config["provider"] = "openai"
         settings.update(figma_file=figma.design_url(figma_file), figma_review=getattr(args, "figma_review", None) or "automatic")
+    if engine == "qwen":
+        # Validate Qwen models are available
+        qwen.check_models(settings["roles"], Path(state["workspace"]))
     if joint:
         configure_joint(settings, args, fresh=True)
     if getattr(args,'unlimited_iterations',False):
@@ -1647,8 +1669,8 @@ def main() -> int:
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
-    parser.add_argument("--engine", choices=["codex", "opencode"],
-                        help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
+    parser.add_argument("--engine", choices=["codex", "opencode", "qwen"],
+                        help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop; --engine qwen uses Qwen Code directly. Resumes keep the saved engine")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
