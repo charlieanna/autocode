@@ -232,7 +232,6 @@ def score_run(run_dir: Path) -> dict:
 
     # --- repair loops ---
     repairs = [s for s in stages if "report_repair" in (s.get("stage") or "")]
-    reworks = [s for s in stages if s.get("stage") in ("terra", "sol", "builder") and s.get("rework")]
     repair_score = "PASS"
     repair_notes = []
     if repairs:
@@ -253,12 +252,10 @@ def score_run(run_dir: Path) -> dict:
     gate_notes = []
     if status == "WAITING_FOR_USER" or status == "AWAITING_GOAL_APPROVAL":
         gate_notes.append(f"run currently parked at honest gate: {status}")
-    stale = "show the goal again" in (state.get("error") or "").lower()
     if state.get("displayed_goal"):
         gate_notes.append("displayed_goal token present; approval must use the current token")
     # if COMPLETE without acceptance evidence -> FAIL
     if status in ("TASK_COMPLETE", "COMPLETE"):
-        body = (state.get("contract") or {}).get("body") or {}
         if not (stages and any(s.get("stage") == "sol" for s in stages)):
             gate_score = "FAIL"
             gate_notes.append("COMPLETE without an independent validator stage")

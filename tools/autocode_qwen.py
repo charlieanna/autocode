@@ -172,7 +172,6 @@ def normalized_events(rows):
 
     # Process each event
     errors = []
-    commands = []
     text_parts = []
     usage = {}
     turn_completed = False

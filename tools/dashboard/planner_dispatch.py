@@ -40,25 +40,8 @@ def _now():
 
 try:
     from ..autocode_planner_routes import (
-        ASTRA_VISUAL_MODEL,
-        DISPATCH_LIMITS,
-        GLM_REVIEW_MODEL,
-        MANDATED_ROUTES,
-        NONVISUAL_ROLES,
-        POLICY_ROLES,
-        RUNNER_NONVISUAL_ROLES,
-        RUNNER_POLICY_ROLES,
-        SOL_PLANNER_MODEL,
-        VERIFIER_ROLES,
         PlannerDispatchError,
-        PlannerRouteError,
-        caps_disabled,
-        conversation_planner_routes,
-        enforce_conversation_routes,
-        enforce_fresh_runner_role_models,
         enforce_route_policy,
-        select_visual_review_route,
-        visual_review_route,
     )
 except ImportError:
     from autocode_planner_routes import (

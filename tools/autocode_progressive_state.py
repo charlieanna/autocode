@@ -387,7 +387,6 @@ def prepare_seal(state, contract_token):
                                ("initial_plan", "plan", "delegation", "active", "completion_proof")}
         prepared["renewal_allowance"] = copy.deepcopy(record.get("pending_allowance") or record["active_allowance"])
     if not record.get("budget"):
-        settings = state.get("settings", {})
         planning = state.get("planning", {})
         review_limit = limits["slice_review_calls"] or 0
         local_limit = limits["slice_stage_seconds"] or 0

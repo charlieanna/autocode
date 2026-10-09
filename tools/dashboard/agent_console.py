@@ -598,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
   if len(hosts)!=1 or hosts[0] not in self.server.hosts:return False
   o=self.headers.get('Origin')
   if not o:return True
-  try:p=urlparse(o);port=p.port
+  try:p=urlparse(o);p.port
   except ValueError:return False
   return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
  def do_GET(self):

@@ -18,7 +18,7 @@ except ImportError:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-live", action="store_true", required=True)
-    args = parser.parse_args()
+    parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="autocode-opencode-workspace-") as temp:
         root = Path(temp).resolve()
         evidence = Path(tempfile.mkdtemp(prefix="autocode-opencode-evidence-")).resolve()
