@@ -22,7 +22,7 @@ import copy
 import uuid
 from contextlib import ExitStack
 try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
+    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_launch_inputs as launch_inputs
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
@@ -36,7 +36,7 @@ except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
+    import autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
@@ -197,6 +197,10 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
         # Persist rejected reports too, so archival never leaves a missing repair input.
         if record.get('output_mode') != 'report_file':
             write_json(Path(record['output']), value)
+    elif record.get("engine") == "qwen":
+        # Qwen events are also authoritative.
+        value = qwen.final_report(record["events"])
+        write_json(Path(record['output']), value)
     else:
         value = util.read_object(Path(record["output"]))
     reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
@@ -395,6 +399,8 @@ def run_role(
             regression_proof_current=current_proof, regression_handoff=regression.handoff(state) if current_proof else None)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
+    elif engine == "qwen":
+        prompt = qwen.prompt_for_schema(prompt, read_json(schema), events)
     child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
@@ -433,18 +439,14 @@ def run_role(
     record["engine"] = engine
     record['reasoning_effort'] = effort
     record['launch_route'] = {key: route.get(key) for key in ('engine', 'provider', 'model', 'reasoning_effort')}
-    record['output_mode'] = getattr(opencode, 'OUTPUT', 'opencode_events') if engine == 'opencode' else 'codex_events'
+    record['output_mode'] = getattr(opencode, 'OUTPUT', 'opencode_events') if engine == 'opencode' else ('qwen_events' if engine == 'qwen' else 'codex_events')
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
-        record.update(permission_config=str(base.with_suffix(".opencode.json")), **provider_launch.stage_record(worker_context))
-    elif engine == "opencode":
-        record.update(provider=opencode.NAME,
-                      isolation="Config-tool sandbox flag and workspace snapshot checks")
-    if worker_context.get('verification_copy'):
-        record.update(provider_launch.stage_record(worker_context))
+        record['permission_config'] = str(base.with_suffix(".opencode.json"))
+    record.update(provider_launch.stage_record(worker_context))
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):
@@ -1093,7 +1095,12 @@ def check_joint_transports(state, workspace):
         except RuntimeError as error:
             raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
         opencode_changed = opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])
-    if codex_changed or opencode_changed:
+    qwen_roles = {role: config for role, config in state["settings"]["roles"].items()
+                  if planning.engine_for(state["settings"], role) == "qwen"}
+    qwen_changed = False
+    if qwen_roles:
+        qwen_changed = qwen.transport_drift(qwen.local_settings(workspace), identities["qwen"])
+    if codex_changed or opencode_changed or qwen_changed:
         raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")
 
 
@@ -1160,9 +1167,9 @@ def intervention_metadata(workspace, run_dir, state):
     return stop_policy.metadata(workspace, run_dir, state)
 
 
-def consume_interventions(state, run_dir, workspace, *, lock_held=False):
-    """Commit receipt effects and identity together before clearing the inbox."""
-    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, lock_held=lock_held)
+def consume_interventions(state, run_dir, workspace, **options):
+    """Commit receipt effects and identity together before clearing the inbox (options: lock_held, released)."""
+    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, **options)
 
 
 def commit_user_action(state, candidate, run_dir, *, require_current_inputs=False):

@@ -39,7 +39,7 @@ except ImportError:
     from providers import opencode as opencode_provider
 
 OK, MISSING, WARN = "ok", "missing", "warn"
-ENGINES = ("opencode", "codex")
+ENGINES = ("opencode", "codex", "qwen")
 
 
 @dataclass

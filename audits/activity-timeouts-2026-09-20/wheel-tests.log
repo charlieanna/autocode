@@ -1,0 +1,8 @@
+Processing ./dist/autocode_supervisor-0.5.4-py3-none-any.whl
+Installing collected packages: autocode-supervisor
+Successfully installed autocode-supervisor-0.5.4
+...
+----------------------------------------------------------------------
+Ran 3 tests in 25.543s
+
+OK

@@ -10,10 +10,12 @@ try:
     from . import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
     from . import autocode_containment_policy as containment_policy
     from . import autocode_verification_copy as verification_copy
+    from . import autocode_qwen as qwen
 except ImportError:
     import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
     import autocode_containment_policy as containment_policy
     import autocode_verification_copy as verification_copy
+    import autocode_qwen as qwen
 
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
@@ -85,6 +87,12 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         command += ["-", "--json", "--output-schema", str(schema), "-o", str(report)]
         if model:
             command += ["--model", model]
+    elif engine == "qwen":
+        command, child_env, overrides = qwen.launch(route_role, workspace, run_dir, session,
+            model, effort, allow_write, planning=planning)
+        environment = agent_env.scrubbed(child_env)
+        for name in ('AUTOCODE_VERIFICATION_COPY', 'AUTOCODE_VERIFICATION_COPY_SHA256'):
+            environment.pop(name, None)
     else:
         raise RuntimeError(f"engine {engine!r} is not bundled in this checkout; providers live in "
                            "~/.config/autocode/providers/ and run with --provider")
@@ -120,11 +128,21 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
 
 def stage_record(worker):
     """Launch facts, distinguishing capture isolation from a kernel boundary."""
+    engine = worker.get('engine', 'opencode')
+    record = ({'provider': worker['provider']}
+              if engine == 'opencode' and worker.get('configured') else {})
     if worker.get('verification_copy'):
-        checks = ('Codex sandbox' if worker['engine'] == 'codex'
+        checks = ('Codex sandbox' if engine == 'codex'
                   else 'Configured-provider permission checks')
-        return {'verification_copy': dict(worker['verification_copy']),
-                'isolation': checks + ' and workspace snapshot checks; captured commands use a source-bound copy'}
+        record.update(verification_copy=dict(worker['verification_copy']),
+                      isolation=checks + ' and workspace snapshot checks; captured commands use a source-bound copy')
+        return record
+    if engine == 'qwen':
+        return {'isolation': 'Qwen CLI with workspace boundary enforcement; no OS sandbox'}
+    if engine != 'opencode':
+        return record
+    if worker.get('configured'):
+        return {**record, 'isolation': 'Config-tool sandbox flag and workspace snapshot checks'}
     record = {'isolation': "Kernel-constrained native shell; other tools disabled" if worker.get('tool_containment')
               else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
               'tool_containment': worker.get('tool_containment'), 'output_token_cap': worker.get('output_token_cap')}

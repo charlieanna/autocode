@@ -1,0 +1,65 @@
+--- before/tools/test_subprocess.py
++++ tools/test_subprocess.py
+@@ -83,12 +83,62 @@
+         self.assertEqual(token, final["goal_contract"]["approval_event"]["token"])
+         self.assertEqual("COMPLETE", final["phase"])
+ 
++    def test_completed_run_rechecks_changed_source_and_evidence(self):
++        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
++        self.launch(["Build a greeting tool", "--chat"], 0, answers="CLI\nyes\n")
++        run, state = self.saved()
++        args = ["--run-dir", str(run)]
++        stage_count = len(state["stages"])
++        source = self.project / "greet.py"
++        source.write_text(source.read_text() + "\n# external edit\n")
++        unchanged = (run / "state.json").read_bytes()
++        status = self.launch([*args, "--status"], 0)
++        self.assertFalse(json.loads(status.stdout)["completion_current"])
++        self.assertEqual(unchanged, (run / "state.json").read_bytes())
++        self.launch(args, 2)
++        _, paused = self.saved()
++        self.assertEqual("PAUSED_STALE_VALIDATION", paused["status"])
++        self.assertEqual(stage_count, len(paused["stages"]))
++        self.launch([*args, "--resume-paused"], 0)
++        _, final = self.saved()
++        self.assertEqual(["sol", "astra_review"], [r["stage"] for r in final["stages"][stage_count:]])
++        evidence = Path(next(iter(final["validation"]["evidence_hashes"])))
++        evidence.write_text(evidence.read_text() + "\n")
++        self.launch(args, 2)
++        self.assertEqual("PAUSED_STALE_VALIDATION", self.saved()[1]["status"])
++
+     def test_chat_completes_artifact_review_without_busy_loop(self):
+         result = self.launch(["Build a greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
+         _, state = self.saved()
+         self.assertEqual("COMPLETE", state["phase"])
+         self.assertEqual(1, len(state["human_reviews"]))
+         self.assertIn("Approve artifact criterion C1", result.stdout)
++
++    def test_unexpected_session_pauses_and_can_be_explicitly_abandoned(self):
++        self.launch(["Build a greeting tool"], 2)
++        run, initial = self.saved()
++        args = ["--run-dir", str(run)]
++        self.launch([*args, "--answer", "Q1=CLI"], 0)
++        self.env["AUTOCODE_FIXTURE_SESSION_DRIFT"] = "1"
++        self.launch(args, 2)
++        _, paused = self.saved()
++        self.assertEqual("PAUSED_UNCERTAIN_STAGE", paused["status"])
++        self.assertEqual(initial["sessions"], paused["sessions"])
++        self.assertEqual(1, len(paused["stages"]))
++        status = json.loads(self.launch([*args, "--status"], 0).stdout)
++        unchanged = (run / "state.json").read_bytes()
++        self.launch([*args, "--abandon-stage", "001/wrong-01"], 2)
++        self.assertEqual(unchanged, (run / "state.json").read_bytes())
++        self.launch([*args, "--abandon-stage", status["attempt_id"]], 0)
++        _, abandoned = self.saved()
++        self.assertEqual("PAUSED_STAGE_ABANDONED", abandoned["status"])
++        self.assertEqual(2, len(abandoned["stages"]))
++        self.assertTrue(abandoned["stages"][-1]["abandoned"])
++        self.assertNotIn("astra", abandoned["sessions"])
++        self.assertFalse((self.project / "greet.py").exists())
++        del self.env["AUTOCODE_FIXTURE_SESSION_DRIFT"]
++        self.launch([*args, "--resume-paused"], 2)
++        self.assertEqual("AWAITING_GOAL_APPROVAL", self.saved()[1]["phase"])
+ 
+     def test_rework_pauses_at_saved_iteration_limit_and_can_resume(self):
+         self.env["AUTOCODE_FIXTURE_MODE"] = "rework"

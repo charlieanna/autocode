@@ -16,6 +16,51 @@ from providers.command import CommandProvider
 
 
 class ProviderLaunchTests(unittest.TestCase):
+    def test_stage_record_preserves_each_provider_launch_contract(self):
+        cases = [
+            ({'engine': 'codex'}, {}),
+            ({'engine': 'qwen'}, {'isolation':
+                'Qwen CLI with workspace boundary enforcement; no OS sandbox'}),
+            ({'engine': 'opencode', 'configured': True, 'provider': 'offline'},
+                {'provider': 'offline', 'isolation':
+                 'Config-tool sandbox flag and workspace snapshot checks'}),
+            ({'engine': 'opencode', 'output_token_cap': 123},
+                {'isolation': 'OpenCode tool permissions and workspace snapshot checks; no OS sandbox',
+                 'tool_containment': None, 'output_token_cap': 123}),
+            ({'engine': 'opencode', 'tool_containment': {'scratch': '/scratch'},
+              'output_token_cap': 123},
+                {'isolation': 'Kernel-constrained native shell; other tools disabled',
+                 'tool_containment': {'scratch': '/scratch'}, 'output_token_cap': 123}),
+        ]
+        for worker, expected in cases:
+            with self.subTest(engine=worker['engine'], configured=worker.get('configured')):
+                self.assertEqual(expected, launch.stage_record(worker))
+
+    def test_qwen_child_environment_drops_another_stage_copy_authority(self):
+        options = dict(engine='qwen', adapter=None, role='sol', route_role='sol',
+            workspace=Path('/workspace'), run_dir=Path('/run'), session=None,
+            model='qwen/qwen-max', effort='high', allow_write=False, planning=False,
+            report=Path('/report'), schema=Path('/schema'), prompt_file=Path('/prompt'),
+            sandbox='workspace-write', transport_args=[], chatgpt=False, provider=None)
+        ambient = {'AUTOCODE_VERIFICATION_COPY': '/old/stage/manifest',
+                   'AUTOCODE_VERIFICATION_COPY_SHA256': 'old',
+                   'QWEN_WORKSPACE_MARKER': 'retained'}
+        for changes in ({}, {'allow_write': True}, {'planning': True},
+                        {'enforce_tool_boundary': False}):
+            with self.subTest(changes=changes), mock.patch.dict(os.environ, ambient), \
+                    mock.patch.object(launch.qwen, 'launch', side_effect=lambda *a, **kw:
+                        (['qwen'], dict(os.environ), None)) as native:
+                command, environment, _, worker = launch.prepare(**{**options, **changes})
+                self.assertEqual(['qwen'], command)
+                native.assert_called_once_with('sol', Path('/workspace'), Path('/run'), None,
+                    'qwen/qwen-max', 'high', changes.get('allow_write', False),
+                    planning=changes.get('planning', False))
+                self.assertNotIn('AUTOCODE_VERIFICATION_COPY', environment)
+                self.assertNotIn('AUTOCODE_VERIFICATION_COPY_SHA256', environment)
+                self.assertNotIn('verification_copy', worker)
+                self.assertEqual('retained', environment['QWEN_WORKSPACE_MARKER'])
+                self.assertEqual('/old/stage/manifest', os.environ['AUTOCODE_VERIFICATION_COPY'])
+
     def test_retired_or_unknown_engine_cannot_fall_back_to_codex(self):
         for engine in ("gocode", "unknown"):
             with self.subTest(engine=engine), self.assertRaisesRegex(
@@ -263,6 +308,7 @@ class CodexCaptureCopyTests(unittest.TestCase):
         self.assertEqual('offline', worker['provider'])
         self.assertNotIn('tool_containment', worker)
         record = launch.stage_record(worker)
+        self.assertEqual('offline', record['provider'])
         self.assertIn('Configured-provider permission checks', record['isolation'])
         self.assertNotIn('Codex', record['isolation'])
         self.assertNotIn('Kernel', record['isolation'])

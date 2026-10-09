@@ -48,8 +48,8 @@ def load_manifest(path):
                 raise ValueError('Each task needs nonempty id, mode and task fields')
             if task['mode'] not in ('ui', 'code'):
                 raise ValueError('Task mode must be ui or code')
-            if task.get('engine') not in (None, 'codex', 'opencode') or (task.get('engine') and task['mode'] != 'code'):
-                raise ValueError('engine must be codex or opencode and is available only for code tasks')
+            if task.get('engine') not in (None, 'codex', 'opencode', 'qwen') or (task.get('engine') and task['mode'] != 'code'):
+                raise ValueError('engine must be codex, opencode or qwen and is available only for code tasks')
             if task.get('ui_from') and task['mode'] != 'code':
                 raise ValueError('ui_from is available only for code tasks')
             task_ids.append(task['id'])

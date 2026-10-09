@@ -1,0 +1,48 @@
+--- before/tools/autocode_support.py
++++ tools/autocode_support.py
+@@ -98,6 +98,16 @@
+ 
+ def assert_no_legacy_process(run_dir, workspace):
+     """Read process metadata internally; never print unrelated command arguments."""
++    marker_path = Path(workspace) / ".autocode" / "active-processes.json"
++    if marker_path.exists():
++        try:
++            from . import autocode_process as processes
++        except ImportError:
++            import autocode_process as processes
++        marker = read(marker_path)
++        owned = marker.get("processes", [])
++        if not owned or processes.live_processes(owned):
++            raise Paused("PAUSED_WORKSPACE_BUSY", "Provider commands from an earlier stage may still be alive; inspect its checkpoint")
+     try:
+         result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True)
+     except OSError as error:
+@@ -121,7 +131,7 @@
+ 
+ 
+ def snapshot(workspace):
+-    """Hash tracked + nonignored untracked files, including dirty source content."""
++    """Hash current source content, executable modes and nested Git worktrees."""
+     root = Path(workspace)
+     names = subprocess.check_output(
+         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=root
+@@ -134,7 +144,10 @@
+         if path.is_symlink():
+             files[name] = "symlink:" + os.readlink(path)
+         elif path.is_file():
+-            files[name] = file_hash(path)
++            files[name] = ("executable:" if path.stat().st_mode & 0o111 else "") + file_hash(path)
++        elif path.is_dir():
++            files[name] = ("submodule:" + snapshot(path)["revision"] if (path / ".git").exists()
++                           else "uninitialized-submodule")
+         elif not path.exists():
+             files[name] = "deleted"
+     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+@@ -525,6 +538,7 @@
+             "criteria_revision": state.get("criteria_revision"), "acceptance_criteria": criteria_definition(criteria),
+             "next_action": state.get("next_action"), "plan": state.get("plan", []),
+             "checkpoint_reason": state.get("stop_reason"),
++            "recovery_context": state.get("recovery_context"),
+             "evidence_locations": state.get("evidence_locations", []),
+             "context_policy": "Full artifacts remain on disk; retrieve relevant exact evidence on demand."}
+     current = snapshot(Path(state["workspace"]))
