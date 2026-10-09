@@ -769,3 +769,24 @@ results and open problems. Unknown and prior-plan results stay unchecked.
 Requirement and problem links open their read-only details in Checks. On narrow
 screens the checklist opens in the existing details drawer. None of these reads
 can approve a plan, answer a question or continue a run.
+
+## The run's own worktree
+
+A new task runs in its own Git worktree under `.autocode/worktrees/<run>/` on a
+branch `autocode/<run>`, started from the current `HEAD`. The person's checkout
+is never read after the start: snapshots, protected tests and the check replay
+all operate on the worktree (#724). `--in-place` keeps the old behaviour and
+runs in the checkout you started from.
+
+When the run reaches `TASK_COMPLETE`, the delivered source is committed to the
+task branch. Bring it back into the branch you started from with:
+
+```sh
+autocode merge            # the only task worktree; or name it
+autocode merge --into main
+```
+
+`merge` fast-forwards when it can and makes a merge commit otherwise. If the
+base branch moved after the run started, it refuses and tells you to re-validate
+on the current source first (the same rule `--resume-paused` applies). Then
+remove the worktree with `autocode clean-worktrees --yes`.
