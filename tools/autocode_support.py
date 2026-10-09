@@ -24,24 +24,43 @@ try:
     from . import autocode_receipts as receipts
     from . import autocode_request_usage as request_usage
     from . import autocode_usage as token_usage
-    from .autocode_baseline import BASELINE_POLICY
+    from .autocode_baseline import BASELINE_POLICY as BASELINE_POLICY
     from .autocode_event_matching import same_command
-    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
-    from .autocode_report_schema import hydrate_review_report, review_generation_schema, review_validation_schema
+    from .autocode_legacy_process import assert_no_legacy_process as assert_no_legacy_process
+    from .autocode_legacy_process import duplicate_runner_command
+    from .autocode_report_schema import (
+        hydrate_review_report as hydrate_review_report,
+    )
+    from .autocode_report_schema import (
+        review_generation_schema as review_generation_schema,
+    )
+    from .autocode_report_schema import (
+        review_validation_schema as review_validation_schema,
+    )
     from .autocode_util import (
         Paused,
         atomic_json,
-        changed_paths,
         criteria_definition,
         digest,
         file_hash,
-        model_output_schema,
         now,
         read,
-        run_lock,
-        snapshot,
         validate_schema,
-        workspace_lock,
+    )
+    from .autocode_util import (
+        changed_paths as changed_paths,
+    )
+    from .autocode_util import (
+        model_output_schema as model_output_schema,
+    )
+    from .autocode_util import (
+        run_lock as run_lock,
+    )
+    from .autocode_util import (
+        snapshot as snapshot,
+    )
+    from .autocode_util import (
+        workspace_lock as workspace_lock,
     )
 except ImportError:
     import autocode_event_matching as event_matching
@@ -53,7 +72,18 @@ except ImportError:
     import autocode_receipts as receipts
     import autocode_request_usage as request_usage
     import autocode_usage as token_usage
+    from autocode_baseline import BASELINE_POLICY as BASELINE_POLICY
     from autocode_event_matching import same_command
+    from autocode_legacy_process import assert_no_legacy_process as assert_no_legacy_process
+    from autocode_report_schema import (
+        hydrate_review_report as hydrate_review_report,
+    )
+    from autocode_report_schema import (
+        review_generation_schema as review_generation_schema,
+    )
+    from autocode_report_schema import (
+        review_validation_schema as review_validation_schema,
+    )
     from autocode_util import (
         Paused,
         atomic_json,
@@ -63,6 +93,21 @@ except ImportError:
         now,
         read,
         validate_schema,
+    )
+    from autocode_util import (
+        changed_paths as changed_paths,
+    )
+    from autocode_util import (
+        model_output_schema as model_output_schema,
+    )
+    from autocode_util import (
+        run_lock as run_lock,
+    )
+    from autocode_util import (
+        snapshot as snapshot,
+    )
+    from autocode_util import (
+        workspace_lock as workspace_lock,
     )
 
 
