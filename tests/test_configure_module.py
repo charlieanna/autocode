@@ -254,13 +254,17 @@ class PackageModeImportTests(unittest.TestCase):
 
     def test_c9_installed_package_imports_configure_module(self):
         require_extraction()
+        # The interpreter running the tests has this checkout installed (editable, as autocode_cli); a fixed
+        # .venv path exists only on a developer machine, not in CI.
+        if subprocess.run([sys.executable, "-c", "import autocode_cli"], cwd=str(REPO),
+                          capture_output=True).returncode != 0:
+            self.skipTest("autocode_cli is not installed for this interpreter; "
+                          "install the checkout editable (`pip install -e .`) to run this case")
         code = ("import autocode_cli.autocode as runner, autocode_cli.autocode_configure as configure; "
                 "assert callable(runner.configure) and callable(configure.configure) "
                 "and callable(runner.check_subscription); "
                 "assert runner.DEFAULT_ENGINE == 'opencode'; "
                 "assert runner.BUDGET_ARGUMENTS['iteration_ceiling'][0] == 'max_iterations'")
-        # The interpreter running the tests has this checkout installed (editable, as autocode_cli); a fixed
-        # .venv path exists only on a developer machine, not in CI.
         result = subprocess.run([sys.executable, "-c", code], cwd=str(REPO), capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
 

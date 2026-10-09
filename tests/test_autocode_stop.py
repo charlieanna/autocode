@@ -319,6 +319,9 @@ class StopFixture(unittest.TestCase):
         summary must render visibly, stay focusable, open by click and present
         the saved model controls in their true running state. A hidden or
         inert model entry beside the composer fails this, and with it AC15."""
+        if shutil.which("agent-browser") is None:
+            self.skipTest("agent-browser bridge is not on PATH; install it to run "
+                          "the real-browser beside-composer model-entry case")
         result = subprocess.run(["node", str(BROWSER_MODEL_CONTROLS)],
                                 capture_output=True, text=True, timeout=300, env=dict(os.environ))
         self.assertEqual(0, result.returncode,

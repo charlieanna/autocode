@@ -13,6 +13,7 @@ retention) and at desktop plus mobile widths (keyboard order, visible focus,
 live-region announcements, contrast).
 """
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -29,7 +30,10 @@ def run_node(script, case, timeout=420):
 
 
 class WorkspaceLifecycleUITests(unittest.TestCase):
-    def assert_case(self, script, case):
+    def assert_case(self, script, case, browser=False):
+        if browser and shutil.which('agent-browser') is None:
+            self.skipTest('agent-browser bridge is not on PATH; install it to run '
+                          'the real-browser %r case (see tools/dashboard/tests/)' % case)
         result = run_node(script, case)
         self.assertEqual(0, result.returncode,
                          'case %s failed:\n%s\n%s' % (case, result.stdout, result.stderr))
@@ -38,10 +42,10 @@ class WorkspaceLifecycleUITests(unittest.TestCase):
         self.assert_case(HARNESS, 'ac18')
 
     def test_ac19_drawers_retain_chat_draft_and_44px_targets(self):
-        self.assert_case(BROWSER, 'ac19')
+        self.assert_case(BROWSER, 'ac19', browser=True)
 
     def test_ac20_keyboard_focus_announcements_contrast(self):
-        self.assert_case(BROWSER, 'ac20')
+        self.assert_case(BROWSER, 'ac20', browser=True)
 
 
 if __name__ == '__main__':
