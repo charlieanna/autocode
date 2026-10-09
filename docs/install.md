@@ -130,7 +130,7 @@ first verify that you trust that specific directory. You can then allow its
 exact path, replacing this example with your checkout's absolute path:
 
 ```sh
-git config --global --add safe.directory /mnt/c/Users/YOU/workspace/autocode
+git config --global --add safe.directory '/mnt/c/Users/YOU/workspace/autocode'
 ```
 
 Avoid `safe.directory '*'`, which trusts every repository. A checkout on the

@@ -25,8 +25,10 @@ class GitAttributesTests(unittest.TestCase):
         self.root = Path(self.scratch.name)
         config = self.root / "empty-gitconfig"
         config.write_text("")
+        self.empty_attributes = str(config)
         self.env = {**os.environ, "GIT_CONFIG_GLOBAL": str(config),
-                    "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0"}
+                    "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0",
+                    "GIT_ATTR_NOSYSTEM": "1"}
         self.seed = self.root / "seed"
         self.seed.mkdir()
         (self.seed / ".gitattributes").write_bytes(ATTRIBUTES.read_bytes())
@@ -38,7 +40,8 @@ class GitAttributesTests(unittest.TestCase):
                  "user.email=git-control@example.invalid", "commit", "--quiet", "-m", "Seed")
 
     def git(self, repo, *args):
-        return subprocess.run(["git", "-C", str(repo), *args], env=self.env,
+        return subprocess.run(["git", "-c", f"core.attributesFile={self.empty_attributes}",
+                               "-C", str(repo), *args], env=self.env,
                               capture_output=True, check=True, timeout=30).stdout
 
     def checkout(self, mode):
