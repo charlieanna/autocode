@@ -15,6 +15,13 @@ PR template asks for an entry here; a change without one is incomplete.
   and pause requests; unrelated budget flags and historical job-failure
   records cannot authorize an unscoped retry (#661).
 
+- Fresh `--dry-run` commands work after the addition of `--explain`; actions
+  that need an existing run still require `--run-dir` (#796).
+- `autocode explain` and `--explain` read saved stops, including finished runs,
+  without starting a provider, taking a run lock or creating a worktree (#796).
+- Installed `doctor` commands can read the bundled provider matrix and show
+  untested versions and containment/visual refusals correctly (#794).
+
 ## [0.7.1] — 2026-10-09
 
 The first tagged release. AutoCode runs a coding agent through planning,
