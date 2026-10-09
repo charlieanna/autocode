@@ -9,6 +9,18 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Removed
+
+- The unreleased `--engine qwen` transport. It could not complete a run: provider
+  selection resolved its built-in OpenCode default and the engine's own conflict
+  check then refused every run; a run that did start compared Codex's settings with
+  its saved Qwen identity and paused at the first stage boundary; the transport
+  asked for an output format whose single JSON array the event log cannot read; no
+  adapter was wired into the event reader; and `doctor` and `autopilot` had no case
+  for it at all. Qwen models remain reachable through the bundled KiloCode
+  provider's Alibaba Token Plan route. A saved run that used the engine now pauses
+  with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
+
 ### Fixed
 
 - Registered Codex artifact providers refuse workspace relocation and malformed

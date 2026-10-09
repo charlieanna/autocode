@@ -29,7 +29,6 @@ try:
     from . import autocode_output_policy as output_policy
     from . import autocode_planner_routes as planner_routes
     from . import autocode_quota_route as quota_route
-    from . import autocode_qwen as qwen
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_route_ladder as route_ladder
     from . import autocode_support as support
@@ -47,7 +46,6 @@ except ImportError:
     import autocode_planner_routes as planner_routes
     import autocode_providers
     import autocode_quota_route as quota_route
-    import autocode_qwen as qwen
     import autocode_retired_token_budget as retired_token_budget
     import autocode_route_ladder as route_ladder
     import autocode_support as support
@@ -59,12 +57,6 @@ DEFAULT_ROLE_MODELS = {
     "terra": "gpt-5.6-terra",
     "sol": "gpt-5.6-sol",
     "completion": "gpt-5.6-sol",
-}
-QWEN_ROLE_MODELS = {
-    "astra": "qwen/qwen-max",
-    "terra": "qwen/qwen-coder-plus",
-    "sol": "qwen/qwen-max",
-    "completion": "qwen/qwen-max",
 }
 # Keep the historical OpenCode default for existing saved/dashboard flows.
 DEFAULT_ENGINE = "opencode"
@@ -156,7 +148,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         saved_provider["provider"] = "opencode"
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
-    if engine not in ("codex", "opencode", "qwen"):
+    if engine not in ("codex", "opencode"):
         raise ValueError(
             f"Engine {engine!r} is not bundled in this checkout; providers live in "
             "~/.config/autocode/providers/ and run with --provider"
@@ -166,8 +158,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     )
     if engine == "codex" and provider_name != "opencode":
         raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
-    if engine == "qwen" and provider_name is not None:
-        raise ValueError("--provider is not supported with the Qwen engine; --engine qwen uses its native transport")
     figma_file = getattr(args, "figma_file", None)
     saved_figma = state.get("settings", {}).get("figma_file")
     if manifest_input and figma_file:
@@ -237,7 +227,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         joint = requested_joint
     else:
         joint = True
-    if joint and engine not in ("codex", "opencode", "qwen"):
+    if joint and engine not in ("codex", "opencode"):
         raise ValueError("--joint-planning requires a supported planning engine")
     if getattr(args, "planning_v2", False) and not joint:
         raise ValueError("--planning-v2 requires --joint-planning or an engine where joint planning is default")
@@ -389,8 +379,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         return task_preflight.configure(state, output_policy.configure(state, settings, args), args)
     if engine == "opencode":
         local = opencode.local_settings(state["workspace"])
-    elif engine == "qwen":
-        local = qwen.local_settings(state["workspace"])
     else:
         local = support.local_settings()
     models = {}
@@ -408,9 +396,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     defaults = DEFAULT_ROLE_MODELS.copy()
     if engine == "opencode":
         defaults.update(provider_mod.DEFAULT_MODELS)
-    elif engine == "qwen":
-        defaults.update(QWEN_ROLE_MODELS)
-    effort_defaults = qwen.DEFAULT_REASONING_EFFORTS if engine == "qwen" else opencode.DEFAULT_REASONING_EFFORTS
+    effort_defaults = opencode.DEFAULT_REASONING_EFFORTS
     roles = {
         r: {
             "model": single_model or getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
@@ -559,65 +545,6 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         opencode = autocode_opencode
     if settings.get("engine") == "codex":
         configure_codex_joint(settings, args, planning=planning)
-        return
-    if settings.get("engine") == "qwen":
-        if fresh:
-            single_model = getattr(args, "single_model", None)
-            settings["joint_planning"] = True
-            settings["roles"]["requirements"] = {
-                "engine": "qwen",
-                "provider": None,
-                "model": single_model
-                or getattr(args, "requirements_model", None)
-                or QWEN_ROLE_MODELS.get("requirements", QWEN_ROLE_MODELS["astra"]),
-                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)
-                or qwen.DEFAULT_REASONING_EFFORTS.get("astra"),
-            }
-            if "completion" not in settings["roles"]:
-                settings["roles"]["completion"] = {
-                    **settings["roles"]["astra"],
-                    "model": QWEN_ROLE_MODELS["completion"],
-                    "reasoning_effort": qwen.DEFAULT_REASONING_EFFORTS["completion"],
-                }
-            for role in ("astra", "sol", "completion"):
-                settings["roles"][role].update(
-                    engine="qwen",
-                    provider=None,
-                    model=single_model or getattr(args, f"{role}_model", None) or QWEN_ROLE_MODELS[role],
-                )
-            terra_model = single_model or getattr(args, "terra_model", None) or QWEN_ROLE_MODELS["terra"]
-            settings["roles"]["terra"].update(engine="qwen", provider=None, model=terra_model)
-            for role, effort in qwen.DEFAULT_REASONING_EFFORTS.items():
-                if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
-                    settings["roles"][role]["reasoning_effort"] = effort
-            glm_model = single_model or getattr(args, "glm_model", None) or QWEN_ROLE_MODELS.get("astra")
-            settings["roles"]["glm"] = {
-                "engine": "qwen",
-                "provider": None,
-                "model": glm_model,
-                "reasoning_effort": qwen.DEFAULT_REASONING_EFFORTS.get("astra"),
-            }
-            settings["roles"]["plan_reviewer"] = {
-                "engine": "qwen",
-                "provider": None,
-                "model": (single_model or getattr(args, "plan_reviewer_model", None) or QWEN_ROLE_MODELS["astra"]),
-                "reasoning_effort": (
-                    getattr(args, "plan_reviewer_reasoning_effort", None) or qwen.DEFAULT_REASONING_EFFORTS.get("astra")
-                ),
-                "model_pinned": True,
-            }
-            settings["transport_identities"] = {"qwen": settings["transport_identity"]}
-        elif getattr(args, "glm_model", None):
-            settings["roles"]["glm"]["model"] = args.glm_model
-        if getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None):
-            if "requirements" not in settings["roles"]:
-                raise ValueError(
-                    "This saved run predates the separate requirements stage; start a new run to select its model"
-                )
-            if getattr(args, "requirements_model", None):
-                settings["roles"]["requirements"]["model"] = args.requirements_model
-            if getattr(args, "requirements_reasoning_effort", None):
-                settings["roles"]["requirements"]["reasoning_effort"] = args.requirements_reasoning_effort
         return
     mod = autocode_providers.resolve(settings.get("provider") or "opencode")
     if fresh:
