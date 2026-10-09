@@ -33,6 +33,37 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+# Token shapes that must never leave the run directory in an export (#712).
+# Raw captures stay untouched; this pass is applied where text is copied out.
+_SECRET_PATTERNS = (
+    re.compile(r'gh[pousr]_[A-Za-z0-9]{20,}'),
+    re.compile(r'github_pat_[A-Za-z0-9_]{20,}'),
+    re.compile(r'sk-ant-[A-Za-z0-9_-]{10,}'),
+    re.compile(r'sk-[A-Za-z0-9]{20,}'),
+    re.compile(r'AKIA[0-9A-Z]{16}'),
+    re.compile(r'(?i)bearer\s+[A-Za-z0-9._~+/-]{12,}'),
+    re.compile(r'(?i)\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[=:]\s*[\'"]?[^\s\'"]{8,}'),
+)
+_REDACTED = '[REDACTED]'
+
+
+def redact(text: str, secret_values=()) -> str:
+    """Replace credential-shaped runs and known secret values with a marker.
+
+    Applied where text leaves the run directory (pull request bodies, exported
+    reports, bundles). The raw capture in the run directory is never rewritten;
+    evidence hashes keep covering the raw bytes (#712).
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    for value in secret_values:
+        if isinstance(value, str) and len(value) >= 8:
+            text = text.replace(value, _REDACTED)
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(_REDACTED, text)
+    return text
+
+
 def file_hash(path):
     h = hashlib.sha256()
     with Path(path).open("rb") as stream:

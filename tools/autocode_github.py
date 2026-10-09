@@ -14,6 +14,11 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable
 
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
 API = "https://api.github.com"
 _URL = re.compile(r"https?://[^/]+/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)/(?:issues|pull)/(?P<number>\d+)/?(?:[?#].*)?$")
 _SHORT = re.compile(r"(?:(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)#|#)?(?P<number>\d+)$")
@@ -99,8 +104,11 @@ class Client:
                           draft: bool = True) -> dict:
         if not self.token:
             raise GitHubError("opening a pull request needs GITHUB_TOKEN or GH_TOKEN")
+        # Credentials must not leave the run (#712). The raw report in the run
+        # directory is untouched; only this export is redacted.
         return self._call("POST", f"/repos/{owner}/{repo}/pulls",
-                          {"head": head, "base": base, "title": title, "body": body, "draft": draft})
+                          {"head": head, "base": base, "title": title,
+                           "body": util.redact(body), "draft": draft})
 
     def _call(self, method: str, path: str, payload: dict | None = None):
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
