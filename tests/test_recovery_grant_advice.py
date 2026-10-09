@@ -1,5 +1,4 @@
 """Issue #288: stop advice never names --grant-recovery unless the CLI will accept it."""
-import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -259,6 +258,7 @@ class BoundChangeSupersede(unittest.TestCase):
         # Raising the exhausted bound is recovery (#301); a flag for another bound is only a
         # settings write and never releases the pause (#379, #486).
         from types import SimpleNamespace
+
         import autocode_run_actions as run_actions
 
         def requested(flags, state):

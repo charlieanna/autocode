@@ -1,17 +1,17 @@
 """Additional execution-boundary scenarios with real externally crashed processes."""
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
-import sys
 import time
 import unittest
+from pathlib import Path
 
-from . import test_build_blackbox as bb
-from . import build_timeout_fault_fixture as timeout_fault
 import autocode_builder_policy as builder_policy
+
+from . import build_timeout_fault_fixture as timeout_fault
+from . import test_build_blackbox as bb
 
 
 class RecoveryBlackbox(unittest.TestCase):

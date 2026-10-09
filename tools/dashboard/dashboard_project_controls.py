@@ -1,6 +1,6 @@
 """Reversible dashboard project removal; never changes repositories or runner state."""
-from pathlib import Path
 import threading
+from pathlib import Path
 
 try:
     from .dashboard_projects import ProjectStore

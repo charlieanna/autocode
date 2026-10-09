@@ -9,9 +9,10 @@ import hashlib
 import json
 import unittest
 
-from . import test_subprocess
-from . import test_quota_worker as quota_worker
 from goal_fixtures import assert_operational_wait
+
+from . import test_quota_worker as quota_worker
+from . import test_subprocess
 
 QUOTA, REFUSAL, GLM, MIMO = quota_worker.QUOTA, quota_worker.REFUSAL, quota_worker.GLM, quota_worker.MIMO
 LUNA = "openai/gpt-6-luna"

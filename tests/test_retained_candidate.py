@@ -2,7 +2,9 @@
 import copy
 import unittest
 
-import autopilot, autocode_support as support
+import autocode_support as support
+import autopilot
+
 from . import test_autocode
 
 

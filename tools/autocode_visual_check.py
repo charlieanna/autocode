@@ -10,22 +10,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from pathlib import Path
 
 import psutil
 
 try:
-    from . import autocode_util as util, autocode_visual_policy as policy
+    from . import autocode_util as util
     from . import autocode_visual_diff as visual_diff
+    from . import autocode_visual_policy as policy
 except ImportError:
-    import autocode_util as util, autocode_visual_policy as policy
+    import autocode_util as util
     import autocode_visual_diff as visual_diff
+    import autocode_visual_policy as policy
 
 
 def _capture_worker():

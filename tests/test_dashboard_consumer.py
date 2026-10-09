@@ -1,11 +1,10 @@
 """Complete browser-consumer protocol through the real CLI and fake OpenCode."""
 import datetime
 import json
-from pathlib import Path
 import subprocess
-import sys
 import time
 import unittest
+
 from . import test_opencode
 
 
@@ -32,7 +31,7 @@ class DashboardConsumerTests(unittest.TestCase):
         def missed_barrier(worker,started):
             # #314: tell a slow start from an early product/provider exit. State is read before the
             # terminate, so it shows the run at the miss; the output wait keeps the 20 s cleanup bound.
-            waited,code,at=time.monotonic()-started,worker.poll(),datetime.datetime.now(datetime.timezone.utc).isoformat()
+            waited,code,at=time.monotonic()-started,worker.poll(),datetime.datetime.now(datetime.UTC).isoformat()
             try:
                 saved=json.loads((run/'state.json').read_text())
                 active,last=saved.get('active_stage') or {},(saved.get('stages') or [{}])[-1]

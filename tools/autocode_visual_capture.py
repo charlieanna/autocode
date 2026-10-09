@@ -1,16 +1,24 @@
 """Acquire a source-bound implementation image with the task's browser fixture."""
 from __future__ import annotations
+
 import argparse
 import json
 import math
-from pathlib import Path
 import subprocess
 import time
 import uuid
+from pathlib import Path
+
 try:
-    from . import autocode_util as util, autocode_process as processes, autocode_visual_evidence as evidence, autocode_source_snapshot as source_snapshot
+    from . import autocode_process as processes
+    from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_util as util
+    from . import autocode_visual_evidence as evidence
 except ImportError:
-    import autocode_util as util, autocode_process as processes, autocode_visual_evidence as evidence, autocode_source_snapshot as source_snapshot
+    import autocode_process as processes
+    import autocode_source_snapshot as source_snapshot
+    import autocode_util as util
+    import autocode_visual_evidence as evidence
 
 
 def config_inputs(root, path, config):

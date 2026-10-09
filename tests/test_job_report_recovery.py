@@ -1,6 +1,6 @@
 """Owner loss after an Investigator writes output, through TaskRun and the CLI."""
-import json
 import fcntl
+import json
 import os
 import socket
 import subprocess
@@ -12,9 +12,9 @@ from unittest.mock import patch
 import autocode
 import autocode_job_report_recovery as recovery
 from autocode_taskrun import TaskRun, TaskRunError
-from .test_job_failure_recovery import JobHarness, ORIGINAL, BROKEN, WRAPPER
-from .test_bug_job import diagnosis
 
+from .test_bug_job import diagnosis
+from .test_job_failure_recovery import BROKEN, ORIGINAL, WRAPPER, JobHarness
 
 PROVIDER = r'''import json,os,signal,socket,sys
 from pathlib import Path

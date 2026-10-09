@@ -14,9 +14,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autocode_taskrun import TaskRun, TaskRunError
-import autocode_job_source as source
 import autocode_run_records as records
+from autocode_taskrun import TaskRun, TaskRunError
 
 HERE = Path(__file__).resolve().parents[1]
 RUNTIME = Path(os.environ.get('AUTOCODE_JOB_TEST_RUNTIME', HERE))

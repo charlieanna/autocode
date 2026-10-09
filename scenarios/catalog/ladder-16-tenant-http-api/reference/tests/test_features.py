@@ -2,7 +2,9 @@ import http.client
 import json
 import threading
 import unittest
+
 from app import make_server
+
 
 class HTTPTests(unittest.TestCase):
     def test_create_and_list(self):

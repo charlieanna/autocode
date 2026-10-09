@@ -43,31 +43,34 @@ from __future__ import annotations
 
 import argparse
 import copy
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_workspaces as workspaces
-    from . import autocode_planning_graph as graph, autocode_program_agreement as agreement
-    from . import autocode_program_children as children, autocode_taskrun as taskrun
-    from . import autocode_verify as verify_runner
+    from . import autocode_planning_graph as graph
+    from . import autocode_program_agreement as agreement
+    from . import autocode_program_children as children
     from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_taskrun as taskrun
+    from . import autocode_util as util
+    from . import autocode_verify as verify_runner
+    from . import autocode_workspaces as workspaces
 except ImportError:
-    import autocode_util as util
-    import autocode_workspaces as workspaces
     import autocode_planning_graph as graph
     import autocode_program_agreement as agreement
     import autocode_program_children as children
-    import autocode_taskrun as taskrun
-    import autocode_verify as verify_runner
     import autocode_source_snapshot as source_snapshot
+    import autocode_taskrun as taskrun
+    import autocode_util as util
+    import autocode_verify as verify_runner
+    import autocode_workspaces as workspaces
 
 
 KINDS = ("code", "content", "integration", "deployment")

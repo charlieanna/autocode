@@ -1,13 +1,13 @@
 """Output-limit regressions using native transport fixtures, never live providers."""
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from .supervision_fixture import launcher

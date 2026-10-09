@@ -4,8 +4,17 @@ are run for real in a scratch copy."""
 import shutil
 import sys
 
-from harness.oracle import (Check, apply_patch, finding_matches, findings_of, load_json, only_changed_under,
-                            run_checks, scratch_copy, tail)
+from harness.oracle import (
+    Check,
+    apply_patch,
+    finding_matches,
+    findings_of,
+    load_json,
+    only_changed_under,
+    run_checks,
+    scratch_copy,
+    tail,
+)
 from harness.oracle import run as run_command
 
 # The .at entry is keyed "AT"; policy_for looks up tld.lower().

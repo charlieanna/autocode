@@ -1,10 +1,10 @@
 """Real loader fixture: a dylib's install ID is not another dependency."""
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_macho_dependencies as macho
 

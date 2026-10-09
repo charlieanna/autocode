@@ -1,3 +1,4 @@
+import lzma
 import os
 import re
 import shutil
@@ -5,8 +6,8 @@ import stat
 import tempfile
 import zipfile
 import zlib
-import lzma
 from pathlib import Path
+
 
 def extract(zip_path,destination,max_bytes=1048576):
     if type(max_bytes) is not int or max_bytes<0: raise ValueError('invalid size limit')

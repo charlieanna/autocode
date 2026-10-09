@@ -3,8 +3,16 @@ exist, time comes only from the injected clock, the hidden behavior tests pass,
 and the design document itself is untouched."""
 import ast
 
-from harness.oracle import (Check, changed_paths, hidden_tests, non_stdlib_imports, python_tests, run_checks,
-                            scratch_copy, tail)
+from harness.oracle import (
+    Check,
+    changed_paths,
+    hidden_tests,
+    non_stdlib_imports,
+    python_tests,
+    run_checks,
+    scratch_copy,
+    tail,
+)
 
 SIGNATURES = {
     "ratelimit/bucket.py": {"TokenBucket": {"__init__": ["self", "capacity", "refill_per_second", "clock"],

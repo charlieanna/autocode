@@ -9,8 +9,8 @@ A denial retry never consumes the shared timeout-recovery budget: it has its
 own repeat guard per incident and its own ceiling (MAX_PERMISSION_RECOVERIES
 denial recoveries since the last accepted stage of any kind).
 """
-from pathlib import Path
 import re
+from pathlib import Path
 
 try:
     from .autocode_util import digest

@@ -5,9 +5,9 @@ account alone saves stage.metrics.output_transport; view reads those saved metri
 environment binds AUTOCODE_OUTPUT_WORKSPACE to this run; output_store reads it
 so nested investigation commands retain bytes and measurements in the same store.
 """
-from pathlib import Path
 import shlex
 import sys
+from pathlib import Path
 
 try:
     from . import autocode_output_store as store

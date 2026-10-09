@@ -16,9 +16,9 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
-import shutil
 import tempfile
 import time
 import unittest
@@ -29,14 +29,15 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 import autocode_brief_literals as brief_literals  # noqa: E402
-import autocode_requirement_cues as requirement_cues  # noqa: E402
-import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals  # noqa: E402
 import autocode_program as program  # noqa: E402
+import autocode_requirement_cues as requirement_cues  # noqa: E402
 import autocode_run_view as run_view  # noqa: E402
 import autocode_taskrun as taskrun  # noqa: E402
 import goal_fixtures  # noqa: E402
 import task_scenarios  # noqa: E402
+
 from . import test_subprocess  # noqa: E402
 
 REAL_RUN = subprocess.run

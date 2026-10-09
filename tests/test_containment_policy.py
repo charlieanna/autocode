@@ -1,13 +1,14 @@
 """Run-setup tool-containment policy (#413): refuse early, or a recorded explicit opt-out. Pure functions."""
 import copy
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
-import tests  # noqa: F401 - runtime import path
 import autocode_containment_policy as policy
 import autocode_run_view as run_view
 import autocode_stuck_job as stuck_job
+
+import tests  # noqa: F401 - runtime import path
 
 OPENCODE = {"engine": "opencode", "provider": "opencode",
             "roles": {"terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},

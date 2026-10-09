@@ -2,9 +2,9 @@
 import socket
 import socketserver
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-import tempfile
 from unittest.mock import MagicMock, patch
 
 from dashboard import agent_console

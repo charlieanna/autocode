@@ -1,6 +1,5 @@
 """view.progress: counts from saved records only, and the exact line a person reads (#29)."""
 import unittest
-
 from pathlib import Path
 
 import autocode_progress_view as progress_view

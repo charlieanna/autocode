@@ -1,8 +1,8 @@
 """autocode doctor and autocode --version (issue #67)."""
+import importlib.util
 import json
 import os
 import shutil
-import importlib.util
 import subprocess
 import sys
 import tempfile

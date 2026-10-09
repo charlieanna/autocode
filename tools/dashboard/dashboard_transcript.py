@@ -4,12 +4,12 @@ The durable order within each source and reply relationships take precedence
 when clocks disagree. Timestamps only merge otherwise unrelated streams.
 Neither this module nor its output grants runner authority or writes history.
 """
-from copy import deepcopy
-from datetime import datetime, timezone
 import hashlib
 import heapq
 import json
 import math
+from copy import deepcopy
+from datetime import UTC, datetime
 
 
 def items(value):
@@ -23,7 +23,7 @@ def timestamp(row):
     if isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            return parsed.replace(tzinfo=timezone.utc).timestamp() if parsed.tzinfo is None else parsed.timestamp()
+            return parsed.replace(tzinfo=UTC).timestamp() if parsed.tzinfo is None else parsed.timestamp()
         except ValueError:
             pass
     return 0

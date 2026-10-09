@@ -9,9 +9,11 @@ from copy import deepcopy
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_contract_identity as contract
+    from . import autocode_contract_identity as contract
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util, autocode_contract_identity as contract
+    import autocode_contract_identity as contract
+    import autocode_util as util
 
 INPUTS = ('version', 'target', 'task', 'task_id', 'goal_contract', 'settings',
           'requirements_body', 'requirements_artifact_token', 'answers', 'brief_feedback',

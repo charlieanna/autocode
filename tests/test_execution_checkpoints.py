@@ -1,8 +1,8 @@
-import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
+
 import autocode_checkpoints as checkpoints
 import autocode_status as status
 from dashboard import dashboard_monitor as monitor

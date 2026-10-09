@@ -3,21 +3,21 @@ import copy
 import hashlib
 import io
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import autocode_code_checkpoints as checkpoints
 import autocode_checkpoint_cli as operation
+import autocode_code_checkpoints as checkpoints
 import autocode_contract_identity as identity
 import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
-from . import test_subprocess
 from goal_fixtures import body
+
+from . import test_subprocess
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 

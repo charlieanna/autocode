@@ -1,19 +1,19 @@
 """Real CLI capture in a kernel-protected build tree; no simulated provider."""
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
+import autocode_source_snapshot as source_snapshot
 import autocode_tool_containment as containment
 import autocode_toolchain as toolchain
 import autocode_verification_copy as copies
-import autocode_source_snapshot as source_snapshot
 
 
 class VerificationSourceTests(unittest.TestCase):

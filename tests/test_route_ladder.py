@@ -1,11 +1,11 @@
 """One route ladder per role: tables, rung matching, serveability, outcomes."""
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autocode_route_ladder as route_ladder
 import autocode_escalation as escalation
+import autocode_route_ladder as route_ladder
 
 
 class RungTests(unittest.TestCase):

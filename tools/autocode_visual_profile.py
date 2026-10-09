@@ -14,21 +14,23 @@ before Popen. Native request/finish receipts remain mandatory after execution.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import stat
+from copy import deepcopy
+from pathlib import Path
 
 try:
-    from . import autocode_contract_identity as contract, autocode_util as util
+    from . import autocode_contract_identity as contract
     from . import autocode_tool_containment as containment
+    from . import autocode_util as util
 except ImportError:
-    import autocode_contract_identity as contract, autocode_util as util
+    import autocode_contract_identity as contract
     import autocode_tool_containment as containment
+    import autocode_util as util
 
 
 MARKER = 'VISUAL_REVIEW_PROFILE='

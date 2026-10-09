@@ -3,9 +3,9 @@
 The caller chooses executables. This module never grants an installation prefix,
 executes package hooks, or searches the user's home for dependencies.
 """
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 
 # Shared-cache libraries are available through the OS policy, and may not exist
 # as ordinary files on current macOS releases.

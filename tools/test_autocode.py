@@ -1,22 +1,22 @@
 """Isolated tests: no model calls, credentials, learner data or course writes."""
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
-import autocode_support as s
 import autocode_goals as goals
+import autocode_support as s
 from goal_fixtures import approve_fixture, envelope
 
 

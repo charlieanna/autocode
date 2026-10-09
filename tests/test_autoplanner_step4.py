@@ -3,9 +3,11 @@ clarification stop. Counts only, bound to the displayed revision and handoff."""
 import copy
 import unittest
 
-import autocode_goals as goals, autocode_support as support
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
+import autocode_support as support
 from goal_fixtures import body
+
 from .test_planner_invariants import state as base_state
 
 TASK = "Greet the user by name."

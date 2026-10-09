@@ -11,19 +11,21 @@ import base64
 import binascii
 import hashlib
 import json
-from pathlib import Path
 import re
 import shlex
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_brief_obligations as obligations, autocode_util as util
-    from . import autocode_brief_acceptance as acceptance, autocode_command_receipt as command_receipt
+    from . import autocode_brief_acceptance as acceptance
+    from . import autocode_brief_obligations as obligations
+    from . import autocode_command_receipt as command_receipt
+    from . import autocode_util as util
 except ImportError:
     import autocode_brief_acceptance as acceptance
     import autocode_brief_obligations as obligations
-    import autocode_util as util
     import autocode_command_receipt as command_receipt
+    import autocode_util as util
 
 PASS, FAIL = 'PASS', 'FAIL'
 _HASH = re.compile(r'[0-9a-f]{64}\Z')

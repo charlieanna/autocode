@@ -4,12 +4,15 @@ No separate acceptance authority or run-state writes. The goal lifecycle checks
 this mapping before installing/approving a plan; report coverage checks it again.
 """
 from __future__ import annotations
+
 import json
 
 try:
-    from . import autocode_design_manifest as manifest, autocode_util as util
+    from . import autocode_design_manifest as manifest
+    from . import autocode_util as util
 except ImportError:
-    import autocode_design_manifest as manifest, autocode_util as util
+    import autocode_design_manifest as manifest
+    import autocode_util as util
 
 
 CASE = manifest.obj({"id": manifest.TEXT, "criterion_ids": manifest.TEXTS,

@@ -3,15 +3,14 @@
 Only the checked-in fake OpenCode/Codex bundle may run through this transport.
 Nothing in production imports this module or selects it from fixture env vars.
 """
-from contextlib import ExitStack, contextmanager
 import importlib
 import os
-from pathlib import Path
 import runpy
 import shutil
 import sys
+from contextlib import ExitStack, contextmanager
+from pathlib import Path
 from unittest.mock import patch
-
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 TIMEOUT_ONCE = '''

@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_progressive_plan as rules
 import autocode_progressive_state as progressive_state
 import autocode_resolver_human as human
 import autocode_support as support
-from units import autoplanner
 import goal_fixtures
+from units import autoplanner
 
 
 def check(cid="K1", method="python -m pytest tests/test_journey.py -q", relation="contributes_to", criteria=("C1",)):

@@ -1,13 +1,13 @@
 """Registry persistence and read-only discovery tests using isolated storage."""
-from contextlib import contextmanager
 import json
 import multiprocessing
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

@@ -8,17 +8,19 @@ Callbacks are runner dependencies, never fields decoded from a model report.
 """
 from __future__ import annotations
 
-from copy import deepcopy
-from datetime import datetime
 import hashlib
 import json
-from pathlib import Path
 import re
+from copy import deepcopy
+from datetime import datetime
+from pathlib import Path
 
 try:
-    from . import autocode_design_manifest as design, autocode_util as util
+    from . import autocode_design_manifest as design
+    from . import autocode_util as util
 except ImportError:
-    import autocode_design_manifest as design, autocode_util as util
+    import autocode_design_manifest as design
+    import autocode_util as util
 
 
 def _require(condition, message):

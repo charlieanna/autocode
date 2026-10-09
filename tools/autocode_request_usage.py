@@ -1,7 +1,7 @@
 """Native request receipts and input context, with explicit incomplete coverage."""
+import hashlib
 import json
 import math
-import hashlib
 import os
 from pathlib import Path
 

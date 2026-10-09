@@ -1,16 +1,17 @@
 """POSIX provider-process supervision, including detached tool subprocesses."""
 from __future__ import annotations
 
-from contextlib import contextmanager
 import math
 import os
 import signal
 import subprocess
 import threading
 import time
+from contextlib import contextmanager
 
 try:
-    from . import autocode_process_children as process_children, autocode_process_receipts as process_receipts
+    from . import autocode_process_children as process_children
+    from . import autocode_process_receipts as process_receipts
     from . import autocode_util as util
     from .autocode_activity import idle_timeout_reason
 except ImportError:

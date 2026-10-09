@@ -6,12 +6,12 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import shlex
 import socket
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_check_replay as check_replay
@@ -19,7 +19,8 @@ import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_verify as verify
 import autocode_visual_check as visual_check
-from tests.visual_check_fixtures import Image, MODULE, VisualProject, offline_provider_environment, sha256
+
+from tests.visual_check_fixtures import MODULE, Image, VisualProject, offline_provider_environment, sha256
 
 
 @unittest.skipIf(Image is None, "visual-check tests require the optional Pillow dependency")

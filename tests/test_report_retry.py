@@ -4,15 +4,15 @@ The fixture transport is offline; native fault-injection evidence is recorded
 separately. These checks guard the observed recovery routes and retained bounds.
 """
 import copy
-import json
-from pathlib import Path
 import shutil
 import unittest
+from pathlib import Path
 
 import autocode_failures as failures
 import autocode_report_retry as retry
 import autocode_run_view as run_view
 from autocode_taskrun import TaskRun, TaskRunError
+
 from . import test_subprocess
 from .opencode_fixture_cli import entrypoint
 

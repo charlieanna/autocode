@@ -36,6 +36,7 @@ criteria of its own milestone and of those already accepted
 from __future__ import annotations
 
 import re
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -44,34 +45,37 @@ except ImportError:
 
 import subprocess
 import time
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_goals as goals, autocode_verify as verify
     from . import autocode_base_patch as operator_patch
-    from . import autocode_workspaces as workspaces
-    from . import autocode_test_cases as test_cases
-    from . import autocode_follow_up as follow_up
-    from . import autocode_runner_check as runner_check, autocode_status as status
-    from . import autocode_verification_schedule as schedule
-    from . import autocode_wrapped_runner as wrapped_runner
-    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_component_plan as component_plan
+    from . import autocode_follow_up as follow_up
+    from . import autocode_goals as goals
+    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_runner_check as runner_check
+    from . import autocode_status as status
+    from . import autocode_test_cases as test_cases
+    from . import autocode_util as util
+    from . import autocode_verification_schedule as schedule
+    from . import autocode_verify as verify
+    from . import autocode_workspaces as workspaces
+    from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
-    import autocode_follow_up as follow_up
-    import autocode_test_cases as test_cases
-    import autocode_util as util
-    import autocode_goals as goals
-    import autocode_verify as verify
     import autocode_base_patch as operator_patch
-    import autocode_workspaces as workspaces
+    import autocode_component_plan as component_plan
+    import autocode_follow_up as follow_up
+    import autocode_goals as goals
+    import autocode_launch_inputs as launch_inputs
     import autocode_runner_check as runner_check
     import autocode_status as status
+    import autocode_test_cases as test_cases
+    import autocode_util as util
     import autocode_verification_schedule as schedule
+    import autocode_verify as verify
+    import autocode_workspaces as workspaces
     import autocode_wrapped_runner as wrapped_runner
-    import autocode_launch_inputs as launch_inputs
-    import autocode_component_plan as component_plan
 
 STAGE = "regression_proof"
 SUMMARY_KEYS = ("framework", "verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",

@@ -10,9 +10,9 @@ import contextlib
 import copy
 import io
 import json
+import os
 import re
 import subprocess
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,7 +26,7 @@ import autocode_quota_route as quota_route
 import autocode_run_view as run_view
 from autocode_taskrun import TaskRun, TaskRunError
 
-from .test_job_failure_recovery import BROKEN, JobHarness, ORIGINAL, PROVIDER
+from .test_job_failure_recovery import BROKEN, ORIGINAL, PROVIDER, JobHarness
 
 REFUSING = r'''#!/usr/bin/env python3
 import json,os,sys,subprocess,uuid
@@ -469,8 +469,9 @@ class JobWithoutModelQuestionTests(unittest.TestCase):
     def test_a_quota_or_refusal_from_an_unexpected_session_asks_no_model(self):
         # When the runner itself stopped on a session it did not expect (#464), the job's stop names that,
         # not a quota stop or a refusal, so recover stores no pause_status and asks no model question.
-        import autocode_support as support
         import types
+
+        import autocode_support as support
         runtime = types.SimpleNamespace(support=support)
         with tempfile.TemporaryDirectory() as temp:
             for name, row, routed in (

@@ -8,25 +8,27 @@ this context after its existing process supervisor has cleaned the provider.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 import os
-from pathlib import Path
 import select
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
 
 try:
-    from . import autocode_command_receipt as receipts, autocode_process as processes, autocode_util as util
+    from . import autocode_command_receipt as receipts
+    from . import autocode_process as processes
     from . import autocode_supervision_handoff as handoff
+    from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
-    import autocode_util as util
     import autocode_supervision_handoff as handoff
+    import autocode_util as util
 
 
 class SupervisionError(processes.ProcessError):

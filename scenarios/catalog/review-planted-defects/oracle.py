@@ -1,8 +1,7 @@
 """Did the review find the two planted regressions in pr-184.patch, report nothing
 else as blocking, and leave the repository untouched? Line spans refer to the
 files as they are after the patch."""
-from harness.oracle import (Check, finding_matches, findings_of, load_json, only_changed_under,
-                            run_checks)
+from harness.oracle import Check, finding_matches, findings_of, load_json, only_changed_under, run_checks
 
 # F1: the Timeout branch of RegistryClient.send no longer asks the registry for
 # the transaction's status before resending.

@@ -14,8 +14,8 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from providers import command
 import autocode_support as support
+from providers import command
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "claude-provider"
 spec = importlib.util.spec_from_file_location("claude_stage", EXAMPLE / "claude_stage.py")

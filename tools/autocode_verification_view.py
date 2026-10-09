@@ -1,5 +1,6 @@
 """Recorded coverage and inspected evidence freshness, without completion authority."""
 from copy import deepcopy
+
 try:
     from .autocode_util import digest
 except ImportError:

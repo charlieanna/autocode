@@ -7,9 +7,10 @@ The provider FIFO makes interruption/concurrency faults causally reproducible.
 from __future__ import annotations
 
 import json
-from pathlib import Path
-import subprocess
 import shutil
+import subprocess
+from pathlib import Path
+
 import psutil
 
 from scenarios.harness.adversarial import AdversarialCase

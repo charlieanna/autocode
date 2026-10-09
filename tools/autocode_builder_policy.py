@@ -1,11 +1,13 @@
 """Runner-owned retry decisions. Models diagnose; configuration selects routes."""
 import copy
+
 try:
-    from . import autocode_util as s, autocode_route_ladder as route_ladder
+    from . import autocode_route_ladder as route_ladder
+    from . import autocode_util as s
     from .autocode_failure_classification import CLASSES
 except ImportError:
-    import autocode_util as s
     import autocode_route_ladder as route_ladder
+    import autocode_util as s
     from autocode_failure_classification import CLASSES
 
 # The stronger attempt is GPT-6 Sol at xhigh: Astra is too expensive and only for the

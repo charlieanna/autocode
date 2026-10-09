@@ -1,12 +1,12 @@
 """Review IDs bind to saved criteria without asking providers to echo text."""
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode as runner
-from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+from autocode_report_schema import hydrate_review_report, review_generation_schema, review_validation_schema
 from autocode_util import validate_schema
 
 

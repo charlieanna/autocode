@@ -6,7 +6,6 @@ on PATH is a fail-closed marker shim, so these read-only checks cannot call mode
 import hashlib
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import stat
@@ -15,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
 from autocode_cli import autocode, autocode_run_finder, autocode_status_command
 

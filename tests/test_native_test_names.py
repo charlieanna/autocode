@@ -6,9 +6,9 @@ requested test; the final Plan Reviewer offered it for approval, and the runner'
 the three. The runner now refuses that draft before it is installed or approved.
 """
 import copy
-from pathlib import Path
 import shutil
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_follow_up as follow_up
@@ -19,6 +19,7 @@ import autocode_regression as regression
 import autocode_test_cases as test_cases
 import autocode_test_examples as test_examples
 import goal_fixtures
+
 from tests.test_verify import Project
 
 NAMES = ["TestFixedReturnsTwo", "TestFixedPreservesExisting", "TestFixedPreservesCrash"]

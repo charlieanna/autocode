@@ -1,6 +1,7 @@
 import sqlite3
 from contextlib import contextmanager
 
+
 class Ledger:
     def __init__(self, path):
         self.path = str(path)

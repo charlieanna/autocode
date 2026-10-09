@@ -9,20 +9,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 import re
 import time
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_risk_obligations as obligations, autocode_risk_protocols as protocols
-    from . import autocode_util as util
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_risk_obligations as obligations
+    from . import autocode_risk_protocols as protocols
+    from . import autocode_util as util
 except ImportError:
+    import autocode_command_receipt as command_receipt
     import autocode_risk_obligations as obligations
     import autocode_risk_protocols as protocols
     import autocode_util as util
-    import autocode_command_receipt as command_receipt
 
 PASS, FAIL = 'PASS', 'FAIL'
 _HASH = re.compile(r'[0-9a-f]{64}\Z')

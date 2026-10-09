@@ -2,16 +2,17 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shlex
 import stat
 import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import autocode_providers
+
 from tools.providers import command
 
 
@@ -170,9 +171,9 @@ class CommandProviderTests(unittest.TestCase):
         previous = os.environ.get("PATH")
         os.environ["PATH"] = str(binary) + os.pathsep + previous
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous))
-        path = write_config(self.home, "drift", textwrap.dedent(f"""\
+        path = write_config(self.home, "drift", textwrap.dedent("""\
             name = "drift"
-            command = ["demo-tool", "{{report}}"]
+            command = ["demo-tool", "{report}"]
             version_command = ["demo-tool"]
             models = ["demo"]
         """) + ROLES)

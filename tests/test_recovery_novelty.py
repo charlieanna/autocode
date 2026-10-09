@@ -2,24 +2,25 @@
 import base64
 import copy
 import dataclasses
-from dataclasses import asdict
 import json
-from pathlib import Path
 import shutil
 import tempfile
-from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
 import uuid
+from dataclasses import asdict
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-import autocode_recovery_novelty as novelty
+import autocode as runner
+import autocode_builder_recovery as builder_recovery
 import autocode_recovery_inputs as inputs
+import autocode_recovery_novelty as novelty
 import autocode_resolver_recovery as recovery
 import autocode_rework_policy as rework
 import autocode_util as util
-import autocode as runner
-import autocode_builder_recovery as builder_recovery
 import autocode_visual_evidence as visual
+
 from tests.visual_capture_fixtures import make_capture, png
 
 
@@ -1343,7 +1344,6 @@ class RecoveryPacketTests(unittest.TestCase):
 class RecoveryNoveltyCLI(unittest.TestCase):
     """User-visible recurrence, explicit retry and independent corrected acceptance."""
     def setUp(self):
-        from scenarios import run  # Establish the scenario harness import root.
         from harness import catalog
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
