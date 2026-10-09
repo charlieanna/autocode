@@ -11,7 +11,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os  # noqa: F401  (star-exported to autocode_opencode; tests patch oc.os)
 import re
+import shutil  # noqa: F401  (star-exported to autocode_opencode; tests patch oc.shutil)
 import subprocess
 import sys
 import time
