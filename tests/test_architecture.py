@@ -29,7 +29,7 @@ TANGLED = frozenset({
 # 2026-10-04: the regression proof's prompt notes moved to autocode_regression, which owns the proof.
 # 2026-10-06: the closed-terminal output wrappers moved to autocode_detached_output (#454).
 # 2026-10-09: joint transport checks moved to autocode_joint_transport (#799).
-MAX_LINES = {"autocode.py": 1438, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
+MAX_LINES = {"autocode.py": 1434, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
 
 
 def source_modules() -> dict[str, Path]:

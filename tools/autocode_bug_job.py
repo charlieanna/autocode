@@ -165,6 +165,7 @@ Return JSON only, matching the schema the runner gives you. The runner writes th
 def packet(state: dict, inventory: dict | None = None, engine: str | None = None) -> dict:
     return {"stage": STAGE, "task": state["task"], "workspace": state.get("workspace"),
             "execution_engine": engine, "notes_directory": NOTES_PREFIX,
+            "test_command": ((state.get("settings") or {}).get("regression") or {}).get("test_command"),
             "workspace_inventory": inventory or {},
             # Present because every provider reads them; nothing is planned yet.
             "goal_contract": None, "current_task": None, "saved_answers": state.get("answers", {}),
@@ -191,6 +192,13 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
    Python virtualenvs are reused rather than copied. When investigation_python is provided, use it for
    Python commands from investigation_workspace, with PYTHONDONTWRITEBYTECODE=1. Do not install packages into or
    modify that environment; keep application imports and scratch writes in the investigation_workspace.
+   The submitted probe runs again from the root of a clean source copy. Temporary files and installed
+   packages under .autocode/investigation are not copied, and absolute workspace paths are redirected
+   into that source copy. Reuse investigation_python for dependencies and keep application imports
+   relative to the replay root; do not make the probe depend on temporary scratch packages or tests.
+   Make the submitted probe self-contained: if reproduction needs a temporary test or fixture, the
+   probe must create it with a relative path in its replay tree before running it. During investigation,
+   create those files only under investigation_workspace; never add them to the original workspace.
    Record exactly what you ran and what happened (reproduction, tests_run).
 """ + instruction[end:]
         data['investigation_workspace'] = str(scratch_workspace)

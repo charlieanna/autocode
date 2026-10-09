@@ -445,12 +445,8 @@ def run_role(
     if joint_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
-        record.update(permission_config=str(base.with_suffix(".opencode.json")), **provider_launch.stage_record(worker_context))
-    elif engine == "opencode":
-        record.update(provider=opencode.NAME,
-                      isolation="Config-tool sandbox flag and workspace snapshot checks")
-    elif engine == "qwen":
-        record.update(isolation="Qwen CLI with workspace boundary enforcement; no OS sandbox")
+        record['permission_config'] = str(base.with_suffix(".opencode.json"))
+    record.update(provider_launch.stage_record(worker_context))
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):

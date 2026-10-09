@@ -5,8 +5,70 @@ import unittest
 from pathlib import Path
 
 import autocode_verify as verify
+import autocode_test_environment as test_environment
 from autocode_python_tests import parse, verbose_unittest
 from autocode_verification_schedule import collection_kind
+
+
+class DeclaredPythonEnvironmentTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.project = self.root / 'project'
+        self.project.mkdir()
+        self.python = self.root / 'external environment/bin/python'
+        self.python.parent.mkdir(parents=True)
+        self.python.symlink_to(sys.executable)
+
+    def test_literal_external_virtualenv_keeps_its_symlink_path(self):
+        command = shlex.join(['env', 'PYTHONPATH=/support', 'PYTEST_PLUGINS=bootstrap',
+                              str(self.python), '-m', 'pytest', 'tests'])
+        selected = test_environment.python_for_test_command(self.project, command)
+        self.assertEqual(str(self.python), selected)
+        self.assertNotEqual(str(self.python.resolve()), selected)
+
+    def test_workspace_relative_interpreter_is_based_on_the_project(self):
+        python = self.project / 'runtime/bin/python3'
+        python.parent.mkdir(parents=True)
+        python.symlink_to(sys.executable)
+        self.assertEqual(str(python), test_environment.python_for_test_command(
+            self.project, './runtime/bin/python3 -m pytest tests'))
+
+    def test_explicit_current_directory_interpreters_are_not_bare_names(self):
+        for name in ('python', 'python3'):
+            with self.subTest(name=name):
+                python = self.project / name
+                python.symlink_to(sys.executable)
+                self.assertEqual(str(python), test_environment.python_for_test_command(
+                    self.project, f'./{name} -m pytest tests'))
+                self.assertIsNone(test_environment.python_for_test_command(
+                    self.project, f'{name} -m pytest tests'))
+
+    def test_quiet_unittest_uses_the_same_literal_interpreter(self):
+        command = shlex.join([str(self.python), '-m', 'unittest', '-q', 'tests.test_one'])
+        self.assertEqual(str(self.python), test_environment.python_for_test_command(self.project, command))
+
+    def test_unsupported_or_bare_commands_leave_normal_discovery_to_the_caller(self):
+        marker = self.root / 'must-not-execute'
+        for command in ('go test ./...', 'python3 -m pytest', 'env PATH=/elsewhere python3 -m pytest',
+                        f'{shlex.quote(str(self.python))} -B -m pytest',
+                        f'{shlex.quote(str(self.python))} -m pytest; touch {marker}',
+                        'env -i python3 -m pytest', 'env X=$(echo proof) python3 -m pytest', None):
+            with self.subTest(command=command):
+                self.assertIsNone(test_environment.python_for_test_command(self.project, command))
+        self.assertFalse(marker.exists())
+
+    def test_missing_and_nonexecutable_paths_are_not_selected(self):
+        missing = self.root / 'missing/bin/python'
+        self.assertIsNone(test_environment.python_for_test_command(
+            self.project, shlex.join([str(missing), '-m', 'pytest'])))
+        disabled = self.root / 'disabled/bin/python'
+        disabled.parent.mkdir(parents=True)
+        disabled.write_text('not an executable\n')
+        disabled.chmod(0o644)
+        self.assertIsNone(test_environment.python_for_test_command(
+            self.project, shlex.join([str(disabled), '-m', 'pytest'])))
 
 
 class PythonTestCommandTests(unittest.TestCase):

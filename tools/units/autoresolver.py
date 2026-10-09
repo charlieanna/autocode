@@ -17,6 +17,7 @@ try:
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
     from .. import autocode_providers, autocode_verify as verify, autocode_verification_plan as verification_plan, autocode_launch_inputs as launch_inputs
     from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
+    from .. import autocode_test_environment as test_environment
 except ImportError:
     import autocode_verify as verify
     import autocode_verification_plan as verification_plan
@@ -32,6 +33,7 @@ except ImportError:
     import autocode_stuck_job as stuck_job
     import autocode_providers
     import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
+    import autocode_test_environment as test_environment
     import autocode_failures as failures
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
@@ -66,7 +68,9 @@ def prepare_investigation(state):
         state, autoplanner.workspace_inventory(state["workspace"], state["task"]),
         state["settings"].get("context_soft_tokens", 10000),
         autoplanner.engine_for(state["settings"], "investigator"), scratch_workspace=str(scratch),
-        python_executable=verify.python_for(state['workspace']))
+        python_executable=test_environment.python_for_test_command(
+            state['workspace'], (state['settings'].get('regression') or {}).get('test_command'))
+            or verify.python_for(state['workspace']))
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
 

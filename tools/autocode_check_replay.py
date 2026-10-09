@@ -66,11 +66,19 @@ The runner also executes explicit commands from the approved verification method
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
 must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
-In read-only contained stages, capture commands execute in a runner-prepared copy of the current source,
-where build outputs are writable but existing source and tests remain protected. Receipts are still written
+When the runner supplies a verification copy (including read-only Codex and configured-provider judging stages), capture commands execute
+in that copy of the current source, where generated test and build outputs can persist without dirtying
+the original repository. This copy does not itself impose an OS sandbox or protect existing inputs from
+your tools: keep source and tests unchanged. Receipts are still written
 to the --output path you give capture. Use repository-relative paths for product files. Each reported check must
 include its own setup (for example build and execute in the same command): clean replay does not retain
 artifacts from earlier checks. An execution in the prepared copy is still subject to clean-source replay.
+Create any extra probe or test fixture INSIDE the command passed after capture's --, using repository-relative
+paths. Do not create it with a preceding heredoc, shell command or file tool: capture redirects only its child
+command, not your preceding shell operations, which still touch the original repository. Make each check
+self-contained so the same fixture setup runs in clean replay. Do not install dependencies or change the
+original dependency lockfiles, supplied environments or setup inputs during validation; use the provided
+dependencies, or report missing prerequisites as blocked.
 Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/,
 or tool_containment.scratch when your handoff has one); the runner's changed-file measurement ignores .autocode/.
 Capture receipts where your output contract's capture example says. A later repair re-verifies each pin, so
