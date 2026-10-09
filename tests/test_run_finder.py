@@ -255,10 +255,8 @@ class WhereRunsAreFound(Fixture):
         before = tree_snapshot(self.root)
         for start in (self.project, tree, run, bare, self.root):
             for action in finder.ACTIONS:
-                try:
+                with contextlib.suppress(finder.RunNotFound):
                     finder.choose(start, action, "--status")
-                except finder.RunNotFound:
-                    pass
             finder.candidates(start)
         finder.checkout_of(run)
         self.assertEqual(before, tree_snapshot(self.root))

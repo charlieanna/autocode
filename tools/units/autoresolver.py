@@ -50,6 +50,8 @@ except ImportError:
     import autocode_util as util
     import autocode_verification_plan as verification_plan
     import autocode_verify as verify
+import contextlib
+
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 
@@ -145,10 +147,8 @@ def wait_on_existing_diagnosis(state, decision, record, request, *, source_stage
     """
     diagnosis = ""
     output = request["diagnosis_output"]
-    try:
+    with contextlib.suppress(OSError, ValueError, AttributeError):
         diagnosis = str(json.loads(Path(output).read_text()).get("diagnosis") or "")
-    except (OSError, ValueError, AttributeError):
-        pass
     asked = decision.get("user_request") or {}
     if (asked.get("kind", "none") == "none" or not str(asked.get("decision_needed", "")).strip()
             or not str(asked.get("impact", "")).strip()):

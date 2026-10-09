@@ -6,6 +6,7 @@ recorded. The shared supervisor handles birth checks, termination and reaping.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import time
@@ -77,10 +78,8 @@ def running(child):
 def terminate(child):
     """Signal only the unreaped direct child; callers must not poll/wait it."""
     _leader(child)  # An unreaped direct child's PID cannot have been reassigned.
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.kill(child.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
 
 
 def wait(child, timeout):

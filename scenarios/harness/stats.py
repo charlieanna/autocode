@@ -13,6 +13,7 @@ verdicts come from word lists, so a live CORRECT is read by a person before it i
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import statistics
 from pathlib import Path
@@ -38,10 +39,8 @@ def load_results(root: Path) -> list[dict]:
         if directory.is_symlink() or not directory.is_dir():
             continue
         result = None
-        try:
+        with contextlib.suppress(OSError, ValueError):
             result = json.loads((directory / "result.json").read_text())
-        except (OSError, ValueError):
-            pass
         if not (isinstance(result, dict) and result.get("scenario") and result.get("verdict")):
             result = attempts.unfinished(directory)
         if result is not None:

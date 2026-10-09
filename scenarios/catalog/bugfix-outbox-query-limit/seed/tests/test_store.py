@@ -152,7 +152,7 @@ class StoreTests(unittest.TestCase):
         store = Store(self.path)
         for amount in (1.0, "1", None):
             with self.assertRaises((TypeError, ValueError)):
-                store.create_order("order-%r" % amount, amount, "key-%r" % amount)
+                store.create_order(f"order-{amount!r}", amount, f"key-{amount!r}")
         self.assertEqual(store.orders(), {})
         self.assertEqual(store.pending(), [])
 

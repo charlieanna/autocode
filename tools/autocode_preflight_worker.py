@@ -7,6 +7,7 @@ because it auto-allows `ask`, approval-bearing effective policies are refused.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -91,15 +92,11 @@ def run(argv, cwd, output, *, timeout, environment, paused=lambda: False):
                 if time.monotonic() - started >= timeout:
                     timed_out = True
                     break
-                try:
+                with contextlib.suppress(subprocess.TimeoutExpired):
                     process.wait(timeout=min(0.2, max(0.001, timeout - (time.monotonic() - started))))
-                except subprocess.TimeoutExpired:
-                    pass
         finally:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             process.wait()
     return {"command": shlex.join(argv), "exit_code": None if timed_out or interrupted else process.returncode,
             "timed_out": timed_out, "interrupted": interrupted, "duration": time.monotonic() - started,

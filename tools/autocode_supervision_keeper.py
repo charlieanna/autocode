@@ -1,6 +1,7 @@
 """Independent pipe lifeline for one birth-identified provider process tree."""
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -264,10 +265,8 @@ def main(control, acknowledgement, external=None):
         terminal_error = f'{type(error).__name__}: {str(error)[:300]}'
         result = 4
         # Do not discard already recorded ownership when discovery fails.
-        try:
+        with contextlib.suppress(BaseException):
             tree.signal(tree.inventory(), signal.SIGKILL)
-        except BaseException:
-            pass
     finally:
         done.set()
         watcher.join(timeout=1)

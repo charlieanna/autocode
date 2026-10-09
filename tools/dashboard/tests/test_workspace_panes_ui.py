@@ -44,7 +44,7 @@ class WorkspacePanesUITests(unittest.TestCase):
     def assert_harness(self, name, monitor=None):
         result = harness_case(name, monitor)
         self.assertEqual(0, result.returncode,
-                         'case %s failed:\n%s\n%s' % (name, result.stdout, result.stderr))
+                         f'case {name} failed:\n{result.stdout}\n{result.stderr}')
 
     def test_ac10_work_default_pane_reads_saved_records(self):
         self.assert_harness('ac10')
@@ -67,22 +67,22 @@ class WorkspacePanesUITests(unittest.TestCase):
         ancestors = approval_host_ancestors()
         for control in ('pause-run', 'stop-run', 'continue-run'):
             chain = ancestors.get(control) or []
-            self.assertTrue(chain, 'the shipped page renders the %s control' % control)
+            self.assertTrue(chain, f'the shipped page renders the {control} control')
             self.assertIn('composer-run-controls', chain,
-                          'the %s control must sit in the beside-composer run controls row; '
-                          'enclosing ids: %s' % (control, chain))
+                          f'the {control} control must sit in the beside-composer run controls row; '
+                          f'enclosing ids: {chain}')
             self.assertIn('live-controls', chain,
-                          'the %s control must sit in the composer section, beside the chat transcript '
-                          'composer inside the conversation view; enclosing ids: %s' % (control, chain))
+                          f'the {control} control must sit in the composer section, beside the chat transcript '
+                          f'composer inside the conversation view; enclosing ids: {chain}')
         for control in ('task-model-settings', 'task-reasoning-form'):
             chain = ancestors.get(control) or []
-            self.assertTrue(chain, 'the shipped page renders the %s model-route host' % control)
+            self.assertTrue(chain, f'the shipped page renders the {control} model-route host')
             self.assertIn('composer-models', chain,
-                          'the %s model-route host must sit in the beside-composer models disclosure; '
-                          'enclosing ids: %s' % (control, chain))
+                          f'the {control} model-route host must sit in the beside-composer models disclosure; '
+                          f'enclosing ids: {chain}')
             self.assertIn('live-controls', chain,
-                          'the %s model-route host must sit beside the chat composer, not in the task '
-                          'settings dropdown; enclosing ids: %s' % (control, chain))
+                          f'the {control} model-route host must sit beside the chat composer, not in the task '
+                          f'settings dropdown; enclosing ids: {chain}')
         self.assert_harness('composer_run_controls')
 
     def test_ac16_pause_labeled_after_current_step(self):
@@ -147,7 +147,7 @@ class WorkspacePanesUITests(unittest.TestCase):
         chain = ancestors['inline-task-action']
         self.assertTrue('interview' in chain or 'conversation' in chain,
                         'the approval host must be a DOM descendant of the continuous '
-                        'chat transcript (#interview or #conversation); enclosing ids: %s' % chain)
+                        f'chat transcript (#interview or #conversation); enclosing ids: {chain}')
         self.assertNotIn('live-controls', chain,
                          'the approval host must not live in the composer section outside the transcript')
 

@@ -7,6 +7,7 @@ except ImportError:
     import autocode_source_scope as source_scope
 
 
+import contextlib
 import copy
 import re
 from pathlib import Path
@@ -1127,10 +1128,8 @@ def run(runtime, state, workspace, run_dir, args):
                 "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match"})
             current["settings"]["transport_identity"] = current_settings
         if current.get('pending_report_repair'):
-            try:
+            with contextlib.suppress(ReportRepairQueued):
                 execute_report_repair(current, run_dir, workspace)
-            except ReportRepairQueued:
-                pass
             return SKIP
 
     def dispatch_code_stage(current, stage):

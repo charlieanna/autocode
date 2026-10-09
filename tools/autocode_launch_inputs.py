@@ -16,7 +16,7 @@ import re
 import stat
 import sys
 import uuid
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -185,10 +185,8 @@ def _parent(root, name, *, create=False, expected_root=None):
             except FileNotFoundError:
                 if not create:
                     raise
-                try:
+                with suppress(FileExistsError):
                     os.mkdir(part, dir_fd=fd)
-                except FileExistsError:
-                    pass
                 child = os.open(part, flags, dir_fd=fd)
             previous = fd
             fd = child

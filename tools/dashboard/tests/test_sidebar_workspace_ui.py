@@ -105,7 +105,7 @@ class SidebarWorkspaceUITests(ConversationScopingFixture):
     def assert_harness(self, name):
         result = harness_case(name)
         self.assertEqual(0, result.returncode,
-                         'case %s failed:\n%s\n%s' % (name, result.stdout, result.stderr))
+                         f'case {name} failed:\n{result.stdout}\n{result.stderr}')
 
     def test_ac1_sidebar_groups_conversations_by_project_with_no_project_group(self):
         self.assert_harness('ac1')

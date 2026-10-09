@@ -685,10 +685,8 @@ class HarnessOwnerLossTests(unittest.TestCase):
 
     def cleanup(self, harness, owned, sentinel):
         if harness.poll() is None:
-            try:
+            with contextlib.suppress(processes.psutil.NoSuchProcess):
                 owned.extend(processes.psutil.Process(harness.pid).children(recursive=True))
-            except processes.psutil.NoSuchProcess:
-                pass
             harness.kill()
         harness.wait(timeout=10)
         for process in reversed(owned):

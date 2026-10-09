@@ -12,6 +12,7 @@ seed already provides (seed_callables) is the seed's, which the design may keep 
 """
 import ast
 import builtins
+import contextlib
 import importlib
 import math
 import re
@@ -220,10 +221,8 @@ def definitions(project):
                 modules = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""]
                 for module in modules:
                     if module.split(".")[0] in sys.stdlib_module_names:
-                        try:
+                        with contextlib.suppress(ImportError):
                             names |= set(dir(importlib.import_module(module)))
-                        except ImportError:
-                            pass
     return names, params
 
 

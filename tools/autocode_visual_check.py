@@ -8,6 +8,7 @@ because the ordinary verification runner removes its scratch worktree afterward.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import signal
@@ -40,10 +41,8 @@ def _capture_worker():
         # Browser drivers may put their own children in additional process groups.
         try:
             for child in psutil.Process().children(recursive=True):
-                try:
+                with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
                     child.kill()
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
         finally:
             os.killpg(os.getpgrp(), signal.SIGKILL)
 
@@ -86,15 +85,11 @@ def _capture(command, workspace, output, manifest, timeout):
         except subprocess.TimeoutExpired as error:
             raise ValueError(f"Capture timed out after {timeout} seconds") from error
         finally:
-            try:
+            with contextlib.suppress(BrokenPipeError):
                 process.stdin.close()
-            except BrokenPipeError:
-                pass
             if process.poll() is None:
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
             process.wait()
     receipt, result_hash = policy.read_json(policy.contained(output, "capture-result.json"))
     policy.object_fields(receipt, "exit_code timed_out error", "capture result")

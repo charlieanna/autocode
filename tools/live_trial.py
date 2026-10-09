@@ -32,6 +32,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import contextlib
+
 import autocode_process as processes  # noqa: E402
 import autocode_util as util  # noqa: E402
 import live_profiles as profiles  # noqa: E402
@@ -638,10 +640,8 @@ def main(argv: list[str] | None = None) -> int:
         run = {"state": {"status": "SCORE_ONLY"}, "steps": [], "run_dir": project,
                "mode": "score-only", "product": project}
         write_report(bundle, args.scenario, spec, "none", {"provider": "none"}, oracle, run)
-        try:
+        with contextlib.suppress(AssertionError):
             bundle.finish(oracle.status, oracle.summary)
-        except AssertionError:
-            pass
         print(f"{args.scenario} [score-only] {oracle.status}: {oracle.summary}")
         print(f"evidence: {bundle.dir}")
         return 0 if oracle.status == scenarios.PASS else 2 if oracle.status == scenarios.DEFERRED else 1

@@ -7,7 +7,7 @@ import signal
 import subprocess
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 try:
     from . import autocode_process_children as process_children
@@ -553,10 +553,8 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 live = tree.sample()
                 if watchdog_fired.is_set():
                     break
-                try:
+                with suppress(subprocess.TimeoutExpired):
                     child.wait(timeout=min(.2, max(.001, deadline - time.monotonic())) if deadline else .2)
-                except subprocess.TimeoutExpired:
-                    pass
         finally:
             # Includes normal exits. A blocked controller save cannot defer
             # stopping detached writers beyond the supervision result.

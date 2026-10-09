@@ -15,6 +15,7 @@ except ImportError:
     import autocode_source_snapshot as source_snapshot
 
 
+import contextlib
 import hashlib
 import os
 import subprocess
@@ -118,10 +119,8 @@ def tree_files(workspace, revision):
                 proc.kill()
             proc.wait()
             for pipe in (proc.stdin, proc.stdout):
-                try:
+                with contextlib.suppress(OSError):
                     pipe.close()
-                except OSError:
-                    pass
     return result
 
 

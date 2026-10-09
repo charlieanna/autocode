@@ -31,6 +31,7 @@ tool is test infrastructure, not a way to clear native-Codex live coverage.
 """
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -200,10 +201,8 @@ def _receipt(path: Path, value: dict) -> None:
                 os.fsync(stream.fileno())
             os.replace(temporary, path)
         finally:
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.unlink(temporary)
-            except FileNotFoundError:
-                pass
 
 
 def recorded_variant(argv: list[str]) -> str | None:

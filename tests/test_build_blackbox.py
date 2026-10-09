@@ -3,6 +3,7 @@
 Provider is deterministic, not a live LLM. Set BUILD_AUDIT_ARTIFACTS to retain
 every workspace, prompt, report and process log rather than delete temp fixtures.
 """
+import contextlib
 import json
 import os
 import shutil
@@ -66,10 +67,8 @@ def await_supervised_exit(root, bound=30):
             break
         time.sleep(.05)
     for row in live:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(row['pid'], signal.SIGKILL)
-        except ProcessLookupError:
-            pass
     raise AssertionError(f'Supervised processes outlived the test by {bound} s: {sorted(row["pid"] for row in live)}')
 
 

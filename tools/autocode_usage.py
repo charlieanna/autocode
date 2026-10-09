@@ -422,8 +422,8 @@ def report(project):
     lines.append(f"{'total (%d runs)' % len(rows):<60} {'':<24} "
                  f"{_sum((row.get('tokens') or {}).get('input_tokens') for row in rows):>11,} "
                  f"{_sum((row.get('tokens') or {}).get('output_tokens') for row in rows):>9,} "
-                 f"{'$%.2f' % _sum((row.get('cost_usd') or {}).get('reported') for row in rows):>10} "
-                 f"{'$%.2f' % _sum((row.get('cost_usd') or {}).get('estimated') for row in rows):>10}")
+                 f"{'${:.2f}'.format(_sum((row.get('cost_usd') or {}).get('reported') for row in rows)):>10} "
+                 f"{'${:.2f}'.format(_sum((row.get('cost_usd') or {}).get('estimated') for row in rows)):>10}")
     lines.append("* a stage has no cost or only partial usage is known: the total is a floor. Reported is the provider's "
                  "own cost; estimated is tokens at flat comparison rates, not a bill.")
     return "\n".join(lines)

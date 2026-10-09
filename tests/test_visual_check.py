@@ -1,6 +1,7 @@
 """Public visual-check behavior, including enforcement in real clean-copy replay."""
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import importlib.util
@@ -451,10 +452,8 @@ class VisualCheckTests(unittest.TestCase):
                     descendants = psutil.Process(process.pid).children(recursive=True)
                     process.kill()
                 for child in descendants:
-                    try:
+                    with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
                         child.kill()
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        pass
                 for channel in connections:
                     channel.close()
                 process.communicate(timeout=10)

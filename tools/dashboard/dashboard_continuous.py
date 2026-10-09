@@ -1,4 +1,5 @@
 """Continuous requirements and structured drafts; legacy intake stays compatible."""
+import contextlib
 import hashlib
 import json
 import os
@@ -492,11 +493,9 @@ class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, Dra
             for records in ('_dispatches', '_planner_dispatches'):
                 dispatch = (doc.get(records) or {}).get(logical_turn)
                 if isinstance(dispatch, dict) and not draft_cadence.held(dispatch) and dispatch.get('state') != 'SAFE_NOT_DISPATCHED':
-                    try:
+                    with contextlib.suppress(conversation_protocol.ConversationProtocolError):
                         doc[records][logical_turn] = conversation_protocol.transition(
                             dispatch, 'SAFE_NOT_DISPATCHED', reason='Conversation worker was unavailable before process creation')
-                    except conversation_protocol.ConversationProtocolError:
-                        pass
             self._mark_planner_draft_failed(doc, logical_turn, {
                 'stage': 'planner_dispatch', 'message': 'The conversation service stopped before the structured Planner could start.',
                 'reason': 'worker_unavailable'})
@@ -849,13 +848,11 @@ class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, Dra
                 # committed over the newer input (AC5).
                 dispatch = (doc.get('_planner_dispatches') or {}).get(logical_turn)
                 if isinstance(dispatch, dict):
-                    try:
+                    with contextlib.suppress(conversation_protocol.ConversationProtocolError):
                         doc['_planner_dispatches'][logical_turn] = conversation_protocol.transition(
                             dispatch, 'RESULT_CAPTURED', stale_result_discarded=True,
                             stale_reason='newer requirements input',
                             structured_digest=conversation_protocol.digest(validated))
-                    except conversation_protocol.ConversationProtocolError:
-                        pass
                 self._save(doc)
                 return
             self._commit_structured(doc, logical_turn, revision, validated, route)

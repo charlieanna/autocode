@@ -4,6 +4,7 @@ No provider calls, credentials, external memory or alternate workflow state.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import os
@@ -238,10 +239,8 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                 except (ValueError, IndexError):
                     continue
             for line in item.get("aggregated_output", "").splitlines():
-                try:
+                with contextlib.suppress(ValueError):
                     matched |= json.loads(line) == receipt
-                except ValueError:
-                    pass
         if not matched:
             raise ValueError("No independently executed Validator tool event matches receipt")
         check['exit_code'] = receipt['exit_code']

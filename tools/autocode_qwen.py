@@ -229,9 +229,8 @@ def normalized_events(rows):
     normalized.extend(errors)
 
     # Determine if turn completed successfully
-    if not any(row.get("type") == "turn.failed" for row in normalized):
-        if turn_completed or text_parts:
-            normalized.append({"type": "turn.completed", "usage": usage if usage else None})
+    if not any(row.get("type") == "turn.failed" for row in normalized) and (turn_completed or text_parts):
+        normalized.append({"type": "turn.completed", "usage": usage if usage else None})
 
     return normalized
 
