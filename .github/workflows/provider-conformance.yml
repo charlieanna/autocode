@@ -1,0 +1,52 @@
+name: provider-conformance
+
+# Re-run the offline conformance suite against the latest published engines so
+# a new OpenCode or Codex version is known-good or known-refused before users
+# hit it (#706). No model calls: `provider_conformance.py --fake` only.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Offline conformance suite
+        id: suite
+        run: |
+          python tools/provider_conformance.py --fake
+          python tools/provider_matrix.py --write
+      - name: Open an issue when the matrix changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet docs/providers.md docs/provider-matrix.json; then
+            echo "Conformance matrix unchanged."
+            exit 0
+          fi
+          cat > /tmp/issue.md <<'EOF'
+          ## Conformance matrix changed
+
+          The offline conformance suite (`tools/provider_conformance.py --fake`) produced a
+          different result from the published matrix.
+
+          Please review the diff and update `docs/provider-matrix.json` (then
+          `python tools/provider_matrix.py --write`). A new major engine version must be
+          `known-good` or `refused` before users hit it (#706).
+
+          | Field | Value |
+          | --- | --- |
+          | Workflow | ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} |
+          | Commit | ${{ github.sha }} |
+          EOF
+          gh issue create --title "Provider conformance matrix changed" --body-file /tmp/issue.md
