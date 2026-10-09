@@ -54,7 +54,8 @@ class ProviderLaunchTests(unittest.TestCase):
                 self.assertEqual(['qwen'], command)
                 native.assert_called_once_with('sol', Path('/workspace'), Path('/run'), None,
                     'qwen/qwen-max', 'high', changes.get('allow_write', False),
-                    planning=changes.get('planning', False))
+                    planning=changes.get('planning', False), report=Path('/report'),
+                    schema=Path('/schema'), sandbox='workspace-write')
                 self.assertNotIn('AUTOCODE_VERIFICATION_COPY', environment)
                 self.assertNotIn('AUTOCODE_VERIFICATION_COPY_SHA256', environment)
                 self.assertNotIn('verification_copy', worker)
