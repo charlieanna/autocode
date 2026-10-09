@@ -270,7 +270,7 @@ class RepairScenarios(RepairCase):
                                             "no_progress_batches": 3,
                                             "automatic_retries": 0}
         case_state.update(active_seconds=60 * 90 * 3, no_progress_batches=0)  # slow but progressing
-        saved = support.atomic_json(self.run / "slow-state.json", case_state)
+        support.atomic_json(self.run / "slow-state.json", case_state)
         self.check("no_wall_clock_kill_when_progressing", True,
                    case_state["settings"]["limits"]["max_seconds"] is None)
         stall = copy.deepcopy(case_state)

@@ -85,7 +85,7 @@ def _locked_registry() -> Any:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise RegistryError("lock_timeout", "Registry is busy; retry the same run after a short wait")
+                    raise RegistryError("lock_timeout", "Registry is busy; retry the same run after a short wait") from None
                 time.sleep(0.05)
         yield registry_path()
     finally:

@@ -138,7 +138,7 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         return nested
 
     def test_nested_git_keeps_existing_identity_and_detects_selected_ignored_edits(self):
-        nested = self.nested_repository()
+        self.nested_repository()
         before = source.snapshot(self.root, paths=['module'])
         self.assertEqual(util.snapshot(self.root)['revision'], before['revision'])
         document = self.write('module/docs/result.md', 'Nested deliverable\n')

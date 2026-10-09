@@ -68,7 +68,6 @@ def scenarios(workspace):
         if name == 'ready':
             state['validation']['criterion_results'] = [
                 {'id': 'C' + str(i), 'status': 'PASS'} for i in range(1, 7)]
-        run = workspace / '.autocode' / 'runs' / ('flow-visual-' + name)
         state['_fixture_saved_diff'] = 'diff --git a/app.js b/app.js\n--- a/app.js\n+++ b/app.js\n@@ -1 +1,2 @@\n-renderTaskTabs();\n+renderConversation();\n+renderWorkPane();\n'
         state['stages'].insert(0, {'stage': 'terra', 'role': 'terra', 'exit_code': 0,
                                 'finished_at': '2026-09-22T12:25:00Z',

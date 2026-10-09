@@ -4324,7 +4324,7 @@ class PhaseEnvironmentTests(unittest.TestCase):
         self.assertEqual(2, len(probe.unexpected_requests()))
 
     def test_ac8_parent_home_and_oauth_sentinel_untouched(self):
-        phase_env = self.phase_env()
+        self.phase_env()
         base = self.sequence_base("ac8")
         parent_home = base / "parent-home"
         sentinel = parent_home / ".config" / "provider" / "oauth.json"

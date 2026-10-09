@@ -29,7 +29,6 @@ try:
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_checkpoint_continuation as continuation
     from . import autocode_code_checkpoints as checkpoints
-    from . import autocode_contract_identity as contract
     from . import autocode_legacy_process as legacy
     from . import autocode_registry as registry
     from . import autocode_util as util

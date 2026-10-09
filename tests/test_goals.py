@@ -897,7 +897,7 @@ class GoalTests(unittest.TestCase):
 
     def test_optional_backlog_does_not_block_completion(self):
         self.approve()
-        current = self.validation()
+        self.validation()
         decision = self.decision("TASK_COMPLETE")
         decision["deferred_backlog"] = ["Optional web UI", "Optional colours"]
         runner.apply_result(self.state, "astra_review", decision, {"output": "final"}, self.root, self.run)

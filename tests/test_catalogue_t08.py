@@ -369,7 +369,7 @@ class CrashScenarios(CrashCase):
         canonical = {"approval": copy.deepcopy(self.state["goal_contract"]["approval_event"]),
                      "findings": findings.summary(self.state)["entries"]}
         for restart in range(3):
-            code = self.invoke_main()  # plain restart; nothing new to do
+            self.invoke_main()  # plain restart; nothing new to do
             self.check(f"[restart {restart}] no_launches", 0,
                        len([op for op in self.bundle.operations if op["kind"] == "blocked_real_launch"]))
             self.check(f"[restart {restart}] status_unchanged", "WAITING_FOR_USER", self.state["status"])
@@ -417,7 +417,7 @@ class CrashScenarios(CrashCase):
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         import os as _os
         _os.environ["AUTOCODE_HOME"] = str(self.root.parent / "registry-crh14")
-        code = self.invoke_main()
+        self.invoke_main()
         self.check("stale_acceptance_reported", True,
                    self.state["status"].startswith("PAUSED_") or self.state["status"] == "TASK_COMPLETE")
         self.check("no_silent_reapproval", True,

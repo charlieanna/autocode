@@ -367,7 +367,6 @@ class ReviewCase(t06.SolControllerCase):
         # controller-level apply of it leaves the terminal decision untouched.
         before_late = copy.deepcopy(self.state["final_decision"])
         stale = self.sol_report(event_id="stale-late")
-        snapshot_state = copy.deepcopy(self.state)
         try:
             self.apply_sol(stale, event_id="stale-late")
         except (support.Paused, ValueError):

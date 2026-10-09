@@ -282,7 +282,6 @@ class BoundChangeSupersede(unittest.TestCase):
         # An operational-exhaustion request after burn-out may name a different
         # origin.pause_status than the bound the operator is raising (#301).
         relevant = {'PAUSED_TIMEOUT_RECOVERY': ()}  # status map alone would miss it
-        budget_kind = 'max_seconds'
         bound_flags = ('max_seconds',)
         paused_for = 'PAUSED_TIMEOUT_RECOVERY'
         explicit = {'max_seconds'}

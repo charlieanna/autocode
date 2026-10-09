@@ -556,7 +556,7 @@ def request_lock(run_dir):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError('Another milestone request is being saved; retry')
+            raise ValueError('Another milestone request is being saved; retry') from None
         try:
             yield
         finally:

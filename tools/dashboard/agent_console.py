@@ -282,7 +282,7 @@ class LegacyConsole:
  def add_runtime_watch_root(self,raw):
   if not isinstance(raw,str) or not raw.strip():raise ValueError('Watch root path is required')
   try:root=Path(raw).expanduser().resolve(strict=True)
-  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory')
+  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory') from None
   if not root.is_dir():raise ValueError('Watch root must be an existing directory')
   with self.scan_lock:
    if root in self.cli_watch_roots or root in self.runtime_watch_roots:raise ValueError('Watch root is already configured')
@@ -291,7 +291,7 @@ class LegacyConsole:
  def remove_runtime_watch_root(self,raw):
   if not isinstance(raw,str):raise ValueError('Watch root path is required')
   try:root=Path(raw).expanduser().resolve(strict=False)
-  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root')
+  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root') from None
   with self.scan_lock:
    if root in self.cli_watch_roots:raise ValueError('CLI watch roots cannot be removed at runtime')
    if root not in self.runtime_watch_roots:raise ValueError('Watch root is not a removable runtime root')
@@ -598,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
   if len(hosts)!=1 or hosts[0] not in self.server.hosts:return False
   o=self.headers.get('Origin')
   if not o:return True
-  try:p=urlparse(o);port=p.port
+  try:p=urlparse(o);p.port
   except ValueError:return False
   return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
  def do_GET(self):

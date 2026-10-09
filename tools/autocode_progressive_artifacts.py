@@ -155,7 +155,7 @@ def persist(run_dir, envelope):
                         follow_symlinks=False)
             except FileExistsError:
                 if _read(directory, name) != data:
-                    raise ValueError("refusing to overwrite different artifact bytes or hash collision")
+                    raise ValueError("refusing to overwrite different artifact bytes or hash collision") from None
                 # Also complete durability after a crash between link and fsync.
                 existing = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
                 try:

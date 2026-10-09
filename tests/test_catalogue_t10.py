@@ -128,8 +128,8 @@ class ParallelScenarios(ParallelCase):
         subprocess.run(["git", "-C", str(self.root), "add", "shared.txt"], check=True)
         subprocess.run(["git", "-C", str(self.root), "-c", "user.name=F", "-c", "user.email=f@t",
                         "commit", "-qm", "base"], check=True)
-        first = subprocess.run(["git", "-C", str(self.root), "checkout", "-q", "-b", "w1"],
-                               capture_output=True)
+        subprocess.run(["git", "-C", str(self.root), "checkout", "-q", "-b", "w1"],
+                       capture_output=True)
         (self.root / "shared.txt").write_text("worker one edit\n")
         subprocess.run(["git", "-C", str(self.root), "add", "shared.txt"], check=True)
         subprocess.run(["git", "-C", str(self.root), "-c", "user.name=F", "-c", "user.email=f@t",
@@ -138,7 +138,7 @@ class ParallelScenarios(ParallelCase):
                                     capture_output=True, text=True).stdout
         subprocess.run(["git", "-C", str(self.root), "checkout", "-q", "master"], check=True)
         subprocess.run(["git", "-C", str(self.root), "apply"], input=patch_one, text=True, check=True)
-        second = subprocess.run(["git", "-C", str(self.root), "stash"], capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.root), "stash"], capture_output=True, text=True)
         (self.root / "shared.txt").write_text("worker two edit\n")
         patch_two = subprocess.run(["git", "-C", str(self.root), "diff"], capture_output=True, text=True).stdout
         (self.root / "shared.txt").write_text("worker one edit\n")

@@ -102,7 +102,7 @@ def _locked_inbox(lock: Path) -> Any:
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise InterventionError("lock_timeout", "Intervention inbox is busy; retry after a short wait")
+                    raise InterventionError("lock_timeout", "Intervention inbox is busy; retry after a short wait") from None
                 time.sleep(0.05)
         yield
     finally:

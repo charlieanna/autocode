@@ -211,7 +211,7 @@ class WhereRunsAreFound(Fixture):
 
     def test_layouts_that_are_not_user_runs_are_ignored(self):
         outside = self.root / "outside"
-        outside_run = self.run_in(outside)
+        self.run_in(outside)
         worktrees = self.project / ".autocode" / "worktrees"
         handmade = worktrees / "handmade"
         self.run_in(handmade)                                           # no task-workspace.json

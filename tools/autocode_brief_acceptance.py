@@ -501,7 +501,6 @@ def normalized_proposal(declaration, proposal):
         row = {'placeholder': name, 'step': step, 'argument': argument}
         normalized_bindings.append(row)
         bindings.setdefault(name, row)
-    pattern = _format_pattern(declaration, steps, bindings)
     normalized = json.loads(json.dumps(proposal))
     normalized['steps'] = steps
     normalized['bindings'] = normalized_bindings
@@ -534,7 +533,6 @@ def normalized_proposal(declaration, proposal):
 def _bind_one(declaration, proposal):
     normalized, patterns, bindings = normalized_proposal(declaration, proposal)
     steps = normalized['steps']
-    observe = normalized['observe_step']
     pattern = _format_pattern(declaration, steps, bindings)
     observation = {'declaration': declaration, 'proposal': normalized, 'pattern': pattern}
     observation['hash'] = digest(observation)
