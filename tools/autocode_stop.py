@@ -8,9 +8,18 @@ never marked complete, and a stop receipt never receives a resumed_at stamp.
 The saved status stays the existing PAUSED_INTERVENTION boundary status with a
 stop-specific reason; no new state.json status is invented.
 
+A pause that lands on a run already held at another pause does not replace it:
+pause_intent records the pause it interrupted, and --resume-paused returns the
+run there (resume_interrupted), so that pause's own authority still decides
+whether anything launches (#486). A later pause keeps the pause the first one
+interrupted, and queued feedback keeps an operational pause it does not
+acknowledge. An invocation that released the held pause with its own authority
+before applying the batch passes released=True: nothing is held then.
+
 This module sits below the controllers: it imports only autocode_util,
-autocode_interventions and autocode_goals, never the runner, autopilot, or any
-module in the import cycle. The state writer and clock are passed in.
+autocode_interventions, autocode_goals and autocode_pause_authority, never the
+runner, autopilot, or any module in the import cycle. The state writer and clock
+are passed in.
 """
 from __future__ import annotations
 
@@ -20,10 +29,12 @@ from typing import Any, Callable
 try:
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
+    from . import autocode_pause_authority as pause_authority
     from . import autocode_util as util
 except ImportError:
     import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_pause_authority as pause_authority
     import autocode_util as util
 
 
@@ -127,26 +138,53 @@ def refuse_before_configure(write_json: Callable, state: dict[str, Any], state_p
     return 2
 
 
-def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now: Callable[[], str]) -> None:
+def interrupted_pause(state: dict[str, Any]) -> dict[str, Any] | None:
+    """The pause an intervention applied now would interrupt; None when the run is not held.
+
+    An earlier pause intervention not yet resumed already names the pause it interrupted: a
+    second one keeps that pause, never its own (#486 review).
+    """
+    return pause_authority.interrupted(state) or pause_authority.held_pause(state, own_status=STOP_STATUS)
+
+
+def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now: Callable[[], str],
+                     interrupted: dict[str, Any] | None = None) -> None:
     """Apply pause and stop effects at the saved step boundary.
 
     Pause keeps its resumable semantics (pause_intent, acknowledged on resume).
     Stop records its terminal marker and keeps the existing PAUSED_INTERVENTION
     boundary status with a stop-specific reason; it wins over any pause in the
-    same batch and applies even alongside feedback.
+    same batch and applies even alongside feedback. ``interrupted`` is the pause
+    holding the run before the batch (interrupted_pause, read before feedback
+    replaced the status): a pause keeps it, and so does feedback when that pause
+    is an operational one feedback does not acknowledge.
     """
     pauses = [item for item in consumed if item["kind"] == "pause"]
     stops = [item for item in consumed if is_stop_receipt(item)]
-    if pauses:
-        state["pause_intent"] = {"request_ids": [item["id"] for item in pauses], "applied_at": now(),
+    feedback = [item for item in consumed if item["kind"] == "feedback"]
+    held = None
+    if interrupted and not stops and (pauses or (
+            feedback and pause_authority.operational(interrupted["status"])
+            and not (interrupted.get("feedback") or interrupted["status"] in pause_authority.FEEDBACK_ACKNOWLEDGES))):
+        held = interrupted
+    if pauses or held:
+        state["pause_intent"] = {"request_ids": [item["id"] for item in pauses or feedback], "applied_at": now(),
                                  "acknowledged_at": None, "next_stage": state.get("next_stage")}
+        if held:  # Read by resume_interrupted: resuming returns to the pause this batch interrupted.
+            state["pause_intent"]["held_pause"] = held
     if stops:
         state["stop_intent"] = {"request_ids": [item["id"] for item in stops], "applied_at": now()}
     if stops:
         state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED", stop_reason=STOP_REASON)
-    elif not any(item["kind"] == "feedback" for item in consumed):
+    elif not feedback:
         state.update(status=STOP_STATUS, phase="PAUSED_OR_BLOCKED",
                      stop_reason="Queued pause was applied; explicitly resume when ready.")
+    if held:
+        # Any pause is returned to; only an operational one then waits for its own authority.
+        returned = (f"{held['status']} still holds the run: --resume-paused returns to it, and only its own "
+                    "authority releases it." if pause_authority.operational(held["status"]) else
+                    f"--resume-paused returns to {held['status']} first, and its own resume rules apply.")
+        state["stop_reason"] = f"{state.get('stop_reason', '')} {returned}".strip()
     # A completion proposal is retained in its report, but cannot commit while
     # an earlier accepted pause is still awaiting explicit continuation.
     if state.get("next_stage") is None:
@@ -155,6 +193,32 @@ def boundary_effects(state: dict[str, Any], consumed: list[dict[str, Any]], now:
         state.pop("completed_at", None)
         state.pop("completion_actor", None)
         state.pop("final_decision", None)
+
+
+def acknowledge_pause(state: dict[str, Any], at: str) -> None:
+    """Record an explicit resume on the pause intent and its pause receipts; never on a stop receipt."""
+    if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
+        state["pause_intent"]["acknowledged_at"] = at
+    for receipt in state.get("applied_interventions", []):
+        if isinstance(receipt, dict) and not receipt.get("resumed_at") and not is_stop_receipt(receipt):
+            receipt["resumed_at"] = at
+
+
+def resume_interrupted(state: dict[str, Any], at: str) -> bool:
+    """--resume-paused on a pause that interrupted another: acknowledge it and return to that pause.
+
+    The interrupted pause keeps its own resume rules (an operational request, a bound to change);
+    the caller applies them next, in the same invocation. Returns whether the run went back.
+    """
+    intent = state.get("pause_intent") or {}
+    held = intent.get("held_pause") or {}
+    if (applied_stop(state) is not None or state.get("status") != STOP_STATUS or intent.get("acknowledged_at")
+            or not str(held.get("status", "")).startswith("PAUSED_")):
+        return False
+    acknowledge_pause(state, at)
+    state.update(status=held["status"], phase="PAUSED_OR_BLOCKED",
+                 stop_reason=held.get("stop_reason") or "The pause this intervention interrupted is still in force.")
+    return True
 
 
 def metadata(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
@@ -182,17 +246,20 @@ def metadata(workspace: Path, run_dir: Path, state: dict[str, Any]) -> dict[str,
 
 
 def consume(state: dict[str, Any], run_dir: Path, workspace: Path, *, write_json: Callable[[Path, Any], None],
-            now: Callable[[], str], lock_held: bool = False) -> bool:
+            now: Callable[[], str], lock_held: bool = False, released: bool = False) -> bool:
     """Commit receipt effects and identity together before clearing the inbox.
 
     Every stage admission funnel passes through here, so an applied stop refuses
     admission before any provider is launched. The initial application of a
     pending stop happens at the saved step boundary exactly like a pause: the
     in-flight step's result is already committed with the same state write.
+    ``released``: this invocation already released the held pause with that
+    pause's own authority, so the batch interrupts nothing (#486 review).
     """
     if applied_stop(state) is not None:
         assert_stopped(state)
         raise util.Paused(STOP_STATUS, stop_reason(state))
+    interrupted = None if released else interrupted_pause(state)  # before feedback replaces the status
 
     def write_state():
         write_json(run_dir / "state.json", state)
@@ -205,7 +272,7 @@ def consume(state: dict[str, Any], run_dir: Path, workspace: Path, *, write_json
         goals.apply_intervention_feedback(state, receipt, applied_receipt)
 
     def apply_boundary_effects(consumed_now):
-        boundary_effects(state, consumed_now, now)
+        boundary_effects(state, consumed_now, now, interrupted)
 
     return bool(interventions.consume(run_dir, state, write_state=write_state, apply_feedback=apply_feedback,
                                       before_commit=apply_boundary_effects, lock_held=lock_held))

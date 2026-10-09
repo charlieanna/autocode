@@ -27,6 +27,7 @@ try:
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
+    from . import autocode_pause_authority as pause_authority
     from . import model_catalogue
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
@@ -38,6 +39,7 @@ try:
     from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
+    from . import autocode_stop as stop
     from . import autocode_recovery_view as recovery_view
     from . import autocode_support as support
     from . import autocode_workspaces as task_workspaces
@@ -51,6 +53,7 @@ except ImportError:
     import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
     import autocode_milestones as milestones
+    import autocode_pause_authority as pause_authority
     import model_catalogue
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
@@ -62,6 +65,7 @@ except ImportError:
     import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
+    import autocode_stop as stop
     import autocode_recovery_view as recovery_view
     import autocode_support as support
     import autocode_workspaces as task_workspaces
@@ -338,16 +342,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         retiring_token_pause = retired_token_budget.retired_pause(origin)
         if retiring_token_pause and resolver_human.supersede_operational(state, 'Cumulative token budgets were removed'):
             state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
-        relevant = {'PAUSED_ITERATION_LIMIT': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
-                    'PAUSED_TIME_LIMIT': ('max_seconds',),
-                    'PAUSED_MILESTONE_TIME_LIMIT': ('max_milestone_seconds',)}
         # Match the paused budget by kind as well as status: an operational-exhaustion
         # request after recovery burn-out may name a different origin.pause_status than
-        # the bound the operator is raising (#301).
-        budget_kind = origin.get('budget', {}).get('kind')
-        bound_flags = runner.BUDGET_ARGUMENTS.get(budget_kind, ()) if budget_kind else ()
-        if any(flag in args._explicit_budget_flags for flag in
-               set(relevant.get(paused_for, ())) | set(bound_flags)):
+        # the bound the operator is raising (#301). The same table decides whether the
+        # flag acknowledges the pause (run_actions.explicit_recovery_requested).
+        if pause_authority.changes_held_bound(args._explicit_budget_flags, origin):
             if resolver_human.supersede_operational(state, 'Operator explicitly changed the exhausted bound'):
                 state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
         if args.autoresolver_managed_limits and entry.get('identity', {}).get('proposal', {}).get('origin', {}).get('budget', {}).get('kind'):
@@ -355,7 +354,7 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
                 if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
-        retain_time_pause = False
+        retained = None
         # Preserve actions that validate the operational request themselves. Other
         # settings writes retire its stale binding without authorizing continuation.
         if (published.get('scope') == 'operational_exhaustion' and paused_for
@@ -363,9 +362,12 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
             withdrawn = resolver_human.supersede_operational(
                 state, 'Settings changed without changing the exhausted bound')
-            retain_time_pause = (withdrawn and paused_for == 'PAUSED_TIME_LIMIT'
-                and 'max_seconds' not in args._explicit_budget_flags
-                and not state.get('_authorized_bound_change'))
+            # Every pause, not only the active-time limit (#394): the request is asked again under
+            # the new settings, never left for the writer boundary to rebuild as a legacy blocker.
+            if (withdrawn and not state.get('_authorized_bound_change')
+                    and not pause_authority.changes_held_bound(args._explicit_budget_flags, origin)):
+                cause = (entry.get('identity', {}).get('proposal', {}).get('request') or {}).get('discovered')
+                retained = support.Paused(paused_for, cause or 'Pause retained; other settings do not acknowledge it')
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:
@@ -387,19 +389,19 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if contract:
                 contract.update(approval_status="draft", approval_event=None)
             goals.invalidate(state, "Independent requirements and plan review requested before further execution")
-            state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
-                         pending_questions=[])
-            state.pop("stop_reason", None)
-            state.pop("paused_at", None)
+            state.update(next_stage="requirements_gather", pending_questions=[])
+            # Enabling it is a settings write: planning restarts once an operational pause holding the
+            # run is released by its own authority, never past it (#486 review).
+            held = stop.interrupted_pause(state)
+            if not (held and pause_authority.operational(held['status'])):
+                state.update(status="RUNNING", phase="DISCOVERING")
+                state.pop("stop_reason", None)
+                state.pop("paused_at", None)
         # A grant validates the original request before its writer publishes
         # the corrected settings. Normalizing here would replace that request
         # with a different resolver decision before the grant can be checked.
-        if retain_time_pause:
-            # Re-publish under the new settings. Merely leaving PAUSED_TIME_LIMIT here
-            # is insufficient: unrelated explicit budget flags bypass generic escalation.
-            runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
-                support.Paused('PAUSED_TIME_LIMIT',
-                    'Active-time pause retained; unrelated settings do not acknowledge it'))
+        if retained:
+            runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir, retained)
         if args.grant_recovery is None:
             runner.write_json(state_path, state)
     state["settings"] = settings

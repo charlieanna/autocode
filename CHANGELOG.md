@@ -9,7 +9,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- Operational pauses retain their recovery authority through queued feedback
+  and pause requests; unrelated budget flags and historical job-failure
+  records cannot authorize an unscoped retry (#661).
 
 ## [0.7.1] — 2026-10-09
 
