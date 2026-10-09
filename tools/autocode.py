@@ -1201,7 +1201,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                 resolver_human.require_response(candidate, published['request_id'], published['request_token'])
             except ValueError:
                 if run_dir is not None and interventions.pending(run_dir):
-                    raise support.Paused('PAUSED_INTERVENTION_PENDING', 'Queued intervention takes precedence over this human response')
+                    raise support.Paused('PAUSED_INTERVENTION_PENDING', 'Queued intervention takes precedence over this human response') from None
                 raise
         callback(candidate)
         if published:

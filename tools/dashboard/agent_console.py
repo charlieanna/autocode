@@ -282,7 +282,7 @@ class LegacyConsole:
  def add_runtime_watch_root(self,raw):
   if not isinstance(raw,str) or not raw.strip():raise ValueError('Watch root path is required')
   try:root=Path(raw).expanduser().resolve(strict=True)
-  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory')
+  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory') from None
   if not root.is_dir():raise ValueError('Watch root must be an existing directory')
   with self.scan_lock:
    if root in self.cli_watch_roots or root in self.runtime_watch_roots:raise ValueError('Watch root is already configured')
@@ -291,7 +291,7 @@ class LegacyConsole:
  def remove_runtime_watch_root(self,raw):
   if not isinstance(raw,str):raise ValueError('Watch root path is required')
   try:root=Path(raw).expanduser().resolve(strict=False)
-  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root')
+  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root') from None
   with self.scan_lock:
    if root in self.cli_watch_roots:raise ValueError('CLI watch roots cannot be removed at runtime')
    if root not in self.runtime_watch_roots:raise ValueError('Watch root is not a removable runtime root')

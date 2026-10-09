@@ -65,7 +65,7 @@ def repair_report_source(record):
         except RuntimeError:
             if not response.is_file():
                 raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
-                                     'No completed response is available for report repair.' + REPAIR_INPUT_ROUTE)
+                                     'No completed response is available for report repair.' + REPAIR_INPUT_ROUTE) from None
         else:
             _write_json(output, value)
         record['response_text'] = str(response)

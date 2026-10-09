@@ -32,7 +32,7 @@ from pathlib import Path
 try:
     from . import autocode_grader_process as supervisor
     from . import autocode_oracle_process as oracle_process
-    from .scenario_verdicts import DEFERRED, ERROR, FAIL, PASS, OracleResult
+    from .scenario_verdicts import DEFERRED, FAIL, PASS, OracleResult
 except ImportError:  # pragma: no cover - script execution
     import autocode_grader_process as supervisor
     import autocode_oracle_process as oracle_process
