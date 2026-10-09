@@ -23,3 +23,7 @@
 ## State-format or default changes (if any)
 
 <!-- Describe what old saved runs will see. -->
+
+## Changelog
+
+Add an entry to `CHANGELOG.md` under `## [Unreleased]` for any user-visible change (see [Keep a Changelog](https://keepachangelog.com/)). A PR without one is incomplete.
