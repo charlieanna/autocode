@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import autocode_verification_config as configuration
+
 from . import test_bugfix_workflow as bugfix
 
 
@@ -156,7 +157,8 @@ class VerificationProofCache(unittest.TestCase):
 
     def test_completion_review_reproves_a_deleted_path_and_reuses_the_original_baseline(self):
         import autocode_regression as regression
-        from .test_verify import Project, REFERENCE
+
+        from .test_verify import REFERENCE, Project
 
         project = Project()
         self.addCleanup(project.close)
@@ -186,10 +188,12 @@ class VerificationProofCache(unittest.TestCase):
 
     def test_operator_patch_mutation_invalidates_a_cached_complete_proof(self):
         import difflib
+
         import autocode_base_patch as base_patch
         import autocode_regression as regression
         import autocode_verify as verify
-        from .test_verify import Project, REFERENCE, SEED
+
+        from .test_verify import REFERENCE, SEED, Project
 
         project = Project()
         self.addCleanup(project.close)
@@ -216,9 +220,11 @@ class VerificationProofCache(unittest.TestCase):
         self.assertFalse(regression.complete(state, changed['source_revision']))
 
     def test_current_complete_proof_reuses_but_tampered_output_and_environment_do_not(self):
-        import autocode_regression as regression
-        from .test_verify import Project, REFERENCE
         import os
+
+        import autocode_regression as regression
+
+        from .test_verify import REFERENCE, Project
 
         project = Project()
         self.addCleanup(project.close)
@@ -244,6 +250,7 @@ class VerificationProofCache(unittest.TestCase):
     def test_generated_dependency_changes_invalidate_real_candidate_and_base_proofs(self):
         import autocode_regression as regression
         import autocode_verify as verify
+
         from .test_verify import Project, git
 
         seed = {

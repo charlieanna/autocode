@@ -1,12 +1,13 @@
 """Remaining live product trials; handwritten expectations precede execution."""
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import unittest
-from . import test_build_blackbox as bb
+
 import build_product_fixtures as products
+
+from . import test_build_blackbox as bb
 
 CS_REFERENCE = '''using System;
 using System.Text.Json;

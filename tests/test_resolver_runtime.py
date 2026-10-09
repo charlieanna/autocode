@@ -1,19 +1,20 @@
 """Runner boundary integration, with no live models or autonomous code writes."""
-from .supervision_fixture import launcher
 import copy
-from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import io
 import json
 import os
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from types import SimpleNamespace
 from unittest.mock import patch
+
+from goal_fixtures import approve_fixture, assert_operational_wait, body, envelope
 
 from . import test_autocode as base
 from . import test_report_repair as repairs
-from goal_fixtures import approve_fixture, assert_operational_wait, body, envelope
+from .supervision_fixture import launcher
 
 runner, support = base.runner, base.s
 # The exact module instance runner.autopilot itself dispatches through: importing
@@ -1411,9 +1412,9 @@ class ResolverPromptTests(unittest.TestCase):
     def test_the_resolver_is_told_how_a_validation_plan_names_a_command_that_must_fail(self):
         # A live repair task's validation plan named usage errors in backticks; each replayed as a check that
         # must exit 0, and the run paused (2026-10-06). The Resolver writes those plans.
+        import autocode_verification_plan as verification_plan
         from units import autoresolver
         from units.common import ModelRequest
-        import autocode_verification_plan as verification_plan
         state = {'workspace': '/ws', 'settings': {'roles': {'astra': {'engine': 'codex'}}},
                  'resolution_request': {'source_revision': 'r'}}
         upstream = ModelRequest('astra', 'astra_review', 'Review it.\nCURRENT HANDOFF DATA\n{}', {},

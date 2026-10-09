@@ -4,8 +4,8 @@ leftover record names or takes the step that gets the run validated on the curre
 Offline: Git fixture workspaces, the real CLI entry in-process, a fake provider. No model is called."""
 import copy
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import autocode as runner
 import autocode_completion as completion_gate
@@ -13,6 +13,7 @@ import autocode_goal_lifecycle as lifecycle
 import autocode_resolver_human as resolver_human
 import autocode_support as s
 from goal_fixtures import body, envelope
+
 from tests import test_goals
 
 

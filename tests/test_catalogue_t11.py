@@ -5,25 +5,24 @@ Unsupported prevention (kernel sandbox, multi-tenant hardening) is reported
 as an explicit limitation, never claimed as verified.
 """
 import copy
-import io
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
-from . import test_catalogue_t01 as t01
 from goal_fixtures import body, envelope
+
+from . import test_catalogue_t01 as t01
 
 
 class BoundaryCase(t01.ApprovalCase):
@@ -76,8 +75,6 @@ class BoundaryScenarios(BoundaryCase):
 
     def test_sec04_reviewer_write_restrictions_enforced(self):
         """SEC-04. Existing: sandbox/restriction tests (test_command_flow, test_opencode)."""
-        rework = {**envelope(self.approved_state()), "status": "REWORK",
-                  "findings": [], "finding_dispositions": []}
         # The write boundary the runner enforces at role level: only the builder
         # role is launched with allow_write; reviewers are read-only.
         from autocode_planning import role_for

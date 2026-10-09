@@ -11,6 +11,7 @@ from pathlib import Path
 
 import autocode_regression as regression
 import autocode_wrapped_runner as wrapped_runner
+
 from tests.test_verify import Project
 
 HEADER = "const {test} = require('node:test');\nconst assert = require('node:assert/strict');\n"

@@ -3,11 +3,12 @@ import ast
 import copy
 import inspect
 import unittest
+
+import autocode_status
 import autopilot
-from units.autoplanner import V2_STAGE_ROLES
 from autocode_jobs import STAGES
 from autocode_role_names import CATALOGUE, ROLES, role_name
-import autocode_status
+from units.autoplanner import V2_STAGE_ROLES
 
 
 class RoleNamesTests(unittest.TestCase):

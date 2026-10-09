@@ -6,18 +6,19 @@ because it auto-allows `ask`, approval-bearing effective policies are refused.
 """
 from __future__ import annotations
 
-import json
 import base64
 import hashlib
-import re
+import json
 import os
-from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
+
 try:
     from . import autocode_util as util
     from .providers import opencode

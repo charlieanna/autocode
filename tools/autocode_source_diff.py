@@ -1,8 +1,9 @@
 """Cumulative review diffs including selected ignored outputs, without staging them."""
 import os
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
+
 try:
     from . import autocode_source_snapshot as snapshots
 except ImportError:

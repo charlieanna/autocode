@@ -9,8 +9,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode as runner
 import autocode_goal_lifecycle as lifecycle
@@ -22,7 +22,6 @@ import autocode_progressive_state as progressive
 import autocode_resolver_human as human
 import autocode_util as util
 import goal_fixtures
-
 
 COMMAND = "python3 -m unittest test_greeting.py"
 

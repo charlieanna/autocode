@@ -18,23 +18,40 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_providers
-    from . import autocode_opencode, autocode_qwen as qwen, autocode_figma as figma
-    from . import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
-    from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
-    from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
-    from . import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
-    from . import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
+    from . import autocode_adaptive_planning as adaptive
+    from . import autocode_base_patch as operator_patch
+    from . import autocode_budget_recovery as budget_recovery
+    from . import autocode_design_manifest as design_manifest
+    from . import autocode_figma as figma
+    from . import autocode_goals as goals
+    from . import autocode_opencode, autocode_providers
+    from . import autocode_output_policy as output_policy
+    from . import autocode_planner_routes as planner_routes
+    from . import autocode_quota_route as quota_route
+    from . import autocode_qwen as qwen
+    from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_route_ladder as route_ladder
+    from . import autocode_support as support
+    from . import autocode_task_preflight as task_preflight
+    from . import autocode_verification_config as verification_config
 except ImportError:
-    import autocode_support as support, autocode_goals as goals, autocode_providers
-    import autocode_opencode, autocode_qwen as qwen, autocode_figma as figma
-    import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
-    import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
-    import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
-    import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
-    import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
+    import autocode_adaptive_planning as adaptive
+    import autocode_base_patch as operator_patch
+    import autocode_budget_recovery as budget_recovery
+    import autocode_design_manifest as design_manifest
+    import autocode_figma as figma
+    import autocode_goals as goals
+    import autocode_opencode
+    import autocode_output_policy as output_policy
+    import autocode_planner_routes as planner_routes
+    import autocode_providers
+    import autocode_quota_route as quota_route
+    import autocode_qwen as qwen
+    import autocode_retired_token_budget as retired_token_budget
     import autocode_route_ladder as route_ladder
+    import autocode_support as support
+    import autocode_task_preflight as task_preflight
+    import autocode_verification_config as verification_config
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",

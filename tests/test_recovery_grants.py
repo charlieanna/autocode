@@ -1,7 +1,7 @@
 """An explicit allowance preserves request identity across one settings update."""
 import copy
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 import autocode_recovery_grants as grants

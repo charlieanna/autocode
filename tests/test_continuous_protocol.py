@@ -1,36 +1,37 @@
 """Portable conversation handoff and scoped Planner policy, without providers."""
-from copy import deepcopy
 import contextlib
 import importlib.util
 import io
 import json
-from pathlib import Path
 import shutil
-import tempfile
 import sys
-from types import SimpleNamespace
+import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import autocode_builder_policy as builder_policy
+import autocode_configure as configure
 import autocode_conversation as protocol
 import autocode_conversation_ingress as ingress
+import autocode_escalation as escalation
+import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
+import autocode_milestones as milestones
 import autocode_planner_contract as contract
 import autocode_planner_routes as routes
-import autocode_configure as configure
-import autocode_builder_policy as builder_policy
-import autocode_escalation as escalation
-import autocode_goals as goals
-import autocode_goal_lifecycle as lifecycle
+import autocode_planning as planning
 import autocode_support as support
 import autopilot
-import autocode_planning as planning
-import autocode_milestones as milestones
 import model_catalogue
+from goal_fixtures import body
 from providers import opencode
-from tools.dashboard import planner_dispatch, conversation_transport
+
 from tests import test_goals as goal_fixtures
 from tests import test_planning as planning_fixtures
-from goal_fixtures import body
+from tools.dashboard import conversation_transport, planner_dispatch
 
 
 def conversation():

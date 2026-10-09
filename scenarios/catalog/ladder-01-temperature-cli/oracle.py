@@ -1,6 +1,17 @@
 import shutil
 
-from harness.oracle import IGNORED, Check, hidden_tests, non_stdlib_imports, python_tests, run_checks, scratch_copy, tail, test_names
+from harness.oracle import (
+    IGNORED,
+    Check,
+    hidden_tests,
+    non_stdlib_imports,
+    python_tests,
+    run_checks,
+    scratch_copy,
+    tail,
+    test_names,
+)
+
 
 def check(project, scenario, run=None):
     checks = []

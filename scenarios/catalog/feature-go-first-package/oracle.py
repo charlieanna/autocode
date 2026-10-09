@@ -1,5 +1,6 @@
 from harness.native_tests import execute
-from harness.oracle import Check, go_change_checks, named_proof_checks, run as run_command, run_checks, scratch_copy, tail
+from harness.oracle import Check, go_change_checks, named_proof_checks, run_checks, scratch_copy, tail
+from harness.oracle import run as run_command
 
 
 def named_case_controls(project):

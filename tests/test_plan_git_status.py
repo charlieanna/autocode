@@ -10,11 +10,11 @@ checked again.
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner

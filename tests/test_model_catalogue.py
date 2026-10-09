@@ -11,7 +11,6 @@ sys.path.insert(0, str(HERE))
 
 import model_catalogue as mc  # noqa: E402
 
-
 CATALOGUE = [
     "zai-coding-plan/glm-5.3",
     "zai-coding-plan/glm-5.3-flash",

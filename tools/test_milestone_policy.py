@@ -1,11 +1,12 @@
 """Offline regression checks for milestone handoffs, not model behavior claims."""
 import copy
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-from . import autocode_support as support
-from . import autocode_planning as planning
+
 from . import autocode_goals as goals
+from . import autocode_planning as planning
+from . import autocode_support as support
 
 
 class MilestonePolicyTests(unittest.TestCase):

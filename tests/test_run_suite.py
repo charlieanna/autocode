@@ -12,11 +12,11 @@ import io
 from contextlib import redirect_stdout
 from io import StringIO
 import json
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from unittest.mock import MagicMock, Mock, call, patch

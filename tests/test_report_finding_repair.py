@@ -1,11 +1,12 @@
 """Report-only citation recovery through the real CLI and an offline provider."""
 import json
 import os
-from pathlib import Path
 import unittest
+from pathlib import Path
+
+from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
 
 import tests.test_subprocess as subprocess_support
-from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
 
 
 class ReportFindingRepairCLI(unittest.TestCase):

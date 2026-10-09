@@ -17,8 +17,8 @@ import tempfile
 from pathlib import Path
 
 from harness import resolver_calls
-from harness.oracle import (Check, hidden_tests, non_stdlib_imports, python_tests, run as command, scratch_copy,
-                            tail, test_names)
+from harness.oracle import Check, hidden_tests, non_stdlib_imports, python_tests, scratch_copy, tail, test_names
+from harness.oracle import run as command
 
 NEW_COMMANDS = {"move", "remove"}
 TEST_FILE = "tests/test_stock.py"

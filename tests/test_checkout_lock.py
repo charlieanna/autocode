@@ -1,15 +1,16 @@
 """Two runs in one checkout: only one run's agents work in it at a time."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_subprocess
 import autocode_checkout_lock as checkout_lock
 import autocode_util as util
+
+from . import test_subprocess
 
 
 class ExclusiveTests(unittest.TestCase):

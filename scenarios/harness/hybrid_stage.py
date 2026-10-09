@@ -23,7 +23,7 @@ import re
 import signal
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 VALUES = ("workspace", "sandbox", "model", "effort", "schema", "report", "role", "run_dir", "prompt_file")
@@ -104,7 +104,7 @@ def main(argv: list[str]) -> int:
         side = side_for(route, stage, repair, read_trace(trace_path))
         handle.write(json.dumps({"stage": stage, "repair": repair, "side": side, "role": values["role"],
                                  "model": values["model"], "report": values["report"],
-                                 "at": datetime.now(timezone.utc).isoformat()}) + "\n")
+                                 "at": datetime.now(UTC).isoformat()}) + "\n")
     serving = route["sides"][side]
     env = dict(os.environ)
     for name, value in (serving.get("env") or {}).items():

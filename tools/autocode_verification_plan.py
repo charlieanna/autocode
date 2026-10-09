@@ -6,22 +6,26 @@ documentation examples are not commands. Depends only on the standard library
 and the exit-expectation helper. refuse_new_plan asks /bin/sh, the replay's
 shell, to parse a new plan's commands (sh -n), which runs none of them.
 """
-from pathlib import Path, PurePosixPath
 import hashlib
 import json
 import os
 import re
 import shlex
 import subprocess
+from pathlib import Path, PurePosixPath
 
 try:
-    from . import autocode_verification_expectations as expectations
+    from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_risk_obligations as risk_obligations
     from . import autocode_toolchain_requirements as toolchain_requirements
-    from . import autocode_verification_schedule as schedule, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_verification_expectations as expectations
+    from . import autocode_verification_schedule as schedule
 except ImportError:
-    import autocode_verification_expectations as expectations
+    import autocode_brief_obligations as brief_obligations
+    import autocode_risk_obligations as risk_obligations
     import autocode_toolchain_requirements as toolchain_requirements
-    import autocode_verification_schedule as schedule, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_verification_expectations as expectations
+    import autocode_verification_schedule as schedule
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved

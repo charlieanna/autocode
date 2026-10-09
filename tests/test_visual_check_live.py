@@ -2,18 +2,17 @@
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import contextlib
 import io
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from unittest import mock
 
 from tests import visual_check_live as live
-
 
 TOKEN = "r3:" + "a" * 64
 

@@ -2,10 +2,12 @@ import hashlib
 import json
 import os
 import sqlite3
+
 # Store caller integers as hexadecimal text; do arithmetic with Python ints.
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
+
 
 def _checksum(sequence,totals):
     return hashlib.sha256(json.dumps({'sequence':sequence,'totals':totals},sort_keys=True,separators=(',',':')).encode()).hexdigest()

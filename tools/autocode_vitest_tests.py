@@ -7,9 +7,9 @@ ordinary stdout. This does not certify the semantics of arbitrary Node wrappers.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
 import shlex
+from pathlib import Path
 
 
 def _words(command):

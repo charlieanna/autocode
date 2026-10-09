@@ -11,15 +11,19 @@ import copy
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_check_refs as check_refs
-    from . import autocode_tool_containment as containment, autocode_visual_evidence as visual
-    from . import autocode_failure_classification as classification
     from . import autocode_builder_failure as builder_failure
+    from . import autocode_check_refs as check_refs
+    from . import autocode_failure_classification as classification
+    from . import autocode_tool_containment as containment
+    from . import autocode_util as util
+    from . import autocode_visual_evidence as visual
 except ImportError:
-    import autocode_util as util, autocode_check_refs as check_refs
-    import autocode_tool_containment as containment, autocode_visual_evidence as visual
-    import autocode_failure_classification as classification
     import autocode_builder_failure as builder_failure
+    import autocode_check_refs as check_refs
+    import autocode_failure_classification as classification
+    import autocode_tool_containment as containment
+    import autocode_util as util
+    import autocode_visual_evidence as visual
 
 
 def _require(condition, reason):

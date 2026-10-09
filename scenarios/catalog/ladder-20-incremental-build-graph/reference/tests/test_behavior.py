@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
-from buildgraph import Builder,topology
+
+from buildgraph import Builder, topology
+
 
 class BuildTests(unittest.TestCase):
     def test_build_and_reuse(self):

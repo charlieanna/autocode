@@ -1,13 +1,13 @@
 """A dashboard's lifetime must not control an approved runner's lifetime."""
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_console import Console

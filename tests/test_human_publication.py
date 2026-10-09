@@ -4,15 +4,18 @@ import copy
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
+import autocode as runner
 import autocode_args
-import autocode as runner, autocode_resolver_human as human, autocode_support as support
+import autocode_resolver_human as human
 import autocode_run_actions as run_actions
+import autocode_support as support
+
 from . import test_resolver_human, test_subprocess
 
 

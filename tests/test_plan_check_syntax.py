@@ -10,10 +10,10 @@ A plan approved or saved before the rule is not checked again.
 import copy
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner

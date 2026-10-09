@@ -3,8 +3,8 @@
 import importlib
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from harness import fake_codex as fake

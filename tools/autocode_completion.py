@@ -8,15 +8,21 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
-    from .autocode_util import Paused, criteria_definition, file_hash
+    from . import autocode_brief_evidence as brief_evidence
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_design_coverage as design_coverage
+    from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_risk_evidence as risk_evidence
     from .autocode_progressive_completion import ready as progressive_ready
-    from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
+    from .autocode_util import Paused, criteria_definition, file_hash
 except ImportError:
-    from autocode_util import Paused, criteria_definition, file_hash
+    import autocode_brief_evidence as brief_evidence
     import autocode_command_receipt as command_receipt
+    import autocode_design_coverage as design_coverage
+    import autocode_protected_oracles as protected_oracles
+    import autocode_risk_evidence as risk_evidence
     from autocode_progressive_completion import ready as progressive_ready
-    import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
+    from autocode_util import Paused, criteria_definition, file_hash
 
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
 

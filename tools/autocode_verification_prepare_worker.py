@@ -3,14 +3,15 @@ import argparse
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_verification_recovery as recovery
-    from . import autocode_verify as verify
     from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_util as util
+    from . import autocode_verification_recovery as recovery
+    from . import autocode_verify as verify
 except ImportError:
+    import autocode_launch_inputs as launch_inputs
     import autocode_util as util
     import autocode_verification_recovery as recovery
     import autocode_verify as verify
-    import autocode_launch_inputs as launch_inputs
 
 
 def main():

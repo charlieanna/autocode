@@ -1,17 +1,18 @@
 """The runner re-runs the Validator's checks in a clean copy before a PASS counts."""
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
 import venv
+from pathlib import Path
+
+import autocode_check_replay as check_replay
+import autocode_util as util
+import autocode_verify as verify
 
 from . import test_subprocess
-import autocode_check_replay as check_replay
-import autocode_verify as verify
-import autocode_util as util
 
 
 def receipt(exit_code=0, *, timed_out=False, error="", tail=""):
@@ -482,8 +483,9 @@ class ValidatorNoteTests(unittest.TestCase):
     2026-09-29); every Validator request now says how to write one that exits 0."""
 
     def test_the_validator_is_told_and_the_builder_is_not(self):
-        from tests.test_bug_job import approved_small_fix
         from units import common
+
+        from tests.test_bug_job import approved_small_fix
         state = approved_small_fix()
         schemas = Path(check_replay.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"

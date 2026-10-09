@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
-from deployment import plan,write_plan
+
+from deployment import plan, write_plan
+
 
 class DeploymentTests(unittest.TestCase):
     def test_database_precedes_service_and_resolves_env(self):

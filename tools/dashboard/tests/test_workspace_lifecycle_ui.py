@@ -12,10 +12,8 @@ agent-browser bridge at 390 px (drawers, 44 px targets, draft and transcript
 retention) and at desktop plus mobile widths (keyboard order, visible focus,
 live-region announcements, contrast).
 """
-import os
 import shutil
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 

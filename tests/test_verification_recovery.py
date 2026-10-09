@@ -1,11 +1,11 @@
 """Explicit interrupted-verification recovery never supplies passing evidence."""
 import os
-from copy import deepcopy
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_command_receipt as receipts

@@ -2,11 +2,11 @@
 import json
 import os
 import signal
-from contextlib import nullcontext
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch

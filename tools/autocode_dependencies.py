@@ -6,20 +6,20 @@ A restart re-reads the durable binding; no cross-task state.json reads or writes
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
-from pathlib import Path
 import shutil
 import tempfile
 import time
-import fcntl
+from pathlib import Path
 
 try:
-    from .autocode_taskrun import TaskRun
     from .autocode_dependency import contained, sha
+    from .autocode_taskrun import TaskRun
 except ImportError:
-    from autocode_taskrun import TaskRun
     from autocode_dependency import contained, sha
+    from autocode_taskrun import TaskRun
 
 
 def transport(wait, producer, destination):

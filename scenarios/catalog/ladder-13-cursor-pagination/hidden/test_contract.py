@@ -3,7 +3,9 @@ import json
 import subprocess
 import sys
 import unittest
+
 from app import paginate
+
 
 class PaginationContract(unittest.TestCase):
     def test_ties_are_ordered_without_skips_or_repeats(self):

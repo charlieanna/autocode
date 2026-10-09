@@ -1,12 +1,14 @@
 """Regression cases from live AutoPlanner trials: clarification and intent changes."""
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-import autocode_goals as goals, autopilot
 import autocode_goal_lifecycle as lifecycle
-from units import autoplanner as planner
+import autocode_goals as goals
+import autopilot
 from goal_fixtures import body
+from units import autoplanner as planner
+
 from .test_planner_invariants import state
 
 

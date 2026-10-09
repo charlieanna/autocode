@@ -10,14 +10,15 @@ scratch Git worktrees; no provider is launched.
 from __future__ import annotations
 
 import shutil
+import sys
 import tempfile
 import unittest
-import sys
 from pathlib import Path
 
 import autocode_proof_seam as proof_seam
 import autocode_regression as regression
 import autocode_verify as verify
+
 from tests.test_verify import Project
 
 STORE = '''import os

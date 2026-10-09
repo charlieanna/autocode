@@ -16,9 +16,9 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
-import shutil
 import tempfile
 import time
 import unittest
@@ -29,14 +29,15 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 import autocode_brief_literals as brief_literals  # noqa: E402
-import autocode_requirement_cues as requirement_cues  # noqa: E402
-import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals  # noqa: E402
 import autocode_program as program  # noqa: E402
+import autocode_requirement_cues as requirement_cues  # noqa: E402
 import autocode_run_view as run_view  # noqa: E402
 import autocode_taskrun as taskrun  # noqa: E402
 import goal_fixtures  # noqa: E402
 import task_scenarios  # noqa: E402
+
 from . import test_subprocess  # noqa: E402
 
 REAL_RUN = subprocess.run
@@ -75,6 +76,26 @@ def with_requirements(value):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_inherited_review_guidance_respects_false_true_and_omitted_flags(self):
+        for flag in (False, True, None):
+            value = with_requirements(manifest())
+            if flag is not None:
+                value["requirements"][0]["human_review"] = flag
+            value = program.validate_manifest(value)
+            for wid in ("contracts", "integration"):
+                with self.subTest(flag=flag, workstream=wid):
+                    row = next(item for item in value["workstreams"] if item["id"] == wid)
+                    definitions = program.agreement.definitions(value, wid)
+                    self.assertNotIn("human_review", definitions["J1"])
+                    text = program.compose_brief(value, row, {"workstreams": {}})
+                    criterion = next(line for line in text.splitlines() if line.startswith("- C1:"))
+                    if flag is None:
+                        self.assertNotIn("human_review:", criterion)
+                    else:
+                        self.assertIn("human_review: " + str(flag).lower(), criterion)
+                    self.assertIn(definitions["J1"]["criterion"], text)
+                    self.assertNotIn("and preserve human_review: true.", text)
+
     def test_valid_manifest_and_scenario_manifest_load(self):
         program.validate_manifest(manifest(deploy=True))
         program.validate_manifest(copy.deepcopy(task_scenarios.PROGRAM_MANIFEST))

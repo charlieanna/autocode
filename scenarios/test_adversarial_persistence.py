@@ -1,7 +1,7 @@
 """Approval durability under real CLI process death and injected storage errors."""
 import json
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 from .harness.adversarial import AdversarialCase
 

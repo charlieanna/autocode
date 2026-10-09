@@ -1,7 +1,7 @@
 """Transport refusal order and provider isolation during joint planning."""
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
 
 import autocode_joint_transport as transport

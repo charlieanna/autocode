@@ -7,9 +7,15 @@ from __future__ import annotations
 import re
 
 try:
-    from . import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples, autocode_contract_delta as delta
+    from . import autocode_contract_delta as delta
+    from . import autocode_draft_examples as examples
+    from . import autocode_protected_text as protected
+    from . import autocode_test_cases as test_cases
 except ImportError:
-    import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples, autocode_contract_delta as delta
+    import autocode_contract_delta as delta
+    import autocode_draft_examples as examples
+    import autocode_protected_text as protected
+    import autocode_test_cases as test_cases
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")

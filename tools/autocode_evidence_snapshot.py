@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 
 def stable_path(path: Path, run_dir: Path) -> Path:

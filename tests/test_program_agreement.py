@@ -242,6 +242,26 @@ class ValidateTest(unittest.TestCase):
 
 
 class InheritanceTest(unittest.TestCase):
+    def test_only_explicit_true_review_obligations_are_protected(self):
+        for flag in (False, True, None):
+            value = build()
+            if flag is not None:
+                value["requirements"][0]["human_review"] = flag
+            definitions = agreement.definitions(value, "skeleton")
+            rows = list(definitions.values())
+            self.assertNotIn("human_review", definitions["J1"])
+            self.assertEqual([], agreement.dropped(value, "skeleton", rows))
+            for replacement in (False, None):
+                with self.subTest(flag=flag, replacement=replacement):
+                    revised = copy.deepcopy(rows)
+                    criterion = next(row for row in revised if row["id"] == "C1")
+                    if replacement is None:
+                        criterion.pop("human_review", None)
+                    else:
+                        criterion["human_review"] = replacement
+                    expected = ["C1"] if flag is True else []
+                    self.assertEqual(expected, agreement.dropped(value, "skeleton", revised))
+
     def test_workstreams_inherit_their_requirements_and_integration_inherits_everything(self):
         manifest = build()
         self.assertEqual(agreement.inherited(manifest, "skeleton"), ["C1", "J1"])

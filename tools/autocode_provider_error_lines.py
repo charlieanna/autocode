@@ -9,8 +9,8 @@ provider's last word, so a test report that mentions 429 is never read as the pr
 """
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # ``ERROR:`` as ``codex exec`` prints it, ``Error:`` as Node and Rust CLIs do. Older Codex

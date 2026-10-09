@@ -1,9 +1,9 @@
 """Offline integrity and immutable publication tests for progressive artifacts."""
 import hashlib
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from tools import autocode_progressive_artifacts as artifacts

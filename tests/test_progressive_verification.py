@@ -1,9 +1,9 @@
 """Cumulative slice checks do not become whole-product proof or lose earlier obligations."""
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_check_replay as replay

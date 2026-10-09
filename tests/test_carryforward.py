@@ -4,14 +4,15 @@ import json
 import unittest
 from pathlib import Path
 
-from . import test_milestone_checkpoints as fixtures
 import autocode_carryforward as cf
+import autocode_completion as completion_gate
 import autocode_findings as findings
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_milestones as m
 import autocode_support as s
-import autocode_completion as completion_gate
+
+from . import test_milestone_checkpoints as fixtures
 
 
 class CarryForwardTests(unittest.TestCase):

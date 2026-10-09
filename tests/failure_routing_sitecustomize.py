@@ -1,8 +1,7 @@
 """Test-owned crash barrier after a real Investigator attempt snapshot publication."""
 import os
-from pathlib import Path
 import time
-
+from pathlib import Path
 
 _replace = os.replace
 

@@ -1,7 +1,9 @@
 import math
-from fractions import Fraction
 import unittest
+from fractions import Fraction
+
 from app import Cache
+
 
 class CacheContract(unittest.TestCase):
     def setUp(self):

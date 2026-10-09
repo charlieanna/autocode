@@ -1,5 +1,8 @@
 import sys
-from harness.oracle import Check, hidden_tests, non_stdlib_imports, run as run_command, run_checks, scratch_copy, tail, test_names
+
+from harness.oracle import Check, hidden_tests, non_stdlib_imports, run_checks, scratch_copy, tail, test_names
+from harness.oracle import run as run_command
+
 
 def check(project, scenario, run=None):
     checks = []

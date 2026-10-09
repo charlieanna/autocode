@@ -1,13 +1,12 @@
 """Project removal changes dashboard visibility only; fake runners never launch models."""
 import http.client
 import json
-from pathlib import Path
 import threading
 import unittest
 from unittest.mock import patch
 
-from test_chat_bridge import ChatFixture
 from agent_console import Console, Handler, LoopbackHTTPServer
+from test_chat_bridge import ChatFixture
 
 
 class ProjectRemovalFixture(ChatFixture):

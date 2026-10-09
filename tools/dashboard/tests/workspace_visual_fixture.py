@@ -9,7 +9,6 @@ import os
 import unified_browser_fixture as fixture
 from autocode_roles import SCREEN
 
-
 original_scenarios = fixture.scenario_states
 
 

@@ -12,14 +12,15 @@ import subprocess
 from pathlib import Path
 
 try:
-    from .autocode_util import Paused, digest
-    from . import autocode_review_job as review_job, autocode_opencode_snapshots as native_snapshots
+    from . import autocode_opencode_snapshots as native_snapshots
+    from . import autocode_review_job as review_job
     from . import autocode_stage_access as stage_access
+    from .autocode_util import Paused, digest
 except ImportError:
-    from autocode_util import Paused, digest
-    import autocode_review_job as review_job
     import autocode_opencode_snapshots as native_snapshots
+    import autocode_review_job as review_job
     import autocode_stage_access as stage_access
+    from autocode_util import Paused, digest
 
 
 def assert_unchanged_review(record, *, workspace=None):

@@ -3,24 +3,24 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_subprocess
-import autocode as runner
 import autocode_dispatch as dispatch
 import autocode_run_view as run_view
 import autocode_stuck_job as stuck
 import autocode_support as support
 import autocode_util as util
-from autocode_role_schema import role_schema
 import fake_parallel_builder as offline_builder
+from autocode_role_schema import role_schema
 from goal_fixtures import assert_operational_wait
+
+from . import test_subprocess
 
 QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
 # OpenCode's ContentFilterError, as tools/fixtures/opencode-content-filter-run.jsonl captured it (#441, #465).
@@ -324,8 +324,8 @@ class ParallelQuotaTests(unittest.TestCase):
         parent = json.loads(parent_path.read_text())
         parent["stages"].append({"stage": "orchestrator"})
         parent_path.write_text(json.dumps(parent))
-        from autocode_builder_worker import main
         import autocode_provider_launch as provider_launch
+        from autocode_builder_worker import main
         original_prepare = provider_launch.prepare
         def simulated_prepare(**kwargs):
             # The offline bootstrap disables the native tool boundary for the

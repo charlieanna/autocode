@@ -1,13 +1,12 @@
 """Owned-file structural controls, not model/transport/visual acceptance claims."""
-from copy import deepcopy
 import json
-import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_contract_identity as contract
@@ -18,6 +17,7 @@ import autocode_util as util
 import autocode_visual_profile as profile
 import autocode_visual_runtime as visual
 import goal_fixtures
+
 from tests.visual_capture_fixtures import make_capture, png
 from providers import opencode
 

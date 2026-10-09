@@ -1,10 +1,10 @@
 """Native event hook conformance: fake clock, real JS hook and report parser."""
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from providers import opencode

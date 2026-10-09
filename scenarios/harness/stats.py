@@ -18,8 +18,17 @@ import statistics
 from pathlib import Path
 
 from . import attempts
-from .verdict import (CORRECT, INCORRECT, INTERRUPTED_UNGRADED, NOT_EXERCISED, PASS,
-                      PENDING_UNGRADED, UNSCORED, STOP_CLASSES, stop_class)
+from .verdict import (
+    CORRECT,
+    INCORRECT,
+    INTERRUPTED_UNGRADED,
+    NOT_EXERCISED,
+    PASS,
+    PENDING_UNGRADED,
+    STOP_CLASSES,
+    UNSCORED,
+    stop_class,
+)
 
 
 def load_results(root: Path) -> list[dict]:

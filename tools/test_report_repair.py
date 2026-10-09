@@ -1,9 +1,10 @@
 """Report-only recovery tests: fixtures and mocked providers, no live model calls."""
 import copy
 import json
+import unittest
 from pathlib import Path
 from unittest.mock import patch
-import unittest
+
 from . import test_autocode as base
 from . import test_subprocess
 

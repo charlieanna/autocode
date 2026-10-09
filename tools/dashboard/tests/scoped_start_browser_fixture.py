@@ -1,9 +1,15 @@
 """Three real, disposable projects and saved empty chats; no live provider."""
-import json,os,sys,threading,http.client
+import http.client
+import json
+import os
+import sys
+import threading
 from pathlib import Path
+
 SOURCE=Path(os.environ.get('AUTOCODE_TEST_SOURCE_ROOT',Path(__file__).resolve().parents[3]))
 sys.path[:0]=[str(SOURCE/'tools/dashboard'),str(SOURCE/'tools')]
-from agent_console import Console,Handler,LoopbackHTTPServer
+from agent_console import Console, Handler, LoopbackHTTPServer
+
 root=Path(os.environ['AUTOCODE_FIXTURE_ROOT']).resolve();root.mkdir(parents=True,exist_ok=True)
 os.environ['AUTOCODE_HOME']=str(root/'registry')
 runner=root/'runner.py'

@@ -1,30 +1,30 @@
 """Destructive endpoints exercised only against disposable directories and real Git worktrees."""
 import fcntl
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 import http.client
 import json
 import os
 import queue
-import socket
-from pathlib import Path
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / 'dashboard'), str(TOOLS)]
-from agent_console import Console, Handler, LoopbackHTTPServer
 import autocode_registry as registry
-from dashboard_delete import git
-from dashboard_command_gate import WorkspaceCommandGate
+from agent_console import Console, Handler, LoopbackHTTPServer
 from autocode_workspaces import create as create_worktree
 from autocode_worktrees import deliver
+from dashboard_command_gate import WorkspaceCommandGate
+from dashboard_delete import git
 
 
 class PermanentDeleteTests(unittest.TestCase):

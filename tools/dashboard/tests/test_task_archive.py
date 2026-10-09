@@ -2,6 +2,7 @@
 import json
 import unittest
 from unittest.mock import patch
+
 from test_project_removal import ProjectRemovalFixture
 
 

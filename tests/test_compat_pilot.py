@@ -1,20 +1,30 @@
 """Executed compatibility proof controls; all credentials are synthetic."""
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from tests.test_compat_prep import (
-    Repo, PILOT_FILES, CANDIDATE_PILOT_TRACKER, CANDIDATE_OPS_TESTS,
-    PILOT_NODEIDS, LOCAL_OPERATOR_ADAPTER, mutate_pilot_overlay, sha,
-    WINDOW_FILES, CANDIDATE_WINDOW_TRACKER, CANDIDATE_WINDOW_TESTS,
-    WINDOW_NODEIDS, mutate_window_floor_and_guard,
-)
 import autocode_compat_prep as compat
 import autocode_verify as verify
+
+from tests.test_compat_prep import (
+    CANDIDATE_OPS_TESTS,
+    CANDIDATE_PILOT_TRACKER,
+    CANDIDATE_WINDOW_TESTS,
+    CANDIDATE_WINDOW_TRACKER,
+    LOCAL_OPERATOR_ADAPTER,
+    PILOT_FILES,
+    PILOT_NODEIDS,
+    WINDOW_FILES,
+    WINDOW_NODEIDS,
+    Repo,
+    mutate_pilot_overlay,
+    mutate_window_floor_and_guard,
+    sha,
+)
 
 
 class CompatPilotTests(unittest.TestCase):

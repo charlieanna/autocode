@@ -1,10 +1,21 @@
-import http.client,json,os,subprocess,sys,tempfile,threading,time,unittest
-from unittest.mock import patch
+import http.client
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import unittest
 from pathlib import Path
+from unittest.mock import patch
+
 sys.path.insert(0,str(Path(__file__).parents[1]))
 
-from agent_console import Console,Handler,LoopbackHTTPServer,ThreadingHTTPServer,configured_zai
-from tools.dashboard.tests.test_pending_decisions import publish,resolver_human
+from agent_console import Console, Handler, LoopbackHTTPServer, configured_zai
+
+from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
+
 
 class Tests(unittest.TestCase):
  def setUp(self):
@@ -36,7 +47,7 @@ class Tests(unittest.TestCase):
    self.state['goal_contract']['approval_status']='approved';self.state['contract_history']=[{'revision':1,'approval_status':'proposed','created_at':'2026-09-19T19:00:00Z'},{'revision':2,'approval_status':'approved','approval_event':{'at':'2026-09-19T20:00:00Z'}}];(self.run/'state.json').write_text(json.dumps(self.state));history=self.c.view(self.ws,self.run)['astra_plan'];self.assertEqual(['approved first step'],history['initial_plan']);self.assertEqual('approved',history['initial_plan_approval']);self.assertEqual('approved',history['current_plan_approval']);self.assertEqual([1,2],[entry['revision'] for entry in history['revision_history']]);self.assertEqual(['current plan\nwith recorded line break'],history['current_plan']);self.assertEqual('current',history['current_assignment']['id']);self.assertEqual(['older','rework','current'],[entry['id'] for entry in history['history']]);self.assertEqual('recorded rationale\nonly',history['history'][1]['reason']);self.assertIsNone(history['history'][0]['owner'])
    self.state['task_archive']=[None,{'id':['malformed']}];self.state['current_task']='legacy';self.state['plan']='legacy';(self.run/'state.json').write_text(json.dumps(self.state));history=self.c.view(self.ws,self.run)['astra_plan'];self.assertEqual([],history['current_plan']);self.assertIsNone(history['current_assignment'])
  def test_plan_history_and_responsive_controls_are_rendered_from_escaped_text(self):
-   from agent_console import APP,STYLE
+   from agent_console import APP, STYLE
    self.assertIn("function renderAstraPlan(run)",APP);self.assertIn("textContent = text ?? ''",APP);self.assertIn("Initial approved plan (recorded)",APP);self.assertIn("Initial historically approved plan (inactive)",APP);self.assertIn("historically approved/inactive",APP);self.assertIn("awaiting its own approval",APP);self.assertIn("Initial plan (approval unavailable)",APP);self.assertIn("Current plan approval status",APP);self.assertIn("not proof of completion",APP);self.assertIn("No current assigned step is recorded.",APP);self.assertIn("planLines(lines)",APP);self.assertIn("#create select,#create input,#watch-root input{display:block;width:100%;max-width:100%;min-width:0}",STYLE)
  def test_waiting_request_fields_are_preserved(self):
    request={'kind':'permission','decision_needed':'Choose a safety boundary','discovered':'runner lock exists','impact':'cannot continue','options':['wait','use another workspace'],'proposed_delta':'defer continuation'}
@@ -103,7 +114,7 @@ class Tests(unittest.TestCase):
    self.assertEqual(202,post({'Host':authority,'Origin':'http://'+authority,'Content-Type':'application/json'}));self.wait()
   finally:s.shutdown();s.server_close()
  def test_task_chat_has_one_composer_and_explicit_question_selection(self):
-  from agent_console import APP,INDEX
+  from agent_console import APP, INDEX
   self.assertEqual(1,INDEX.count('id="change-text"'))
   self.assertEqual(1,INDEX.count('id="question-target"'))
   self.assertNotIn('question-form',APP)
@@ -304,7 +315,7 @@ class RuntimeWatchRootTests(unittest.TestCase):
    _,after=request('GET','/api/runs');self.assertNotIn(canonical,{row['workspace'] for row in after['runs'] if row.get('error')});self.assertEqual([str(cli_root)],[row['path'] for row in after['watch_roots']]);self.assertIn(str(project),after['workspaces']);self.assertEqual({},c.actions)
   finally:s.shutdown();s.server_close()
  def test_dashboard_renders_full_brief_and_real_newlines(self):
-  from agent_console import APP,INDEX
+  from agent_console import APP, INDEX
   self.assertIn("function syncWorkspaces(list)",APP)
   self.assertIn("syncWorkspaces(data.workspaces || []);",APP)
   self.assertIn("if (keep && (list.includes(keep)||keep==='__custom__')) select.value=keep",APP)

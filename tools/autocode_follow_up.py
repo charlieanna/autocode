@@ -60,12 +60,13 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_workflows as workflows, autocode_contract_identity as identity
+    from . import autocode_contract_identity as identity
     from . import autocode_util as util
+    from . import autocode_workflows as workflows
 except ImportError:
-    import autocode_workflows as workflows
     import autocode_contract_identity as identity
     import autocode_util as util
+    import autocode_workflows as workflows
 
 FINDING_FIELDS = ("id", "severity", "file", "lines", "summary", "evidence")
 CONCERN_FIELDS = ("id", "area", "summary")

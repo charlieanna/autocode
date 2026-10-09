@@ -1,9 +1,8 @@
 """OpenCode's per-response output cap: AutoCode raises it, records it, and names it on a length stop."""
 import os
-from pathlib import Path
 import shutil
-import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_agent_env as agent_env
@@ -11,6 +10,7 @@ import autocode_opencode as opencode
 import autocode_output_cap as output_cap
 import autocode_provider_launch as provider_launch
 import autocode_support as support
+
 from tests import test_subprocess as subprocess_test_support
 
 VARIABLE = output_cap.VARIABLE

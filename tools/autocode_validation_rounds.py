@@ -27,10 +27,11 @@ here).
 from __future__ import annotations
 
 try:
-    from . import autocode_util as util, autocode_finding_cause as finding_cause
+    from . import autocode_finding_cause as finding_cause
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util
     import autocode_finding_cause as finding_cause
+    import autocode_util as util
 
 KEY = "validation_only_rounds"
 LIMIT = 2

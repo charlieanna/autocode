@@ -1,8 +1,8 @@
 """All-role model choices use existing engine, approval and session machinery."""
 import copy
 import sys
-from pathlib import Path
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

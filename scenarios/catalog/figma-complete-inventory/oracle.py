@@ -2,9 +2,9 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from harness.oracle import Check, python_tests, scratch_copy, tail
 

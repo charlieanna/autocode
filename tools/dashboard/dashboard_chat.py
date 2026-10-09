@@ -1,16 +1,16 @@
 """Project-free conversations and their explicit handoff to the task runner."""
 import copy
-from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
 
 try:
     from .. import autocode_conversation as conversation_protocol
@@ -20,23 +20,23 @@ except ImportError:
     from autocode_status import role_name
 
 try:
-    from .dashboard_conversation_journal import project_conversation, append_feedback
-    from .dashboard_monitor import snapshot
-    from .dashboard_metrics import project_metrics
     from . import dashboard_chat_intent as chat_intent
-    from .dashboard_transcript import project as transcript
+    from .dashboard_conversation_journal import append_feedback, project_conversation
+    from .dashboard_metrics import project_metrics
+    from .dashboard_monitor import snapshot
     from .dashboard_screenshots import project as screenshot_evidence
-    from .dashboard_work_summary import project as work_summary
+    from .dashboard_transcript import project as transcript
     from .dashboard_verification import VerificationViewMixin
+    from .dashboard_work_summary import project as work_summary
 except ImportError:  # Direct source launch, as well as the installed entry point.
-    from dashboard_conversation_journal import project_conversation, append_feedback
-    from dashboard_monitor import snapshot
-    from dashboard_metrics import project_metrics
     import dashboard_chat_intent as chat_intent
-    from dashboard_transcript import project as transcript
+    from dashboard_conversation_journal import append_feedback, project_conversation
+    from dashboard_metrics import project_metrics
+    from dashboard_monitor import snapshot
     from dashboard_screenshots import project as screenshot_evidence
-    from dashboard_work_summary import project as work_summary
+    from dashboard_transcript import project as transcript
     from dashboard_verification import VerificationViewMixin
+    from dashboard_work_summary import project as work_summary
 
 
 def object_value(value):

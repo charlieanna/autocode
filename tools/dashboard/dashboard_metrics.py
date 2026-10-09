@@ -3,11 +3,11 @@
 `.autocode/dashboard.json` declares a bounded projection of an existing JSON
 artifact. Only the compact projection is cached; raw artifacts never reach HTTP.
 """
-from collections import OrderedDict
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import threading
+from collections import OrderedDict
+from datetime import UTC, datetime
+from pathlib import Path
 
 MAX_SOURCE_BYTES = 256 * 1024 * 1024
 _cache = OrderedDict()
@@ -91,7 +91,7 @@ def project_metrics(workspace, run):
                         raise ValueError('Metric artifact changed during reading; retry')
                     _cache[key] = {'areas': areas, 'done': sum(a['done'] for a in areas),
                                    'total': sum(a['total'] for a in areas),
-                                   'updated': datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()}
+                                   'updated': datetime.fromtimestamp(stat.st_mtime, UTC).isoformat()}
                     while len(_cache) > 16:
                         _cache.popitem(last=False)
                 row.update(_cache[key])

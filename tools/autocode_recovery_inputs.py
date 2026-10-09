@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_dependency as dependency, autocode_util as util
+    from . import autocode_dependency as dependency
     from . import autocode_recovery_novelty as novelty
+    from . import autocode_util as util
 except ImportError:
     import autocode_dependency as dependency
-    import autocode_util as util
     import autocode_recovery_novelty as novelty
+    import autocode_util as util
 
 
 TARGET = "input:verified_dependency_delivery"

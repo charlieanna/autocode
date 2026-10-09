@@ -12,7 +12,6 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import shutil
@@ -21,6 +20,7 @@ import tempfile
 import textwrap
 import threading
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tools.providers import command as command_provider

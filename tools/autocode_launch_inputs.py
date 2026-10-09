@@ -9,19 +9,20 @@ Shared virtualenvs and node_modules are outside this inventory.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager, ExitStack
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import stat
 import sys
 import uuid
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 try:
-    from . import autocode_util as util, autocode_verify as verify
+    from . import autocode_util as util
+    from . import autocode_verify as verify
 except ImportError:
     import autocode_util as util
     import autocode_verify as verify

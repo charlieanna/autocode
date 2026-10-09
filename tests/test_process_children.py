@@ -1,11 +1,11 @@
 """Candidate process IDs must not transfer ownership across birth or parent changes."""
 import builtins
-from contextlib import nullcontext
 import ctypes
 import errno
 import importlib
-from types import SimpleNamespace
 import unittest
+from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode_process_children as children

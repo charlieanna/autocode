@@ -9,32 +9,47 @@ weigh a tradeoff from the repository, building nothing), and ``investigate_stuck
 import copy
 import json
 from pathlib import Path
+
 try:
-    from .. import autocode_util as util, autocode_source_scope as source_scope, autocode_goals as goals, autocode_bug_job as bug_job
+    from .. import autocode_bug_job as bug_job
+    from .. import autocode_bug_questions as bug_questions
+    from .. import autocode_discuss_job as discuss_job
+    from .. import autocode_failures as failures
     from .. import autocode_goal_lifecycle as lifecycle
+    from .. import autocode_goals as goals
+    from .. import autocode_investigation_workspace as investigation_workspace
     from .. import autocode_job_report_recovery as job_report_recovery
-    from .. import autocode_bug_questions as bug_questions, autocode_resolver_human as human
-    from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
-    from .. import autocode_providers, autocode_verify as verify, autocode_verification_plan as verification_plan, autocode_launch_inputs as launch_inputs
-    from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
+    from .. import autocode_launch_inputs as launch_inputs
+    from .. import autocode_providers
+    from .. import autocode_recovery_novelty as novelty
+    from .. import autocode_resolver_human as human
+    from .. import autocode_resolver_recovery as resolver_recovery
+    from .. import autocode_source_scope as source_scope
+    from .. import autocode_stuck_job as stuck_job
     from .. import autocode_test_environment as test_environment
+    from .. import autocode_util as util
+    from .. import autocode_verification_plan as verification_plan
+    from .. import autocode_verify as verify
 except ImportError:
-    import autocode_verify as verify
-    import autocode_verification_plan as verification_plan
-    import autocode_launch_inputs as launch_inputs
-    import autocode_util as util
-    import autocode_source_scope as source_scope
-    import autocode_goals as goals
-    import autocode_goal_lifecycle as lifecycle
-    import autocode_job_report_recovery as job_report_recovery
-    import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     import autocode_bug_job as bug_job
+    import autocode_bug_questions as bug_questions
     import autocode_discuss_job as discuss_job
-    import autocode_stuck_job as stuck_job
-    import autocode_providers
-    import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
-    import autocode_test_environment as test_environment
     import autocode_failures as failures
+    import autocode_goal_lifecycle as lifecycle
+    import autocode_goals as goals
+    import autocode_investigation_workspace as investigation_workspace
+    import autocode_job_report_recovery as job_report_recovery
+    import autocode_launch_inputs as launch_inputs
+    import autocode_providers
+    import autocode_recovery_novelty as novelty
+    import autocode_resolver_human as human
+    import autocode_resolver_recovery as resolver_recovery
+    import autocode_source_scope as source_scope
+    import autocode_stuck_job as stuck_job
+    import autocode_test_environment as test_environment
+    import autocode_util as util
+    import autocode_verification_plan as verification_plan
+    import autocode_verify as verify
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 

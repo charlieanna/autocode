@@ -1,15 +1,17 @@
 """Capture provenance guards, separate from independent visual judgment."""
 import copy
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tests.visual_capture_fixtures import make_capture
-import autocode_visual_evidence as visual
-import autocode_util as util
+from pathlib import Path
+
 import autocode_contract_identity as identity
+import autocode_util as util
+import autocode_visual_evidence as visual
 import goal_fixtures
+
+from tests.visual_capture_fixtures import make_capture
 
 
 class CaptureEvidenceTests(unittest.TestCase):

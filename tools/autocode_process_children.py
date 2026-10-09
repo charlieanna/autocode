@@ -4,8 +4,8 @@ Candidate PIDs never establish ownership: each child and parent is checked
 again through psutil, and the supervisor subsequently checks birth identities.
 macOS API: Apple xnu/libsyscall/wrappers/libproc/libproc.h and libproc.c.
 """
-from functools import lru_cache
 import sys
+from functools import lru_cache
 
 try:
     from . import autocode_util as util

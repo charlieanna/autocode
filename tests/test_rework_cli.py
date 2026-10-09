@@ -3,15 +3,16 @@ import dataclasses
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
+
+from harness import catalog, verdict
+from harness.driver import DriveError, Driver, default_autocode, fake_setup
+from harness.project import materialize
 
 from scenarios import run as scenario_run
-from harness import catalog, verdict
-from harness.driver import Driver, DriveError, default_autocode, fake_setup
-from harness.project import materialize
 
 
 class SavedRoutesDriver(Driver):

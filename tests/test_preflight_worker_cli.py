@@ -1,14 +1,14 @@
 """Real TaskRun admission with a fake CLI whose model branch is counted."""
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
 
 import autocode_taskrun as taskrun
-from tests.test_task_preflight import PreflightFixture, ROOT, BRIEF, OPTIONS
+
 from tests.test_preflight_contract import browser_contract
+from tests.test_task_preflight import BRIEF, OPTIONS, ROOT, PreflightFixture
 
 
 class WorkerAdmissionCliTests(PreflightFixture):

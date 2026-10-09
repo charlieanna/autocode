@@ -5,12 +5,13 @@ the fake one the flow puts on PATH. Slow (tests/suite_slow.json): each case laun
 """
 import json
 import subprocess
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import autocode_regression as regression
 import autocode_verify as verify
 import autocode_workspaces as workspaces
+
 from . import test_subprocess
 from .test_launch_state import APP, AUTOCODE_EXCLUDE, BROKEN_APP, FEATURE, TEST_APP, build_state, files
 from .test_verify import git, isolated_python

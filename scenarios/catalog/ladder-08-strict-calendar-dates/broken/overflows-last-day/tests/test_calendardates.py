@@ -1,6 +1,8 @@
-from datetime import date
 import unittest
-from calendardates import format_date, parse_date, inclusive_dates
+from datetime import date
+
+from calendardates import format_date, inclusive_dates, parse_date
+
 
 class CalendarDateTests(unittest.TestCase):
     def test_format_existing(self):

@@ -14,13 +14,15 @@ import sys
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_source_scope as source_scope
-    from . import autocode_failure_classification as classification, autocode_builder_policy as policy
+    from . import autocode_builder_policy as policy
+    from . import autocode_failure_classification as classification
+    from . import autocode_source_scope as source_scope
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util
-    import autocode_source_scope as source_scope
-    import autocode_failure_classification as classification
     import autocode_builder_policy as policy
+    import autocode_failure_classification as classification
+    import autocode_source_scope as source_scope
+    import autocode_util as util
 
 
 def evidence(state, record, *, checks=(), checkpoint=None, error_class=None, diagnosis=None):

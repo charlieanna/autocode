@@ -1,8 +1,8 @@
 """Public evidence pinning for the runner's mutable metadata."""
 import hashlib
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_support as support
 

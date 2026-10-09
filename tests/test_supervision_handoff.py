@@ -1,7 +1,6 @@
 """Real nested keepers: exec follows durable outer admission, including thread launches."""
 import json
 import os
-from pathlib import Path
 import select
 import signal
 import socket
@@ -10,9 +9,10 @@ import sys
 import tempfile
 import unittest
 import uuid
+from pathlib import Path
 
-import psutil
 import autocode_supervision as supervision
+import psutil
 from autocode_supervision_keeper import KeeperTree
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'

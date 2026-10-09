@@ -1,18 +1,21 @@
 import copy
-from contextlib import redirect_stdout, redirect_stderr
 import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
-import autocode_status as status, autocode_support as s, autocode_context as context
+
+import autocode_context as context
 import autocode_process as processes
 import autocode_resolver_human as human
+import autocode_status as status
+import autocode_support as s
 
 
 class StatusTests(unittest.TestCase):
@@ -165,7 +168,8 @@ class StatusTests(unittest.TestCase):
     def test_runner_command_supervision_is_fresh_read_only_and_denied_access_stays_unknown(self):
         import autocode as runner
         import autocode_status_command as command
-        from tests.test_liveness import metadata, inspection
+
+        from tests.test_liveness import inspection, metadata
         saved = metadata()
         state = {'status': 'RUNNING', 'iteration': 1, 'sessions': {}, 'next_stage': 'sol',
                  'stages': [], 'active_runner_check': {'stage': 'regression_proof', 'summary': 'Testing',
@@ -260,7 +264,7 @@ class StaleCheckpointTests(unittest.TestCase):
 
     def run_status(self, *, env=None):
         return subprocess.run(
-            [sys.executable, str((Path(__file__).resolve().parents[1] / "tools" / ('autocode.py'))),
+            [sys.executable, str(Path(__file__).resolve().parents[1] / "tools" / ('autocode.py')),
              '--workspace', str(self.workspace), '--run-dir', str(self.run), '--status'],
             capture_output=True, text=True, check=False, env=env)
 

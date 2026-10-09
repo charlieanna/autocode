@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
                 destination = links.get(code)
                 if destination:
                     events.append({"code": code, "destination": destination,
-                                   "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+                                   "timestamp": datetime.datetime.now(datetime.UTC).isoformat()})
             if destination:
                 return self.reply(302, {"code": code}, destination)
         self.reply(404, {"error": "not found"})

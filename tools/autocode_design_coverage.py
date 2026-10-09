@@ -12,10 +12,17 @@ except ImportError:
 
 import copy
 from pathlib import Path
+
 try:
-    from . import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual, autocode_design_plan as design_plan
+    from . import autocode_design_manifest as manifest
+    from . import autocode_design_plan as design_plan
+    from . import autocode_util as util
+    from . import autocode_visual_evidence as visual
 except ImportError:
-    import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual, autocode_design_plan as design_plan
+    import autocode_design_manifest as manifest
+    import autocode_design_plan as design_plan
+    import autocode_util as util
+    import autocode_visual_evidence as visual
 
 
 RESULT = manifest.obj({

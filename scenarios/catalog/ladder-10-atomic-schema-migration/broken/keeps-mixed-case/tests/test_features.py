@@ -1,8 +1,10 @@
-from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
+
 from app import migrate
+
 
 class MigrationTests(unittest.TestCase):
     def test_version_and_rows_survive_upgrade(self):

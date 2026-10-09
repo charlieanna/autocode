@@ -7,16 +7,18 @@ This module does not read or write run state; runner_check binds CHECKPOINT.
 """
 from __future__ import annotations
 
-from contextvars import ContextVar
 import hashlib
-from pathlib import Path
 import subprocess
 import time
 import uuid
+from contextvars import ContextVar
+from pathlib import Path
 
 try:
-    from . import autocode_command_receipt as receipts, autocode_process as processes
-    from . import autocode_supervision as supervision, autocode_util as util
+    from . import autocode_command_receipt as receipts
+    from . import autocode_process as processes
+    from . import autocode_supervision as supervision
+    from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes
@@ -62,11 +64,15 @@ def reconcile(metadata):
 
 def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=None,
         activity=None, activity_checkpoint=None, deadline_monotonic=None):
-    """Execute the existing shell command with durable before-exec ownership."""
+    """Execute with durable ownership; return the exclusive capture path in output."""
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     directory = log_path.parent / "command-supervision" / uuid.uuid4().hex
     directory.mkdir(parents=True)
+    # Native held launches already seal their exact fresh output slot.
+    # Keep that slot exclusive; ordinary calls receive a retained sibling.
+    capture = (log_path if held_launch is not None else
+               log_path.with_name(f"{log_path.stem}-{directory.name}{log_path.suffix}"))
     started = time.monotonic()
     deadline = started + timeout if timeout is not None else None
     if deadline_monotonic is not None:
@@ -81,15 +87,15 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
         metadata = value
         util.atomic_json(directory / "admission.json", {
             "schema": 1, "command": command, "cwd": str(Path(cwd).resolve()),
-            "output": str(log_path.resolve()), "timeout_seconds": timeout,
+            "output": str(capture.resolve()), "timeout_seconds": timeout,
             "deadline_monotonic": deadline, "supervision": value,
         })
         callback = checkpoint if checkpoint is not None else CHECKPOINT.get()
         if callback is not None:
-            callback(command, log_path, value)
+            callback(command, capture, value)
 
     try:
-        with log_path.open("wb") as output:
+        with capture.open("xb") as output:
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 timed_out = True
@@ -142,9 +148,9 @@ def run(command, cwd, log_path, *, timeout, env, checkpoint=None, held_launch=No
         timed_out = timed_out or final["cause"] == "stage_deadline"
     if timed_out:
         exit_code = None
-    data = log_path.read_bytes()
+    data = capture.read_bytes()
     result = {"command": command, "exit_code": exit_code, "timed_out": timed_out,
-              "duration_seconds": round(time.monotonic() - started, 2), "output": str(log_path),
+              "duration_seconds": round(time.monotonic() - started, 2), "output": str(capture),
               "output_sha256": hashlib.sha256(data).hexdigest(),
               "tail": data[-TAIL_CHARS:].decode("utf-8", "replace")}
     if metadata is not None:

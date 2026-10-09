@@ -6,15 +6,15 @@ The stats-only usage URL adapter points to a declared synthetic loopback server;
 compatibility uses the production default URL, refused before transport I/O.
 """
 from __future__ import annotations
+
 import argparse
 import hashlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 import socket
-import sys
 import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from harness.phase_env import GREEN, PhaseSequence
 

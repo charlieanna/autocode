@@ -1,14 +1,15 @@
 """Planner gates: protected revisions, requirement trace, source refs, milestone order."""
 import copy
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_goal_lifecycle as lifecycle
 import autocode_planning as planning
 import autopilot
-from . import test_autocode as base
 from goal_fixtures import body
+
+from . import test_autocode as base
 
 goals = base.goals
 

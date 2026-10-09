@@ -4,8 +4,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from . import test_autocode as base
 from goal_fixtures import approve_fixture, seed_greeting_workspace
+
+from . import test_autocode as base
 
 runner, support = base.runner, base.s
 import autocode_findings as findings

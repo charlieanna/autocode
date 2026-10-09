@@ -15,42 +15,44 @@ except ImportError:
 
 import base64
 import copy
+import re
 from dataclasses import asdict
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-import re
 
 try:
-    from . import autocode_recovery_novelty as novelty, autocode_util as util
-    from . import autocode_support as support
-    from . import autocode_efficiency as efficiency
-    from . import autocode_recovery_inputs as inputs
-    from . import autocode_rework_policy as rework, autocode_check_refs as check_refs
-    from . import autocode_process as processes
-    from . import autocode_builder_policy as builder_policy
-    from . import autocode_failure_classification as classification
     from . import autocode_builder_failure as builder_failure
+    from . import autocode_builder_policy as builder_policy
+    from . import autocode_check_refs as check_refs
+    from . import autocode_efficiency as efficiency
+    from . import autocode_failure_classification as classification
     from . import autocode_failures as failures
+    from . import autocode_process as processes
     from . import autocode_quota_route as quota_route
-    from . import autocode_tool_containment as containment
+    from . import autocode_recovery_inputs as inputs
+    from . import autocode_recovery_novelty as novelty
     from . import autocode_retained_work as retained
+    from . import autocode_rework_policy as rework
+    from . import autocode_support as support
+    from . import autocode_tool_containment as containment
+    from . import autocode_util as util
 except ImportError:
-    import autocode_recovery_novelty as novelty
-    import autocode_util as util
-    import autocode_support as support
-    import autocode_efficiency as efficiency
-    import autocode_recovery_inputs as inputs
-    import autocode_rework_policy as rework
-    import autocode_check_refs as check_refs
-    import autocode_process as processes
-    import autocode_builder_policy as builder_policy
-    import autocode_failure_classification as classification
     import autocode_builder_failure as builder_failure
+    import autocode_builder_policy as builder_policy
+    import autocode_check_refs as check_refs
+    import autocode_efficiency as efficiency
+    import autocode_failure_classification as classification
     import autocode_failures as failures
+    import autocode_process as processes
     import autocode_quota_route as quota_route
-    import autocode_tool_containment as containment
+    import autocode_recovery_inputs as inputs
+    import autocode_recovery_novelty as novelty
     import autocode_retained_work as retained
+    import autocode_rework_policy as rework
+    import autocode_support as support
+    import autocode_tool_containment as containment
+    import autocode_util as util
 
 
 def _stale(reason):

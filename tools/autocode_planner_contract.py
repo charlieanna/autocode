@@ -13,11 +13,11 @@ same machine-readable contract the dashboard task consumes.
 """
 from __future__ import annotations
 
-from copy import deepcopy
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import re
+from copy import deepcopy
+from datetime import UTC, datetime
+from pathlib import Path
 
 PLANNER_CONTRACT_VERSION = 1
 STRUCTURED_DRAFT_KIND = "autocode.planner-structured-draft"
@@ -222,7 +222,7 @@ def record_product_change(doc, *, detail, recorded_at=None):
         raise PlannerContractError('A conversation document is required.')
     if not isinstance(detail, str) or not detail.strip() or len(detail) > 4000:
         raise PlannerContractError('Describe the product change in 1-4000 characters.')
-    at = recorded_at or datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    at = recorded_at or datetime.now(UTC).isoformat(timespec="milliseconds")
     requirements = doc.setdefault('requirements', {'revisions': [], 'provenance': []})
     revisions = requirements.setdefault('revisions', [])
     previous = revisions[-1] if revisions else {}

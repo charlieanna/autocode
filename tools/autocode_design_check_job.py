@@ -30,14 +30,16 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
-    from . import autocode_workflows as workflows, autocode_follow_up as follow_up
+    from . import autocode_follow_up as follow_up
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
+    from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_follow_up as follow_up
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
-    import autocode_follow_up as follow_up
     from autocode_test_cases import run_probes
 
 STAGE = workflows.DESIGN_CHECK_STAGE

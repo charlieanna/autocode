@@ -2,21 +2,22 @@
 
 Fixture completion is evidence for the runtime, not proof of live model recovery.
 """
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_stuck_job as stuck
 import autocode_verify as verify
 from goal_fixtures import body
 from units import autoplanner
+
 from . import stage_repair_provider as provider
 from . import test_report_repair as repair_support
 from . import test_subprocess as cli_support

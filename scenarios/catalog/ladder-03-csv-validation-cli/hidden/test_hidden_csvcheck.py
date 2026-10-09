@@ -1,11 +1,10 @@
-import csv
-import io
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+
 
 class HiddenCsvTests(unittest.TestCase):
     def invoke(self, raw):

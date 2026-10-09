@@ -1,22 +1,22 @@
 """Conversation/task handoff tests with local fake models and a fake CLI only."""
-import http.client
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
+import http.client
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_console import Console, Handler, LoopbackHTTPServer
 from dashboard_chat import planning_messages
-from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
 
+from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
 
 FAKE_RUNNER = r'''
 import json, sys

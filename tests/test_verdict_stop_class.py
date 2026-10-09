@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import unittest
 
-from scenarios import run  # Establish the scenario harness import root.
+# isort: split
+from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
+# isort: split
 from harness import stats, verdict
 
 

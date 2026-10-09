@@ -5,7 +5,6 @@ fixtures. No model, allowance, private run-state write or elapsed-time oracle.
 """
 import json
 import os
-from pathlib import Path
 import select
 import signal
 import subprocess
@@ -13,13 +12,13 @@ import sys
 import tempfile
 import threading
 import time
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_process as processes
 import autocode_supervision as supervision
-
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 
@@ -645,8 +644,9 @@ with guard.protect_owner({read_fd},receipt_path={str(self.root/'cli-receipt.json
         # A blocked sampling write and an independent trigger compete for the
         # same receipt. Event barriers drive the ordering; the fake timer fires
         # the hard escalation while that write remains blocked.
-        import autocode_supervision_keeper as keeper_module
         from copy import deepcopy
+
+        import autocode_supervision_keeper as keeper_module
         blocked=threading.Event()
         release=threading.Event()
         killed=threading.Event()

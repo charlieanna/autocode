@@ -2,24 +2,25 @@
 import copy
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
 import uuid
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-import autocode_builder_policy as retry
 import autocode as runtime
+import autocode_builder_policy as retry
 import autocode_rework_policy as policy
 import autocode_support as support
 import autocode_util as util
 import autocode_visual_evidence as visual
 import autopilot
+
 from tests.visual_capture_fixtures import make_capture, png
 
 

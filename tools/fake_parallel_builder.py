@@ -2,13 +2,13 @@
 """Offline Builder fixture; a rendezvous verifies actual concurrent processes."""
 import hashlib
 import json
-import shlex
 import os
-from pathlib import Path
+import shlex
+import subprocess
 import sys
 import time
 import uuid
-import subprocess
+from pathlib import Path
 
 
 def plan():

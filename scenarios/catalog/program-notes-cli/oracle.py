@@ -1,5 +1,13 @@
-from harness.oracle import (Check, changed_since_seed, hidden_tests, non_stdlib_imports, program_checks, python_tests,
-                            scratch_copy, tail)
+from harness.oracle import (
+    Check,
+    changed_since_seed,
+    hidden_tests,
+    non_stdlib_imports,
+    program_checks,
+    python_tests,
+    scratch_copy,
+    tail,
+)
 
 # What the brief names, the integration workstream's journey test included. A live plan may add modules of
 # its own beside them (notes/errors.py, one module per command), so only files outside notes/ and tests/ stray.

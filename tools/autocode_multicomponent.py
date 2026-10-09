@@ -125,7 +125,7 @@ class Architecture:
     directory: Path | None = None
 
     @classmethod
-    def load(cls, directory: Path) -> "Architecture":
+    def load(cls, directory: Path) -> Architecture:
         directory = Path(directory)
         raw = _read_json(directory / "components.json")
         if not isinstance(raw, list) or not raw:

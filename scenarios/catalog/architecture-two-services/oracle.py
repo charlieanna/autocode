@@ -28,7 +28,7 @@ def check(project, scenario):
     by_id = {c["id"]: c for c in components if isinstance(c, dict) and c.get("id")}
 
     covered = {r for c in by_id.values() for r in c.get("requirements", []) if isinstance(r, str)}
-    checks.append(Check("every_requirement_covered_by_a_component", REQUIREMENTS <= covered,
+    checks.append(Check("every_requirement_covered_by_a_component", covered >= REQUIREMENTS,
                         f"missing: {sorted(REQUIREMENTS - covered)}"))
 
     unknown_deps = {(cid, dep) for cid, c in by_id.items() for dep in c.get("depends_on", [])

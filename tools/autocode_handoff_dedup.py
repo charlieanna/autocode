@@ -6,7 +6,6 @@ are presentation details of a copied handoff, never persisted run-state changes.
 import copy
 import json
 
-
 REFERENCE_POLICY = (
     'Fields ending in _ref below can be inline JSON pointers beginning #/. '
     'Resolve these against this handoff, not an external file. acceptance_criteria_ref '

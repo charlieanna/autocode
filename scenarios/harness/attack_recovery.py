@@ -11,7 +11,6 @@ import shlex
 import sys
 from pathlib import Path
 
-
 FAULTS = frozenset({
     "investigator_iteration", "investigator_run_root", "investigator_missing_citation",
     "investigator_uncited_input", "truncated_once", "truncated_repeated",

@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from harness import catalog
-from harness.driver import Driver, DriveError, default_autocode, fake_setup
+from harness.driver import DriveError, Driver, default_autocode, fake_setup
 from harness.oracle import run as command
 from harness.project import materialize
 

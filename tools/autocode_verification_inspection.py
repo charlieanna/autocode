@@ -3,8 +3,8 @@
 The interface supplies checkpoint reading and source snapshots. The inspection
 does not run a check, change a saved report or grant completion authority.
 """
-from pathlib import Path
 import stat
+from pathlib import Path
 from subprocess import SubprocessError
 
 try:

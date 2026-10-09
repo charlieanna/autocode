@@ -2,17 +2,16 @@
 import copy
 import json
 import unittest
-from pathlib import Path
-from unittest.mock import patch
 
-from . import test_autocode, test_subprocess
 import autocode as runner
+import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_stage_context as stage_context
 import autocode_support as s
-import autocode_goals as goals
-import autocode_goal_lifecycle as lifecycle
 import autocode_workflow as workflow
 from goal_fixtures import approve_fixture, envelope
+
+from . import test_autocode, test_subprocess
 
 
 class WorkflowTests(unittest.TestCase):

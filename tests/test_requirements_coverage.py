@@ -1,12 +1,14 @@
 """Exact requirement quotes, formatting-aware coverage, and guarded retries."""
 import copy
 import json
-from pathlib import Path
-import tempfile
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
-import autocode as runner, autocode_goals as goals, autocode_support as support
+import autocode as runner
+import autocode_goals as goals
+import autocode_support as support
 from units import autoplanner
 
 

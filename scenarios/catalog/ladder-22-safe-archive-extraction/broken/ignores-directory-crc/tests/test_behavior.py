@@ -2,7 +2,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+
 from safezip import extract
+
 
 class ArchiveTests(unittest.TestCase):
     def test_nested_files_extract(self):

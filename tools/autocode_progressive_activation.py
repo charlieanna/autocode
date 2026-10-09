@@ -27,15 +27,15 @@ from __future__ import annotations
 from copy import deepcopy
 
 try:
-    from . import autocode_util as util
     from . import autocode_contract_identity as contract_identity
-    from . import autocode_progressive_plan as plan
     from . import autocode_progressive_artifacts as artifacts
+    from . import autocode_progressive_plan as plan
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util
     import autocode_contract_identity as contract_identity
-    import autocode_progressive_plan as plan
     import autocode_progressive_artifacts as artifacts
+    import autocode_progressive_plan as plan
+    import autocode_util as util
 
 
 BLOCKERS = frozenset({"active_worker", "uncertain_worker", "unreconciled_result",

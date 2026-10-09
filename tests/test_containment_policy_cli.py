@@ -7,9 +7,9 @@ qualified_at_setup has only the run-setup check report a qualified host, so the 
 launch fails its boundary: the PAUSED_TOOL_CONTAINMENT path when OpenCode changes mid-run.
 """
 import json
-from pathlib import Path
 import shutil
 import unittest
+from pathlib import Path
 
 from . import opencode_fixture_cli as fixture_cli
 from . import test_subprocess as subprocess_tests
@@ -140,8 +140,15 @@ class UncontainedToolsFlow(unittest.TestCase):
         self.assertEqual("uncontained_user_accepted", self.status_view(run)["tool_containment"])
 
     def test_the_flag_is_not_a_read_only_option(self):
-        result = self.launch(["Build a greeting tool", "--dry-run", FLAG], 2)
-        self.assertIn("cannot be combined with --status or --dry-run", result.stderr)
+        for flag in ("--status", "--explain", "--dry-run"):
+            with self.subTest(flag=flag):
+                # An explicit target keeps the shared launch helper from adding
+                # --in-place, which --explain correctly refuses as a new-run option.
+                result = self.launch(["--run-dir", str(self.project / ".autocode/runs/no-run"), flag, FLAG], 2)
+                self.assertIn(
+                    "--allow-uncontained-tools is saved with the run; it cannot be combined "
+                    "with --status, --explain or --dry-run", result.stderr)
+                self.assertFalse((self.project / ".autocode").exists())
 
 
 if __name__ == "__main__":

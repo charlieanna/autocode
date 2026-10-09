@@ -14,7 +14,7 @@ The store observes which drafts are in flight (a worker queued or running in
 this process, or holding its delivery lease in any process); these functions
 only decide.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 ANSWERS_PER_UPDATE = 3
 # A running draft whose dispatch record has not changed for this long no longer
@@ -30,7 +30,7 @@ COALESCED_RELEASE = 'coalesced_update'
 
 
 def _clock():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def held(dispatch):
@@ -73,7 +73,7 @@ def stalled(dispatch, now=None):
     except (TypeError, KeyError, ValueError):
         return False
     if at.tzinfo is None:
-        at = at.replace(tzinfo=timezone.utc)
+        at = at.replace(tzinfo=UTC)
     return ((now or _clock()) - at).total_seconds() >= STALLED_AFTER_SECONDS
 
 

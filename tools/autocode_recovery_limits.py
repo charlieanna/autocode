@@ -1,14 +1,14 @@
 """Admission policy for existing recovery allowances and unchanged denial holds."""
 try:
-    from .autocode_source_scope import snapshot
     from . import autocode_recovery_accounting as accounting
     from . import autocode_recovery_context as recovery_context
     from .autocode_permission_recovery import hold_message
+    from .autocode_source_scope import snapshot
 except ImportError:
-    from autocode_source_scope import snapshot
     import autocode_recovery_accounting as accounting
     import autocode_recovery_context as recovery_context
     from autocode_permission_recovery import hold_message
+    from autocode_source_scope import snapshot
 
 GRANT_ADVICE = (
     "After fixing the cause, authorize more recoveries explicitly with "
@@ -105,7 +105,7 @@ def no_progress_bound_holds(state, cause=None) -> bool:
 def no_progress_advice(state) -> str:
     """The command that acknowledges a pause no_progress_bound_holds attributes to the limit."""
     count, limit = _no_progress_count_and_limit(state)
-    saved = NO_PROGRESS_SAVED.format(limit=limit) if 0 < limit and count < limit else ""
+    saved = NO_PROGRESS_SAVED.format(limit=limit) if limit > 0 and count < limit else ""
     return NO_PROGRESS_ADVICE.format(count=count, saved=saved)
 
 

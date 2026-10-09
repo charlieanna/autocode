@@ -3,7 +3,9 @@ import csv
 import io
 import random
 import unittest
+
 from csvexport import export
+
 
 class HiddenCsvExportTests(unittest.TestCase):
     def parse(self,text):

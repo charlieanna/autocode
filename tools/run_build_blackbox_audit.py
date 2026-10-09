@@ -2,11 +2,9 @@
 import argparse
 import json
 import os
-from pathlib import Path
-import sys
 import time
 import unittest
-
+from pathlib import Path
 
 SCENARIOS = {
     1: ['test_01_'], 2: ['test_02_'], 3: ['test_01_'], 4: ['test_01_'],

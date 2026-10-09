@@ -19,11 +19,13 @@ Imports nothing from the runner.
 from __future__ import annotations
 
 try:
-    from . import autocode_tool_containment as tool_containment, autocode_quota_route as quota_route
+    from . import autocode_quota_route as quota_route
     from . import autocode_stuck_job as stuck_job
+    from . import autocode_tool_containment as tool_containment
 except ImportError:
-    import autocode_tool_containment as tool_containment, autocode_quota_route as quota_route
+    import autocode_quota_route as quota_route
     import autocode_stuck_job as stuck_job
+    import autocode_tool_containment as tool_containment
 
 FLAG = "--allow-uncontained-tools"
 SETTING = "allow_uncontained_tools"

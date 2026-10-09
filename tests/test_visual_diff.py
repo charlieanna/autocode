@@ -2,12 +2,12 @@
 import builtins
 import hashlib
 import json
-from pathlib import Path
 import struct
 import tempfile
 import unittest
-from unittest.mock import patch
 import zlib
+from pathlib import Path
+from unittest.mock import patch
 
 import autocode_visual_diff as visual_diff
 

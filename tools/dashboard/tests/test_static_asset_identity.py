@@ -1,9 +1,9 @@
 """Unchanged source must serve identical JavaScript across server restarts."""
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 
 class StaticAssetIdentityTests(unittest.TestCase):

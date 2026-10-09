@@ -5,7 +5,6 @@ every workspace, prompt, report and process log rather than delete temp fixtures
 """
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
@@ -13,10 +12,11 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
-from goal_fixtures import body
 import autocode_process as processes
 import build_product_fixtures as products
+from goal_fixtures import body
 
 
 def supervised_processes(root):

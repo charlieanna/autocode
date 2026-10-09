@@ -5,10 +5,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from .test_verify import Project, isolated_python
 import autocode_regression as regression
 import autocode_util as util
 import autocode_verify as verify
+
+from .test_verify import Project, isolated_python
 
 
 class BaselineIdentityTests(unittest.TestCase):

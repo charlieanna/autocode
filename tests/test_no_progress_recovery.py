@@ -18,6 +18,7 @@ import unittest
 
 import autocode_resolver_human as human
 import autocode_support as support
+
 from . import test_subprocess
 
 

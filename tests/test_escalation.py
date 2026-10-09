@@ -1,8 +1,8 @@
 """Automatic reasoning/model escalation tests; no provider calls."""
-from copy import deepcopy
-from pathlib import Path
 import sys
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode_escalation as escalation

@@ -10,8 +10,8 @@ concerns, are new information and never add up to a repeated-failure pause.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
 try:
     from . import autocode_util as util

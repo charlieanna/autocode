@@ -12,18 +12,20 @@ import argparse
 import json
 import math
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 try:
-    from . import provider_conformance_contract as contract, provider_conformance_transport as transport
+    from . import provider_conformance_contract as contract
     from . import provider_conformance_fake as fake
+    from . import provider_conformance_transport as transport
     from .autocode_util import atomic_json, file_hash, snapshot
 except ImportError:
-    import provider_conformance_contract as contract, provider_conformance_transport as transport
+    import provider_conformance_contract as contract
     import provider_conformance_fake as fake
+    import provider_conformance_transport as transport
     from autocode_util import atomic_json, file_hash, snapshot
 
 

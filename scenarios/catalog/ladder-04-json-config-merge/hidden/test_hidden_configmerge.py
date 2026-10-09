@@ -1,11 +1,13 @@
 import copy
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+
 from configmerge import merge
+
 
 class HiddenConfigMergeTests(unittest.TestCase):
     def test_type_changes_null_and_empty(self):

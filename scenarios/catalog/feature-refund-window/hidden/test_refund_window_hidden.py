@@ -1,6 +1,6 @@
 """Refund rules at the boundaries: store-time days, the running cap, refusals that change nothing."""
 import unittest
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 from shop.orders import Order
 from shop.refunds import RefundRefused, refund
@@ -58,7 +58,7 @@ class RefusalTests(unittest.TestCase):
 class ReportTests(unittest.TestCase):
     def test_the_existing_report_still_groups_by_store_day(self):
         from shop.report import delivered_on
-        noon = int(datetime(2026, 3, 1, 12, tzinfo=timezone.utc).timestamp())
+        noon = int(datetime(2026, 3, 1, 12, tzinfo=UTC).timestamp())
         self.assertEqual(["a"], delivered_on([Order("a", 1, delivered_at=noon)], date(2026, 3, 1)))
 
 

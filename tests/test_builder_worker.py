@@ -1,14 +1,13 @@
 """Worker admission controls through main(), with an offline provider boundary."""
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_builder_worker as worker
 import goal_fixtures
-
 
 runner = worker.runner
 

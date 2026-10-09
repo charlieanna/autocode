@@ -1,10 +1,9 @@
 """Recover saved conversation delivery without repeating an ambiguous provider call."""
-from contextlib import contextmanager
 import fcntl
 import hashlib
 import os
-import threading
 import uuid
+from contextlib import contextmanager
 
 try:
     from .. import autocode_conversation as protocol
@@ -75,9 +74,7 @@ class RecoveryMixin:
                         if not acquired:
                             continue
                         phase = saved.get('state')
-                        if phase == 'RESULT_CAPTURED':
-                            pending.append((doc['id'], turn))
-                        elif phase in ('SAVED', 'SAFE_NOT_DISPATCHED', 'DISPATCH_PREPARED'):
+                        if phase == 'RESULT_CAPTURED' or phase in ('SAVED', 'SAFE_NOT_DISPATCHED', 'DISPATCH_PREPARED'):
                             pending.append((doc['id'], turn))
                         else:
                             if phase != 'UNCERTAIN':

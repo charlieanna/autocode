@@ -1,13 +1,15 @@
 """Offline reconsideration of unanswered, resolver-owned planning-cap requests."""
 import copy
-from types import SimpleNamespace
-from pathlib import Path
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from . import test_operational_recovery as fixtures, test_subprocess
 import autocode_configure
 import autocode_planning as planning
+
+from . import test_operational_recovery as fixtures
+from . import test_subprocess
 
 runner, s, resolver = fixtures.runner, fixtures.s, fixtures.resolver
 human = runner.resolver_human

@@ -1,7 +1,7 @@
 """Bind supported CLI evidence inspection to the report shown by the dashboard."""
-from copy import deepcopy
 import hashlib
 import json
+from copy import deepcopy
 
 
 def mapping(value):

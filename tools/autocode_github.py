@@ -11,8 +11,8 @@ import os
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 try:
     from . import autocode_util as util

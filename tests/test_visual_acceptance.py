@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import base64
-from copy import deepcopy
 import hashlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
-import signal
 import shutil
+import signal
 import struct
 import subprocess
 import tempfile
@@ -17,10 +14,13 @@ import threading
 import unittest
 import uuid
 import zlib
+from copy import deepcopy
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
-import autocode_visual_acceptance as visual
 import autocode_image_delivery as delivery
 import autocode_util as util
+import autocode_visual_acceptance as visual
 
 
 def png(rgb, width=2, height=2):

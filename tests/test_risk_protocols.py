@@ -5,16 +5,16 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
-import autocode_risk_protocols as protocols
 import autocode_risk_acceptance as acceptance
+import autocode_risk_protocols as protocols
 import autocode_risk_targets as targets
 
 CATALOG = Path(__file__).resolve().parents[1] / 'scenarios' / 'catalog'

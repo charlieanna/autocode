@@ -30,7 +30,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet docs/providers.md docs/provider-matrix.json; then
+          if git diff --quiet docs/providers.md tools/provider-matrix.json; then
             echo "Conformance matrix unchanged."
             exit 0
           fi
@@ -40,7 +40,7 @@ jobs:
           The offline conformance suite (`tools/provider_conformance.py --fake`) produced a
           different result from the published matrix.
 
-          Please review the diff and update `docs/provider-matrix.json` (then
+          Please review the diff and update `tools/provider-matrix.json` (then
           `python tools/provider_matrix.py --write`). A new major engine version must be
           `known-good` or `refused` before users hit it (#706).
 

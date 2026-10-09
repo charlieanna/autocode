@@ -1,10 +1,19 @@
-import sys, os, json, tempfile, unittest, http.client, threading, subprocess
+import http.client
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
 from pathlib import Path
 from unittest.mock import patch
+
 ROOT=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(ROOT/'tools/dashboard'),str(ROOT/'tools')]
-from agent_console import Console,Handler,LoopbackHTTPServer
+from agent_console import Console, Handler, LoopbackHTTPServer
 from dashboard_setup import git
+
 
 class SetupTests(unittest.TestCase):
  def setUp(self):

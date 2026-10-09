@@ -2,10 +2,10 @@
 import copy
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_preflight_contract as contract
@@ -13,8 +13,9 @@ import autocode_preflight_design as design
 import autocode_preflight_worker as worker
 import autocode_task_preflight as preflight
 import autocode_util as util
-from tests.test_task_preflight import PreflightFixture, ROOT, entry
+
 from tests.test_design_manifest import bundle, inventory_bundle
+from tests.test_task_preflight import ROOT, PreflightFixture, entry
 
 
 def browser_contract():

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import copy
 
-
 PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"})
 DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
 

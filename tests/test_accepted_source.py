@@ -5,9 +5,9 @@ No model is called. The approved contract, task, budget, proof and evidence stay
 """
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner
@@ -17,6 +17,7 @@ import autocode_resolver_recovery as recovery
 import autocode_run_view as run_view
 import autocode_support as support
 import autocode_util as util
+
 from tests import test_goals
 
 

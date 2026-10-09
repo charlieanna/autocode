@@ -1,4 +1,4 @@
-from harness.oracle import node_change_checks, named_proof_checks, run_checks
+from harness.oracle import named_proof_checks, node_change_checks, run_checks
 
 
 def check(project, scenario, run=None):

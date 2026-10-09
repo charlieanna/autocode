@@ -6,14 +6,14 @@ run actual Git/unittest subprocesses; the public CLI check uses an offline provi
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 from copy import deepcopy
+from pathlib import Path
+from unittest import mock
 
 import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression

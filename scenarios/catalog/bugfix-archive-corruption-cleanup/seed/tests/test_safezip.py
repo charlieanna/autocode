@@ -1,8 +1,8 @@
-from pathlib import Path
 import stat
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 
 import safezip
 

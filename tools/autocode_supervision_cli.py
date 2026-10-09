@@ -3,14 +3,14 @@
 Only the parent owns the pipe writer. This module never reads run state or starts
 provider work. The CLI uses the returned argv for its existing dispatch path.
 """
-from contextlib import contextmanager
 import json
 import math
 import os
-from pathlib import Path
 import select
 import stat
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 try:
     from . import autocode_supervision as supervision

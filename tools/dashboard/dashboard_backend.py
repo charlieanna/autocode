@@ -1,7 +1,6 @@
 """Versioned Autocode registry and intervention adapter; never writes task state."""
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import subprocess
@@ -10,20 +9,24 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
+
 try:
     from .dashboard_command_gate import WorkspaceCommandGate, command_workspace
-    from .dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
+    from .dashboard_monitor import process_table as monitor_process_table
+    from .dashboard_monitor import snapshot as monitor_snapshot
 except ImportError:  # Support direct execution from this source directory.
     from dashboard_command_gate import WorkspaceCommandGate, command_workspace
-    from dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
+    from dashboard_monitor import process_table as monitor_process_table
+    from dashboard_monitor import snapshot as monitor_snapshot
 
 
 try:
-    from .dashboard_work_summary import progress_from_status
     from .dashboard_recovery import projection as recovery_projection
+    from .dashboard_work_summary import progress_from_status
 except ImportError:
-    from dashboard_work_summary import progress_from_status
     from dashboard_recovery import projection as recovery_projection
+    from dashboard_work_summary import progress_from_status
 
 
 def mapping(value):

@@ -8,24 +8,28 @@ from older runs cannot be upgraded into missing source snapshots.
 from __future__ import annotations
 
 try:
-    from . import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+    from . import autocode_source_scope as source_scope
+    from . import autocode_source_snapshot as source_snapshot
 except ImportError:
-    import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+    import autocode_source_scope as source_scope
+    import autocode_source_snapshot as source_snapshot
 
 
-from copy import deepcopy
 import hashlib
 import os
-from pathlib import Path
 import subprocess
 import tempfile
+from copy import deepcopy
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_contract_identity as contract
+    from . import autocode_contract_identity as contract
     from . import autocode_repair_provenance as repair_provenance
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util, autocode_contract_identity as contract
+    import autocode_contract_identity as contract
     import autocode_repair_provenance as repair_provenance
+    import autocode_util as util
 
 
 def approved(state):

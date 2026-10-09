@@ -3,13 +3,14 @@
 Real Git and real unittest suites in scratch checkouts. The CLI cases are in test_launch_state_cli.
 """
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_regression as regression
 import autocode_verify as verify
+
 from .test_verify import Project, git, isolated_python
 
 APP = "def greet():\n    return 'hello'\n"

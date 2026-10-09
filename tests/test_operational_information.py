@@ -11,10 +11,11 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from . import test_subprocess
 import autocode as runner
-import autocode_support as support
 import autocode_source_scope as source_scope
+import autocode_support as support
+
+from . import test_subprocess
 
 
 class OperationalInformationCLITests(unittest.TestCase):

@@ -1,6 +1,7 @@
 """Reversible per-run dashboard archives. No runner state or worker is changed."""
-from pathlib import Path
 import threading
+from pathlib import Path
+
 try:
     from .dashboard_projects import ProjectStore
     from .dashboard_workspace_history import annotate_workspace_history

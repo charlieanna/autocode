@@ -1,15 +1,15 @@
 """Real selected-tool execution and denial controls; no provider/model simulation."""
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
-import autocode_toolchain as toolchain
 import autocode_tool_containment as containment
+import autocode_toolchain as toolchain
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'macOS toolchain containment')

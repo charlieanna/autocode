@@ -24,12 +24,13 @@ import hashlib
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_verify as verify
     from . import autocode_patch_containment as containment
+    from . import autocode_util as util
+    from . import autocode_verify as verify
 except ImportError:
+    import autocode_patch_containment as containment
     import autocode_util as util
     import autocode_verify as verify
-    import autocode_patch_containment as containment
 
 
 def pin(path, workspace, base):

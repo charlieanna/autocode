@@ -73,17 +73,19 @@ cannot be approved, whatever a review accepted. Planning stages get ``rule``.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
+from pathlib import Path
 
 try:
-    from . import autocode_requirement_cues as cues, autocode_test_cases as test_cases, autocode_verify as verify
     from . import autocode_contract_identity as identity
+    from . import autocode_requirement_cues as cues
+    from . import autocode_test_cases as test_cases
+    from . import autocode_verify as verify
 except ImportError:
+    import autocode_contract_identity as identity
     import autocode_requirement_cues as cues
     import autocode_test_cases as test_cases
     import autocode_verify as verify
-    import autocode_contract_identity as identity
 
 IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])Test[A-Z0-9_][A-Za-z0-9_]*")
 # A Go test name as one word of the brief: the function, or a subtest path under it (TestCacheExpiry/expired).

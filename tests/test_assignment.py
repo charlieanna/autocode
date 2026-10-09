@@ -1,8 +1,8 @@
 """The serial assignment boundary measures the whole assignment, from saved snapshots."""
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_assignment as assignment
 

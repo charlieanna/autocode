@@ -1,7 +1,6 @@
 import http.client
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import threading
@@ -11,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from agent_console import Console, Handler, ModelCatalogue, LoopbackHTTPServer, saved_models
+from agent_console import Console, Handler, LoopbackHTTPServer, ModelCatalogue, saved_models
 
 
 class ModelSelectionTests(unittest.TestCase):

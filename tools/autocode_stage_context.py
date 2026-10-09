@@ -13,19 +13,23 @@ except ImportError:
 
 
 import json
-from pathlib import Path
 import shlex
+from pathlib import Path
 
 try:
-    from . import autocode_support as support
-    from .autocode_util import criteria_definition
-    from . import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
+    from . import autocode_design_manifest as design_manifest
     from . import autocode_milestone_replan as replan
+    from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_support as support
+    from . import autocode_visual_evidence as visual
+    from .autocode_util import criteria_definition
 except ImportError:
-    import autocode_support as support
-    from autocode_util import criteria_definition
-    import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
+    import autocode_design_manifest as design_manifest
     import autocode_milestone_replan as replan
+    import autocode_protected_oracles as protected_oracles
+    import autocode_support as support
+    import autocode_visual_evidence as visual
+    from autocode_util import criteria_definition
 
 
 def context_packet(state, stage, state_path):

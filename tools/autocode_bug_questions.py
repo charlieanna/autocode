@@ -5,9 +5,11 @@ The bug job owns ``investigation``; its retained output hash binds these questio
 to one accepted report. Existing human request receipts bind answers to the run.
 """
 try:
-    from . import autocode_util as util, autocode_workflows as workflows
+    from . import autocode_util as util
+    from . import autocode_workflows as workflows
 except ImportError:
-    import autocode_util as util, autocode_workflows as workflows
+    import autocode_util as util
+    import autocode_workflows as workflows
 
 
 def has_questions(state):

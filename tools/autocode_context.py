@@ -7,10 +7,13 @@ HISTORY_FIELDS = ('brief_feedback', 'saved_answers')
 
 def compact(base, state_path):
     try:
-        from . import autocode_util as util, autocode_handoff_dedup as handoff, autocode_handoff_history as history
+        from . import autocode_handoff_dedup as handoff
+        from . import autocode_handoff_history as history
+        from . import autocode_util as util
     except ImportError:
-        import autocode_util as util, autocode_handoff_dedup as handoff
+        import autocode_handoff_dedup as handoff
         import autocode_handoff_history as history
+        import autocode_util as util
 
     def build(source, condensed):
         result, moved = history.condense(source) if condensed else (source, {})

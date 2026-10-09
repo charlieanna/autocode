@@ -5,18 +5,20 @@ the operator token binds the exact bytes and admission evidence. Only apply()
 writes record.report_recovery, retained in normal stage history as provenance.
 Controller services are supplied rather than imported.
 """
-from copy import deepcopy
-from contextvars import ContextVar
 import hashlib
 import json
+from contextvars import ContextVar
+from copy import deepcopy
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_job_source as source
     from . import autocode_job_failure as job_failure
+    from . import autocode_job_source as source
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util, autocode_job_source as source
     import autocode_job_failure as job_failure
+    import autocode_job_source as source
+    import autocode_util as util
 
 BEFORE_WRITE = ContextVar('inspected_job_report_before_write', default=None)
 

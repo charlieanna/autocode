@@ -1,7 +1,8 @@
 import sqlite3
+from contextlib import contextmanager
+
 # Store caller integers as hexadecimal text; do arithmetic with Python ints.
 from itertools import count
-from contextlib import contextmanager
 
 _tokens = count(1)
 

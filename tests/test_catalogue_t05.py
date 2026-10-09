@@ -13,20 +13,20 @@ assertions verbatim.
 """
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_findings as findings
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
-from . import test_autocode as base
+import autopilot_testkit as kit
 from goal_fixtures import approve_fixture, body, envelope
+
+from . import test_autocode as base
 
 
 def sol(*texts, dispositions=(), output="sol-01.json", report_only=False):
@@ -129,7 +129,6 @@ class UnitFindingCases(FindingCase):
         self.oracle.apply("sol", first)
         findings.record_validation(state, first, {"output": "sol-01.json"})
         fid = findings.open_entries(state)[0]["id"]
-        before = self.snapshot_open(state)
         later = sol("Unrelated import unused")
         self.oracle.apply("sol", later)
         findings.record_validation(state, later, {"output": "sol-02.json"})
@@ -500,7 +499,6 @@ class ControllerFindingCases(FindingCase):
         """FND-14. New: same visible labels across two runs; A's report cannot act on B."""
         self.approve()
         self.assign_first_task()
-        project_b = {}
         b_state = {"version": 2, "workspace": str(self.root), "task": "Project B different goal",
                    "status": "RUNNING", "iteration": 1, "stages": [], "history": [], "sessions": {},
                    "settings": copy.deepcopy(self.settings)}

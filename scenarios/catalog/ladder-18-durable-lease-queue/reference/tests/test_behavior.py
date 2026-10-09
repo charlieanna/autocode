@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from leasequeue import LeaseQueue
+
 
 class QueueTests(unittest.TestCase):
     def test_enqueue_claim_restart_and_ack(self):

@@ -8,18 +8,17 @@ UI-02's failure-detector, UI-03's 21-screen matrix
 and UI-13's forced-colors verification are reported honestly where the
 environment or product does not supply them.
 """
-import json
 import os
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autopilot_testkit as kit
-import autocode_support as support
+
 from tests import browser_suite_process
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

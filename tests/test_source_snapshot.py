@@ -1,11 +1,10 @@
 """Real Git controls for explicitly selected ignored source deliverables."""
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
-import tests
 import autocode_source_snapshot as source
 import autocode_util as util
 
@@ -139,7 +138,7 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         return nested
 
     def test_nested_git_keeps_existing_identity_and_detects_selected_ignored_edits(self):
-        nested = self.nested_repository()
+        self.nested_repository()
         before = source.snapshot(self.root, paths=['module'])
         self.assertEqual(util.snapshot(self.root)['revision'], before['revision'])
         document = self.write('module/docs/result.md', 'Nested deliverable\n')
@@ -152,10 +151,12 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         self.assertEqual(util.snapshot(self.root)['revision'], before['revision'])
 
     def test_nested_selected_deliverable_reaches_copy_diff_and_clean_replay(self):
-        import autocode_verification_copy as copies
+        import shlex
+        import sys
+
         import autocode_source_diff as diffs
+        import autocode_verification_copy as copies
         import autocode_verify as verify
-        import shlex, sys
         self.nested_repository()
         document = self.write('module/docs/result.md', 'Nested deliverable\n')
         paths = ['module/docs/result.md']
@@ -205,6 +206,7 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         # its own config: a detached repack under .git/objects after the manifest
         # walk reads as a changed verification input (master, 2026-10-06).
         import json
+
         import autocode_verification_copy as copies
         self.write('docs/result.md', 'Selected output\n')
         scratch = self.root / '.autocode/tool-containment-maintenance/scratch'
@@ -267,8 +269,8 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
                 self.assertEqual(scope.snapshot(self.root, state), util.snapshot(self.root))
 
     def test_diff_and_checkpoint_capture_selected_output_without_touching_user_index(self):
-        import autocode_source_diff as diffs
         import autocode_code_checkpoints as checkpoints
+        import autocode_source_diff as diffs
         doc = self.write('docs/result.md', 'Selected output\n')
         evidence = self.root / '.autocode/evidence'
         evidence.mkdir(parents=True)
@@ -284,8 +286,10 @@ class SelectedSourceSnapshotTests(unittest.TestCase):
         self.assertEqual(self.git('status', '--porcelain'), b'')
 
     def test_clean_replay_reads_selected_ignored_deliverable(self):
+        import shlex
+        import sys
+
         import autocode_verify as verify
-        import shlex, sys
         self.write('docs/result.md', 'Selected output\n')
         evidence = self.root / '.autocode/replay'
         command = shlex.join([sys.executable, '-c',

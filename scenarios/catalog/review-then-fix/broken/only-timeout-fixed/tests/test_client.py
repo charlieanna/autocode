@@ -1,7 +1,7 @@
 import unittest
 
 from regclient.client import Command, RegistryClient
-from regclient.transport import RegistryError, ScriptedTransport, Timeout
+from regclient.transport import RegistryError, ScriptedTransport
 
 
 def command(tld="com"):

@@ -1,6 +1,8 @@
 import math
 import unittest
+
 from app import Cache
+
 
 class CacheContract(unittest.TestCase):
     def setUp(self):

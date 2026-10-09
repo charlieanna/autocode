@@ -14,9 +14,9 @@ except ImportError:
 
 
 import json
-from pathlib import Path
 import re
 import time
+from pathlib import Path
 
 try:
     from . import autocode_job_failure as job_failure

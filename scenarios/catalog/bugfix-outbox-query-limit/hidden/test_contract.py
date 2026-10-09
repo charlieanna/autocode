@@ -3,7 +3,9 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
 from outbox import Store
+
 
 class OutboxContract(unittest.TestCase):
     def setUp(self):

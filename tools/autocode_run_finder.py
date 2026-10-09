@@ -45,8 +45,8 @@ except ImportError:
 import dataclasses
 import datetime as dt
 import json
-from pathlib import Path
 import shlex
+from pathlib import Path
 
 # What an invocation does with the run it names (autocode_args classifies every flag):
 # advance - relaunch it (no action flag, --resume-paused and its companions, --unit);

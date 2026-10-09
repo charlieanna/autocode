@@ -9,13 +9,13 @@ stock output too; none of it belongs to the last traceback (#545).
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 
 import autocode_test_setup as test_setup
 import autocode_verify as verify

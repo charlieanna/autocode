@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
@@ -1882,7 +1882,7 @@ class VerifyCase(unittest.TestCase):
             log = root / "suite.log"
             receipt = verify.run_command(f"{sys.executable} -m unittest tests.test_local -q", tree, log,
                                           env={"PYTHONPATH": inherited})
-            self.assertEqual(0, receipt["exit_code"], log.read_text()[-500:])
+            self.assertEqual(0, receipt["exit_code"], Path(receipt["output"]).read_text()[-500:])
 
     @mock.patch.dict(os.environ, {"PYTHONPATH": ""})
     def test_generated_version_file_reaches_the_scratch_trees(self):

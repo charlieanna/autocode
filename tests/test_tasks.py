@@ -2,16 +2,16 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from tools import autocode_goals as goals
 from tools import autocode_goal_lifecycle as lifecycle
 from tools import autocode_tasks as tasks
 from tools.goal_fixtures import body
+
 from . import test_subprocess
 
 

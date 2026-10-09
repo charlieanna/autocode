@@ -14,12 +14,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from . import test_subprocess
 import autocode as runner
 import autocode_quota_route as quota_route
 import autocode_resolver_human as human
 import autocode_run_actions as run_actions
 from autocode_taskrun import TaskRun, TaskRunError
+
+from . import test_subprocess
 
 ADVERTISED_FLAGS = re.compile(r"(--[a-z][a-z0-9-]*)")
 OTHER_MODEL = "gpt-6-luna"

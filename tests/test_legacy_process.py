@@ -1,14 +1,13 @@
 """Conservative reader/writer classification for the legacy process guard."""
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_legacy_process as legacy
 import autocode_process as processes
-
 
 RUNNER = "/usr/bin/python3 /ws/autocode/tools/autocode.py"
 PATHS = "--workspace /ws/project --run-dir /ws/project/.autocode/runs/run-x"
@@ -66,7 +65,7 @@ class RunnerCommandTests(unittest.TestCase):
         for args in (
             "--status .autocode/runs/run-x", f"status {PATHS}", f"task --status {PATHS}",
             f"--status {PATHS} task", f"-- --status {PATHS}", f"--feedback '--status {PATHS}'",
-            f"--workspace /ws/project --status --run-dir /ws/run",
+            "--workspace /ws/project --status --run-dir /ws/run",
         ):
             with self.subTest(args=args):
                 self.assertTrue(legacy.duplicate_runner_command(f"{RUNNER} {args}"))

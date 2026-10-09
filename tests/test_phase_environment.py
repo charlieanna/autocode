@@ -3,11 +3,11 @@ import asyncio
 import json
 import os
 import socket
-from pathlib import Path
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scenarios'))
@@ -136,8 +136,8 @@ class ApplicationPhaseTests(unittest.TestCase):
             source_inventory(self.root)
 
     def test_nonloopback_dns_and_literal_connections_are_refused_before_io(self):
-        from harness.phase_sockets import guard_connections
         from harness.phase_env import RefusedTransportError
+        from harness.phase_sockets import guard_connections
         phase = self.sequence('egress').phase('compat')
         with patch.object(socket, 'getaddrinfo', side_effect=AssertionError('DNS must not run')) as dns:
             with guard_connections(phase.build_env()):

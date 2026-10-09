@@ -1,7 +1,7 @@
 """A bounded TTL cache with least-recently-used eviction."""
 
-from collections import OrderedDict
 import math
+from collections import OrderedDict
 
 
 class Cache:

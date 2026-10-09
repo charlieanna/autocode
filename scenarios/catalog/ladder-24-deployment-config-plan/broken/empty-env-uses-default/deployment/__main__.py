@@ -2,7 +2,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
 from . import write_plan
+
 
 def main():
     parser=argparse.ArgumentParser(description='Validate and write a local deployment plan')

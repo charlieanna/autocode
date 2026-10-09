@@ -1,6 +1,7 @@
 import io
 import os
 import unittest
+
 import autocode_verbose as verbose
 
 
@@ -85,6 +86,7 @@ class MonitorReportTests(unittest.TestCase):
     def test_activity_monitor_reports_tool_lifecycle_and_new_text(self):
         import tempfile
         from pathlib import Path
+
         import autocode_activity as activity
         seen = []
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,6 +106,7 @@ class MonitorReportTests(unittest.TestCase):
     def test_no_reporter_keeps_monitor_silent(self):
         import tempfile
         from pathlib import Path
+
         import autocode_activity as activity
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'events.jsonl'

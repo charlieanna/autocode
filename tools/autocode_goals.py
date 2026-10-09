@@ -3,29 +3,41 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 import re
 import uuid
+from pathlib import Path
 
 # The contract: schemas, tokens, validation and invalidation. The steps that act on it (install,
 # present, approve, assign, ask the user) are in autocode_goal_lifecycle, which imports this module,
 # never the other way round.
 try:
-    from .autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
-                                            revision_guard, saved_user_basis as _saved_user_basis)
+    from . import autocode_adaptive_planning as adaptive
+    from . import autocode_brief_literals as brief_literals
+    from . import autocode_bug_questions as bug_questions
+    from . import autocode_component_plan as component_plan
+    from . import autocode_finding_cause as finding_cause
+    from . import autocode_util as s
+    from . import autocode_workflows as workflows
+    from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
+    from .autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from .autocode_contract_revision import revision_guard as revision_guard
+    from .autocode_contract_revision import saved_user_basis as _saved_user_basis
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors
-    from . import autocode_brief_literals as brief_literals, autocode_component_plan as component_plan
-    from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
-    from . import autocode_finding_cause as finding_cause, autocode_bug_questions as bug_questions
 except ImportError:
-    from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
-                                           revision_guard, saved_user_basis as _saved_user_basis)
+    import autocode_adaptive_planning as adaptive
+    import autocode_brief_literals as brief_literals
+    import autocode_bug_questions as bug_questions
+    import autocode_component_plan as component_plan
+    import autocode_finding_cause as finding_cause
+    import autocode_util as s
+    import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
+    from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
+    from autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from autocode_contract_revision import revision_guard as revision_guard
+    from autocode_contract_revision import saved_user_basis as _saved_user_basis
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors
-    import autocode_brief_literals as brief_literals, autocode_component_plan as component_plan
-    import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
-    import autocode_finding_cause as finding_cause, autocode_bug_questions as bug_questions
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -141,15 +153,19 @@ through public APIs that exist before the fix and to assert the behavior (the re
 result, the saved state); a log line or message alone does not prove the behavior.
 """
 try:
-    from .autocode_role_schema import USER_REQUEST, role_schema
+    from .autocode_role_schema import USER_REQUEST as USER_REQUEST
+    from .autocode_role_schema import role_schema as role_schema
 except ImportError:
-    from autocode_role_schema import USER_REQUEST, role_schema
+    from autocode_role_schema import USER_REQUEST as USER_REQUEST
+    from autocode_role_schema import role_schema as role_schema
 
 
 try:
-    from .autocode_contract_identity import token, sealed, approved
+    from .autocode_contract_identity import approved, token
+    from .autocode_contract_identity import sealed as sealed
 except ImportError:
-    from autocode_contract_identity import token, sealed, approved
+    from autocode_contract_identity import approved, token
+    from autocode_contract_identity import sealed as sealed
 
 
 def validate_requirements_body(state, body):

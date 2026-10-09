@@ -7,12 +7,13 @@ only after the application and independent command cleanup both succeed.
 from copy import deepcopy
 
 try:
-    from . import autocode_runner_check as runner_check, autocode_command_supervision as commands
     from . import autocode_command_receipt as receipts
+    from . import autocode_command_supervision as commands
+    from . import autocode_runner_check as runner_check
 except ImportError:
-    import autocode_runner_check as runner_check
-    import autocode_command_supervision as commands
     import autocode_command_receipt as receipts
+    import autocode_command_supervision as commands
+    import autocode_runner_check as runner_check
 
 
 def raise_if_uncertain(error):

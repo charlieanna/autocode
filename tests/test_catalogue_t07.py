@@ -7,22 +7,21 @@ the explicit gaps under the evidence-bundle harness.
 """
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_escalation as escalation
 import autocode_failures as failures
 import autocode_findings as findings
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
+from goal_fixtures import body
+
 from . import test_catalogue_t06 as t06
-from goal_fixtures import body, envelope
 
 
 class RepairCase(t06.SolControllerCase):
@@ -259,7 +258,6 @@ class RepairScenarios(RepairCase):
 
     def test_fix10_progress_governs_time_not_wall_clock(self):
         """FIX-10. Existing: test_goals.test_limits_pause_and_cannot_complete."""
-        from . import test_catalogue_t01 as t01
         case_state = {"version": 2, "workspace": str(self.root), "task": "Slow fixture",
                       "status": "RUNNING", "iteration": 1, "sessions": {}, "stages": [], "history": [],
                       "acceptance_criteria": [], "settings": dict(self.state["settings"])}
@@ -272,7 +270,7 @@ class RepairScenarios(RepairCase):
                                             "no_progress_batches": 3,
                                             "automatic_retries": 0}
         case_state.update(active_seconds=60 * 90 * 3, no_progress_batches=0)  # slow but progressing
-        saved = support.atomic_json(self.run / "slow-state.json", case_state)
+        support.atomic_json(self.run / "slow-state.json", case_state)
         self.check("no_wall_clock_kill_when_progressing", True,
                    case_state["settings"]["limits"]["max_seconds"] is None)
         stall = copy.deepcopy(case_state)

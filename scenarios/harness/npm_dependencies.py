@@ -7,7 +7,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-
 # Vitest is a dev dependency; Vite's platform binaries are optional packages.
 # Include both even when the host's npm configuration would omit them.
 NPM_CI_ARGUMENTS = ("ci", "--include=dev", "--include=optional", "--ignore-scripts", "--no-audit", "--no-fund")

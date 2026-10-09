@@ -7,7 +7,6 @@ import stat
 import tempfile
 import zipfile
 
-
 _DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 
 

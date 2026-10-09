@@ -5,15 +5,16 @@ files. A legacy directory locator also resolves its verified .zip companion,
 so compaction needs no settings rewrite or new approval identity. Only the
 locked run's own retained paths may be compacted; unrelated files are kept.
 """
-from contextlib import contextmanager
 import hashlib
 import os
-from pathlib import Path, PurePosixPath
-import stat
 import shutil
+import stat
 import tempfile
 import uuid
 import zipfile
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
+
 try:
     from . import autocode_protected_paths as paths
 except ImportError:

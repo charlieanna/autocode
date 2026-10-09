@@ -3,14 +3,14 @@
 The proof goes through the public production entry point (regression.prove) with real
 unittest subprocesses; no model shim. A bugfix contract still has to change product code.
 """
-from pathlib import Path
 import shutil
-import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_regression as regression
 import autocode_verify as verify
+
 from tests.test_verify import Project
 
 CALC = "def add(a, b):\n    return a + b\n\n\ndef keep():\n    return 9\n"

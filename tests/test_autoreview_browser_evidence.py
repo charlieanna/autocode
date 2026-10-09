@@ -2,15 +2,16 @@
 import base64
 import copy
 import json
-from pathlib import Path
 import shlex
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 import zlib
+from pathlib import Path
+from unittest.mock import patch
 
 import autoreview_product_probe as probe
+
 from . import test_autoreview_products as audit
 
 

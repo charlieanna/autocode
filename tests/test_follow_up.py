@@ -14,8 +14,8 @@ import unittest
 import uuid
 from pathlib import Path
 
-import autocode_follow_up as follow_up
 import autocode_contract_revision as revision
+import autocode_follow_up as follow_up
 import autocode_util as util
 import autocode_workflows as workflows
 from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError

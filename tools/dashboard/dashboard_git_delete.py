@@ -1,10 +1,9 @@
 """Delete one confirmed Git branch with Git's checkout guard and a tip guard."""
-from pathlib import Path
 import os
 import shlex
 import sys
 import tempfile
-
+from pathlib import Path
 
 _GUARD = r'''
 import os

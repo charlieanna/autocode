@@ -12,14 +12,16 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_risk_acceptance as acceptance, autocode_risk_targets as targets
-    from . import autocode_brief_obligations as human, autocode_risk_protocols as protocols
+    from . import autocode_brief_obligations as human
+    from . import autocode_risk_acceptance as acceptance
+    from . import autocode_risk_protocols as protocols
+    from . import autocode_risk_targets as targets
     from . import autocode_util as util
 except ImportError:
-    import autocode_risk_acceptance as acceptance
-    import autocode_risk_targets as targets
     import autocode_brief_obligations as human
+    import autocode_risk_acceptance as acceptance
     import autocode_risk_protocols as protocols
+    import autocode_risk_targets as targets
     import autocode_util as util
 
 PROPOSALS_SCHEMA = acceptance.PROPOSALS_SCHEMA

@@ -1,10 +1,9 @@
 """Complete browser-consumer protocol through the real CLI and fake OpenCode."""
 import json
-from pathlib import Path
 import subprocess
-import sys
 import time
 import unittest
+
 from . import test_opencode
 
 

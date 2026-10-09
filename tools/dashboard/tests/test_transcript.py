@@ -1,12 +1,14 @@
 import copy
-import unittest
-import tempfile
-from unittest.mock import patch
-from pathlib import Path
 import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 from dashboard_transcript import project
+
 
 class TranscriptTests(unittest.TestCase):
     def test_finished_job_has_one_ordered_saved_conversation_and_no_mutation(self):
@@ -102,7 +104,8 @@ class TranscriptTests(unittest.TestCase):
 
     def test_real_consumed_cli_answers_with_reused_q1_do_not_dedupe_old_receipt(self):
         import autocode as runner
-        from tools.dashboard.tests.test_pending_decisions import publish, resolver_human, LegacyConsole
+
+        from tools.dashboard.tests.test_pending_decisions import LegacyConsole, publish, resolver_human
         with tempfile.TemporaryDirectory() as directory:
             workspace=Path(directory).resolve()
             run=workspace/'.autocode/runs/history'

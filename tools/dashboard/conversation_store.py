@@ -6,11 +6,11 @@ except ImportError:
 
 
 try:
-    from .dashboard_conversations import ConversationStore as IntakeStore
     from .dashboard_continuous import ContinuousConversationStore
+    from .dashboard_conversations import ConversationStore as IntakeStore
 except ImportError:
-    from dashboard_conversations import ConversationStore as IntakeStore
     from dashboard_continuous import ContinuousConversationStore
+    from dashboard_conversations import ConversationStore as IntakeStore
 
 
 class ConversationStore:

@@ -3,10 +3,10 @@
 The registry and run rows remain intact. A workspace returning on disk becomes
 visible again on the next snapshot; this classifier never removes files.
 """
-from datetime import datetime, timezone
-from pathlib import Path
 import re
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 
 TEMPORARY = re.compile(r'^/(?:private/)?(?:tmp/|var/folders/)')
 
@@ -23,7 +23,7 @@ def worker_commands():
 
 def annotate_workspace_history(rows, *, process_reader=worker_commands):
     """Annotate every row; never infer missing files from cached error strings."""
-    checked = datetime.now(timezone.utc).isoformat()
+    checked = datetime.now(UTC).isoformat()
     processes, inspected = None, False
     for row in rows:
         evidence = {'eligible': False, 'reason': 'not_temporary', 'checked_at': checked}

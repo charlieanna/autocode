@@ -2,10 +2,10 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,8 +15,8 @@ import autocode_goals as goals
 import autocode_opencode as oc
 import autocode_planning as planning
 import autocode_support as support
-from goal_fixtures import body
 import test_subprocess
+from goal_fixtures import body
 
 
 class PlanningTests(unittest.TestCase):

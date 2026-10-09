@@ -8,17 +8,17 @@ handoff contents, not that a live model will follow the instructions.
 """
 from __future__ import annotations
 
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import runpy
 import shlex
 import subprocess
 import sys
 import traceback
+from pathlib import Path
 
 
 def initial_task(contract):

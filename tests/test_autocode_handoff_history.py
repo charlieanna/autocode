@@ -1,9 +1,9 @@
 """Review prompts shorten discussion an approved contract already settled, and nothing else."""
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_context as context
 import autocode_handoff_history as history

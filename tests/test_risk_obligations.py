@@ -3,17 +3,18 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_conversation as conversation
 import autocode_goals as goals
 import autocode_risk_obligations as obligations
 import autocode_risk_targets as targets
 import autocode_util as util
-from tests.test_risk_acceptance import QUEUE, OUTBOX, proposal
+
+from tests.test_risk_acceptance import OUTBOX, QUEUE, proposal
 
 CATALOG = Path(__file__).resolve().parents[1] / 'scenarios' / 'catalog'
 SCENARIOS = {'leasequeue': 'ladder-18-durable-lease-queue',

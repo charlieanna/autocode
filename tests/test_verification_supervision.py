@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import shlex
 import signal
 import socket
@@ -20,13 +19,13 @@ import textwrap
 import threading
 import time
 import unittest
-
-import psutil
+from pathlib import Path
 
 import autocode_command_receipt as command_receipt
 import autocode_process as processes
 import autocode_supervision as supervision
 import autocode_taskrun as taskrun
+import psutil
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
@@ -432,7 +431,7 @@ Path({str(self.root / 'collected-result.json')!r}).write_text(json.dumps(result)
             while not stop.is_set():
                 try:
                     connection, _ = self.server.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 connection.settimeout(5)
                 data = bytearray()

@@ -1,12 +1,13 @@
 """Pure, bounded policy for resolving approved-contract blockers."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from hashlib import sha256
 import json
 import re
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from hashlib import sha256
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any
 
 try:
     from . import autocode_workflows as workflows
@@ -175,7 +176,7 @@ def _validate_body(body: Any) -> bool:
     if not isinstance(body, Mapping):
         return False
     keys = set(body) - {"task_kind"}
-    if not _REQUIRED <= keys or keys - _KNOWN:
+    if not keys >= _REQUIRED or keys - _KNOWN:
         return False
     if any(not isinstance(body[key], Mapping) for key in _RUNNER_OWNED & keys):
         return False

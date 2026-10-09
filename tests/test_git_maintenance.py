@@ -4,10 +4,10 @@ tests/__init__.py turns it off through the environment; see the comment there.
 """
 import json
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 
 class BackgroundMaintenanceTests(unittest.TestCase):

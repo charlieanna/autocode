@@ -1,10 +1,9 @@
 """Prepare complete, isolated source for a bug investigation before its model runs."""
-from functools import partial
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-
+from functools import partial
+from pathlib import Path
 
 EXCLUDED = {'.git', '.autocode', '.autocode-ui'}
 

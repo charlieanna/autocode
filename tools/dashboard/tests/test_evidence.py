@@ -1,11 +1,12 @@
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dashboard_evidence import stage_evidence, MAX_DIFF_BYTES
+from dashboard_evidence import MAX_DIFF_BYTES, stage_evidence
 
 
 class EvidenceTests(unittest.TestCase):

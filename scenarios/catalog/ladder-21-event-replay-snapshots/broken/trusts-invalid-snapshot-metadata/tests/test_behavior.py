@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from journal import Journal
+
 
 class JournalTests(unittest.TestCase):
     def test_replay_and_reopen(self):

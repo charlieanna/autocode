@@ -3,25 +3,28 @@
 No controller or run-state dependency. The scheduler supplies an admission;
 the script entry supplies existing tree operations to the owned worker.
 """
-from contextlib import contextmanager
-from contextvars import ContextVar
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
 import tempfile
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
+from pathlib import Path
 
 try:
-    from . import autocode_command_supervision as commands, autocode_process as processes
-    from . import autocode_util as util, autocode_verification_recovery as recovery, autocode_supervision as supervision
+    from . import autocode_command_supervision as commands
+    from . import autocode_process as processes
+    from . import autocode_supervision as supervision
+    from . import autocode_util as util
+    from . import autocode_verification_recovery as recovery
 except ImportError:
     import autocode_command_supervision as commands
     import autocode_process as processes
+    import autocode_supervision as supervision
     import autocode_util as util
     import autocode_verification_recovery as recovery
-    import autocode_supervision as supervision
 
 ADMISSION = ContextVar('verification_preparation_admission', default=None)
 PHASE = ContextVar('verification_preparation_phase', default=None)

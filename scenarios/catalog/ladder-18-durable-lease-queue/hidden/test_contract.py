@@ -1,9 +1,11 @@
 import tempfile
 import threading
 import unittest
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
 from leasequeue import LeaseQueue
+
 
 class QueueContract(unittest.TestCase):
     def setUp(self):
@@ -11,7 +13,7 @@ class QueueContract(unittest.TestCase):
         self.path=Path(self.tmp.name)/'db'; self.q=LeaseQueue(self.path)
     def test_deadline_boundary_fencing_and_retry_order(self):
         self.q.enqueue('a','A'); self.q.enqueue('b','B')
-        first=self.q.claim(0,10); second=self.q.claim(0,10)
+        first=self.q.claim(0,10); self.q.claim(0,10)
         self.assertIsNone(self.q.claim(9,10))
         self.assertFalse(self.q.ack('a',first['token'],10))
         again=LeaseQueue(self.path).claim(10,10)

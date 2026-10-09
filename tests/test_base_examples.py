@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from autocode_base_examples import check, notes, planned, differences
+from autocode_base_examples import check, differences, notes, planned
 
 
 def criterion(command, expected):

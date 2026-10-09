@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import secrets
 import shlex
 import subprocess
 import sys
-
+from pathlib import Path
 
 FAULTS = ("malformed_report", "forged_evidence", "wrong_exit", "unexpected_write", "incomplete_turn",
           "wrong_session", "missing_usage", "wrong_nonce", "stale_report", "process_failure")

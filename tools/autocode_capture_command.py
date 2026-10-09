@@ -2,17 +2,19 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import time
+from pathlib import Path
 
 try:
-    from . import autocode_output_filter as filters, autocode_output_store as store
+    from . import autocode_output_filter as filters
+    from . import autocode_output_store as store
     from .autocode_output import representation
     from .autocode_util import atomic_json
 except ImportError:
-    import autocode_output_filter as filters, autocode_output_store as store
+    import autocode_output_filter as filters
+    import autocode_output_store as store
     from autocode_output import representation
     from autocode_util import atomic_json
 

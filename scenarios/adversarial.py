@@ -7,15 +7,15 @@ not expectedFailure markers or accepted baseline results.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -175,7 +175,7 @@ def main():
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
-    output = (args.out or REPO / ".scenario-runs" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-adversarial")).resolve()
+    output = (args.out or REPO / ".scenario-runs" / (datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-adversarial")).resolve()
     if args.worker:
         return worker(args.worker, output)
     if args.list:
@@ -195,7 +195,7 @@ def main():
     rows = [row for report in reports for row in report["rows"]]
     counts = {status: sum(row["status"] == status for row in rows) for status in ("PASS", "FAIL", "ERROR", "NOT_EXERCISED")}
     summary = {"mode": "real CLI with scripted provider and isolated process/I/O faults; no live models",
-               "generated_at_utc": datetime.now(timezone.utc).isoformat(), "counts": counts,
+               "generated_at_utc": datetime.now(UTC).isoformat(), "counts": counts,
                "tests_run": sum(report["tests_run"] for report in reports), "groups": reports,
                "core_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()}
     summary["group_execution_failures"] = [report["group"] for report in reports

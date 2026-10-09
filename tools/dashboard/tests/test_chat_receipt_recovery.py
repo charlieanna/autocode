@@ -1,15 +1,15 @@
 """Task chat crash windows against durable journals, without providers or waits."""
-from copy import deepcopy
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / 'dashboard'), str(TOOLS)]
-from dashboard_chat import ConversationMixin
 import autocode_conversation as protocol
+from dashboard_chat import ConversationMixin
 
 
 class ProcessLost(BaseException):

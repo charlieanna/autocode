@@ -23,7 +23,6 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from . import test_subprocess
 import autocode as runner
 import autocode_goals as goals
 import autocode_operational_information as operational_information
@@ -32,6 +31,8 @@ import autocode_resolver_human as human
 import autocode_resolver_runtime as resolver_runtime
 import autocode_run_view as run_view
 import autocode_support as support
+
+from . import test_subprocess
 
 # Every pause AutoResolver publishes an operational_exhaustion request for.
 STATUSES = ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY', 'PAUSED_PROVIDER_CAPACITY',

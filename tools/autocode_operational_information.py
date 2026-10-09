@@ -46,15 +46,18 @@ import subprocess
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_quota_route as quota_route
-    from . import autocode_findings as findings_ledger, autocode_source_scope as source_scope
-    from . import autocode_validation_rounds as validation_rounds, autocode_member_stop as member_stop
+    from . import autocode_findings as findings_ledger
+    from . import autocode_member_stop as member_stop
+    from . import autocode_quota_route as quota_route
+    from . import autocode_source_scope as source_scope
+    from . import autocode_util as util
+    from . import autocode_validation_rounds as validation_rounds
 except ImportError:
-    import autocode_util as util
-    import autocode_quota_route as quota_route
-    import autocode_member_stop as member_stop
     import autocode_findings as findings_ledger
+    import autocode_member_stop as member_stop
+    import autocode_quota_route as quota_route
     import autocode_source_scope as source_scope
+    import autocode_util as util
     import autocode_validation_rounds as validation_rounds
 
 VERSION = 1

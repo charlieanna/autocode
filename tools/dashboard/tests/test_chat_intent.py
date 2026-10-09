@@ -1,8 +1,8 @@
 """Task-chat intent: real saved receipts and CLI boundaries with disposable runs."""
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -69,8 +69,9 @@ class ChatIntentTests(ChatFixture, unittest.TestCase):
         self.assertFalse((self.root / "inbox.json").exists())
 
     def test_why_not_done_cites_unchecked_requirements_and_open_findings_read_only(self):
-        from dashboard_chat_intent import status_reply
         from copy import deepcopy
+
+        from dashboard_chat_intent import status_reply
         view={'status':'PAUSED_REPEATED_FAILURE', 'criteria':[{'id':'R1','criterion':'Saving survives restart'},
             {'id':'R2','criterion':'Errors stay visible'}],
             'validation':{'criterion_results':[{'id':'R2','status':'FAIL'}]},

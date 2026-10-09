@@ -20,14 +20,13 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_findings as findings
 import autocode_goals as goals
-import autocode_goal_lifecycle as lifecycle
 import autocode_support as support
+import autopilot_testkit as kit
+
 from . import test_catalogue_t08 as t08
-from goal_fixtures import envelope
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOLS = REPO_ROOT / "tools"

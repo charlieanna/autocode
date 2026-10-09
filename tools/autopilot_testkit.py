@@ -38,8 +38,8 @@ import subprocess
 import sys
 import traceback
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,19 +80,19 @@ class Bundle:
         (self.dir / "environment.json").write_text(json.dumps({
             "scenario": scenario_id, "python": sys.version, "platform": platform.platform(),
             "machine": platform.machine(), "git": source_revision(),
-            "interpreter": sys.executable, "recorded_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "interpreter": sys.executable, "recorded_at": dt.datetime.now(dt.UTC).isoformat(),
         }, indent=2))
 
     # -- observation ------------------------------------------------------
     def log(self, event: str, **detail):
-        row = {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "event": event, **detail}
+        row = {"at": dt.datetime.now(dt.UTC).isoformat(), "event": event, **detail}
         with (self.dir / "trace.jsonl").open("a") as handle:
             handle.write(json.dumps(row) + "\n")
 
     def operation(self, kind: str, **payload):
         """Record one fake launch/effect in the independent operations ledger."""
         entry = {"op_id": len(self.operations) + 1, "kind": kind,
-                 "at": dt.datetime.now(dt.timezone.utc).isoformat(), **payload}
+                 "at": dt.datetime.now(dt.UTC).isoformat(), **payload}
         self.operations.append(entry)
         (self.dir / "operations.json").write_text(json.dumps(self.operations, indent=2))
         return entry
@@ -149,7 +149,7 @@ class Bundle:
         (self.dir / "result.json").write_text(json.dumps({
             "scenario": self.scenario_id, "attempt": self.attempt, "status": status,
             "summary": summary or status, "checks": len(self.rows), "failed": len(self.failures),
-            "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "finished_at": dt.datetime.now(dt.UTC).isoformat(),
         }, indent=2))
         self.log("bundle_finished", status=status)
         if status == FAIL:

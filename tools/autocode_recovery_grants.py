@@ -8,7 +8,8 @@ Eligibility is shared with the stop advice (#288): a pause must never advertise
 ``--grant-recovery`` unless :func:`eligible` would accept it.
 """
 try:
-    from . import autocode_recovery_accounting as accounting, autocode_util as util
+    from . import autocode_recovery_accounting as accounting
+    from . import autocode_util as util
 except ImportError:
     import autocode_recovery_accounting as accounting
     import autocode_util as util

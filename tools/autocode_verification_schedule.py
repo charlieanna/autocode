@@ -9,21 +9,23 @@ and the public evidence/efficiency projections read it.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_command_receipt as command_receipt
+    from . import autocode_command_receipt as command_receipt
+    from . import autocode_command_supervision as command_supervision
     from . import autocode_python_tests as python_tests
+    from . import autocode_util as util
+    from . import autocode_verification_preparation as preparation
     from . import autocode_verification_recovery as recovery
-    from . import autocode_verification_preparation as preparation, autocode_command_supervision as command_supervision
 except ImportError:
-    import autocode_util as util
     import autocode_command_receipt as command_receipt
-    import autocode_python_tests as python_tests
-    import autocode_verification_recovery as recovery
-    import autocode_verification_preparation as preparation
     import autocode_command_supervision as command_supervision
+    import autocode_python_tests as python_tests
+    import autocode_util as util
+    import autocode_verification_preparation as preparation
+    import autocode_verification_recovery as recovery
 
 
 def tree_identity(root, *, excluded=()):

@@ -1,6 +1,7 @@
 """Install retained files and original link topology inside a disposable tree."""
-from pathlib import Path
 import shutil
+from pathlib import Path
+
 try:
     from .autocode_protected_paths import identity, relative_name, verify_links
 except ImportError:

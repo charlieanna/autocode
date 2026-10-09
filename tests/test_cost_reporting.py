@@ -1,16 +1,16 @@
 """Offline accounting regressions discovered by the canonical tools suite."""
 import copy
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import live_token_sampler as sampler
 import score_autocode_run as scorer
-from tools.providers.opencode import normalized_events
 
+from tools.providers.opencode import normalized_events
 
 GLM = "zai-coding-plan/glm-5.3"
 MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"

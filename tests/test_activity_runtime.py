@@ -1,29 +1,30 @@
 """Offline runner coverage for activity timeouts, durable status, and recovery."""
-from .supervision_fixture import launcher
 import contextlib
 import copy
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import textwrap
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from . import test_goals
 import autocode as runner
 import autocode_completion as completion_gate
 import autocode_configure
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_planning as planning
-import autopilot
 import autocode_support as support
+import autopilot
 from autocode_activity import ActivityMonitor
 from goal_fixtures import assert_operational_wait, envelope
+
+from . import test_goals
+from .supervision_fixture import launcher
 
 
 class ActivityRuntimeTests(unittest.TestCase):

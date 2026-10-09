@@ -10,9 +10,9 @@ import ast
 import hashlib
 import keyword
 import os
-from pathlib import Path
 import re
 import stat
+from pathlib import Path
 
 VERSION = 1
 MAX_FILE_BYTES = 256 * 1024

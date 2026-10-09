@@ -5,6 +5,7 @@ import os
 import tempfile
 from pathlib import Path
 
+
 def topology(graph):
     indegree={}; followers={node:[] for node in graph}
     for node,deps in graph.items():

@@ -4,9 +4,9 @@ Crashes the test-owned controller at real process/Git I/O boundaries, without
 editing production code or fabricating its persisted state. Never import normally.
 """
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 mode = os.environ.get('BUILD_AUDIT_CONTROLLER_FAULT')
 root = os.environ.get('BUILD_AUDIT_FAULT_ROOT')

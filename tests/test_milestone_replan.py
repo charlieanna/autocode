@@ -1,11 +1,11 @@
 """The pending milestone replan and the Completion Owner's statement of it (issue #459). Pure logic."""
-import unittest
 import copy
+import unittest
 
 import autocode_milestone_replan as replan
 import autocode_milestones as milestones
-import autocode_util as util
 import autocode_support as support
+import autocode_util as util
 
 LIMITS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
 # The live run's stalled milestone (feature-stock-refusals, run 8soi9a5s).

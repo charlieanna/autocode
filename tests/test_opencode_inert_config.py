@@ -2,16 +2,17 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
-import tests  # noqa: F401 - runtime import path
 import autocode as runner
 import autopilot
 from providers import opencode
+
+import tests  # noqa: F401 - runtime import path
 
 
 class InertNativeConfiguration(unittest.TestCase):

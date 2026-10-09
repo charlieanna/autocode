@@ -1,16 +1,17 @@
 """Derive only missing check metadata from verified execution evidence (the latest run of a command)."""
-import copy
 import contextlib
+import copy
 import io
 import json
-from pathlib import Path
 import shlex
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from .test_autocode import runner, s as support
+from .test_autocode import runner
+from .test_autocode import s as support
 
 
 class ValidationMetadataTests(unittest.TestCase):

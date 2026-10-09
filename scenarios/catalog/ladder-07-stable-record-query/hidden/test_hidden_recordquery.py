@@ -1,7 +1,9 @@
 import copy
 import itertools
 import unittest
+
 from recordquery import query
+
 
 class HiddenRecordQueryTests(unittest.TestCase):
     def test_stability_and_missing_values_in_both_directions(self):

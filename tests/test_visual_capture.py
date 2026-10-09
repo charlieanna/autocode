@@ -4,12 +4,12 @@ No model or Figma calls. Regular guard/CLI tests require no browser installation
 """
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 import uuid
+from pathlib import Path
 
 import autocode_util as util
 import autocode_visual_evidence as evidence

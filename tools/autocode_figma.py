@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from urllib.parse import urlparse
+
 try:
     from . import autocode_util as util
 except ImportError:

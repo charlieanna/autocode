@@ -1,12 +1,17 @@
 """Disposable real Git runs served by the production dashboard and checkpoint CLI."""
-import json, os, sys
+import json
+import os
+import sys
 from pathlib import Path
 from urllib.parse import urlencode
+
 SOURCE=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(SOURCE),str(SOURCE/'tools/dashboard'),str(SOURCE/'tools')]
-from agent_console import Console,Handler,LoopbackHTTPServer
-from tests.test_code_checkpoints import CodeCheckpoints
 import autocode_registry as registry
+from agent_console import Console, Handler, LoopbackHTTPServer
+
+from tests.test_code_checkpoints import CodeCheckpoints
+
 root=Path(os.environ['AUTOCODE_FIXTURE_ROOT']).resolve();root.mkdir(parents=True,exist_ok=True)
 os.environ['AUTOCODE_HOME']=str(root/'registry')
 fixtures=[];cases={}

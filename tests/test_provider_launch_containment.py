@@ -1,19 +1,20 @@
 """The public launch seam must fail before models if its tool boundary is absent."""
 import json
-from contextlib import ExitStack
-from copy import deepcopy
-from pathlib import Path
 import shlex
 import subprocess
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import ExitStack
+from copy import deepcopy
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
-import tests  # noqa: F401 - runtime import path
 import autocode_provider_launch as launch
 import autocode_tool_containment as containment
 import autocode_util as util
+
+import tests  # noqa: F401 - runtime import path
 
 
 class LaunchContainment(unittest.TestCase):
@@ -182,6 +183,7 @@ class TesterProofRequest(unittest.TestCase):
 
     def setUp(self):
         import autocode as runner
+
         from tests.test_test_root import ARCHITECTURE, component_files, state
         from tests.test_verify import Project, isolated_python
         self.runner = runner
@@ -352,6 +354,7 @@ class TesterProofRequest(unittest.TestCase):
 
     def test_real_skipped_or_zero_test_runs_do_not_supply_current_pass(self):
         import autocode_regression as regression
+
         from tests.test_test_root import NEW_TEST, component_files
         for reason in ('skipped', 'zero tests'):
             with self.subTest(reason=reason):

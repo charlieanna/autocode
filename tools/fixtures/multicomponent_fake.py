@@ -200,7 +200,7 @@ def component_id_for(prompt: str, data: dict) -> str:
     original_prompt_path = (data.get("original") or {}).get("prompt")
     found = original_prompt_path and find_component(Path(original_prompt_path).read_text())
     if not found:
-        raise SystemExit(f"multicomponent_fake: no manifest entry found for this stage's brief")
+        raise SystemExit("multicomponent_fake: no manifest entry found for this stage's brief")
     return found
 
 

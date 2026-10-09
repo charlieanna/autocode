@@ -1,8 +1,8 @@
 """Bounded reads of saved diffs and explicitly recorded changed project files."""
 import json
 import os
-from pathlib import Path
 import stat
+from pathlib import Path
 
 MAX_DIFF_BYTES = 192 * 1024
 

@@ -3,12 +3,12 @@
 import io
 import json
 import os
-from pathlib import Path
 import runpy
 import shlex
 import sys
 import time
 import uuid
+from pathlib import Path
 
 
 def main():

@@ -6,10 +6,12 @@ from pathlib import Path
 
 try:
     from . import autocode_assignment as assignment
-    from . import autocode_contract_identity as contracts, autocode_util as util
+    from . import autocode_contract_identity as contracts
+    from . import autocode_util as util
 except ImportError:
     import autocode_assignment as assignment
-    import autocode_contract_identity as contracts, autocode_util as util
+    import autocode_contract_identity as contracts
+    import autocode_util as util
 
 
 def _earlier_assignment(state, record):

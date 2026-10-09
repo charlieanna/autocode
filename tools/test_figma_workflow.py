@@ -1,17 +1,18 @@
 """Figma pipeline/handoff checks use local fake providers, never the user's Figma."""
-import argparse
 import contextlib
-import copy
 import io
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-from tools import autocode_ui as ui, autocode_figma as figma, autocode as runner, autocode_support as support
+
+from tools import autocode as runner
+from tools import autocode_figma as figma
+from tools import autocode_support as support
+from tools import autocode_ui as ui
 from tools import test_planning, test_subprocess
 
 URL = 'https://www.figma.com/design/Example123/Task?node-id=1-2'

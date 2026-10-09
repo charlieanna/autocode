@@ -13,10 +13,9 @@ import codecs
 import hashlib
 import json
 import os
-from pathlib import Path
 import threading
 import time
-
+from pathlib import Path
 
 IDLE_REASON = "No new provider activity within the inactivity limit"
 # Internal clock binding for the process supervisor. poll() includes it, while

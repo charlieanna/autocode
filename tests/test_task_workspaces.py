@@ -1,13 +1,14 @@
 """Real Git/process tests for concurrent tasks originating in one project."""
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
-import autocode_workspaces as w, autocode_support as support
+from pathlib import Path
+
+import autocode_support as support
+import autocode_workspaces as w
+
 from . import test_subprocess
 
 

@@ -6,19 +6,23 @@ This does not import the workflow controller or change its production launcher.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import tomllib
+from pathlib import Path
 
 try:
-    from . import autocode_agent_env as agent_env, autocode_process as processes
-    from . import autocode_providers as providers, autocode_support as support
+    from . import autocode_agent_env as agent_env
+    from . import autocode_process as processes
+    from . import autocode_providers as providers
+    from . import autocode_support as support
     from .autocode_event_log import open_events
     from .autocode_util import atomic_json
     from .providers import command, env_prep
 except ImportError:
-    import autocode_agent_env as agent_env, autocode_process as processes
-    import autocode_providers as providers, autocode_support as support
+    import autocode_agent_env as agent_env
+    import autocode_process as processes
+    import autocode_providers as providers
+    import autocode_support as support
     from autocode_event_log import open_events
     from autocode_util import atomic_json
     from providers import command, env_prep

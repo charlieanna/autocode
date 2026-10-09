@@ -2,17 +2,18 @@
 import contextlib
 import io
 import json
-from pathlib import Path
 import runpy
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-import tests  # noqa: F401 - runtime import path
 import autocode
 import autocode_recovery_novelty as novelty
 import autocode_util as util
 import live_fixture_provider
+
+import tests  # noqa: F401 - runtime import path
 
 
 class RecoveryReportCompatibility(unittest.TestCase):

@@ -1,5 +1,4 @@
 import argparse
-import math
 
 
 def main(argv=None):

@@ -5,9 +5,10 @@ GitHub issue #62 for the full rationale; this covers only the schema,
 validator and CLI-mutator layer (no obligation-discharge gating yet)."""
 import unittest
 
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 from goal_fixtures import body
+
 from .test_planner_invariants import state
 
 

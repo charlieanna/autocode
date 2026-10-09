@@ -25,10 +25,12 @@ from __future__ import annotations
 from pathlib import Path
 
 try:
-    from . import autocode_support as support, autocode_cmd_only_report as cmd_only
+    from . import autocode_cmd_only_report as cmd_only
+    from . import autocode_support as support
     from .autocode_run_records import stage_supports_sessions
 except ImportError:
-    import autocode_support as support, autocode_cmd_only_report as cmd_only
+    import autocode_cmd_only_report as cmd_only
+    import autocode_support as support
     from autocode_run_records import stage_supports_sessions
 
 FORMAT_ERROR = "OpenCode final message is not a JSON report"

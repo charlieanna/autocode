@@ -1,15 +1,15 @@
 """Public conversation operations with deterministic offline provider delivery."""
-from concurrent.futures import Future
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from concurrent.futures import Future
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parents[2])]
-import dashboard_continuous as continuous
 import autocode_conversation as protocol
+import dashboard_continuous as continuous
 
 
 class Queue:

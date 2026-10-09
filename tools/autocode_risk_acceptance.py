@@ -10,8 +10,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import PurePosixPath
 import re
+from pathlib import PurePosixPath
 
 HUMAN_KINDS = frozenset({'task', 'conversation_user', 'user_answer', 'user_feedback',
                          'user_intervention', 'user_cli_edit'})

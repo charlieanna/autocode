@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from tests.source_inventory import python_sources
 
+from tests.source_inventory import python_sources
+
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 
 # Modules in an import cycle: they import, directly or through other modules, a module that

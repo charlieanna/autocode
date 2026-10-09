@@ -4,8 +4,10 @@ The dispatch adapter owns approval, worker-liveness checks and persistence.
 No model route, contract, verification result or configured limit is changed.
 """
 import copy
+
 try:
-    from . import autocode_builder_policy as policy, autocode_util as util
+    from . import autocode_builder_policy as policy
+    from . import autocode_util as util
 except ImportError:
     import autocode_builder_policy as policy
     import autocode_util as util

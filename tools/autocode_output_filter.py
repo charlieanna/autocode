@@ -3,9 +3,9 @@
 Only verified unittest output is eligible. Unknown commands, JSON, diagnostics,
 and line order remain verbatim. No deduplication of arbitrary repeated lines.
 """
-from pathlib import Path
 import re
 import shlex
+from pathlib import Path
 
 
 def command_kind(command):

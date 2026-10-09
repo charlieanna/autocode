@@ -1,10 +1,13 @@
 """Content identity of one design case, independent of unrelated reference changes."""
 import copy
 from pathlib import Path
+
 try:
-    from . import autocode_util as util, autocode_design_manifest as manifest
+    from . import autocode_design_manifest as manifest
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util, autocode_design_manifest as manifest
+    import autocode_design_manifest as manifest
+    import autocode_util as util
 
 
 def _content_refs(value):

@@ -6,12 +6,11 @@ Unsupported shell wrappers keep their normal exit-code-only behavior.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import re
 import shlex
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-
 
 VALUE_OPTIONS = {"--require", "-r", "--import", "--conditions", "-C", "--loader",
                  "--experimental-loader", "--test-concurrency", "--test-name-pattern",

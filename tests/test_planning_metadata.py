@@ -1,9 +1,9 @@
 """Mechanical metadata recovery preserves wire evidence and contract protections."""
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner

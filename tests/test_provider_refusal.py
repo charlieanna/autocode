@@ -20,8 +20,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from .supervision_fixture import launcher
-
 import autocode as runner
 import autocode_dispatch as dispatch
 import autocode_goals as goals
@@ -32,6 +30,8 @@ import autocode_run_view as run_view
 import autocode_support as support
 import autocode_worker_quota as worker_quota
 from goal_fixtures import approve_fixture
+
+from .supervision_fixture import launcher
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
 FIXTURE = FIXTURES / "opencode-content-filter-run.jsonl"

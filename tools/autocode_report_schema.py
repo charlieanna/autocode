@@ -1,5 +1,6 @@
 """Review report identities and ID-only decoding; no controller dependencies."""
 import copy
+
 try:
     from . import autocode_design_coverage as design_coverage
 except ImportError:

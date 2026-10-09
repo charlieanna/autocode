@@ -1,12 +1,12 @@
 """Actual kernel boundary for process environments, using only owned markers."""
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_tool_containment as containment
 

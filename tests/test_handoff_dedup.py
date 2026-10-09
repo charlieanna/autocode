@@ -1,11 +1,11 @@
 """Prompt compression must preserve the information needed to reject bad work."""
 import copy
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_context as context

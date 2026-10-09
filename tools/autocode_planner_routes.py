@@ -5,6 +5,7 @@ AutoCode's global defaults or modify routes saved by unrelated task runs.
 The module is pure domain logic and never imports the dashboard or controller.
 """
 from __future__ import annotations
+
 from copy import deepcopy
 
 SOL_PLANNER_MODEL = 'openai/gpt-6-sol'

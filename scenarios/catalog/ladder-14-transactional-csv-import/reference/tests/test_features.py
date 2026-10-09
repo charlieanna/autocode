@@ -1,7 +1,9 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
+
 from app import import_stock, list_stock
+
 
 class ImportTests(unittest.TestCase):
     def test_import_and_replace_quantity(self):

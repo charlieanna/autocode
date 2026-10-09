@@ -9,38 +9,42 @@ try:
 except ImportError:
     import autocode_source_scope as source_scope
 
-from dataclasses import fields, is_dataclass
-from collections.abc import Mapping
-from pathlib import Path
+import copy
+import os
 import time
 import uuid
-import os
-import copy
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass
+from pathlib import Path
 
 try:
-    from . import autocode_resolver as policy, autocode_support as support
-    from . import autocode_goals as goals, autocode_failures as failures
-    from . import autocode_resolver_human as human
-    from . import autocode_progressive_state as progressive
-    from . import autocode_resolver_recovery as recovery
-    from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
-    from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
+    from . import autocode_failures as failures
+    from . import autocode_goals as goals
     from . import autocode_member_stop as member_stop
     from . import autocode_pause_authority as pause_authority
+    from . import autocode_progressive_state as progressive
+    from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_grants as recovery_grants
+    from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_resolver as policy
+    from . import autocode_resolver_human as human
+    from . import autocode_resolver_recovery as recovery
+    from . import autocode_support as support
+    from . import autocode_worker_quota as worker_quota
 except ImportError:
-    import autocode_resolver as policy
-    import autocode_support as support
-    import autocode_goals as goals
     import autocode_failures as failures
-    import autocode_resolver_human as human
-    import autocode_progressive_state as progressive
-    import autocode_resolver_recovery as recovery
-    import autocode_recovery_grants as recovery_grants
-    import autocode_recovery_limits as recovery_limits
-    import autocode_quota_route as quota_route
-    import autocode_worker_quota as worker_quota
+    import autocode_goals as goals
     import autocode_member_stop as member_stop
     import autocode_pause_authority as pause_authority
+    import autocode_progressive_state as progressive
+    import autocode_quota_route as quota_route
+    import autocode_recovery_grants as recovery_grants
+    import autocode_recovery_limits as recovery_limits
+    import autocode_resolver as policy
+    import autocode_resolver_human as human
+    import autocode_resolver_recovery as recovery
+    import autocode_support as support
+    import autocode_worker_quota as worker_quota
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')

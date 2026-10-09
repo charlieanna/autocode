@@ -15,21 +15,28 @@ person named a model, ``route_assignment`` (that recorded change). reroute() bin
 retry to the named model with a new token; authorize and admit check it unchanged.
 """
 from __future__ import annotations
+
 import copy
 import json
 import re
 from pathlib import Path
+
 try:
-    from . import autocode_jobs as jobs, autocode_job_source as source, autocode_util as util, autocode_roles as roles, autocode_source_scope as scope
-    from . import autocode_provider_refusal as provider_refusal, autocode_quota_route as quota_route
+    from . import autocode_job_source as source
+    from . import autocode_jobs as jobs
+    from . import autocode_provider_refusal as provider_refusal
+    from . import autocode_quota_route as quota_route
+    from . import autocode_roles as roles
+    from . import autocode_source_scope as scope
+    from . import autocode_util as util
 except ImportError:
-    import autocode_jobs as jobs
     import autocode_job_source as source
-    import autocode_util as util
-    import autocode_roles as roles
-    import autocode_source_scope as scope
+    import autocode_jobs as jobs
     import autocode_provider_refusal as provider_refusal
     import autocode_quota_route as quota_route
+    import autocode_roles as roles
+    import autocode_source_scope as scope
+    import autocode_util as util
 
 RETRY_ACTION = '--resume-paused --retry-failed-stage --job-retry-token TOKEN'
 PAUSES = ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED')

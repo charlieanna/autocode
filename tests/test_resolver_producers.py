@@ -5,11 +5,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import autocode as runner, autopilot, autocode_goals as goals
+import autocode as runner
 import autocode_completion as completion_gate
 import autocode_goal_lifecycle as lifecycle
-import autocode_milestones as milestones, autocode_resolver_human as human
-import autocode_support as support, autocode_util as util, autocode_workflow as workflow
+import autocode_goals as goals
+import autocode_milestones as milestones
+import autocode_resolver_human as human
+import autocode_support as support
+import autocode_util as util
+import autocode_workflow as workflow
+import autopilot
 from goal_fixtures import body, envelope
 from units import autoresolver
 

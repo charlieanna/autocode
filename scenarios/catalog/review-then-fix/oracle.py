@@ -3,8 +3,19 @@ both blocking regressions fixed and a test that catches each, without new
 requirements questions and without touching the advisory finding?"""
 import shutil
 
-from harness.oracle import (IGNORED, Check, apply_patch, findings_of, hidden_tests, load_json, non_stdlib_imports,
-                            python_tests, run_checks, scratch_copy, tail, test_names)
+from harness.oracle import (
+    Check,
+    apply_patch,
+    findings_of,
+    hidden_tests,
+    load_json,
+    non_stdlib_imports,
+    python_tests,
+    run_checks,
+    scratch_copy,
+    tail,
+    test_names,
+)
 
 
 def check(project, scenario, run=None):

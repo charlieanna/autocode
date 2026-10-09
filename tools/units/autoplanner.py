@@ -4,39 +4,50 @@ from __future__ import annotations
 import copy
 import json
 import os
-from pathlib import Path
 import re
 import uuid
+from pathlib import Path
 
 try:
-    from .. import autocode_goals as goals, autocode_planning_artifacts as artifacts, autocode_support as s
-    from .. import autocode_stage_context as stage_context, autocode_acceptance_policy as acceptance_policy
-    from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
-    from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
-    from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
-    from .. import autocode_design_plan as design_plan, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from .. import autocode_acceptance_policy as acceptance_policy
+    from .. import autocode_adaptive_planning as adaptive
+    from .. import autocode_brief_literals as brief_literals
+    from .. import autocode_brief_obligations as brief_obligations
+    from .. import autocode_bug_job as bug_job
+    from .. import autocode_design_plan as design_plan
+    from .. import autocode_draft_examples as examples
+    from .. import autocode_follow_up as follow_up
+    from .. import autocode_goals as goals
     from .. import autocode_native_test_names as native_test_names
+    from .. import autocode_planning_artifacts as artifacts
+    from .. import autocode_progressive_state as progressive
     from .. import autocode_requirement_cues as requirement_cues
+    from .. import autocode_risk_obligations as risk_obligations
+    from .. import autocode_stage_context as stage_context
+    from .. import autocode_support as s
+    from .. import autocode_test_cases as test_cases
     from .. import autocode_verification_plan as verification_plan
+    from .. import autocode_workflows as workflows
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
-    import autocode_test_cases as test_cases
-    import autocode_goals as goals
-    import autocode_planning_artifacts as artifacts
-    import autocode_support as s
-    import autocode_stage_context as stage_context
-    import autocode_bug_job as bug_job
-    import autocode_follow_up as follow_up
-    import autocode_workflows as workflows
     import autocode_adaptive_planning as adaptive
-    import autocode_draft_examples as examples
-    import autocode_progressive_state as progressive
     import autocode_brief_literals as brief_literals
+    import autocode_brief_obligations as brief_obligations
+    import autocode_bug_job as bug_job
     import autocode_design_plan as design_plan
-    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_draft_examples as examples
+    import autocode_follow_up as follow_up
+    import autocode_goals as goals
     import autocode_native_test_names as native_test_names
+    import autocode_planning_artifacts as artifacts
+    import autocode_progressive_state as progressive
     import autocode_requirement_cues as requirement_cues
+    import autocode_risk_obligations as risk_obligations
+    import autocode_stage_context as stage_context
+    import autocode_support as s
+    import autocode_test_cases as test_cases
     import autocode_verification_plan as verification_plan
+    import autocode_workflows as workflows
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -1203,9 +1214,11 @@ def context(state, stage, state_path):
     if stage in ("requirements_gather", "astra_discovery"):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'])
     try:
-        from .. import autocode_figma as figma, autocode_design_manifest as design_manifest
+        from .. import autocode_design_manifest as design_manifest
+        from .. import autocode_figma as figma
     except ImportError:
-        import autocode_figma as figma, autocode_design_manifest as design_manifest
+        import autocode_design_manifest as design_manifest
+        import autocode_figma as figma
     figma_instruction = figma.instructions(state["settings"])
     manifest_context = design_manifest.context(state["settings"])
     if manifest_context:

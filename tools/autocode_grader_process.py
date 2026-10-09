@@ -38,13 +38,13 @@ def _leader(child):
         while True:
             fresh = psutil.Process(child.pid)
             if processes._birth_identity(fresh) != row['birth_identity']:
-                raise processes.ProcessError('Cannot verify independent grader zombie identity: birth changed')
+                raise processes.ProcessError('Cannot verify independent grader zombie identity: birth changed') from None
             parent, status = fresh.ppid(), fresh.status()
             if parent == os.getpid() and status == psutil.STATUS_ZOMBIE:
                 break
             if time.monotonic() >= observation_deadline:
                 raise processes.ProcessError('Cannot verify independent grader zombie identity: '
-                                             f'parent={parent}, state={status}')
+                                             f'parent={parent}, state={status}') from None
             time.sleep(.005)
         row['state'] = psutil.STATUS_ZOMBIE
         # macOS hides pgid for zombies. The caller launched this private

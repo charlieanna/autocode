@@ -1,7 +1,9 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
+
 from app import JobStore
+
 
 class JobTests(unittest.TestCase):
     def test_submit_claim_complete(self):

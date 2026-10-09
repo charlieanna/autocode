@@ -1,19 +1,18 @@
 """Arena oracle controls, public CLI attempts and conservative comparison gates."""
+import contextlib
+import io
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
-import contextlib
-import io
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import autocode_arena as arena
 import autocode_arena_policy as policy
-from autocode_arena_store import Store, ArenaError, write_json
+from autocode_arena_store import ArenaError, Store, write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "tools/autocode_arena.py"

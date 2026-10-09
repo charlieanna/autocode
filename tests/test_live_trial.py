@@ -13,8 +13,8 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(HERE))

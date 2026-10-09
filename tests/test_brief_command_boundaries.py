@@ -1,13 +1,12 @@
 """Command-local output rules and compatibility with manifests sealed on master."""
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_brief_acceptance as acceptance
-
 
 FIXTURES = json.loads((Path(__file__).parent / 'fixtures/brief-manifests-v1.json').read_text())
 

@@ -2,10 +2,10 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
 import uuid
+from pathlib import Path
 
 
 def store_root(value=None):

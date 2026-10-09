@@ -6,7 +6,8 @@ No Builder report, current-task suggestion, or ambient workspace file grants
 additional source scope.
 """
 try:
-    from . import autocode_contract_identity as contracts, autocode_source_snapshot as source
+    from . import autocode_contract_identity as contracts
+    from . import autocode_source_snapshot as source
 except ImportError:
     import autocode_contract_identity as contracts
     import autocode_source_snapshot as source

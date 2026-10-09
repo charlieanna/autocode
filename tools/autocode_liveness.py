@@ -7,9 +7,9 @@ receipt describes cleanup, not the provider's exit code or product completion.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 import math
 import re
+from copy import deepcopy
 
 ROLES = ('owner', 'keeper', 'provider')
 PHASES = frozenset({'armed', 'stopping', 'stopped', 'uncertain', 'discharged'})

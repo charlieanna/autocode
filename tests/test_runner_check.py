@@ -2,10 +2,10 @@
 import copy
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_command_receipt as command_receipt
@@ -15,7 +15,8 @@ import autocode_regression as regression
 import autocode_runner_check as runner_check
 import autocode_status as status
 import autocode_util as util
-from tests.test_verify import Project, REFERENCE, isolated_python
+
+from tests.test_verify import REFERENCE, Project, isolated_python
 
 
 class RunnerCheckTests(unittest.TestCase):

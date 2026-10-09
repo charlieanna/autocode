@@ -6,10 +6,10 @@ source change belongs to the negative-control provider, not the harness driver.
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import threading
 import time
+from pathlib import Path
 
 
 def await_registration(root):

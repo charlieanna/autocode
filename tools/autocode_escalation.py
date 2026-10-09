@@ -63,7 +63,7 @@ def advance(state, role, *, trigger, detail="", struggle_id=None):
     engine = config.get("engine", settings.get("engine", "codex"))
     config.update(model=route_ladder.format_model(model, engine), reasoning_effort=effort)
     old_session = state.setdefault("sessions", {}).pop(role, None)
-    event = {"at": dt.datetime.now(dt.timezone.utc).isoformat(), "role": role,
+    event = {"at": dt.datetime.now(dt.UTC).isoformat(), "role": role,
              "trigger": trigger, "detail": str(detail), "previous": previous,
              "selected": {"model": config["model"], "reasoning_effort": effort, "profile": label}}
     if struggle_id is not None:

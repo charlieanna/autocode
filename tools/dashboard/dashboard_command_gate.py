@@ -3,9 +3,9 @@
 Only in-process dashboard requests cooperate here. External workers are still
 checked by the deletion preflight and the runner's own writer locks.
 """
+import threading
 from contextlib import contextmanager
 from pathlib import Path
-import threading
 
 
 def command_workspace(args):

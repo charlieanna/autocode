@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import selectors
 import time
+from pathlib import Path
 
 
 def install(fake, attack: dict, trace) -> None:

@@ -1,13 +1,13 @@
 """Program reference and oracle HTTP must not depend on host DNS or proxies."""
 import json
 import os
-from pathlib import Path
 import socket
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
 import urllib.request
+from pathlib import Path
+from unittest.mock import patch
 
 import scenario_references as references
 import task_scenarios as scenarios

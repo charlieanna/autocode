@@ -8,47 +8,93 @@ except ImportError:
 
 
 import copy
-import json
 import re
 from pathlib import Path
+
 try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_jobs as jobs
-    from . import autocode_stuck_job as stuck
-    from . import autocode_failure_classification as failure_classification, autocode_builder_failure as builder_failure
-    from . import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
-    from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
-    from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
-    from . import autocode_route_ladder as route_ladder
-    from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
-    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
+    from . import autocode_assignment as assignment
+    from . import autocode_brief_obligations as brief_obligations
+    from . import autocode_builder_failure as builder_failure
+    from . import autocode_builder_policy as builder_policy
+    from . import autocode_check_refs as check_refs
+    from . import autocode_check_replay as check_replay
+    from . import autocode_completion as completion_gate
+    from . import autocode_design_coverage as design_coverage
+    from . import autocode_efficiency as efficiency
+    from . import autocode_escalation as escalation
+    from . import autocode_failure_classification as failure_classification
+    from . import autocode_failures as failures
+    from . import autocode_findings as findings_ledger
+    from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_goals as goals
+    from . import autocode_jobs as jobs
+    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_milestones as milestones
+    from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_planning_clarification as clarification
-    from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
-    from .units import autoplanner as planning_unit, common as units_common
-    from . import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
-    from . import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
-    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_planning_graph as planning_graph
+    from . import autocode_progressive_state as progressive_state
+    from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_regression as regression
+    from . import autocode_resolver_human as human
+    from . import autocode_resolver_recovery as resolver_recovery
+    from . import autocode_result_application as result_application
+    from . import autocode_retained_work as retained_work
+    from . import autocode_rework_policy as rework_policy
+    from . import autocode_risk_obligations as risk_obligations
+    from . import autocode_route_ladder as route_ladder
+    from . import autocode_status
+    from . import autocode_stuck_job as stuck
+    from . import autocode_support as support
+    from . import autocode_validation_rounds as validation_rounds
     from . import autocode_verification_plan as verification_plan
+    from . import autocode_verify as verify
+    from . import autocode_visual_runtime as visual_runtime
+    from . import autocode_workflow as workflow
+    from .units import autoplanner as planning_unit
+    from .units import common as units_common
 except ImportError:
-    import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
-    import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
-    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
-    import autocode_verification_plan as verification_plan
-    import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
-    import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
-    import autocode_failure_classification as failure_classification, autocode_builder_failure as builder_failure
-    import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
-    import autocode_workflow as workflow
-    import autocode_milestones as milestones
-    import autocode_escalation as escalation
-    import autocode_findings as findings_ledger
+    import autocode_assignment as assignment
+    import autocode_brief_obligations as brief_obligations
+    import autocode_builder_failure as builder_failure
     import autocode_builder_policy as builder_policy
-    import autocode_route_ladder as route_ladder
-    import autocode_resolver_human as human
-    import autocode_failures as failures, autocode_assignment as assignment, autocode_status
-    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
+    import autocode_check_refs as check_refs
+    import autocode_check_replay as check_replay
+    import autocode_completion as completion_gate
+    import autocode_design_coverage as design_coverage
+    import autocode_efficiency as efficiency
+    import autocode_escalation as escalation
+    import autocode_failure_classification as failure_classification
+    import autocode_failures as failures
+    import autocode_findings as findings_ledger
+    import autocode_goal_lifecycle as lifecycle
+    import autocode_goals as goals
+    import autocode_jobs as jobs
+    import autocode_launch_inputs as launch_inputs
+    import autocode_milestones as milestones
+    import autocode_planning_artifacts as planning_artifacts
     import autocode_planning_clarification as clarification
-    import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
-    from units import autoplanner as planning_unit, common as units_common
+    import autocode_planning_graph as planning_graph
+    import autocode_progressive_state as progressive_state
+    import autocode_provider_recovery as provider_recovery
+    import autocode_regression as regression
+    import autocode_resolver_human as human
+    import autocode_resolver_recovery as resolver_recovery
+    import autocode_result_application as result_application
+    import autocode_retained_work as retained_work
+    import autocode_rework_policy as rework_policy
+    import autocode_risk_obligations as risk_obligations
+    import autocode_route_ladder as route_ladder
+    import autocode_status
+    import autocode_stuck_job as stuck
+    import autocode_support as support
+    import autocode_validation_rounds as validation_rounds
+    import autocode_verification_plan as verification_plan
+    import autocode_verify as verify
+    import autocode_visual_runtime as visual_runtime
+    import autocode_workflow as workflow
+    from units import autoplanner as planning_unit
+    from units import common as units_common
 
 SKIP = object()
 
@@ -98,9 +144,9 @@ def unit_for(stage):
 
 def unit_module(stage):
     try:
-        from .units import autoplanner, autocode, autoreview, autoresolver
+        from .units import autocode, autoplanner, autoresolver, autoreview
     except ImportError:
-        from units import autoplanner, autocode, autoreview, autoresolver
+        from units import autocode, autoplanner, autoresolver, autoreview
     return dict(zip(UNITS, (autoplanner, autocode, autoreview, autoresolver)))[unit_for(stage)]
 
 

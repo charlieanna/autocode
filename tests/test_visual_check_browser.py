@@ -8,7 +8,11 @@ import sys
 import unittest
 
 from tests.visual_check_fixtures import (
-    BROWSER_CAPTURE_SOURCE, BROWSER_HTML, Image, VisualProject, sha256,
+    BROWSER_CAPTURE_SOURCE,
+    BROWSER_HTML,
+    Image,
+    VisualProject,
+    sha256,
 )
 
 

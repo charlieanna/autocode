@@ -6,8 +6,8 @@ never constitutes approval or current visual acceptance.
 import hashlib
 import json
 import os
-from pathlib import Path
 import stat
+from pathlib import Path
 
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}

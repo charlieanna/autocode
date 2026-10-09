@@ -1,11 +1,12 @@
 """Multiple tasks queue independently; checkpoints remain tied to their worktree."""
 import hashlib
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from agent_console import Console

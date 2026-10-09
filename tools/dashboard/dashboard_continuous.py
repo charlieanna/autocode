@@ -1,15 +1,14 @@
 """Continuous requirements and structured drafts; legacy intake stays compatible."""
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from copy import deepcopy
-import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import threading
 import uuid
 import weakref
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from pathlib import Path
+
 try:
     from .. import autocode_conversation as conversation_protocol
     from ..autocode_role_names import role_label
@@ -19,20 +18,21 @@ except ImportError:
 
 
 try:
-    from .conversation_recovery import RecoveryMixin
-    from .conversation_draft_refresh import DraftRefreshMixin
-    from .conversation_draft_coalescing import DraftCoalescingMixin
     from . import conversation_draft_cadence as draft_cadence
-    from . import dashboard_conversations as legacy, planner_dispatch
-    from .conversation_transport import ConversationProviderError, opencode_provider, _prompt
+    from . import dashboard_conversations as legacy
+    from . import planner_dispatch
+    from .conversation_draft_coalescing import DraftCoalescingMixin
+    from .conversation_draft_refresh import DraftRefreshMixin
+    from .conversation_recovery import RecoveryMixin
+    from .conversation_transport import ConversationProviderError, _prompt, opencode_provider
 except ImportError:
-    from conversation_recovery import RecoveryMixin
-    from conversation_draft_refresh import DraftRefreshMixin
-    from conversation_draft_coalescing import DraftCoalescingMixin
     import conversation_draft_cadence as draft_cadence
     import dashboard_conversations as legacy
     import planner_dispatch
-    from conversation_transport import ConversationProviderError, opencode_provider, _prompt
+    from conversation_draft_coalescing import DraftCoalescingMixin
+    from conversation_draft_refresh import DraftRefreshMixin
+    from conversation_recovery import RecoveryMixin
+    from conversation_transport import ConversationProviderError, _prompt, opencode_provider
 
 _now, _request_id, _text = legacy._now, legacy._request_id, legacy._text
 _ID, _MODEL = legacy._ID, legacy._MODEL
@@ -152,9 +152,11 @@ MAX_PROJECT_INSTRUCTIONS_CHARS = 12_000
 
 
 try:
-    from .dashboard_project_scope import creation_scope as _creation_project_scope, scope_problem, ScopeConfirmationMixin
+    from .dashboard_project_scope import ScopeConfirmationMixin, scope_problem
+    from .dashboard_project_scope import creation_scope as _creation_project_scope
 except ImportError:
-    from dashboard_project_scope import creation_scope as _creation_project_scope, scope_problem, ScopeConfirmationMixin
+    from dashboard_project_scope import ScopeConfirmationMixin, scope_problem
+    from dashboard_project_scope import creation_scope as _creation_project_scope
 
 
 def _project_scope_context(doc):

@@ -3,7 +3,9 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
 from tenants import Service
+
 
 class TenantContract(unittest.TestCase):
     def setUp(self):

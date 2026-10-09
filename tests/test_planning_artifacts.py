@@ -1,22 +1,22 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_planning as planning
-import autopilot
 import autocode_planning_artifacts as artifacts
 import autocode_planning_graph as planning_graph
 import autocode_support as support
+import autopilot
 from goal_fixtures import body
 
 

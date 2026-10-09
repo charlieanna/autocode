@@ -20,10 +20,10 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 import autocode  # noqa: E402
-import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
 import scenario_references as references  # noqa: E402
 import task_scenarios as scenarios  # noqa: E402
+
 from tests import test_planning, test_subprocess  # noqa: E402
 
 # The job recognizer runs first (autocode_workflows); this fixture recognizes a build request.
@@ -155,9 +155,10 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertFalse(resolver._validate_body(body(task_kind="rewrite")))
 
     def test_the_proof_uses_the_project_virtualenv_when_the_task_worktree_has_none(self):
+        from unittest import mock
+
         import autocode_regression as regression
         import autocode_verify as verify
-        from unittest import mock
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         project, task = Path(temp.name) / "project", Path(temp.name) / "task"

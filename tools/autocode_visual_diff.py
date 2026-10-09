@@ -11,10 +11,9 @@ from __future__ import annotations
 import hashlib
 import io
 import math
-from pathlib import Path
 import struct
 import zlib
-
+from pathlib import Path
 
 MAX_PIXELS = 16_000_000
 MAX_PNG_BYTES = 128 * 1024 * 1024

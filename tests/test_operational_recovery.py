@@ -2,13 +2,14 @@
 import copy
 import json
 import os
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_autocode as base
 from goal_fixtures import approve_fixture
+
+from . import test_autocode as base
 
 runner, s = base.runner, base.s
 resolver, planning = runner.resolver_runtime, runner.planning

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_brief_obligations as brief
@@ -13,9 +13,8 @@ import autocode_conversation as conversation
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autopilot
-from units import autoplanner
 from goal_fixtures import body
-
+from units import autoplanner
 
 TASK = ('Commands: `todo.py add TEXT` appends a to-do and exits 0; '
         '`todo.py list` prints every to-do as `ID TEXT [open|done]` one per line and exits 0; '

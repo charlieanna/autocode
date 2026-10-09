@@ -1,7 +1,9 @@
 import sqlite3
+
 # Store caller integers as hexadecimal text; do arithmetic with Python ints.
 import uuid
 from contextlib import contextmanager
+
 
 class Store:
     def __init__(self,path):

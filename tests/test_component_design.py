@@ -12,6 +12,7 @@ from pathlib import Path
 
 import autocode_multicomponent as mc
 import autocode_taskrun as taskrun
+
 from . import test_multicomponent as fixture
 
 URL = "https://www.figma.com/design/Alpha123/Alpha?node-id=1-2"

@@ -1,5 +1,4 @@
 """Issue #288: stop advice never names --grant-recovery unless the CLI will accept it."""
-import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -259,6 +258,7 @@ class BoundChangeSupersede(unittest.TestCase):
         # Raising the exhausted bound is recovery (#301); a flag for another bound is only a
         # settings write and never releases the pause (#379, #486).
         from types import SimpleNamespace
+
         import autocode_run_actions as run_actions
 
         def requested(flags, state):
@@ -282,7 +282,6 @@ class BoundChangeSupersede(unittest.TestCase):
         # An operational-exhaustion request after burn-out may name a different
         # origin.pause_status than the bound the operator is raising (#301).
         relevant = {'PAUSED_TIMEOUT_RECOVERY': ()}  # status map alone would miss it
-        budget_kind = 'max_seconds'
         bound_flags = ('max_seconds',)
         paused_for = 'PAUSED_TIMEOUT_RECOVERY'
         explicit = {'max_seconds'}

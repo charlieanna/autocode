@@ -2,10 +2,12 @@ import hashlib
 import json
 import os
 import sqlite3
+
 # Store caller integers as hexadecimal text; do arithmetic with Python ints.
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
+
 
 def _decimal(value):
     # Nine-digit chunks avoid Python's process-global decimal conversion limit.

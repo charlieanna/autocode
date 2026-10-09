@@ -1,9 +1,9 @@
 """Upgrade approved, idle three-role OpenCode runs without repeating planning."""
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

@@ -2,24 +2,24 @@
 import copy
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_goals
 import autocode as runner
 import autocode_artifacts as artifacts
-import autocode_stage_context as stage_context
 import autocode_dispatch as d
-import autocode_goals as g
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as g
 import autocode_milestones as m
+import autocode_stage_context as stage_context
 import autocode_support as s
 from goal_fixtures import body, envelope
 
+from . import test_goals
 
 HELLO = 'GREETING = "Hello"\n'
 WELCOME = 'GREETING = "Welcome"\n'

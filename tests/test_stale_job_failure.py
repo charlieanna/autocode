@@ -9,8 +9,8 @@ import autocode_quota_route as quota_route
 import autocode_run_view as run_view
 import autocode_stage_recovery as stage_recovery
 import autocode_util as util
-from tests.test_verify import Project
 
+from tests.test_verify import Project
 
 FAILURE = {
     'stage': 'investigate_stuck', 'attempt_id': '001/stuck-investigation-03',

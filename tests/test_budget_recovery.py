@@ -5,7 +5,6 @@ import unittest
 
 from autocode_budget_recovery import HARD_CEILINGS, PLANNING_KIND, RUNNER_DEFAULTS, recover
 
-
 NOW = "2026-09-27T10:00:00+00:00"
 
 

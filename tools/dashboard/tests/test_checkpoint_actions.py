@@ -1,16 +1,17 @@
 """Real public checkpoint commands, with dashboard visibility boundaries."""
 import os
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[2]
 ROOT = TOOLS.parent
 sys.path[:0] = [str(ROOT), str(TOOLS), str(TOOLS / 'dashboard')]
-from tests import test_code_checkpoints as checkpoint_fixtures
-from agent_console import Console
 import autocode_registry as registry
+from agent_console import Console
+
+from tests import test_code_checkpoints as checkpoint_fixtures
 
 
 class CheckpointActions(unittest.TestCase):

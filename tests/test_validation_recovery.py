@@ -1,8 +1,8 @@
 """A read-only completion retry keeps exactly current independent evidence."""
 import copy
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_validation_recovery as recovery
 from autocode_util import file_hash

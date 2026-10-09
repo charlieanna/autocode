@@ -4,13 +4,12 @@ No private state mutation, policy mocks, or model spend. Set BUILD_AUDIT_ARTIFAC
 to retain every first failure, CLI response, source tree and provider handoff.
 """
 import json
-import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
 import unittest
+from pathlib import Path
 
 from tests import test_build_blackbox as build_fixture
 

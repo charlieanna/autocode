@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shlex
 import sys
+from pathlib import Path
 
 MARKER = '\nCURRENT HANDOFF DATA\n'
 

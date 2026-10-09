@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from outbox import Store
+
 
 class OutboxTests(unittest.TestCase):
     def test_orders_publish_and_restart(self):

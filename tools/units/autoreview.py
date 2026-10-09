@@ -1,24 +1,30 @@
 """Autoreview owns independent verification and evidence validation, the review
 workflow's Reviewer stage (autocode_review_job) and the design workflow's
 Architect stage (autocode_design_job)."""
-from pathlib import Path
-from dataclasses import replace
 from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
 
 try:
-    from .. import autocode_design_job as design_job, autocode_goals as goals, autocode_review_job as review_job
-    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_design_intake as design_intake, autocode_recovery_novelty as novelty
+    from .. import autocode_design_check_job as design_check_job
+    from .. import autocode_design_intake as design_intake
+    from .. import autocode_design_job as design_job
+    from .. import autocode_goals as goals
+    from .. import autocode_launch_inputs as launch_inputs
+    from .. import autocode_recovery_novelty as novelty
+    from .. import autocode_review_job as review_job
     from .. import autocode_verification_plan as verification_plan
+    from .. import autocode_verify as verify
 except ImportError:
-    import autocode_verify as verify
-    import autocode_launch_inputs as launch_inputs
-    import autocode_design_intake as design_intake
     import autocode_design_check_job as design_check_job
+    import autocode_design_intake as design_intake
     import autocode_design_job as design_job
     import autocode_goals as goals
-    import autocode_review_job as review_job
+    import autocode_launch_inputs as launch_inputs
     import autocode_recovery_novelty as novelty
+    import autocode_review_job as review_job
     import autocode_verification_plan as verification_plan
+    import autocode_verify as verify
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 
@@ -43,9 +49,11 @@ def architect_route(roles):
 def verification_commands(state):
     """The same approved command set shown to the Validator and independently replayed."""
     try:
-        from .. import autocode_progressive_state as progressive_state, autocode_verification_plan as plan
+        from .. import autocode_progressive_state as progressive_state
+        from .. import autocode_verification_plan as plan
     except ImportError:
-        import autocode_progressive_state as progressive_state, autocode_verification_plan as plan
+        import autocode_progressive_state as progressive_state
+        import autocode_verification_plan as plan
     return plan.approved_commands(state, progressive_context=progressive_state.context(state))
 
 

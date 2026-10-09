@@ -4,10 +4,10 @@ Pure rules. The behavior a person sees, a Plan Reviewer corrected or stopped thr
 is in test_cmd_only_report_cli.
 """
 import json
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import autocode_cmd_only_report as cmd_only

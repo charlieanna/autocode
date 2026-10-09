@@ -1,8 +1,9 @@
 """Capture a CLI invocation only after its owned process tree has stopped."""
-from contextlib import ExitStack
 import subprocess
 import tempfile
 import threading
+from contextlib import ExitStack
+
 import psutil
 
 try:

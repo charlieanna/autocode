@@ -31,7 +31,7 @@ import json
 import os
 import re
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -132,7 +132,7 @@ def _inside(path, base: Path) -> bool:
         return False
 
 
-def guard(env: dict | None = None) -> "PhaseGuard":
+def guard(env: dict | None = None) -> PhaseGuard:
     """The transport guard for the current phase environment, or an explicit one."""
     return PhaseGuard(env)
 
@@ -177,7 +177,7 @@ class PhaseGuard:
         return opener.open(url, timeout=timeout)
 
     def _refuse(self, method: str, url: str, reason: str) -> None:
-        entry = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"),
                  "phase": self.phase,
                  "traffic_identity": self.traffic_identity,
                  "method": method,
@@ -194,8 +194,8 @@ class PhaseGuard:
 class Phase:
     """One acceptance phase with declared roots and its own subprocess environment."""
 
-    def __init__(self, sequence: "PhaseSequence", name: str, *, traffic_identity: str | None = None,
-                 credential_root=None, share_credential_root_with: "Phase | None" = None,
+    def __init__(self, sequence: PhaseSequence, name: str, *, traffic_identity: str | None = None,
+                 credential_root=None, share_credential_root_with: Phase | None = None,
                  allowed_endpoints=(), root_vars=None):
         self.sequence = sequence
         self.name = name

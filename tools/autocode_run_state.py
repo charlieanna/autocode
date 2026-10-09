@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
 KEYS: frozenset[str] = frozenset({

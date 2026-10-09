@@ -1,7 +1,6 @@
 """Map exact, freshly inspected recovery cards to existing CLI controls."""
 from copy import deepcopy
 
-
 EXECUTION_ACTIONS = {'resume', 'abandon', 'retry_builder', 'retry_job', 'retry_report', 'retry_failed_stage'}
 
 

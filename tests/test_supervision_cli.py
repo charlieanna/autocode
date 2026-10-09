@@ -2,7 +2,6 @@
 import errno
 import json
 import os
-from pathlib import Path
 import pty
 import shutil
 import signal
@@ -13,10 +12,11 @@ import tempfile
 import time
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
-import autocode_supervision_cli as bridge
 import autocode_process as processes
+import autocode_supervision_cli as bridge
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 

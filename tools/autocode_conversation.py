@@ -15,18 +15,17 @@ validate unchanged.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-from copy import deepcopy
-from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
 import uuid
-
+from contextlib import contextmanager
+from copy import deepcopy
+from datetime import UTC, datetime
+from pathlib import Path
 
 HANDOFF_VERSION = 1
 HANDOFF_KIND = "autocode.requirements-conversation-handoff"
@@ -99,7 +98,7 @@ class ConversationProtocolError(ValueError):
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def canonical_json(value) -> str:

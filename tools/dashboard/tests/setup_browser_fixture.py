@@ -1,11 +1,15 @@
 """Real HTTP/project setup with offline diagnostics; never installs or signs in."""
-import json, os, sys
+import json
+import os
+import sys
 from pathlib import Path
+
 SOURCE=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(SOURCE/'tools/dashboard'),str(SOURCE/'tools')]
-from agent_console import Console,Handler,LoopbackHTTPServer
-from dashboard_setup import git
+from agent_console import Console, Handler, LoopbackHTTPServer
 from autocode_planner_routes import MANDATED_ROUTES
+from dashboard_setup import git
+
 root=Path(os.environ['AUTOCODE_FIXTURE_ROOT']).resolve();root.mkdir(parents=True,exist_ok=True)
 os.environ['AUTOCODE_HOME']=str(root/'registry')
 report=root/'doctor.json'
