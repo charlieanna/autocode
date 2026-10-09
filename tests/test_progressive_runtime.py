@@ -20,7 +20,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name)
+        root = Path(temporary.name).resolve()
         self.workspace = root / "workspace"
         self.workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from tests.source_inventory import python_sources
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
@@ -13,12 +14,9 @@ import autocode_stop_explanations as stop_explanations
 import autocode_run_view as run_view
 
 
-def named_pause_states(source_root: Path = TOOLS) -> set[str]:
-    """Pause states named in runtime modules, excluding legacy test fixtures."""
+def named_pause_states(root: Path = TOOLS) -> set[str]:
     named = set()
-    for path in source_root.glob("*.py"):
-        if path.name.startswith("test_"):
-            continue
+    for path in python_sources(root):
         text = path.read_text()
         named.update(re.findall(r"PAUSED_[A-Z_]+", text))
         named.update(re.findall(r"WAITING_FOR_USER|AWAITING_GOAL_APPROVAL|BLOCKED_HUMAN|RESOLVER_PENDING", text))
@@ -39,8 +37,20 @@ class StopExplanationTests(unittest.TestCase):
 
     def test_every_pause_state_named_in_tools_has_an_explanation(self):
         # The issue's bar: a state without an explanation fails this test.
-        missing = sorted(named_pause_states() - set(stop_explanations.TABLE))
+        named = named_pause_states()
+        missing = sorted(named - set(stop_explanations.TABLE))
         self.assertEqual([], missing, f"pause states without an explanation: {missing}")
+
+    def test_nested_runtime_pause_is_required_but_fixture_pauses_are_excluded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "units").mkdir()
+            (root / "units" / "planner.py").write_text(
+                '"PAUSED_SENTINEL" "WAITING_FOR_USER" "PAUSED_TIME_LIMIT" "PAUSED_PREFIX_"')
+            (root / "test_fixture.py").write_text('"PAUSED_FIXTURE_ONLY"')
+            named = named_pause_states(root)
+            self.assertEqual({"PAUSED_SENTINEL", "WAITING_FOR_USER", "PAUSED_TIME_LIMIT"}, named)
+            self.assertEqual({"PAUSED_SENTINEL"}, named - set(stop_explanations.TABLE))
 
     def test_test_only_pause_states_are_excluded_from_runtime_scan(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,6 +91,12 @@ class StopExplanationTests(unittest.TestCase):
         self.assertIn("PAUSED_NOT_A_REAL_STATE", text["what_happened"])
         self.assertTrue(text["what_it_means"])
         self.assertTrue(text["what_the_command_does"])
+
+    def test_missing_planning_route_explains_the_saved_route_refusal(self):
+        text = stop_explanations.explain("PAUSED_PLANNING_ROUTE")
+        self.assertIn("no saved route", text["what_it_means"])
+        self.assertIn("re-checks the saved routes", text["what_the_command_does"])
+        self.assertIn("--joint-planning --planning-v2", text["what_the_command_does"])
 
 
 if __name__ == "__main__":

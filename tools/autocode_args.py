@@ -38,8 +38,8 @@ NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manife
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
 # migrates and saves the run. --follow-up has its own rule (autocode_run_finder).
 READ_ACTIONS = ("--status", "--explain", "--dry-run")
-# `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
-COMMAND_WORDS = ("resume", "status")
+# Command words are never a one-word task; after `--` they remain task text.
+COMMAND_WORDS = ("resume", "status", "explain")
 COMMAND_MARK = "\0command-word"
 
 
@@ -274,12 +274,12 @@ def user_actions(args) -> dict[str, bool]:
 def parse(unit, argv, default_models):
     """Parse argv (sys.argv[1:]) and return (args, parser); an invalid combination exits via parser.error."""
     argv = list(argv)
-    # `autocode resume` continues a saved run and never starts one; `autocode status` is --status.
+    # `resume` continues a saved run; the read commands become their corresponding flags.
     resume_only = argv[:1] == ["resume"]
     if resume_only:
         argv = argv[1:]
-    elif argv[:1] == ["status"]:
-        argv = ["--status", *argv[1:]]
+    elif argv and argv[0] in COMMAND_WORDS:
+        argv = [f"--{argv[0]}", *argv[1:]]
     parser = build_parser(unit, default_models)
     args = parser.parse_args(argv)
     # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
@@ -287,7 +287,7 @@ def parse(unit, argv, default_models):
     at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None
     if at is not None:
         resume_only = resume_only or args.task == "resume"
-        argv = argv[:at] + (["--status"] if args.task == "status" else []) + argv[at + 1:]
+        argv = argv[:at] + ([] if args.task == "resume" else [f"--{args.task}"]) + argv[at + 1:]
         args = parser.parse_args(argv)
     explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}
@@ -341,8 +341,8 @@ def parse(unit, argv, default_models):
         if any((args.retry_failed_stage, args.diagnose_failed_stage, args.grant_recovery is not None,
                 args.retry_builder, args.retry_report, args.abandon_stage)):
             parser.error("--accept-source-edit is the response to a source-only stale repair; resume with it alone")
-    if args.allow_uncontained_tools and (args.status or args.dry_run):
-        parser.error("--allow-uncontained-tools is saved with the run; it cannot be combined with --status or --dry-run")
+    if args.allow_uncontained_tools and (args.status or args.explain or args.dry_run):
+        parser.error("--allow-uncontained-tools is saved with the run; it cannot be combined with --status, --explain or --dry-run")
     if args.retry_report:
         _requires_resume(parser, args, "--retry-report")
     # The token also binds a stopped job's model answer to the stop a person inspected (#463).
@@ -411,7 +411,7 @@ def parse(unit, argv, default_models):
     if args.reconcile_review and not args.review_token:
         parser.error("--reconcile-review requires --review-token")
     if not args.run_dir and any(present for flag, present in actions.items()
-                               if flag not in ("--status", "--explain", "--dry-run")):
+                               if flag not in READ_ACTIONS):
         parser.error("User actions require an existing --run-dir")
     if notice:
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
@@ -495,6 +495,8 @@ def _find_run(parser, args, explicit, resume_only, flags):
     unit (typed, or the entry point's) themselves.
     """
     new_run = [f"--{name.replace('_', '-')}" for name in NEW_RUN_INPUTS if getattr(args, name)]
+    if args.explain and (args.run_dir is not None or args.task is None) and (args.task is not None or new_run):
+        parser.error("--explain reads a saved run; do not provide a new task or new-run options")
     if resume_only and args.task is not None:
         parser.error('autocode resume continues a saved run; start a new task with autocode "TASK"')
     if resume_only and new_run:

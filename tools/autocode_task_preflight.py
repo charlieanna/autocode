@@ -260,6 +260,7 @@ def guard(state, workspace, run_dir, *, worker=None, persist=lambda _path, _stat
                                 result_text = output.read_text(errors='replace')
                             else:
                                 result = verify.run_command(command, root, output, timeout=timeout or 120)
+                                output = Path(result['output'])
                                 result_text = output.read_text(errors='replace')
                         receipts.append({"id": check["id"], "context": context, **result})
                         if pause_requested():
