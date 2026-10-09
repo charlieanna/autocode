@@ -494,6 +494,10 @@ class ValidatorNoteTests(unittest.TestCase):
         # Scratch stays inside the workspace under .autocode/: a live run (2026-10-01) lost three
         # validator attempts to OpenCode's external_directory denial over /tmp scratch paths.
         self.assertIn("Never use /tmp", check_replay.VALIDATOR_NOTE)
+        self.assertIn("INSIDE the command passed after capture's --", validator.prompt)
+        self.assertIn('Do not create it with a preceding heredoc', validator.prompt)
+        self.assertIn('original dependency lockfiles, supplied environments or setup inputs', validator.prompt)
+        self.assertIn('does not itself impose an OS sandbox', validator.prompt)
         self.assertEqual((len(validator.prompt.encode()) + 3) // 4, validator.metrics["estimated_prompt_tokens"])
         builder = common.execution_request(state, "terra", state_path, schemas)
         self.assertNotIn(check_replay.VALIDATOR_NOTE, builder.prompt)

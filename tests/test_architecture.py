@@ -1,7 +1,9 @@
 """Guard import cycles and shared-helper dependency isolation. See AGENTS.md."""
 import ast
+import tempfile
 import unittest
 from pathlib import Path
+from tests.source_inventory import python_sources
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 
@@ -26,15 +28,14 @@ TANGLED = frozenset({
 # boundary effects) moved to autocode_stop, shrinking autocode.py further.
 # 2026-10-04: the regression proof's prompt notes moved to autocode_regression, which owns the proof.
 # 2026-10-06: the closed-terminal output wrappers moved to autocode_detached_output (#454).
-MAX_LINES = {"autocode.py": 1462, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
+# 2026-10-09: joint transport checks moved to autocode_joint_transport (#799).
+MAX_LINES = {"autocode.py": 1434, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
 
 
 def source_modules() -> dict[str, Path]:
     modules = {}
-    for path in TOOLS.rglob("*.py"):
+    for path in python_sources(TOOLS):
         relative = path.relative_to(TOOLS)
-        if path.name.startswith("test_") or "tests" in relative.parts or "__pycache__" in relative.parts:
-            continue
         modules[".".join(relative.with_suffix("").parts)] = path
     return modules
 
@@ -90,6 +91,18 @@ def modules_in_cycles(graph: dict[str, set[str]]) -> set[str]:
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_source_inventory_includes_nested_runtime_and_excludes_fixtures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = ("controller.py", "units/planner.py", "contest.py", "test_fixture.py",
+                     "units/test_fixture.py", "units/tests/fixture.py", "__pycache__/cached.py")
+            for name in paths:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("")
+            self.assertEqual({"controller.py", "units/planner.py", "contest.py"},
+                             {str(path.relative_to(root)) for path in python_sources(root)})
+
     def test_no_module_joins_an_import_cycle(self):
         tangled = modules_in_cycles(import_graph())
         self.assertFalse(tangled - TANGLED, "these modules now import, directly or indirectly, a module that imports "

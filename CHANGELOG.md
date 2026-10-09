@@ -11,6 +11,19 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- V2 contract-writing stages and report repairs receive the progressive-plan
+  rules required by their output schema, including the empty form for small
+  tasks and disjoint planned and outstanding criteria (#801).
+- Source gates exclude test fixtures and cover nested application modules;
+  missing v2 planning routes have a specific pause explanation (#799).
+- Bug investigations receive the configured Python test interpreter, including
+  external virtualenvs, for scratch checks and clean replay (#778).
+- Codex and configured-provider judging captures run in a source-bound copy
+  inside the owning run, keeping generated test output out of the project;
+  original-source and clean-replay checks still apply. Qwen launches also
+  discard inherited verification authority from another stage (#782).
+- Literal absolute Go commands collect native test results before proving a
+  reproduction. Empty and skipped-only test probes no longer qualify (#783).
 - Operational pauses retain their recovery authority through queued feedback
   and pause requests; unrelated budget flags and historical job-failure
   records cannot authorize an unscoped retry (#661).

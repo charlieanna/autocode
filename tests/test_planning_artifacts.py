@@ -75,6 +75,59 @@ class PlanningArtifactTests(unittest.TestCase):
                                                    "change": "Added persistence coverage",
                                                    "acceptance_test": "Focused suite passes"}]})
 
+    def test_v2_requests_explain_progressive_fields_only_for_contract_writers(self):
+        self.initialize_plan()
+        self.review()
+        self.revise()
+        self.state["requirements_handoff"] = {"report": {"requirements": [
+            {"id": "R1", "text": "Keep the greeting", "source_quote": "greeting"}]}}
+        self.assertEqual([{"requirement_id": "R1", "requirement": "Keep the greeting",
+                           "source_quote": "greeting"}],
+                         planning.trace_rows(self.state, "astra_discovery"))
+        writers = {"plan", "plan_revise", "plan_finalize"}
+        for stage in ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize"):
+            with self.subTest(stage=stage):
+                request = planning.prepare(copy.deepcopy(self.state), stage,
+                                           self.run / "state.json", self.run / "schemas")
+                instructions = request.prompt.split("\nCURRENT HANDOFF DATA\n", 1)[0]
+                fields = request.schema["properties"]
+                self.assertFalse(request.allow_write)
+                self.assertNotIn("requirement_trace", fields)
+                self.assertEqual([], planning.trace_rows(self.state, stage))
+                if stage in writers:
+                    self.assertIn("contract", fields)
+                    self.assertIn("progressive_proposal", fields)
+                    self.assertIn("its empty form (version 0", instructions)
+                    self.assertIn("method must contain an explicit supported command", instructions)
+                    self.assertIn("must not also appear in outstanding_criteria", instructions)
+                else:
+                    self.assertNotIn("progressive_proposal", fields)
+                    self.assertNotIn("PROGRESSIVE PLANNING (optional)", instructions)
+
+    def test_repairs_use_only_rules_supported_by_the_saved_contract_schema(self):
+        writers = ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize")
+        field_sets = ((), ("contract",), ("progressive_proposal",),
+                      ("contract", "progressive_proposal"), ("contract", "responses"),
+                      ("contract", "progressive_proposal", "responses"))
+        for stage in (*writers, "requirements", "requirements_gather", "plan_review"):
+            for names in field_sets:
+                with self.subTest(stage=stage, fields=names):
+                    schema = {"properties": {name: {} for name in names}}
+                    original = copy.deepcopy(schema)
+                    rules = planning.repair_rules(stage, schema)
+                    if stage not in writers or "contract" not in names:
+                        self.assertEqual("", rules)
+                    else:
+                        self.assertIn(planning.REVISION_CONFLICT_RULE, rules)
+                        self.assertEqual("progressive_proposal" in names,
+                                         "its empty form (version 0" in rules)
+                        self.assertEqual("progressive_proposal" in names,
+                                         "must not also appear in outstanding_criteria" in rules)
+                        self.assertEqual("responses" in names,
+                                         planning.RESPONSE_EVIDENCE_RULE in rules)
+                        self.assertNotIn("REQUIREMENT TRACE:", rules)
+                    self.assertEqual(original, schema)
+
     def test_all_v2_handoffs_have_stable_hashed_artifact_and_delta_files(self):
         self.initialize_plan()
         self.review()
