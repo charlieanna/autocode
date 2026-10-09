@@ -11,6 +11,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- V2 contract-writing stages and report repairs receive the progressive-plan
+  rules required by their output schema, including the empty form for small
+  tasks and disjoint planned and outstanding criteria (#801).
 - Source gates exclude test fixtures and cover nested application modules;
   missing v2 planning routes have a specific pause explanation (#799).
 - Operational pauses retain their recovery authority through queued feedback
