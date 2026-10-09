@@ -6,14 +6,13 @@ or edit AutoCode's private state or historical campaign artifacts.
 """
 from __future__ import annotations
 
-import hashlib
 import copy
+import hashlib
 import json
 import shlex
 import subprocess
 import sys
 from pathlib import Path
-
 
 ATTACKS = frozenset({
     "evidence_failing_exit", "evidence_cross_stage", "evidence_wrong_command",

@@ -14,8 +14,8 @@ import autocode_jobs as jobs
 import autocode_run_view as run_view
 import autocode_workflows as workflows
 import autopilot
-from units import autoresolver
 from autocode_taskrun import TaskRun, TaskRunError
+from units import autoresolver
 
 
 def state_for(workspace="/nowhere", task="Occasionally we renew the same domain twice after a timeout. Fix it."):

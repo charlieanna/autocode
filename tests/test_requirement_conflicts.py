@@ -1,9 +1,10 @@
 """Saved clarifications resolve conflicts without discarding valid requirements."""
 import copy
-from pathlib import Path
 import unittest
+from pathlib import Path
 
-import autocode_goals as goals, autopilot
+import autocode_goals as goals
+import autopilot
 from goal_fixtures import body
 from units import autoplanner
 

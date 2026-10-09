@@ -113,8 +113,10 @@ if stage == 'collect_design':
 def native_bundle(root, file_key, implementation_path):
     """One synthetic native file, with every original page/node/resource retained."""
     import json
-    from tests.test_design_manifest import inventory_bundle
+
     from autocode_util import file_hash
+
+    from tests.test_design_manifest import inventory_bundle
     path, body = inventory_bundle(root)
     body['files'] = body['files'][:1]
     body['cases'] = body['cases'][:2]
@@ -143,7 +145,9 @@ def plugin_source_bundle(root):
     import json
     import shutil
     import subprocess
+
     from autocode_util import file_hash
+
     from tests.test_design_manifest import png
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)

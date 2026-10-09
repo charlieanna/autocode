@@ -26,7 +26,8 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
@@ -157,7 +158,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
     state["answer"] = {"answer": value["answer"], "evidence": value["evidence"], "questions": value["questions"],
                        "note_path": note, "output": record.get("output"), "probes": shown}
     state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                 completed_at=dt.datetime.now(dt.timezone.utc).isoformat())
+                 completed_at=dt.datetime.now(dt.UTC).isoformat())
 
 
 def owns(state: dict) -> bool:

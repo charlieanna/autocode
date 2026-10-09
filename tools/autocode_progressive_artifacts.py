@@ -12,10 +12,10 @@ import contextlib
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import secrets
 import stat
+from pathlib import Path
 
 try:
     from . import autocode_util as util

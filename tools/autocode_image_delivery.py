@@ -9,11 +9,11 @@ Successful live-provider conformance is still required for that provider route.
 """
 from __future__ import annotations
 
-from collections import Counter
 import hashlib
 import json
-from pathlib import Path
 import re
+from collections import Counter
+from pathlib import Path
 
 try:
     from . import autocode_util as util

@@ -1,9 +1,9 @@
 """Initial provider inspection and persistence cannot disable its deadlines."""
-from pathlib import Path
 import shutil
 import signal
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import autocode_process as processes

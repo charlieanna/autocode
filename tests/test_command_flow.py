@@ -2,16 +2,19 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 from unittest import mock
 
-import autocode as runner, autocode_providers, autocode_run_view as run_view, autocode_workspaces
+import autocode as runner
+import autocode_providers
+import autocode_run_view as run_view
+import autocode_workspaces
 
 
 class ConfigToolFlow(unittest.TestCase):

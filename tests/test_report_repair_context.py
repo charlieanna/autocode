@@ -1,12 +1,13 @@
 """The report repair handoff retains human clarification provenance."""
-import unittest
 import copy
 import json
+import unittest
 
-import autocode_report_repair_context as context
 import autocode_goal_lifecycle as lifecycle
-from . import test_report_repair as repair_fixtures
+import autocode_report_repair_context as context
 from goal_fixtures import approve_fixture
+
+from . import test_report_repair as repair_fixtures
 
 
 class ClarificationContextTests(unittest.TestCase):
@@ -64,9 +65,9 @@ class ClarificationContextTests(unittest.TestCase):
         self.assertNotIn("Add evidence_refs", text)
 
     def test_finalizer_repair_explains_the_observed_root_initial_task_error(self):
+        from autocode_util import validate_schema
         from goal_fixtures import body
         from units import autoplanner
-        from autocode_util import validate_schema
 
         initial_task = {"objective": "Fix blank names", "affected_paths": ["greet.py"],
                         "kind": "implement", "milestone_id": "M1", "requirements": ["Reject blanks"],

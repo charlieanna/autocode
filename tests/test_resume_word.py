@@ -4,14 +4,15 @@ Offline: the goal tests' Git fixture, the real CLI entry in-process and a fake p
 the first stage admission. No model is called."""
 import contextlib
 import io
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner
 import autocode_goal_lifecycle as lifecycle
 import autocode_support as s
+
 from tests import test_goals
 
 

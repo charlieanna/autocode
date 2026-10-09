@@ -6,14 +6,13 @@ oracle, fake providers record launches instead of performing them, and a
 representative scenario runs with sockets disabled.
 """
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autopilot_testkit as kit
 import autocode_findings as findings
-import autocode_support as support
+import autopilot_testkit as kit
 
 
 def sol(*texts, dispositions=(), output="sol-01.json"):

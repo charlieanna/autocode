@@ -1,21 +1,21 @@
 """Explicit, scoped deletion of stopped dashboard tasks; never edits run state."""
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import fcntl
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import uuid
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 
 try:
-    from .dashboard_projects import ProjectStore
     from .dashboard_git_delete import delete_branch
+    from .dashboard_projects import ProjectStore
 except ImportError:
-    from dashboard_projects import ProjectStore
     from dashboard_git_delete import delete_branch
+    from dashboard_projects import ProjectStore
 
 
 def canonical(raw):
@@ -382,7 +382,7 @@ class PermanentDeleteMixin:
                     raise ValueError('Deletion incomplete; a selected path or branch still exists')
                 self._forget_deleted(preview)
                 preview.update(status='deleted', deleted=preview['scope'], remaining=[], errors=[],
-                               deleted_at=datetime.now(timezone.utc).isoformat())
+                               deleted_at=datetime.now(UTC).isoformat())
             except (ValueError, OSError, subprocess.TimeoutExpired) as error:
                 if not preview.get('execution_started'):
                     raise ValueError(str(error)) from error

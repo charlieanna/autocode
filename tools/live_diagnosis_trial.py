@@ -82,7 +82,6 @@ import json
 import math
 import os
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -93,10 +92,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import autocode_grader_process as grader_process  # noqa: E402
 import live_profiles as profiles  # noqa: E402
 import live_trial as base  # noqa: E402
 from autopilot_testkit import Bundle, source_revision  # noqa: E402
-import autocode_grader_process as grader_process  # noqa: E402
 
 TrialError = base.TrialError
 

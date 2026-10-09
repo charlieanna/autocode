@@ -8,10 +8,10 @@ greenfield-greeting-cli end to end with the scripted model, so this module is in
 the pure rules are in test_cmd_only_report.
 """
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_cmd_only_report as cmd_only
 
@@ -20,7 +20,7 @@ RAN = "cmd-only-final-ran"  # what the scripted command would leave in the proje
 
 class CommandOnlyFinalCLI(unittest.TestCase):
     def setUp(self):
-        from scenarios import run  # Establish the scenario harness import root.
+        from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
         from harness import catalog
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)

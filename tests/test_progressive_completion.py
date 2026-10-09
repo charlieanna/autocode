@@ -1,16 +1,16 @@
 """Pure completion reader tests with manually constructed writer checkpoints."""
-from copy import deepcopy
-from pathlib import Path
 import json
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 from tools import autocode_completion as completion
-from tools import autocode_progressive_completion as progressive
-from tools import autocode_progressive_artifacts as artifacts
-from tools import autocode_progressive_plan as plan
 from tools import autocode_contract_identity as contracts
+from tools import autocode_progressive_artifacts as artifacts
+from tools import autocode_progressive_completion as progressive
+from tools import autocode_progressive_plan as plan
 from tools import autocode_util as util
 from tools import autocode_verification_plan as verification_plan
 

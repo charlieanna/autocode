@@ -9,13 +9,14 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import re
 import shlex
 import stat
+from pathlib import Path
 
 try:
-    from . import autocode_command_receipt as receipts, autocode_process as processes
+    from . import autocode_command_receipt as receipts
+    from . import autocode_process as processes
     from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts

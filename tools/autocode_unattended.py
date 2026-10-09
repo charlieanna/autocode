@@ -27,11 +27,11 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 # Every flag that records an operator decision or recovers from a pause.
 OPERATOR_FLAGS = (

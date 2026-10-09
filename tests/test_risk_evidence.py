@@ -5,12 +5,12 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_risk_evidence as evidence
@@ -18,8 +18,9 @@ import autocode_risk_obligations as obligations
 import autocode_risk_protocols as protocols
 import autocode_util as util
 import autocode_verify as verify
-from tests.test_risk_obligations import CATALOG, SCENARIOS, RiskFixture
+
 from tests.test_risk_acceptance import OUTBOX
+from tests.test_risk_obligations import CATALOG, SCENARIOS, RiskFixture
 
 
 def candidate(workspace, module, variant='reference'):

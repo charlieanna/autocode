@@ -1,16 +1,16 @@
 """Dependency recovery through the real CLI, with only provider I/O replaced."""
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from autocode_taskrun import TaskRun, TaskRunError
 from autocode_dependencies import tick, transport
 from autocode_dependency import contained
+from autocode_taskrun import TaskRun, TaskRunError
+
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS, HERE
 
 

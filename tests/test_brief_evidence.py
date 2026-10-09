@@ -4,17 +4,18 @@ from __future__ import annotations
 import base64
 import copy
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_brief_evidence as evidence
-import autocode_check_replay as check_replay
 import autocode_brief_obligations as obligations
+import autocode_check_replay as check_replay
 import autocode_util as util
 import autocode_verify as verify
+
 from tests.test_brief_acceptance import PRODUCT, TASK
 from tests.test_command_receipt import guarded_command_receipt
 

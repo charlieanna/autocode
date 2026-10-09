@@ -229,6 +229,7 @@ class JobRouteTests(unittest.TestCase):
     def test_the_stuck_investigator_launches_on_its_prepared_route(self):
         import tempfile
         from pathlib import Path
+
         import autocode_stuck_job as stuck
         from units import autoresolver
         with tempfile.TemporaryDirectory() as workspace:

@@ -4,23 +4,20 @@ Real process/lock/intervention machinery on temporary workspaces; no search-
 and-kill of arbitrary processes.  FX05's action-service semantics map onto the
 runner's supported idempotent surface: intervention request ids.
 """
-import contextlib
 import copy
-import io
-import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_interventions as interventions
 import autocode_process as processes
 import autocode_support as support
+
 from . import test_catalogue_t01 as t01
 
 

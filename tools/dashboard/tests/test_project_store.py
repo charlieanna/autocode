@@ -1,14 +1,14 @@
 """Offline checks for reversible dashboard-only project removal."""
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

@@ -6,8 +6,8 @@ generated task. A rooted suite cannot prove changes outside that directory.
 """
 from __future__ import annotations
 
-import re
 import os
+import re
 import stat
 import subprocess
 from contextlib import ExitStack

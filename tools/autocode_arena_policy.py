@@ -50,7 +50,7 @@ def compare(cases: list[dict], baseline: list[dict], candidate: list[dict]) -> d
         if (a["execution_kind"] != b["execution_kind"] or a["options"] != b["options"]
                 or a.get("plan_approval") != b.get("plan_approval")):
             reasons.append(f"{case['id']}: execution configuration differs")
-        if "live" != a["execution_kind"] or "live" != b["execution_kind"]:
+        if a["execution_kind"] != "live" or b["execution_kind"] != "live":
             reasons.append(f"{case['id']}: fixture evidence cannot qualify a version")
         if a["version_sha256"] == b["version_sha256"]:
             reasons.append(f"{case['id']}: versions are identical")

@@ -5,20 +5,23 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import uuid
+from pathlib import Path
+
 try:
-    from . import autocode_figma as figma, autocode_support as support, autocode_workspaces as workspaces
+    from . import autocode_figma as figma
     from . import autocode_orchestrator as orchestrator
+    from . import autocode_support as support
+    from . import autocode_workspaces as workspaces
 except ImportError:
     import autocode_figma as figma
+    import autocode_orchestrator as orchestrator
     import autocode_support as support
     import autocode_workspaces as workspaces
-    import autocode_orchestrator as orchestrator
 
 DEFAULT_MODELS = {'astra': 'gpt-5.6-sol', 'terra': 'gpt-5.6-terra', 'sol': 'gpt-5.6-sol'}
 DEFAULT_PLANNER_MODEL = 'gpt-5.6-sol'

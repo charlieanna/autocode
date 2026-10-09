@@ -14,6 +14,8 @@ PR template asks for an entry here; a change without one is incomplete.
 - Refuse malformed legacy command receipts, including timed-out, interrupted,
   errored or uncollected entries, from contributing completion evidence (#813).
 
+- Verification copies prepare large source inventories using packed source
+  blobs while retaining Git staging rules, source checks and clean replay.
 - Preserve fresh-task `--explain` previews when combining CLI corrections, while
   keeping explicit saved-run inputs exclusive and explanation commands read-only.
 

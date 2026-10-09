@@ -4,19 +4,20 @@ import copy
 import io
 import json
 import os
-from pathlib import Path
 import sys
 import textwrap
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from . import test_goals
 import autocode as runner
 import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_support as support
 from goal_fixtures import envelope
+
+from . import test_goals
 
 
 class ActivityRuntimeTests(unittest.TestCase):

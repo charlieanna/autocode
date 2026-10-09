@@ -6,8 +6,6 @@ profile fields match, or when the profile is the variable under test. Keep the
 """
 from __future__ import annotations
 
-import copy
-
 # Effort keys are semantic roles, not stage ids: the driver maps stages to these
 # so a profile stays valid when internal stage names change.
 EFFORT_ROLES = ("requirements", "planner", "reviewer", "builder", "validator",

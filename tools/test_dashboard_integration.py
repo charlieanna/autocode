@@ -2,8 +2,9 @@
 import copy
 import unittest
 from unittest.mock import patch
-from . import test_report_repair as repair_fixtures
+
 from . import test_goals as goal_fixtures
+from . import test_report_repair as repair_fixtures
 
 runner = repair_fixtures.runner
 support = repair_fixtures.support

@@ -27,10 +27,11 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_roles as roles, autocode_provider_refusal as provider_refusal
+    from . import autocode_provider_refusal as provider_refusal
+    from . import autocode_roles as roles
 except ImportError:
-    import autocode_roles as roles
     import autocode_provider_refusal as provider_refusal
+    import autocode_roles as roles
 
 PREFIX = "route-"
 CATEGORY = "quota"  # a non-inferable question category (autocode_goals); both causes use it

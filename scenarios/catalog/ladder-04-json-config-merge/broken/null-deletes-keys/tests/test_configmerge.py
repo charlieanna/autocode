@@ -1,5 +1,7 @@
 import unittest
+
 from configmerge import merge
+
 
 class ConfigMergeTests(unittest.TestCase):
     def test_nested(self):

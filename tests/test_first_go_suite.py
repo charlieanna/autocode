@@ -5,8 +5,8 @@ from pathlib import Path
 
 import autocode_first_suite as first_suite
 import autocode_verify as verify
-from tests.test_verify import Project
 
+from tests.test_verify import Project
 
 CS = "namespace Demo { public class Policy {} }\n"
 GO_MOD = "module policy\n\ngo 1.21\n"

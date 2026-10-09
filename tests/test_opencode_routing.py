@@ -2,10 +2,10 @@
 import copy
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -14,8 +14,9 @@ import autocode_configure
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
-import autopilot
 import autocode_support as support
+import autopilot
+
 from . import test_planning as test_planning
 
 

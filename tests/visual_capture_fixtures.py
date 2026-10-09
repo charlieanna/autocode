@@ -1,9 +1,9 @@
 """Synthetic capture receipts for guard tests; never real image acceptance."""
-import json
-from pathlib import Path
 import struct
 import uuid
 import zlib
+from pathlib import Path
+
 import autocode_util as util
 
 

@@ -13,10 +13,17 @@ except ImportError:
 import copy
 from pathlib import Path
 from urllib.parse import urlsplit
+
 try:
-    from . import autocode_util as util, autocode_design_manifest as design, autocode_design_identity as design_identity, autocode_contract_identity as contract
+    from . import autocode_contract_identity as contract
+    from . import autocode_design_identity as design_identity
+    from . import autocode_design_manifest as design
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util, autocode_design_manifest as design, autocode_design_identity as design_identity, autocode_contract_identity as contract
+    import autocode_contract_identity as contract
+    import autocode_design_identity as design_identity
+    import autocode_design_manifest as design
+    import autocode_util as util
 
 
 def reference_hash(settings):

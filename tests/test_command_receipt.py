@@ -1,9 +1,9 @@
 """Pure command ownership evidence and safe-retry policy."""
 import copy
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_command_receipt as policy
 import autocode_util as util

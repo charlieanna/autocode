@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import argparse
-import json
 import hashlib
+import json
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
 try:
-    from . import autocode_design_manifest as design, autocode_preflight_contract as contract, autocode_util as util
+    from . import autocode_design_manifest as design
+    from . import autocode_preflight_contract as contract
+    from . import autocode_util as util
 except ImportError:
-    import autocode_design_manifest as design, autocode_preflight_contract as contract, autocode_util as util
+    import autocode_design_manifest as design
+    import autocode_preflight_contract as contract
+    import autocode_util as util
 
 
 def decoded(path, encoding):

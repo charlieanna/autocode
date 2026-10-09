@@ -8,27 +8,27 @@ Strict tool containment stays qualified only for the pinned 1.x release.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
-import os
-import copy
-from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 # os and shutil stay imported: the autocode_opencode compatibility shim star-exports
 # them, and existing tests patch oc.os / oc.shutil to fake the process environment.
 
 try:
+    from .. import autocode_output_cap as output_cap
+    from .. import autocode_tool_containment as tool_containment
     from . import env_prep
-    from .. import autocode_output_cap as output_cap, autocode_tool_containment as tool_containment
 except ImportError:  # Script-style execution from tools/ remains supported.
+    import autocode_output_cap as output_cap
+    import autocode_tool_containment as tool_containment
     from providers import env_prep
-    import autocode_output_cap as output_cap, autocode_tool_containment as tool_containment
 
 
 try:

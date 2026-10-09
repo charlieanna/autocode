@@ -2,6 +2,7 @@
 import datetime as dt
 import hashlib
 import json
+
 try:
     from . import autocode_resolver_human as human
     from . import autocode_roles as roles
@@ -39,7 +40,7 @@ def _model(active):
 def record(state, *, timestamp=None):
     if not all(key in state for key in ('task', 'workspace', 'status')):
         return None
-    timestamp = timestamp if timestamp is not None else dt.datetime.now(dt.timezone.utc).timestamp()
+    timestamp = timestamp if timestamp is not None else dt.datetime.now(dt.UTC).timestamp()
     check = state.get('active_runner_check') or {}
     active = state.get('active_stage') or check
     stage = active.get('stage') or state.get('next_stage') or ''
@@ -110,7 +111,7 @@ def record(state, *, timestamp=None):
         messages.pop()
     sequence = state.get('progress_sequence', 0) + 1
     entry = {'id': f'progress-{sequence}', 'role': 'assistant', 'speaker': role,
-             'created_at': dt.datetime.fromtimestamp(timestamp, dt.timezone.utc).isoformat(),
+             'created_at': dt.datetime.fromtimestamp(timestamp, dt.UTC).isoformat(),
              'text': text, 'kind': 'transition' if changed else 'heartbeat'}
     messages.append(entry)
     state['progress_messages'] = messages[-100:]
@@ -123,13 +124,15 @@ def persist(path, state):
     """Publish an update only after its checkpoint is durably saved."""
     import sys
     try:
-        from . import autocode_util as util, autocode_checkpoints as checkpoints, autocode_activity_log as activity_log
+        from . import autocode_activity_log as activity_log
+        from . import autocode_checkpoints as checkpoints
         from . import autocode_usage as token_usage
+        from . import autocode_util as util
     except ImportError:
-        import autocode_util as util
-        import autocode_checkpoints as checkpoints
         import autocode_activity_log as activity_log
+        import autocode_checkpoints as checkpoints
         import autocode_usage as token_usage
+        import autocode_util as util
     try:
         from . import autocode_code_checkpoints as code_checkpoints
     except ImportError:

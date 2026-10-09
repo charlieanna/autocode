@@ -1,5 +1,6 @@
 """Selected implementation models survive the existing conversation handoff."""
 import unittest
+
 from test_chat_bridge import ChatFixture
 
 

@@ -1,9 +1,11 @@
 import tempfile
 import threading
 import unittest
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
 from leasequeue import LeaseQueue
+
 
 class QueueContract(unittest.TestCase):
     def setUp(self):

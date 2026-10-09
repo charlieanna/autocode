@@ -1,15 +1,15 @@
 """Approved executable checks cannot be replaced; their scope must be possible."""
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_check_replay as check_replay
-import autocode_verification_plan as plan
 import autocode_goal_lifecycle as lifecycle
+import autocode_verification_plan as plan
 import autocode_verify as verify
 from goal_fixtures import body
 
@@ -266,17 +266,8 @@ class CommandsTests(unittest.TestCase):
                 self.assertEqual(expected, plan.commands(method))
 
     # Words that could state, qualify or redirect a status, or single out one command. HEAD left all of these bare.
-    NOT_PLAIN = (
-        "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
-        "seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred once twice "
-        "exit exits exited exiting return returns returned returning code codes status statuses succeed succeeds "
-        "succeeded success successful successfully pass passes passed passing fail fails failed failing failure "
-        "failures otherwise unless except but only first second third last initial former latter respectively "
-        "other non-zero nonzero or if when whenever instead else excluding exclude excludes aside save besides "
-        "exception alone just final preceding previous earlier provided given assuming until while depending "
-        "alternatively either possibly skip skips skipping").split()
-    PLAIN = "stdout stderr output outputs file files content contents message messages line lines usage error " \
-            "errors notes".split()
+    NOT_PLAIN = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "once", "twice", "exit", "exits", "exited", "exiting", "return", "returns", "returned", "returning", "code", "codes", "status", "statuses", "succeed", "succeeds", "succeeded", "success", "successful", "successfully", "pass", "passes", "passed", "passing", "fail", "fails", "failed", "failing", "failure", "failures", "otherwise", "unless", "except", "but", "only", "first", "second", "third", "last", "initial", "former", "latter", "respectively", "other", "non-zero", "nonzero", "or", "if", "when", "whenever", "instead", "else", "excluding", "exclude", "excludes", "aside", "save", "besides", "exception", "alone", "just", "final", "preceding", "previous", "earlier", "provided", "given", "assuming", "until", "while", "depending", "alternatively", "either", "possibly", "skip", "skips", "skipping"]
+    PLAIN = ["stdout", "stderr", "output", "outputs", "file", "files", "content", "contents", "message", "messages", "line", "lines", "usage", "error", "errors", "notes"]
 
     def test_a_clause_with_a_status_word_number_ordinal_or_condition_leaves_the_commands_bare(self):
         two = ["go test ./a", "go test ./b"]

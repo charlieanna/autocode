@@ -5,25 +5,24 @@ Unsupported prevention (kernel sandbox, multi-tenant hardening) is reported
 as an explicit limitation, never claimed as verified.
 """
 import copy
-import io
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
-from . import test_catalogue_t01 as t01
 from goal_fixtures import body, envelope
+
+from . import test_catalogue_t01 as t01
 
 
 class BoundaryCase(t01.ApprovalCase):

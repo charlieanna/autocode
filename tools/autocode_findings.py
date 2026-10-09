@@ -24,17 +24,17 @@ except ImportError:
 import copy
 
 try:
-    from . import autocode_util as s
-    from . import autocode_milestone_scope as milestone_scope
     from . import autocode_finding_scope as finding_scope
-    from . import autocode_review_gate as review_gate
+    from . import autocode_milestone_scope as milestone_scope
     from . import autocode_report_findings as report_findings
+    from . import autocode_review_gate as review_gate
+    from . import autocode_util as s
 except ImportError:
-    import autocode_util as s
-    import autocode_milestone_scope as milestone_scope
     import autocode_finding_scope as finding_scope
-    import autocode_review_gate as review_gate
+    import autocode_milestone_scope as milestone_scope
     import autocode_report_findings as report_findings
+    import autocode_review_gate as review_gate
+    import autocode_util as s
 
 SOURCES = ("sol", "astra")
 SEVERITIES = ("critical", "high", "medium", "low")

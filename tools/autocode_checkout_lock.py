@@ -20,8 +20,8 @@ import datetime as dt
 import fcntl
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 try:
     from . import autocode_process as processes
@@ -121,7 +121,7 @@ def exclusive(workspace, run_dir, *, busy=None):
             handle.seek(0)
             handle.truncate()
             handle.write(json.dumps({"run_dir": str(run_dir), "pid": os.getpid(),
-                                     "since": dt.datetime.now(dt.timezone.utc).isoformat()}))
+                                     "since": dt.datetime.now(dt.UTC).isoformat()}))
             handle.flush()
             _writer_handles[str(Path(workspace).resolve())] = handle
             yield

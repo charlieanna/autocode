@@ -13,8 +13,8 @@ import io
 import json
 import subprocess
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 from .test_program import ProgramHarness, git, manifest, program, with_requirements
 

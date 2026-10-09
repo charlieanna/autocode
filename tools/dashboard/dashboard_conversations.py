@@ -5,15 +5,10 @@ chat. The direct OpenCode provider uses a new deny-all agent for every turn.
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from copy import deepcopy
-from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import selectors
 import signal
@@ -24,6 +19,11 @@ import threading
 import time
 import uuid
 import weakref
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from copy import deepcopy
+from datetime import UTC, datetime
+from pathlib import Path
 
 try:
     from .. import autocode_resolver_human as resolver_human
@@ -59,7 +59,7 @@ class ConversationProviderError(RuntimeError):
 
 
 def _now():
-    return datetime.now(timezone.utc).isoformat(timespec='milliseconds')
+    return datetime.now(UTC).isoformat(timespec='milliseconds')
 
 
 def _request_id(value):

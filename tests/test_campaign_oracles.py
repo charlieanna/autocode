@@ -1,13 +1,12 @@
 """Offline qualification of T02/T03 oracles; no providers or git operations."""
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import live_scenarios as scenarios
-
 
 BUGFIX_REFERENCE = scenarios.BUGFIX_SOURCE.replace(
     '    print(f"Hello, {args[0]}!")',

@@ -28,10 +28,12 @@ import sys
 from pathlib import Path
 
 try:
-    from . import autocode_github as github, autocode_run_finder as run_finder
+    from . import autocode_github as github
+    from . import autocode_run_finder as run_finder
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
-    import autocode_github as github, autocode_run_finder as run_finder
+    import autocode_github as github
+    import autocode_run_finder as run_finder
     from autocode_taskrun import TaskRun, TaskRunError
 
 MAX_BODY = 20_000        # characters of the issue description put in the brief

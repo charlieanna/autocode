@@ -1,13 +1,13 @@
 """Literal Go commands retain native argv and cannot invent collection proof."""
 import json
-from pathlib import Path
 import shlex
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_go_tests as go_tests
-import autocode_verify as verify
 import autocode_verification_schedule as schedule
+import autocode_verify as verify
 
 
 class GoInvocationTests(unittest.TestCase):

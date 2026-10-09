@@ -1,7 +1,7 @@
 """Independent product acceptance, plus actual failed/fixed public-stage evidence."""
 import json
-from pathlib import Path
 import runpy
+from pathlib import Path
 
 from harness.oracle import Check
 

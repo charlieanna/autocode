@@ -19,57 +19,67 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_figma as figma, autocode_design_manifest as design_manifest
-    from . import autocode_containment_policy as containment_policy
-    from . import autocode_task_preflight as task_preflight, autocode_test_root as test_roots
     from . import autocode_checkout_lock as checkout_lock
-    from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
+    from . import autocode_containment_policy as containment_policy
+    from . import autocode_design_manifest as design_manifest
+    from . import autocode_figma as figma
     from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_goals as goals
     from . import autocode_interventions as interventions
+    from . import autocode_job_route as job_route
+    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_pause_authority as pause_authority
-    from . import model_catalogue
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_quota_route as quota_route
+    from . import autocode_recovery_view as recovery_view
     from . import autocode_registry as registry
-    from . import autocode_regression as regression, autocode_verify as verify
-    from . import autocode_launch_inputs as launch_inputs
-    from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
-    from . import autocode_worker_quota as worker_quota
-    from . import autocode_job_route as job_route
+    from . import autocode_regression as regression
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
     from . import autocode_stop as stop
-    from . import autocode_recovery_view as recovery_view
     from . import autocode_support as support
-    from . import autocode_workspaces as task_workspaces
+    from . import autocode_task_preflight as task_preflight
+    from . import autocode_test_root as test_roots
+    from . import autocode_verify as verify
+    from . import autocode_worker_quota as worker_quota
     from . import autocode_workflows as workflows
+    from . import autocode_workspaces as task_workspaces
+    from . import model_catalogue
 except ImportError:
-    import autocode_figma as figma, autocode_design_manifest as design_manifest
-    import autocode_containment_policy as containment_policy
-    import autocode_task_preflight as task_preflight, autocode_test_root as test_roots
     import autocode_checkout_lock as checkout_lock
-    import autocode_goals as goals, autocode_protected_oracles as protected_oracles
+    import autocode_containment_policy as containment_policy
+    import autocode_design_manifest as design_manifest
+    import autocode_figma as figma
     import autocode_goal_lifecycle as lifecycle
+    import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_job_route as job_route
+    import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_pause_authority as pause_authority
-    import model_catalogue
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_protected_oracles as protected_oracles
+    import autocode_quota_route as quota_route
+    import autocode_recovery_view as recovery_view
     import autocode_registry as registry
-    import autocode_regression as regression, autocode_verify as verify
-    import autocode_launch_inputs as launch_inputs
-    import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
-    import autocode_worker_quota as worker_quota
-    import autocode_job_route as job_route
+    import autocode_regression as regression
+    import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
     import autocode_stop as stop
-    import autocode_recovery_view as recovery_view
     import autocode_support as support
-    import autocode_workspaces as task_workspaces
+    import autocode_task_preflight as task_preflight
+    import autocode_test_root as test_roots
+    import autocode_verify as verify
+    import autocode_worker_quota as worker_quota
     import autocode_workflows as workflows
+    import autocode_workspaces as task_workspaces
+    import model_catalogue
 
 # Recovery actions that answer or act on the published operational request themselves; a settings change
 # that comes with one leaves that request for the action to check.

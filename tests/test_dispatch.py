@@ -3,22 +3,22 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_goals
-from . import test_subprocess
 import autocode as runner
 import autocode_dispatch as d
-import autocode_goals as g
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as g
 import autocode_milestones as m
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope
+
+from . import test_goals, test_subprocess
 
 
 class TaskForTests(unittest.TestCase):

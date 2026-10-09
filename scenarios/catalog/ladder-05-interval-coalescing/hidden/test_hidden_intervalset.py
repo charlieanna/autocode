@@ -2,6 +2,7 @@ import copy
 import itertools
 import random
 import unittest
+
 from intervalset import coalesce
 
 
