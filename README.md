@@ -19,6 +19,10 @@ autocode doctor --workspace /path/to/project
 autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
+On WSL, run these commands in the Linux terminal with Linux Python. An existing
+Windows-created `.venv` cannot be reused there; see the
+[WSL checkout and environment notes](docs/install.md#windows-through-wsl).
+
 OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).

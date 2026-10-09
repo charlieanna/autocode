@@ -104,6 +104,38 @@ Native process supervision uses the `psutil` runtime dependency, which `pipx` an
 install with AutoCode. Works against any committed Git workspace; no IdleCampus files
 or services are required.
 
+## Windows through WSL
+
+Run Git, Python and AutoCode inside WSL. Prefer a fresh checkout on the Linux
+filesystem, such as `~/src/autocode`, to avoid sharing ownership and environment
+state with Windows tools. The repository's `.gitattributes` keeps text checkouts
+at LF even when `core.autocrlf=true`; binary assets retain their bytes. This
+policy applies to fresh checkouts and does not rewrite an existing dirty tree.
+Save any real edits before replacing a checkout with line-ending-only churn;
+do not commit that churn to recover it.
+
+A virtual environment created by Windows has `Scripts/`, `Lib/` and `Include/`,
+while the Linux commands in the README require `.venv/bin/`. Create the environment
+with Linux Python inside WSL. If the shared checkout already has a Windows
+`.venv`, keep it separate and create a Linux environment outside the checkout:
+
+```sh
+python3 -m venv ~/.venvs/autocode-wsl
+~/.venvs/autocode-wsl/bin/python -m pip install --editable .
+source ~/.venvs/autocode-wsl/bin/activate
+```
+
+If Git reports `detected dubious ownership` for a Windows-mounted checkout,
+first verify that you trust that specific directory. You can then allow its
+exact path, replacing this example with your checkout's absolute path:
+
+```sh
+git config --global --add safe.directory /mnt/c/Users/YOU/workspace/autocode
+```
+
+Avoid `safe.directory '*'`, which trusts every repository. A checkout on the
+Linux filesystem usually avoids this mounted-directory ownership mismatch.
+
 ## Advanced: install from a checkout
 
 For working on AutoCode itself, or trying an unreleased change. Run directly from a

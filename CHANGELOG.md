@@ -11,6 +11,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Text checkouts use LF across Git line-ending settings, preserving binary
+  assets; WSL installation notes separate Linux and Windows environments (#802).
 - Bug investigations receive the configured Python test interpreter, including
   external virtualenvs, for scratch checks and clean replay (#778).
 - Codex and configured-provider judging captures run in a source-bound copy
