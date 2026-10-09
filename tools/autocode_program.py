@@ -591,7 +591,8 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
     if inherited:
         lines += ["Inherited requirements: keep each as an acceptance criterion of your plan with exactly this id "
                   f"({', '.join(inherited)}). Keep its criterion text unchanged, including case, punctuation and "
-                  "inner whitespace (outer whitespace may differ), and preserve human_review: true. Preserve inherited constraints, exclusions "
+                  "inner whitespace (outer whitespace may differ), and preserve any human_review: true obligation "
+                  "present in its inherited definition. Preserve inherited constraints, exclusions "
                   "and permission boundaries. Verification methods may adapt to this run's proof base.", ""]
     if workstream["kind"] == "integration":
         # A live final check copied the parent's test: marks, which its regression proof cannot pass on a
