@@ -18,8 +18,9 @@ try:
     from . import autocode_finding_cause as finding_cause
     from . import autocode_util as s
     from . import autocode_workflows as workflows
-    from .autocode_contract_revision import PLANNER_ORIGINS, revision_guard
+    from .autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
     from .autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from .autocode_contract_revision import revision_guard as revision_guard
     from .autocode_contract_revision import saved_user_basis as _saved_user_basis
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors
@@ -30,7 +31,10 @@ except ImportError:
     import autocode_component_plan as component_plan
     import autocode_finding_cause as finding_cause
     import autocode_util as s
+    import autocode_workflows as workflows  # noqa: F401 - goal compatibility API
+    from autocode_contract_revision import PLANNER_ORIGINS as PLANNER_ORIGINS
     from autocode_contract_revision import PROTECTED_LISTS as _PROTECTED_LISTS
+    from autocode_contract_revision import revision_guard as revision_guard
     from autocode_contract_revision import saved_user_basis as _saved_user_basis
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors
@@ -149,15 +153,19 @@ through public APIs that exist before the fix and to assert the behavior (the re
 result, the saved state); a log line or message alone does not prove the behavior.
 """
 try:
-    from .autocode_role_schema import USER_REQUEST, role_schema
+    from .autocode_role_schema import USER_REQUEST as USER_REQUEST
+    from .autocode_role_schema import role_schema as role_schema
 except ImportError:
-    pass
+    from autocode_role_schema import USER_REQUEST as USER_REQUEST
+    from autocode_role_schema import role_schema as role_schema
 
 
 try:
-    from .autocode_contract_identity import approved, sealed, token
+    from .autocode_contract_identity import approved, token
+    from .autocode_contract_identity import sealed as sealed
 except ImportError:
     from autocode_contract_identity import approved, token
+    from autocode_contract_identity import sealed as sealed
 
 
 def validate_requirements_body(state, body):

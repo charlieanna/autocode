@@ -78,10 +78,12 @@ except ImportError:
     import autocode_checkout_lock as checkout_lock
     import autocode_cmd_only_report as cmd_only
     import autocode_completion as completion_gate
+    import autocode_dependency as dependency  # noqa: F401 - runner compatibility API
     import autocode_detached_output as detached_output
     import autocode_escalation as escalation
     import autocode_event_log as event_log
     import autocode_failures as failures
+    import autocode_follow_up as follow_up  # noqa: F401 - runner compatibility API
     import autocode_format_correction as format_correction
     import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
@@ -103,11 +105,13 @@ except ImportError:
     import autocode_resolver_recovery as resolver_recovery
     import autocode_result_application as result_application
     import autocode_rework_policy as rework_policy
+    import autocode_run_view as run_view  # noqa: F401 - runner compatibility API
     import autocode_source_diff as source_diff
     import autocode_source_scope as source_scope
     import autocode_source_snapshot as source_snapshot
     import autocode_status
     import autocode_status as status_records
+    import autocode_status_command as status_command  # noqa: F401 - runner compatibility API
     import autocode_stop as stop_policy
     import autocode_stray_writes as stray_writes
     import autocode_stuck_repair_context as stuck_repair_context
@@ -121,7 +125,9 @@ except ImportError:
     import autocode_verification_plan as verification_plan
     import autocode_visual_profile as visual_profile
     import autocode_visual_runtime as visual_runtime
+    import autocode_workflows as workflows  # noqa: F401 - runner compatibility API
     import autocode_worktrees as worktrees
+    import model_catalogue as model_catalogue
 
 try:
     from . import autocode_args as cli_args
@@ -154,25 +160,32 @@ try:
     from . import autocode_workspaces as task_workspaces
     from .autocode_activity import CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT, ActivityMonitor
     from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
-    from .autocode_report_findings import retained as retained_dispositions
+    from .autocode_report_findings import retained as retained_dispositions  # noqa: F401 - runner compatibility API
     from .autocode_report_source import (
         REPAIR_INPUT_ROUTE,
-        REPAIR_REPORT_BYTES,
-        original_report_for_repair,
         recovered_timeout_attempt,
         repair_report_instruction,
         repair_report_source,
         valid_truncated_report_attempt,
     )
+    from .autocode_report_source import (
+        REPAIR_REPORT_BYTES as REPAIR_REPORT_BYTES,
+    )
+    from .autocode_report_source import (
+        original_report_for_repair as original_report_for_repair,
+    )
     from .autocode_run_records import (
-        PLANNING_STAGES,
-        PROVENANCE_LISTS,
+        PLANNING_STAGES as PLANNING_STAGES,
+    )
+    from .autocode_run_records import (
+        PROVENANCE_LISTS as PROVENANCE_LISTS,
+    )
+    from .autocode_run_records import (
         account_stage,
         archive_rejected_stage,
         assert_stage_stopped,
         attempt_id,
         check_evidence_options,
-        count_automatic_recovery,
         default_missing_provenance,
         normalize_human_boundary,
         normalize_plan_challenge_blocking,
@@ -182,26 +195,55 @@ try:
         repair_limit,
         stage_completed,
         stage_supports_sessions,
-        timeout_recovery_route,
+    )
+    from .autocode_run_records import (
+        count_automatic_recovery as count_automatic_recovery,
+    )
+    from .autocode_run_records import (
+        timeout_recovery_route as timeout_recovery_route,
     )
     from .autocode_run_records import write_json as ordinary_write_json
     from .autocode_stage_recovery import (
-        MAX_AUTOMATIC_CAPACITY_RECOVERIES,
-        abandon_stage,
-        archive_stale_report_repair,
-        authorize_failure_retry,
-        automatically_recover_capacity_stage,
-        automatically_recover_external_directory_denial,
+        MAX_AUTOMATIC_CAPACITY_RECOVERIES as MAX_AUTOMATIC_CAPACITY_RECOVERIES,
+    )
+    from .autocode_stage_recovery import (
+        abandon_stage as abandon_stage,
+    )
+    from .autocode_stage_recovery import (
+        archive_stale_report_repair as archive_stale_report_repair,
+    )
+    from .autocode_stage_recovery import (
+        authorize_failure_retry as authorize_failure_retry,
+    )
+    from .autocode_stage_recovery import (
+        automatically_recover_capacity_stage as automatically_recover_capacity_stage,
+    )
+    from .autocode_stage_recovery import (
+        automatically_recover_external_directory_denial as automatically_recover_external_directory_denial,
+    )
+    from .autocode_stage_recovery import (
         automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage,
         automatically_recover_truncated_review,
-        prepare_abandoned_completion_revalidation,
-        prepare_exhausted_execution_report_retry,
-        prepare_planning_retry,
         reconcile_rate_limited_stage,
-        recover_legacy_report_repair,
-        retry_format_failed_report,
         stale_report_repair,
+    )
+    from .autocode_stage_recovery import (
+        automatically_recover_timed_out_stage as automatically_recover_timed_out_stage,
+    )
+    from .autocode_stage_recovery import (
+        prepare_abandoned_completion_revalidation as prepare_abandoned_completion_revalidation,
+    )
+    from .autocode_stage_recovery import (
+        prepare_exhausted_execution_report_retry as prepare_exhausted_execution_report_retry,
+    )
+    from .autocode_stage_recovery import (
+        prepare_planning_retry as prepare_planning_retry,
+    )
+    from .autocode_stage_recovery import (
+        recover_legacy_report_repair as recover_legacy_report_repair,
+    )
+    from .autocode_stage_recovery import (
+        retry_format_failed_report as retry_format_failed_report,
     )
 except ImportError:
     import autocode_args as cli_args
@@ -209,6 +251,7 @@ except ImportError:
     import autocode_build_loop as build_loop
     import autocode_configure
     import autocode_dispatch as dispatch
+    import autocode_figma as figma  # noqa: F401 - runner compatibility API
     import autocode_findings as findings_ledger
     import autocode_idle_policy as idle_policy
     import autocode_job_failure as job_failure
@@ -234,12 +277,25 @@ except ImportError:
     import autopilot
     from autocode_activity import CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT, ActivityMonitor
     from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
+    from autocode_report_findings import retained as retained_dispositions  # noqa: F401 - runner compatibility API
     from autocode_report_source import (
         REPAIR_INPUT_ROUTE,
         recovered_timeout_attempt,
         repair_report_instruction,
         repair_report_source,
         valid_truncated_report_attempt,
+    )
+    from autocode_report_source import (
+        REPAIR_REPORT_BYTES as REPAIR_REPORT_BYTES,
+    )
+    from autocode_report_source import (
+        original_report_for_repair as original_report_for_repair,
+    )
+    from autocode_run_records import (
+        PLANNING_STAGES as PLANNING_STAGES,
+    )
+    from autocode_run_records import (
+        PROVENANCE_LISTS as PROVENANCE_LISTS,
     )
     from autocode_run_records import (
         account_stage,
@@ -257,12 +313,54 @@ except ImportError:
         stage_completed,
         stage_supports_sessions,
     )
+    from autocode_run_records import (
+        count_automatic_recovery as count_automatic_recovery,
+    )
+    from autocode_run_records import (
+        timeout_recovery_route as timeout_recovery_route,
+    )
     from autocode_run_records import write_json as ordinary_write_json
+    from autocode_stage_recovery import (
+        MAX_AUTOMATIC_CAPACITY_RECOVERIES as MAX_AUTOMATIC_CAPACITY_RECOVERIES,
+    )
+    from autocode_stage_recovery import (
+        abandon_stage as abandon_stage,
+    )
+    from autocode_stage_recovery import (
+        archive_stale_report_repair as archive_stale_report_repair,
+    )
+    from autocode_stage_recovery import (
+        authorize_failure_retry as authorize_failure_retry,
+    )
+    from autocode_stage_recovery import (
+        automatically_recover_capacity_stage as automatically_recover_capacity_stage,
+    )
+    from autocode_stage_recovery import (
+        automatically_recover_external_directory_denial as automatically_recover_external_directory_denial,
+    )
     from autocode_stage_recovery import (
         automatically_recover_report_repair_timeout,
         automatically_recover_truncated_review,
         reconcile_rate_limited_stage,
         stale_report_repair,
+    )
+    from autocode_stage_recovery import (
+        automatically_recover_timed_out_stage as automatically_recover_timed_out_stage,
+    )
+    from autocode_stage_recovery import (
+        prepare_abandoned_completion_revalidation as prepare_abandoned_completion_revalidation,
+    )
+    from autocode_stage_recovery import (
+        prepare_exhausted_execution_report_retry as prepare_exhausted_execution_report_retry,
+    )
+    from autocode_stage_recovery import (
+        prepare_planning_retry as prepare_planning_retry,
+    )
+    from autocode_stage_recovery import (
+        recover_legacy_report_repair as recover_legacy_report_repair,
+    )
+    from autocode_stage_recovery import (
+        retry_format_failed_report as retry_format_failed_report,
     )
 
 

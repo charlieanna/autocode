@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from scenarios import run  # noqa: F401 - establish the scenario harness import root
 from harness import stats, verdict
 
 
