@@ -3,7 +3,8 @@ import hashlib
 import shutil
 import sys
 
-from harness.oracle import Check, run as command, scratch_copy, tail
+from harness.oracle import Check, scratch_copy, tail
+from harness.oracle import run as command
 
 
 def check(project, scenario, run=None):

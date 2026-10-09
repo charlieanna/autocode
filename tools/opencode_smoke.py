@@ -5,9 +5,9 @@ raw events for inspection. Not included in the offline unit test suite.
 """
 import argparse
 import json
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 try:
     from . import autocode_opencode as opencode
@@ -18,7 +18,7 @@ except ImportError:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-live", action="store_true", required=True)
-    args = parser.parse_args()
+    parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="autocode-opencode-workspace-") as temp:
         root = Path(temp).resolve()
         evidence = Path(tempfile.mkdtemp(prefix="autocode-opencode-evidence-")).resolve()

@@ -19,7 +19,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -659,8 +658,8 @@ class StopOperationTests(StopFixture):
         self.assertIn(STOP_REASON_MARKER, str(raised.exception))
 
         # Approval after Stop must also fail with a real, current, displayed token.
-        from autocode_taskrun import TaskRun
         from agent_console import Console
+        from autocode_taskrun import TaskRun
         self.hold_stage = ""
         self.write_provider()
         project = self.make_project("stopped-at-plan")
@@ -691,8 +690,9 @@ class StopOperationTests(StopFixture):
 
 class StopPersistenceTests(unittest.TestCase):
     def test_applied_stop_uses_checkpoint_writer_without_proposal_normalization(self):
-        import autocode_stop as stop_policy
         from unittest.mock import Mock
+
+        import autocode_stop as stop_policy
         ordinary, checkpoint = Mock(), Mock()
         writer = stop_policy.state_writer(ordinary, checkpoint)
         state = {"status": "RESOLVER_PENDING", "stop_reason": "Internal proposal", "applied_interventions": [{"kind": "stop", "id": "s"}],
@@ -708,8 +708,9 @@ class StopPersistenceTests(unittest.TestCase):
         ordinary.assert_called_once_with(Path("fixture/report.json"), state)
 
     def test_old_runner_stop_is_refused_before_submission(self):
-        from agent_console import Console
         from unittest.mock import Mock
+
+        from agent_console import Console
         console = Console([], str(RUNNER), lambda: None)
         self.addCleanup(console.pool.shutdown, False)
         console._intervention_view = Mock(return_value={"mode": "capable", "capable": True})

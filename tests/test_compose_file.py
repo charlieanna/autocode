@@ -260,9 +260,8 @@ class RefusalTests(unittest.TestCase):
                  ({"a": {**STORE, "runtime_depends_on": ["b"]}, "b": {**STORE, "runtime_depends_on": ["a"]}},
                   "runtime dependency cycle")]
         for blocks, message in cases:
-            with self.subTest(message):
-                with self.assertRaisesRegex(ValueError, re.escape(message)):
-                    compose.compose_document(runtimes(blocks), TREE)
+            with self.subTest(message), self.assertRaisesRegex(ValueError, re.escape(message)):
+                compose.compose_document(runtimes(blocks), TREE)
 
 
 class EscapeTests(unittest.TestCase):

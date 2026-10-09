@@ -2,9 +2,9 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_risk_targets as targets
@@ -198,15 +198,13 @@ class RiskTargetsTests(unittest.TestCase):
         examples.append(duplicate)
         examples += [artifact | {'version': True}, artifact | {'version': 2}, artifact | {'extra': True}]
         for forged in examples:
-            with self.subTest(forged=forged):
-                with self.assertRaises(ValueError):
-                    targets.verify(forged)
+            with self.subTest(forged=forged), self.assertRaises(ValueError):
+                targets.verify(forged)
 
     def test_per_file_total_file_count_and_scan_entry_limits_are_enforced(self):
         self.source('public.py', '# ' + 'x' * 32)
-        with patch.object(targets, 'MAX_FILE_BYTES', 16):
-            with self.assertRaises(ValueError):
-                targets.capture(self.root)
+        with patch.object(targets, 'MAX_FILE_BYTES', 16), self.assertRaises(ValueError):
+            targets.capture(self.root)
         artifact = targets.capture(self.root)
         with patch.object(targets, 'MAX_TOTAL_BYTES', 16):
             with self.assertRaises(ValueError):
@@ -219,9 +217,8 @@ class RiskTargetsTests(unittest.TestCase):
                 targets.capture(self.root)
             with self.assertRaises(ValueError):
                 targets.verify(artifact | {'files': artifact['files'] * 2})
-        with patch.object(targets, 'MAX_SCAN_ENTRIES', 1):
-            with self.assertRaises(ValueError):
-                targets.capture(self.root)
+        with patch.object(targets, 'MAX_SCAN_ENTRIES', 1), self.assertRaises(ValueError):
+            targets.capture(self.root)
 
     def test_unsafe_or_unbounded_target_module_identifiers_are_rejected(self):
         artifact = self.imported_package()

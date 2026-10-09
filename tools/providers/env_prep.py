@@ -19,9 +19,9 @@ tests/test_architecture.py.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 import shutil
 import subprocess
+from collections.abc import Mapping
 
 
 def snapshot_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:

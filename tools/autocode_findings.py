@@ -24,17 +24,17 @@ except ImportError:
 import copy
 
 try:
-    from . import autocode_util as s
-    from . import autocode_milestone_scope as milestone_scope
     from . import autocode_finding_scope as finding_scope
-    from . import autocode_review_gate as review_gate
+    from . import autocode_milestone_scope as milestone_scope
     from . import autocode_report_findings as report_findings
+    from . import autocode_review_gate as review_gate
+    from . import autocode_util as s
 except ImportError:
-    import autocode_util as s
-    import autocode_milestone_scope as milestone_scope
     import autocode_finding_scope as finding_scope
-    import autocode_review_gate as review_gate
+    import autocode_milestone_scope as milestone_scope
     import autocode_report_findings as report_findings
+    import autocode_review_gate as review_gate
+    import autocode_util as s
 
 SOURCES = ("sol", "astra")
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -255,9 +255,7 @@ def _record(state, source, reported, record, initial_scope=None):
     report = record.get("output")
     restore_initial_plan_scopes(state)
     scope = initial_scope or report_scope(state)
-    all_criteria = {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])}
     # A repair only reformats an earlier report; it is not a fresh review of the work.
-    can_resolve = not (record.get("report_repaired") or record.get("report_only"))
     open_ids = {row["id"] for row in rows if row.get("source") == source and row.get("status") == "open"}
     seen = {}
     for raw in reported:

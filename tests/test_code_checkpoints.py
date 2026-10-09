@@ -3,21 +3,21 @@ import copy
 import hashlib
 import io
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import autocode_code_checkpoints as checkpoints
 import autocode_checkpoint_cli as operation
+import autocode_code_checkpoints as checkpoints
 import autocode_contract_identity as identity
 import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
-from . import test_subprocess
 from goal_fixtures import body
+
+from . import test_subprocess
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 
@@ -121,9 +121,8 @@ class CodeCheckpoints(unittest.TestCase):
                 with self.assertRaisesRegex(TaskRunError,'Reconcile'):
                     self.client.restore_checkpoint(self.ident,comparison['expected_token'],'live-refusal-'+field)
                 self.state.pop(field);self.save()
-        with util.run_lock(self.run):
-            with self.assertRaisesRegex(TaskRunError,'run lock'):
-                self.client.restore_checkpoint(self.ident,comparison['expected_token'],'locked-refusal')
+        with util.run_lock(self.run), self.assertRaisesRegex(TaskRunError,'run lock'):
+            self.client.restore_checkpoint(self.ident,comparison['expected_token'],'locked-refusal')
         self.state['goal_contract']['approval_status']='draft';self.save()
         with self.assertRaisesRegex(TaskRunError,'approved plan'):
             self.client.restore_checkpoint(self.ident,comparison['expected_token'],'unapproved-refusal')
@@ -581,6 +580,5 @@ class BatchBlobReplies(unittest.TestCase):
                    f'{oid} blob 3\nxy'.encode(), f'{oid} blob 1\nx!'.encode(),
                    f'{oid} blob 0'.encode(), b'a' * 257 + b'\n']
         for reply in replies:
-            with self.subTest(reply=reply):
-                with self.assertRaises(ValueError):
-                    checkpoints._read_blob_identity(io.BytesIO(reply), oid, '100644')
+            with self.subTest(reply=reply), self.assertRaises(ValueError):
+                checkpoints._read_blob_identity(io.BytesIO(reply), oid, '100644')

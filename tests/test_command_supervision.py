@@ -1,18 +1,18 @@
 """Public verification-command execution under normal and interrupted ownership."""
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_command_receipt as receipts
 import autocode_command_supervision as commands
-import autocode_verify as verify
 import autocode_verification_schedule as schedule
+import autocode_verify as verify
 
 
 class CommandSupervisionTests(unittest.TestCase):

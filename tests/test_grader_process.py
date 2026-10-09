@@ -2,11 +2,11 @@
 import json
 import os
 import signal
-from contextlib import nullcontext
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -67,9 +67,8 @@ class GraderProcessTests(unittest.TestCase):
                 patch.object(grader, '_leader', return_value=root), \
                 patch.object(processes, 'identity', return_value=root), \
                 patch.object(grader, '_capture_group') as capture, \
-                patch.object(grader.time, 'monotonic', side_effect=interrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                grader.wait(child, 10)
+                patch.object(grader.time, 'monotonic', side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
+            grader.wait(child, 10)
         self.assertEqual(['sample', 'clock', 'stop'], events)
         capture.assert_called_once_with(tree, child, root)
         child.wait.assert_not_called()

@@ -44,15 +44,25 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
-    from . import autocode_workflows as workflows, autocode_bug_questions as bug_questions, autocode_util as util
-    from .autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401 (used by callers)
+    from . import autocode_bug_questions as bug_questions
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
+    from . import autocode_util as util
+    from . import autocode_workflows as workflows
+    from .autocode_test_cases import (  # noqa: F401 (used by callers)
+        case_test_name,
+        case_text,
+        diagnosis_cases,
+        match_cases,
+        run_probes,
+    )
 except ImportError:
+    import autocode_bug_questions as bug_questions
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
+    import autocode_util as util
     import autocode_workflows as workflows
-    import autocode_bug_questions as bug_questions, autocode_util as util
-    from autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401
+    from autocode_test_cases import case_test_name, case_text, diagnosis_cases, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
 NOTES_PREFIX, = stage_access.job_writes(STAGE)
@@ -336,7 +346,7 @@ def apply(state: dict, value: dict, record: dict, workspace, run_probe=None) -> 
                          pending_questions=bug_questions.questions(state))
             return
         state.update(status="TASK_COMPLETE", phase="COMPLETE", next_stage=None,
-                     completed_at=dt.datetime.now(dt.timezone.utc).isoformat())
+                     completed_at=dt.datetime.now(dt.UTC).isoformat())
         return
     # A large fix is planned from the diagnosis: the bug report already is the requirements,
     # so the run skips requirements gathering. Plan review and the user's approval still apply.

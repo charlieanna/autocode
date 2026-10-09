@@ -5,8 +5,8 @@ and dynamic tests are left to execution and independent review. Empty tests
 and literal true assertions cannot establish an application's behavior.
 """
 import ast
-from pathlib import Path
 import shlex
+from pathlib import Path
 
 
 def inert(statement):

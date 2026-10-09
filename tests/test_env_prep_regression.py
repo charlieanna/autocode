@@ -1,13 +1,13 @@
 """The wrong environment-construction order, reproduced in an isolated child."""
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 
 
 class EnvironmentOrderingRegressionTests(unittest.TestCase):

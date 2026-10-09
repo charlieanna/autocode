@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-import re
 
 
 def format_date(value):

@@ -7,35 +7,55 @@ from __future__ import annotations
 import copy
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import tomllib
+from pathlib import Path
 
 # Re-export shared helpers for existing callers and test patches.
 try:
-    from .autocode_baseline import BASELINE_POLICY
-    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
-    from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
-    from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
+    from . import autocode_event_matching as event_matching
+    from . import autocode_event_metrics as event_summary
     from . import autocode_evidence_snapshot as evidence_snapshot
-    from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
-                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
-    from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
-    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
+    from . import autocode_output_filter as output_filter
+    from . import autocode_provider_error_lines as provider_error_lines
+    from . import autocode_provider_refusal as provider_refusal
+    from . import autocode_receipts as receipts
+    from . import autocode_request_usage as request_usage
+    from . import autocode_usage as token_usage
     from .autocode_event_matching import same_command
+    from .autocode_util import (
+        Paused,
+        atomic_json,
+        criteria_definition,
+        digest,
+        file_hash,
+        now,
+        read,
+        validate_schema,
+    )
 except ImportError:
-    from autocode_baseline import BASELINE_POLICY
-    from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
-    from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
-    import autocode_output_filter as output_filter, autocode_request_usage as request_usage
+    import autocode_event_matching as event_matching
+    import autocode_event_metrics as event_summary
     import autocode_evidence_snapshot as evidence_snapshot
-    from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
-                               model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
-    import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
-    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
+    import autocode_output_filter as output_filter
+    import autocode_provider_error_lines as provider_error_lines
+    import autocode_provider_refusal as provider_refusal
+    import autocode_receipts as receipts
+    import autocode_request_usage as request_usage
+    import autocode_usage as token_usage
     from autocode_event_matching import same_command
+    from autocode_util import (
+        Paused,
+        atomic_json,
+        criteria_definition,
+        digest,
+        file_hash,
+        now,
+        read,
+        validate_schema,
+    )
 
 
 def events(path):

@@ -1,8 +1,8 @@
 """Cycle-free role schema extraction preserves ordinary roles and opt-in checkpoints."""
 import copy
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import autocode_goals as goals
 import autocode_role_schema as reports

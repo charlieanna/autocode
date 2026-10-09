@@ -7,22 +7,22 @@ cited per case.
 """
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_completion as completion_gate
 import autocode_dispatch as dispatch
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_support as support
-from . import test_catalogue_t01 as t01
 from goal_fixtures import body, envelope
+
+from . import test_catalogue_t01 as t01
 
 
 class ReadySetOracle:
@@ -348,7 +348,9 @@ class DagScenarios(DagCase):
         # planner cannot drop what it is never allowed to touch.
         support.atomic_json(self.run / "state.json", self.state)
         with patch.object(runner, "run_role", side_effect=AssertionError("planner must not launch")):
-            import contextlib, io, sys as _sys
+            import contextlib
+            import io
+            import sys as _sys
             argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run), "--resume-paused"]
             with patch.object(_sys, "argv", argv), patch.object(support, "assert_no_legacy_process"), \
                     patch.object(support, "local_settings", return_value=self.local), \

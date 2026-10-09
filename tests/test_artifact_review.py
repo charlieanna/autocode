@@ -3,11 +3,12 @@ import copy
 import json
 import unittest
 
-from . import test_subprocess, test_goals
 import autocode_completion as completion
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 from goal_fixtures import body
+
+from . import test_goals, test_subprocess
 
 
 class ArtifactReviewCLITests(unittest.TestCase):

@@ -15,13 +15,13 @@ import hashlib
 import json
 import os
 import re
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 
 def now():
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def slug(task: str) -> str:
@@ -137,7 +137,7 @@ def workspace_lock(workspace):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise Paused("PAUSED_WORKSPACE_BUSY", "Another autocode runner holds this workspace lock")
+            raise Paused("PAUSED_WORKSPACE_BUSY", "Another autocode runner holds this workspace lock") from None
         try:
             yield
         finally:
@@ -153,7 +153,7 @@ def run_lock(run_dir):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise Paused("PAUSED_RUN_BUSY", "Another autocode runner holds this run lock")
+            raise Paused("PAUSED_RUN_BUSY", "Another autocode runner holds this run lock") from None
         try:
             yield
         finally:

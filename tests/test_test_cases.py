@@ -15,6 +15,7 @@ import autocode_launch_inputs as launch_inputs
 import autocode_regression as regression
 import autocode_test_cases as test_cases
 import autocode_verify as verify
+
 from tests.test_verify import Project
 
 EXAMPLE = {"id": "C2", "criterion": "Given calc.sub; when sub(5, 3) runs; then it returns 2",
@@ -162,9 +163,6 @@ def planned(current, accepted=(), batch=None, hash_="h1"):
     return {"goal_contract": {"hash": "h1", "body": {"milestones": milestones, "acceptance_criteria": criteria}},
             "current_task": task, "milestone_progress": progress}
 
-
-    # Guards may rest on the whole suite's pass-to-pass (autocode_verify._suite_guards); review findings, 2026-10-06.
-    GUARDED = {"id": "C4", "test_name": "test_c4_adds", "kind": "preserve", "text": "add still adds"}
 
     def suite_checked(self, case, suite_passing, failing=()):
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": [], "pass_to_pass": []}
@@ -608,8 +606,9 @@ class BaseAndTimeoutTests(unittest.TestCase):
 
 class PromptTests(unittest.TestCase):
     def test_planning_stages_get_the_rule_and_requirements_does_not(self):
-        from tests.test_bug_job import SmallCorrectionTests
         from units import autoplanner
+
+        from tests.test_bug_job import SmallCorrectionTests
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
@@ -619,8 +618,9 @@ class PromptTests(unittest.TestCase):
                          autoplanner.context(state, "requirements_gather", state_path)[0])
 
     def test_the_plan_reviewer_recomputes_worked_examples(self):
-        from tests.test_bug_job import SmallCorrectionTests
         from units import autoplanner
+
+        from tests.test_bug_job import SmallCorrectionTests
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
@@ -633,8 +633,9 @@ class PromptTests(unittest.TestCase):
     def test_the_plan_reviewer_checks_every_example_against_the_brief(self):
         # A live greenfield run (2026-10-01) transcribed the brief's "ID TEXT [open|done]" into examples
         # without the brackets and everything downstream honestly served the corrupted criteria.
-        from tests.test_bug_job import SmallCorrectionTests
         from units import autoplanner
+
+        from tests.test_bug_job import SmallCorrectionTests
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
@@ -645,8 +646,9 @@ class PromptTests(unittest.TestCase):
                 self.assertEqual(wanted, "CHECK EVERY EXAMPLE AGAINST THE BRIEF" in prompt)
 
     def test_every_planning_stage_forbids_timing_criteria_except_requirements(self):
-        from tests.test_bug_job import SmallCorrectionTests
         from units import autoplanner
+
+        from tests.test_bug_job import SmallCorrectionTests
         state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
@@ -656,8 +658,9 @@ class PromptTests(unittest.TestCase):
                 self.assertEqual(wanted, "NO TIMING CRITERIA" in autoplanner.context(state, stage, state_path)[0])
 
     def test_the_builder_is_told_to_write_the_named_tests(self):
-        from tests.test_bug_job import approved_small_fix
         from units import common
+
+        from tests.test_bug_job import approved_small_fix
         state = approved_small_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
@@ -707,8 +710,9 @@ class DiagnosisCaseBuilderTests(unittest.TestCase):
     ]
 
     def test_the_actual_builder_prompt_lists_every_diagnosis_case_and_its_proof(self):
-        from tests.test_bug_job import approved_small_fix
         from units import common
+
+        from tests.test_bug_job import approved_small_fix
         state = approved_small_fix(test_cases=self.CASES)
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         prompt = common.execution_request(state, "terra", Path(state["workspace"]) / "state.json", schemas).prompt
@@ -800,6 +804,7 @@ class DesignOnlyTests(unittest.TestCase):
 
     def test_the_planner_gets_the_design_rule_instead_of_the_test_rule(self):
         from units import autoplanner
+
         from tests.test_bug_job import state_for
         for kind, present, absent in (("design", autoplanner.DESIGN_DELIVERABLES_RULE, autoplanner.EXAMPLE_CRITERIA_RULE),
                                       ("build", autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.DESIGN_DELIVERABLES_RULE)):
@@ -817,6 +822,7 @@ class FileListingRuleTests(unittest.TestCase):
 
     def test_build_plans_are_told_to_test_behavior_not_the_file_listing(self):
         from units import autoplanner
+
         from tests.test_bug_job import state_for
         state = {**state_for(), "workflow": {"kind": "build"}, "answers": {}, "user_events": []}
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}

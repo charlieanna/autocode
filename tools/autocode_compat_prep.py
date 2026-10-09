@@ -50,7 +50,8 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_verify as verify
+    from . import autocode_util as util
+    from . import autocode_verify as verify
 except ImportError:
     import autocode_util as util
     import autocode_verify as verify

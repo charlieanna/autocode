@@ -2,9 +2,9 @@
 import socket
 import socketserver
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-import tempfile
 from unittest.mock import MagicMock, patch
 
 from dashboard import agent_console
@@ -57,9 +57,8 @@ class DashboardServerBindTests(unittest.TestCase):
                 patch.object(agent_console, "provider_registry", return_value=registry), \
                 patch.object(agent_console, "Console"), \
                 patch.object(socketserver.BaseServer, "serve_forever", autospec=True, side_effect=stop), \
-                patch("builtins.print"):
-            with self.assertRaises(Stop):
-                agent_console.main()
+                patch("builtins.print"), self.assertRaises(Stop):
+            agent_console.main()
         self.assertEqual(1, len(started))
         server = started[0]
         self.addCleanup(server.server_close)

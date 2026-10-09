@@ -2,7 +2,9 @@
 import unittest
 
 import autocode_failures as failures
-from . import test_autocode as base, test_report_repair
+
+from . import test_autocode as base
+from . import test_report_repair
 
 runner, support = base.runner, base.s
 

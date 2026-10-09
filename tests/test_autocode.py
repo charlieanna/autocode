@@ -1,31 +1,32 @@
 """Isolated tests: no model calls, credentials, learner data or course writes."""
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import shlex
 import signal
 import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
-import autocode_stage_context as stage_context
-import autocode_completion as completion_gate
-import autocode_support as s
-import autocode_goals as goals
 import autocode_builder_policy as builder_policy
+import autocode_completion as completion_gate
 import autocode_configure
+import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_planning as planning
+import autocode_stage_context as stage_context
+import autocode_support as s
 import autopilot
 from goal_fixtures import approve_fixture, assert_operational_wait, envelope
+
 from . import LOGIN_SHELL
 
 
@@ -292,24 +293,18 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual(["astra_plan","terra","sol"],[x["stage"] for x in migrated["stages"]])
 
     def test_workspace_lock_prevents_second_writer(self):
-        with s.workspace_lock(self.root):
-            with self.assertRaises(s.Paused):
-                with s.workspace_lock(self.root): pass
+        with s.workspace_lock(self.root), self.assertRaises(s.Paused), s.workspace_lock(self.root): pass
 
     def test_other_workspace_has_separate_lock(self):
-        with s.workspace_lock(self.root):
-            with s.workspace_lock(self.root/"other"): pass
+        with s.workspace_lock(self.root), s.workspace_lock(self.root/"other"): pass
 
     def test_run_locks_do_not_block_independent_runs_in_one_workspace(self):
         first=self.root/".autocode"/"runs"/"first"
         second=self.root/".autocode"/"runs"/"second"
-        with s.run_lock(first):
-            with s.run_lock(second): pass
+        with s.run_lock(first), s.run_lock(second): pass
 
     def test_run_lock_blocks_duplicate_writer_for_same_run(self):
-        with s.run_lock(self.run):
-            with self.assertRaises(s.Paused):
-                with s.run_lock(self.run): pass
+        with s.run_lock(self.run), self.assertRaises(s.Paused), s.run_lock(self.run): pass
 
     def test_process_marker_for_another_run_does_not_block_this_run(self):
         other=self.root/".autocode"/"runs"/"other"

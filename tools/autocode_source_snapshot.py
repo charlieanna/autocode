@@ -8,8 +8,8 @@ same inventory policy. No process-global or workspace-global policy is changed.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import stat
+from pathlib import Path
 
 try:
     from . import autocode_util as util

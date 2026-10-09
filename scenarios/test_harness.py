@@ -5,34 +5,59 @@ proves the full run path with the scripted model: a correct solution is judged
 PASS and a plausible wrong one is judged FALSE_COMPLETE.
 """
 import argparse
+import ast
 import contextlib
 import hashlib
 import importlib.util
 import io
-import ast
 import json
-import re
 import os
+import re
 import select
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 import uuid
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import (api_cost, attempts, baseline, build_compare, catalog, compare, hybrid, oracle, plan_compare,  # noqa: E402
-                     processes, profiles, routing, stats, verdict)
-from harness.driver import (Driver, DriveError, InterruptedDrive, TurnNotReached, changed_between, leaves_for_person, metrics,  # noqa: E402
-                           model_routes, split_by_turn, turn_state, workspace_files)
+from harness import (  # noqa: E402
+    api_cost,
+    attempts,
+    baseline,
+    build_compare,
+    catalog,
+    compare,
+    hybrid,
+    oracle,
+    plan_compare,
+    processes,
+    profiles,
+    routing,
+    stats,
+    verdict,
+)
+from harness.driver import (  # noqa: E402
+    DriveError,
+    Driver,
+    InterruptedDrive,
+    TurnNotReached,
+    changed_between,
+    leaves_for_person,
+    metrics,
+    model_routes,
+    split_by_turn,
+    turn_state,
+    workspace_files,
+)
 
 
 class PhaseCatalogTests(unittest.TestCase):
@@ -1755,9 +1780,8 @@ class ProgramCatalogTests(unittest.TestCase):
                 (self.BASE.replace('category = "program"', 'category = "parallel"') + "[program]\nmax_parallel = 2\n",
                  None, "category"),
         ):
-            with self.subTest(error=error, toml=toml[-80:]):
-                with self.assertRaisesRegex(ValueError, error):
-                    self.load(toml, *([files] if files else []))
+            with self.subTest(error=error, toml=toml[-80:]), self.assertRaisesRegex(ValueError, error):
+                self.load(toml, *([files] if files else []))
 
     def test_every_broken_overlay_is_a_complete_one(self):
         # Each workstream delivers its own paths and the integration workstream a file no milestone owns; a run
@@ -1766,9 +1790,8 @@ class ProgramCatalogTests(unittest.TestCase):
         self.assertEqual("demo", self.load(self.BASE, broken={"wrong": complete}).id)
         for files, error in ((("s.py", "tests/test_journey.py"), "broken/wrong/ is not a complete overlay: .*t.py"),
                              (("s.py", "t.py"), "broken/wrong/ needs a file no milestone owns")):
-            with self.subTest(files=files):
-                with self.assertRaisesRegex(ValueError, error):
-                    self.load(self.BASE, broken={"wrong": files})
+            with self.subTest(files=files), self.assertRaisesRegex(ValueError, error):
+                self.load(self.BASE, broken={"wrong": files})
         with self.assertRaisesRegex(ValueError, "reference/ is not a complete overlay"):
             self.load(self.BASE, files=("s.py", "tests/test_journey.py"))
 
@@ -2407,7 +2430,9 @@ class FakeSchemaTests(unittest.TestCase):
                 contract.assert_called_once_with(final=final)
 
     def test_missing_required_fields_get_empty_values_of_their_type(self):
-        import importlib, json, os
+        import importlib
+        import json
+        import os
         with tempfile.TemporaryDirectory() as root:
             config = Path(root) / "config.json"
             config.write_text(json.dumps({"check": "true", "paths": [], "brief": "x"}))
@@ -4297,7 +4322,7 @@ class PhaseEnvironmentTests(unittest.TestCase):
         self.assertEqual(2, len(probe.unexpected_requests()))
 
     def test_ac8_parent_home_and_oauth_sentinel_untouched(self):
-        phase_env = self.phase_env()
+        self.phase_env()
         base = self.sequence_base("ac8")
         parent_home = base / "parent-home"
         sentinel = parent_home / ".config" / "provider" / "oauth.json"
@@ -4454,9 +4479,6 @@ class OracleEnvInheritanceTests(unittest.TestCase):
 
 
 # The suite gate discovers this module's TestCase classes, one test per process.
-from .test_native_cli import NativeScenarioCliTests
-from .test_native_oracles import NativeReporterCounterexamples, NativeDifferentialCounterexamples, NpmSetupBoundaryTests
-from .test_human_stop import QuestionAnswerabilityTests, HumanQuestionStopTests, HumanQuestionCliTests
 
 
 if __name__ == "__main__":

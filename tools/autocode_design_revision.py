@@ -4,13 +4,18 @@ Owns design_input_changes and settings.design_manifest_history. Historical
 references, approvals and independently recorded results stay retrievable.
 """
 import copy
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
+
 try:
-    from . import autocode_design_manifest as manifest, autocode_design_identity as identity
-    from . import autocode_util as util, autocode_goals as goals
+    from . import autocode_design_identity as identity
+    from . import autocode_design_manifest as manifest
+    from . import autocode_goals as goals
+    from . import autocode_util as util
 except ImportError:
-    import autocode_design_manifest as manifest, autocode_design_identity as identity
-    import autocode_util as util, autocode_goals as goals
+    import autocode_design_identity as identity
+    import autocode_design_manifest as manifest
+    import autocode_goals as goals
+    import autocode_util as util
 
 
 def _references(candidate, previous):

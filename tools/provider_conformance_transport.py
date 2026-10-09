@@ -6,19 +6,23 @@ This does not import the workflow controller or change its production launcher.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import tomllib
+from pathlib import Path
 
 try:
-    from . import autocode_agent_env as agent_env, autocode_process as processes
-    from . import autocode_providers as providers, autocode_support as support
+    from . import autocode_agent_env as agent_env
+    from . import autocode_process as processes
+    from . import autocode_providers as providers
+    from . import autocode_support as support
     from .autocode_event_log import open_events
     from .autocode_util import atomic_json
     from .providers import command, env_prep
 except ImportError:
-    import autocode_agent_env as agent_env, autocode_process as processes
-    import autocode_providers as providers, autocode_support as support
+    import autocode_agent_env as agent_env
+    import autocode_process as processes
+    import autocode_providers as providers
+    import autocode_support as support
     from autocode_event_log import open_events
     from autocode_util import atomic_json
     from providers import command, env_prep
@@ -95,12 +99,11 @@ def execute(*, adapter, workspace, directory, model, effort, session, allow_writ
     argv[0] = executable
     atomic_json(directory / "launch.json", {"argv": argv, "withheld_env": agent_env.withheld(env)})
     with (open_events(event_path) as sink, (directory / "stderr.txt").open("w") as stderr,
-          prompt_path.open() as input_file):
-        with processes.interruption_handler():
-            child = subprocess.Popen(argv, cwd=workspace, env=child_env, stdin=input_file,
-                                     stdout=sink, stderr=stderr, text=True, start_new_session=True)
-            code, timed_out = processes.wait_for_stage(
-                child, timeout, lambda ids: atomic_json(directory / "processes.json", ids))
+          prompt_path.open() as input_file, processes.interruption_handler()):
+        child = subprocess.Popen(argv, cwd=workspace, env=child_env, stdin=input_file,
+                                 stdout=sink, stderr=stderr, text=True, start_new_session=True)
+        code, timed_out = processes.wait_for_stage(
+            child, timeout, lambda ids: atomic_json(directory / "processes.json", ids))
     rows = support.events(event_path)
     atomic_json(directory / "normalized-events.json", rows)
     report, report_error = None, None

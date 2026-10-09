@@ -8,11 +8,11 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode
@@ -211,7 +211,7 @@ class WhereRunsAreFound(Fixture):
 
     def test_layouts_that_are_not_user_runs_are_ignored(self):
         outside = self.root / "outside"
-        outside_run = self.run_in(outside)
+        self.run_in(outside)
         worktrees = self.project / ".autocode" / "worktrees"
         handmade = worktrees / "handmade"
         self.run_in(handmade)                                           # no task-workspace.json

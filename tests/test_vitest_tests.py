@@ -1,13 +1,13 @@
 """Fail-closed command and evidence boundaries for native Vitest named proof."""
 import copy
 import json
-from pathlib import Path
 import shlex
 import tempfile
 import unittest
+from pathlib import Path
 
-import autocode_vitest_tests as vitest
 import autocode_verify as verify
+import autocode_vitest_tests as vitest
 
 
 class CommandTests(unittest.TestCase):

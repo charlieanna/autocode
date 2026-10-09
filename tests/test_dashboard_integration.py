@@ -4,8 +4,9 @@ import json
 import os
 import unittest
 from unittest.mock import patch
-from . import test_report_repair as repair_fixtures
+
 from . import test_goals as goal_fixtures
+from . import test_report_repair as repair_fixtures
 
 runner = repair_fixtures.runner
 support = repair_fixtures.support
@@ -80,11 +81,10 @@ class DashboardIntegrationTests(unittest.TestCase):
         self.submit(fixture)
         with patch.object(support, 'snapshot', return_value=snapshot), \
              patch.object(runner.processes, 'process_table', return_value=controller) as table, \
-             patch.object(runner.subprocess, 'Popen') as launch:
-            with self.assertRaises(support.Paused):
-                runner.run_role(role='astra', prompt='Fixture only', sandbox='read-only', workspace=fixture.root,
-                    run_dir=fixture.run, state=fixture.state, schema=runner.SCHEMA_DIR/'v2/astra-decision.schema.json',
-                    model='fixture', allow_write=False, dry_run=False)
+             patch.object(runner.subprocess, 'Popen') as launch, self.assertRaises(support.Paused):
+            runner.run_role(role='astra', prompt='Fixture only', sandbox='read-only', workspace=fixture.root,
+                run_dir=fixture.run, state=fixture.state, schema=runner.SCHEMA_DIR/'v2/astra-decision.schema.json',
+                model='fixture', allow_write=False, dry_run=False)
         table.assert_called_once_with({os.getpid()})
         launch.assert_not_called()
         self.assertEqual(0, fixture.state['planning']['astra_calls'])

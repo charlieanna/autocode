@@ -81,22 +81,19 @@ class ProposalValidationTests(unittest.TestCase):
         for method, message in (("python -m pytest .autocode/runs/r/test_x.py", "session state"),
                                 ("python -m pytest ../../other/test_x.py", "traversing"),
                                 ("python -m pytest /tmp/test_x.py", "absolute")):
-            with self.subTest(method=method):
-                with self.assertRaisesRegex(ValueError, message):
-                    progressive.validate_check(check(method=method))
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, message):
+                progressive.validate_check(check(method=method))
 
     def test_bare_nested_and_git_session_operands_are_rejected(self):
         for operand in (".autocode", ".git", ".git/config", "tests/.tmp-autopilot-testkit/test_x.py",
                         "fixtures/.autocode/data", "--fixture=.scenario-runs"):
-            with self.subTest(operand=operand):
-                with self.assertRaisesRegex(ValueError, "session state"):
-                    progressive.validate_check(check(method="python -m pytest " + operand))
+            with self.subTest(operand=operand), self.assertRaisesRegex(ValueError, "session state"):
+                progressive.validate_check(check(method="python -m pytest " + operand))
 
     def test_session_paths_cannot_be_writable_slice_paths(self):
         for path in (".git", "tests/.tmp-autopilot-testkit", "fixtures/.autocode"):
-            with self.subTest(path=path):
-                with self.assertRaisesRegex(ValueError, "session state"):
-                    progressive.validate_slice(slice_row(paths=(path,)), ["C1"])
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "session state"):
+                progressive.validate_slice(slice_row(paths=(path,)), ["C1"])
 
     def test_head_cannot_depend_on_future_slice(self):
         bad = proposal()
@@ -234,9 +231,8 @@ class DelegationTests(unittest.TestCase):
                                ({**self.held, "delegation": {**self.seal, "contract_token": "r1:other"}},
                                  "different contract token"),
                                ({**self.held, "delegation": {**self.seal, "plan_hash": ""}}, "sealed plan identity")):
-            with self.subTest(state=state):
-                with self.assertRaisesRegex(ValueError, message):
-                    progressive.require_delegation(state, **self.auth)
+            with self.subTest(state=state), self.assertRaisesRegex(ValueError, message):
+                progressive.require_delegation(state, **self.auth)
 
     def test_missing_or_model_asserted_authentication_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "authenticated current"):
@@ -299,17 +295,15 @@ class DelegationTests(unittest.TestCase):
         for key in ("slice_review_calls", "slice_stage_seconds", "run_max_seconds"):
             changed = copy.deepcopy(held)
             changed["delegation"]["limits"][key] += 1
-            with self.subTest(key=key):
-                with self.assertRaisesRegex(ValueError, "disclosure"):
-                    progressive.require_delegation(changed, **{**self.auth, "contract_body": body})
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "disclosure"):
+                progressive.require_delegation(changed, **{**self.auth, "contract_body": body})
         hidden = {**body, "constraints": [card["constraints"][0].replace("8000", "5400")]}
         with self.assertRaisesRegex(ValueError, "disclosure"):
             progressive.require_delegation(held, **{**self.auth, "contract_body": hidden})
         for missing in (None, {}):
-            with self.subTest(missing=missing):
-                with self.assertRaises(ValueError):
-                    progressive.require_delegation({**held, "delegation": {**sealed, "limits": missing}},
-                                                   **{**self.auth, "contract_body": body})
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                progressive.require_delegation({**held, "delegation": {**sealed, "limits": missing}},
+                                               **{**self.auth, "contract_body": body})
 
     def test_explicit_unlimited_limits_are_visible_and_canonical(self):
         for unlimited in (0, None):
@@ -402,10 +396,9 @@ class RevisionTests(unittest.TestCase):
                                (retirement(old, kind="technical_revision"), "product-change grant"),
                                ({"check_id": "K1", "removes": "old path", "approved_by": "r3:token"},
                                 "product-change grant")):
-            with self.subTest(grant=grant):
-                with self.assertRaisesRegex(ValueError, message):
-                    progressive.validate_revision(proposal(), after, ["C1", "C2"], established=established,
-                                                  retirement_grants=[grant], **auth)
+            with self.subTest(grant=grant), self.assertRaisesRegex(ValueError, message):
+                progressive.validate_revision(proposal(), after, ["C1", "C2"], established=established,
+                                              retirement_grants=[grant], **auth)
         with self.assertRaisesRegex(ValueError, "authenticated"):
             progressive.validate_revision(proposal(), after, ["C1", "C2"],
                                           retirement_grants=[retirement(old)], contract_token="r2:changed")
@@ -587,25 +580,22 @@ class BindingTests(unittest.TestCase):
     def test_an_old_report_cannot_acquire_a_new_identity(self):
         self.assertIs(self.binding, progressive.check_binding(self.binding, self.report, **self.expected))
         for key, value in (("plan_hash", "ph2"), ("slice_id", "S2"), ("task_id", "t2"), ("attempt", 2)):
-            with self.subTest(key=key):
-                with self.assertRaisesRegex(ValueError, key):
-                    progressive.check_binding(self.binding, self.report, **{**self.expected, key: value})
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
+                progressive.check_binding(self.binding, self.report, **{**self.expected, key: value})
 
     def test_normalized_report_needs_every_exact_identity(self):
         for key in self.report:
             for changed in ({k: v for k, v in self.report.items() if k != key},
                             {**self.report, key: 99 if key == "attempt" else "different"}):
-                with self.subTest(key=key, report=changed):
-                    with self.assertRaises(ValueError):
-                        progressive.check_binding(self.binding, changed, **self.expected)
+                with self.subTest(key=key, report=changed), self.assertRaises(ValueError):
+                    progressive.check_binding(self.binding, changed, **self.expected)
         with self.assertRaisesRegex(ValueError, "attempt"):
             progressive.check_binding(self.binding, {**self.report, "attempt": True}, **self.expected)
 
     def test_missing_current_token_or_validated_source_fails_closed(self):
         for key in ("contract_token", "validated_source"):
-            with self.subTest(key=key):
-                with self.assertRaises(ValueError):
-                    progressive.check_binding(self.binding, self.report, **{**self.expected, key: None})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                progressive.check_binding(self.binding, self.report, **{**self.expected, key: None})
         unbound = {**self.binding, "contract_token": None}
         with self.assertRaisesRegex(ValueError, "contract_token"):
             progressive.check_binding(unbound, self.report, **self.expected)
@@ -618,9 +608,8 @@ class BindingTests(unittest.TestCase):
 
     def test_binding_rejects_noninteger_attempts(self):
         for attempt in (0, -1, True, "1", 1.5):
-            with self.subTest(attempt=attempt):
-                with self.assertRaisesRegex(ValueError, "positive integer"):
-                    progressive.bind_attempt("S1", "t1", attempt, plan_hash="ph", assignment_source="a")
+            with self.subTest(attempt=attempt), self.assertRaisesRegex(ValueError, "positive integer"):
+                progressive.bind_attempt("S1", "t1", attempt, plan_hash="ph", assignment_source="a")
 
     def test_binding_rejects_missing_or_nonstring_snapshots_and_plan_identity(self):
         for key in ("plan_hash", "assignment_source", "validated_source", "contract_token"):
@@ -672,9 +661,8 @@ class LimitTests(unittest.TestCase):
         for flag in (False, None, 1, "true"):
             invalid.append({**progressive.default_limits(), "run_max_seconds_explicit_only": flag})
         for limits in invalid:
-            with self.subTest(limits=limits):
-                with self.assertRaises(ValueError):
-                    progressive.normalize_limits(limits)
+            with self.subTest(limits=limits), self.assertRaises(ValueError):
+                progressive.normalize_limits(limits)
 
     def test_normalization_does_not_mutate_caller_configuration(self):
         configured = {**progressive.default_limits(), "slice_stage_seconds": 0}

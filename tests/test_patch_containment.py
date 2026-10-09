@@ -4,6 +4,7 @@ import unittest
 
 import autocode_base_patch as base_patch
 from autocode_patch_containment import contains_edits
+
 from tests.test_verify import Project, git
 
 

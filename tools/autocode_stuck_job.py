@@ -54,13 +54,14 @@ from dataclasses import replace
 from pathlib import Path
 
 try:
-    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_progressive_state as progressive
+    from . import autocode_stage_access as stage_access
+    from . import autocode_stray_writes as stray_writes
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_progressive_state as progressive
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
-    import autocode_progressive_state as progressive
     from autocode_test_cases import run_probes
 
 STAGE = "investigate_stuck"
@@ -159,7 +160,7 @@ budgets; the runner grants at most one more attempt. Return JSON only, matching 
 
 
 def now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def enabled(state: dict) -> bool:

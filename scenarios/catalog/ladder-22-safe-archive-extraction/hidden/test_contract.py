@@ -4,7 +4,9 @@ import unittest
 import warnings
 import zipfile
 from pathlib import Path
+
 from safezip import extract
+
 
 class ArchiveContract(unittest.TestCase):
     def setUp(self):

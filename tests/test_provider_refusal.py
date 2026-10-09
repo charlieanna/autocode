@@ -20,8 +20,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from .supervision_fixture import launcher
-
 import autocode as runner
 import autocode_dispatch as dispatch
 import autocode_goals as goals
@@ -32,6 +30,8 @@ import autocode_run_view as run_view
 import autocode_support as support
 import autocode_worker_quota as worker_quota
 from goal_fixtures import approve_fixture
+
+from .supervision_fixture import launcher
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
 FIXTURE = FIXTURES / "opencode-content-filter-run.jsonl"
@@ -332,11 +332,10 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
              patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
              patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=exited), \
-             contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(support.Paused) as caught:
-                runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,
-                                run_dir=self.run, state=state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
-                                model=MIMO, allow_write=True, dry_run=False)
+             contextlib.redirect_stdout(io.StringIO()), self.assertRaises(support.Paused) as caught:
+            runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,
+                            run_dir=self.run, state=state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                            model=MIMO, allow_write=True, dry_run=False)
         return caught.exception, state
 
     def reconcile(self, state):

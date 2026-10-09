@@ -3,24 +3,26 @@
 Expected answers stay in the test process, never in model prompts. Test failures
 retain candidates and raw reports. No automatic repair or safety-pause bypass.
 """
-import copy
 import base64
+import copy
 import json
 import math
 import os
 import shlex
-import tempfile
-from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 import zlib
+from pathlib import Path
 from unittest.mock import patch
-from . import test_build_blackbox as bb
-import build_product_fixtures as products
+
 import autocode_support as support
 import autoreview_product_probe as probe
+import build_product_fixtures as products
+
+from . import test_build_blackbox as bb
 
 
 def probe_argv(command):
@@ -50,7 +52,7 @@ def go_evidence(executed, command, project, identity):
     """Keep expected answers in the harness, not the reviewer-invoked probe."""
     for event in executed:
         try:
-            argv = probe_argv(event.get('command', ''))
+            probe_argv(event.get('command', ''))
             if not probe_command_matches(event.get('command', ''), command) or event.get('exit_code') != 0:
                 continue
             rows = [json.loads(line) for line in event.get('aggregated_output', '').splitlines()]

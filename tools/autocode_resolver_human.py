@@ -11,15 +11,18 @@ import subprocess
 from pathlib import Path
 
 try:
-    from . import autocode_support as support, autocode_operational_information as information
-    from . import autocode_bug_questions as bug_questions, autocode_member_stop as member_stop
+    from . import autocode_bug_questions as bug_questions
+    from . import autocode_member_stop as member_stop
+    from . import autocode_operational_information as information
     from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_support as support
     from .autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 except ImportError:
-    import autocode_support as support, autocode_bug_questions as bug_questions
-    import autocode_operational_information as information
+    import autocode_bug_questions as bug_questions
     import autocode_member_stop as member_stop
+    import autocode_operational_information as information
     import autocode_recovery_limits as recovery_limits
+    import autocode_support as support
     from autocode_goals import RESOLVER_PROPOSAL_KEY, RESOLVER_REQUEST_KEY
 
 

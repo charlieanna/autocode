@@ -2,21 +2,22 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_workspaces as workspaces
     from . import autocode_resolver_human as human
+    from . import autocode_util as util
+    from . import autocode_workspaces as workspaces
 except ImportError:
+    import autocode_resolver_human as human
     import autocode_util as util
     import autocode_workspaces as workspaces
-    import autocode_resolver_human as human
 
 
 TERMINAL_CODE = {'TASK_COMPLETE'}
@@ -48,8 +49,8 @@ def load_manifest(path):
                 raise ValueError('Each task needs nonempty id, mode and task fields')
             if task['mode'] not in ('ui', 'code'):
                 raise ValueError('Task mode must be ui or code')
-            if task.get('engine') not in (None, 'codex', 'opencode') or (task.get('engine') and task['mode'] != 'code'):
-                raise ValueError('engine must be codex or opencode and is available only for code tasks')
+            if task.get('engine') not in (None, 'codex', 'opencode', 'qwen') or (task.get('engine') and task['mode'] != 'code'):
+                raise ValueError('engine must be codex, opencode or qwen and is available only for code tasks')
             if task.get('ui_from') and task['mode'] != 'code':
                 raise ValueError('ui_from is available only for code tasks')
             task_ids.append(task['id'])

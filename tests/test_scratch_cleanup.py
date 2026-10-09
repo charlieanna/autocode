@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import autocode_verify as verify
+
 from tests.test_verify import Project, git
 
 

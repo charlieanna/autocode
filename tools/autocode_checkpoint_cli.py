@@ -9,30 +9,38 @@ idempotent replay reconciles only its exact owned path; it never resets files.
 from __future__ import annotations
 
 try:
-    from . import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+    from . import autocode_source_scope as source_scope
+    from . import autocode_source_snapshot as source_snapshot
 except ImportError:
-    import autocode_source_scope as source_scope, autocode_source_snapshot as source_snapshot
+    import autocode_source_scope as source_scope
+    import autocode_source_snapshot as source_snapshot
 
 
 import argparse
-from contextlib import contextmanager
 import difflib
 import fcntl
 import json
-from pathlib import Path
 import re
 import sys
+from contextlib import contextmanager
+from pathlib import Path
 
 try:
-    from . import autocode_util as util, autocode_code_checkpoints as checkpoints
-    from . import autocode_checkpoint_continuation as continuation, autocode_contract_identity as contract
-    from . import autocode_workspaces as workspaces, autocode_registry as registry
-    from . import autocode_legacy_process as legacy, autocode_checkout_lock as checkout_lock
+    from . import autocode_checkout_lock as checkout_lock
+    from . import autocode_checkpoint_continuation as continuation
+    from . import autocode_code_checkpoints as checkpoints
+    from . import autocode_legacy_process as legacy
+    from . import autocode_registry as registry
+    from . import autocode_util as util
+    from . import autocode_workspaces as workspaces
 except ImportError:
-    import autocode_util as util, autocode_code_checkpoints as checkpoints
-    import autocode_checkpoint_continuation as continuation, autocode_contract_identity as contract
-    import autocode_workspaces as workspaces, autocode_registry as registry
-    import autocode_legacy_process as legacy, autocode_checkout_lock as checkout_lock
+    import autocode_checkout_lock as checkout_lock
+    import autocode_checkpoint_continuation as continuation
+    import autocode_code_checkpoints as checkpoints
+    import autocode_legacy_process as legacy
+    import autocode_registry as registry
+    import autocode_util as util
+    import autocode_workspaces as workspaces
 
 
 def regular(path, root):

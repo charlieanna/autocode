@@ -1,16 +1,16 @@
 """Public stage/approval boundary tests with real source and replay evidence."""
 import copy
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode as runner
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
-import autocode_progressive_state as progressive
 import autocode_progressive_completion as completion
+import autocode_progressive_state as progressive
 import autocode_resolver_human as human
 import autocode_util as util
 import goal_fixtures

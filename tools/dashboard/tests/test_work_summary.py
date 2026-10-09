@@ -1,12 +1,12 @@
 """Saved public status is the sole authority for the Work summary."""
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dashboard_work_summary import project, progress_from_status
 from dashboard_verification import digest
+from dashboard_work_summary import progress_from_status, project
 
 
 def fixture(status='RUNNING'):

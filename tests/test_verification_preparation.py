@@ -1,28 +1,29 @@
 """Exact preparation custody and a read-only public current-obligation frontier."""
-from copy import deepcopy
 import json
 import os
 import re
-from pathlib import Path
 import shlex
-import sys
 import subprocess
+import sys
 import tempfile
 import unittest
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
-from .test_verification_recovery import AdmissionFixture
 import autocode_command_receipt as receipts
+import autocode_configure as configure
 import autocode_process as processes
 import autocode_run_view as run_view
+import autocode_taskrun as taskrun
 import autocode_util as util
 import autocode_verification_preparation as preparation
 import autocode_verification_prepare_worker as prepare_worker
 import autocode_verification_recovery as recovery
 import autocode_verification_schedule as schedule
-import autocode_configure as configure
-import autocode_taskrun as taskrun
 import autocode_verify as verify
+
+from .test_verification_recovery import AdmissionFixture
 
 
 class PreparationFixture(AdmissionFixture):
@@ -307,7 +308,9 @@ class PreparationReaderBoundsTests(unittest.TestCase):
 class OwnedPreparationExecutionTests(unittest.TestCase):
     def _scheduled_supply(self, notes):
         import hashlib
+
         import autocode_launch_inputs as launch_inputs
+
         from .test_verify import Project
         project = Project({'.gitignore': '_version.py\nvendor/\n',
             'app.py': 'from _version import VALUE\nfrom vendor.library import OFFSET\ndef answer(): return VALUE + OFFSET\n',
@@ -368,10 +371,9 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
             return original(path,value)
         with patch.object(processes,'process_table',return_value={os.getpid():{'pid':7,'birth_identity':1}}), \
                 patch.object(processes,'identity',return_value={'pid':7,'birth_identity':1}), \
-                patch.object(util,'atomic_json',side_effect=barrier):
-            with self.assertRaises(receipts.OwnershipUncertain):
-                schedule.run(root,{'fixture':'one'},lambda out:calls.append(out),reuse_allowed=False,
-                             reason='fresh',current_identity=lambda:{'fixture':'one'},owned_preparation=True)
+                patch.object(util,'atomic_json',side_effect=barrier), self.assertRaises(receipts.OwnershipUncertain):
+            schedule.run(root,{'fixture':'one'},lambda out:calls.append(out),reuse_allowed=False,
+                         reason='fresh',current_identity=lambda:{'fixture':'one'},owned_preparation=True)
         self.assertEqual([],calls);self.assertFalse((root/'pending.json').exists())
         self.assertEqual(1,len(list(root.glob('*/*/preparation-admission.json'))))
 
@@ -452,10 +454,9 @@ class OwnedPreparationExecutionTests(unittest.TestCase):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         base=Path(temporary.name).resolve();real=base/'real';real.mkdir()
         linked=base/'linked';linked.symlink_to(real,target_is_directory=True)
-        with patch.object(preparation,'allocate') as allocate:
-            with self.assertRaises(util.Paused):
-                schedule.run(linked/'obligations',{'fixture':'linked'},lambda out:{'exit_code':0},
-                    reuse_allowed=False,reason='fresh',current_identity=lambda:{'fixture':'linked'},owned_preparation=True)
+        with patch.object(preparation,'allocate') as allocate, self.assertRaises(util.Paused):
+            schedule.run(linked/'obligations',{'fixture':'linked'},lambda out:{'exit_code':0},
+                reuse_allowed=False,reason='fresh',current_identity=lambda:{'fixture':'linked'},owned_preparation=True)
         self.assertFalse(allocate.called);self.assertFalse((real/'obligations').exists())
 
     def test_parent_construction_does_not_discover_environment_before_worker(self):

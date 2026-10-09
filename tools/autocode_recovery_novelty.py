@@ -5,12 +5,12 @@ evidence and still enforces the ordinary retry, scope and independent review gat
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import ast
 import io
 import json
 import re
 import tokenize
+from dataclasses import asdict, dataclass
 
 try:
     from . import autocode_util as util

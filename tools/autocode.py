@@ -7,110 +7,236 @@ The Builder is the only designated writer; review roles are checked for source d
 
 from __future__ import annotations
 
-import argparse
-import datetime as dt
+import copy
 import json
 import os
-import re
-import shlex
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Any
-import copy
 import uuid
 from contextlib import ExitStack
-try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_launch_inputs as launch_inputs
-    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
-    from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
-    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
-except ImportError:
-    import autocode_launch_inputs as launch_inputs
-    import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
-    import autocode_regression as regression, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
-    import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
-    import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
-    import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
-    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
+from pathlib import Path
+from typing import Any
 
 try:
-    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
-    from . import autocode_workspaces as task_workspaces, autocode_figma as figma
-    from . import autopilot
-    from . import autocode_workflow as workflow
-    from . import autocode_milestones as milestones
+    from . import autocode_agent_env as agent_env
+    from . import autocode_artifacts as artifacts
+    from . import autocode_checkout_lock as checkout_lock
+    from . import autocode_cmd_only_report as cmd_only
+    from . import autocode_completion as completion_gate
+    from . import autocode_detached_output as detached_output
+    from . import autocode_escalation as escalation
+    from . import autocode_event_log as event_log
+    from . import autocode_failures as failures
+    from . import autocode_format_correction as format_correction
+    from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_goals as goals
+    from . import autocode_interventions as interventions
+    from . import autocode_jobs as jobs
+    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_opencode as opencode
+    from . import autocode_planning as planning
+    from . import autocode_planning_metadata as planning_metadata
+    from . import autocode_process as processes
+    from . import autocode_provider_launch as provider_launch
+    from . import autocode_providers, autocode_status
+    from . import autocode_qwen as qwen
+    from . import autocode_readonly_events as readonly_events
+    from . import autocode_registry as registry
+    from . import autocode_regression as regression
+    from . import autocode_repaired_result as repaired_result
+    from . import autocode_report_repair_context as report_repair_context
+    from . import autocode_resolver_recovery as resolver_recovery
+    from . import autocode_result_application as result_application
+    from . import autocode_rework_policy as rework_policy
+    from . import autocode_source_diff as source_diff
+    from . import autocode_source_scope as source_scope
+    from . import autocode_source_snapshot as source_snapshot
+    from . import autocode_status as status_records
+    from . import autocode_stop as stop_policy
+    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stuck_repair_context as stuck_repair_context
+    from . import autocode_supervision as supervision
+    from . import autocode_supervision_cli as supervision_cli
+    from . import autocode_supervision_recovery as supervision_recovery
+    from . import autocode_support as support
+    from . import autocode_task_preflight as task_preflight
+    from . import autocode_util as util
+    from . import autocode_verbose as verbose
+    from . import autocode_verification_plan as verification_plan
+    from . import autocode_visual_profile as visual_profile
+    from . import autocode_visual_runtime as visual_runtime
+    from . import autocode_worktrees as worktrees
+except ImportError:
+    import autocode_agent_env as agent_env
+    import autocode_artifacts as artifacts
+    import autocode_checkout_lock as checkout_lock
+    import autocode_cmd_only_report as cmd_only
+    import autocode_completion as completion_gate
+    import autocode_detached_output as detached_output
+    import autocode_escalation as escalation
+    import autocode_event_log as event_log
+    import autocode_failures as failures
+    import autocode_format_correction as format_correction
+    import autocode_goal_lifecycle as lifecycle
+    import autocode_goals as goals
+    import autocode_interventions as interventions
+    import autocode_jobs as jobs
+    import autocode_launch_inputs as launch_inputs
+    import autocode_opencode as opencode
+    import autocode_planning as planning
+    import autocode_planning_metadata as planning_metadata
+    import autocode_process as processes
+    import autocode_provider_launch as provider_launch
+    import autocode_providers
+    import autocode_qwen as qwen
+    import autocode_readonly_events as readonly_events
+    import autocode_registry as registry
+    import autocode_regression as regression
+    import autocode_repaired_result as repaired_result
+    import autocode_report_repair_context as report_repair_context
+    import autocode_resolver_recovery as resolver_recovery
+    import autocode_result_application as result_application
+    import autocode_rework_policy as rework_policy
+    import autocode_source_diff as source_diff
+    import autocode_source_scope as source_scope
+    import autocode_source_snapshot as source_snapshot
+    import autocode_status
+    import autocode_status as status_records
+    import autocode_stop as stop_policy
+    import autocode_stray_writes as stray_writes
+    import autocode_stuck_repair_context as stuck_repair_context
+    import autocode_supervision as supervision
+    import autocode_supervision_cli as supervision_cli
+    import autocode_supervision_recovery as supervision_recovery
+    import autocode_support as support
+    import autocode_task_preflight as task_preflight
+    import autocode_util as util
+    import autocode_verbose as verbose
+    import autocode_verification_plan as verification_plan
+    import autocode_visual_profile as visual_profile
+    import autocode_visual_runtime as visual_runtime
+    import autocode_worktrees as worktrees
+
+try:
+    from . import autocode_args as cli_args
+    from . import autocode_budget_recovery as budget_recovery
+    from . import autocode_build_loop as build_loop
+    from . import autocode_configure, autopilot
     from . import autocode_dispatch as dispatch
-    from . import autocode_resolver_runtime as resolver_runtime
-    from . import autocode_resolver_human as resolver_human
-    from . import autocode_reviewer_fallback as reviewer_fallback
+    from . import autocode_findings as findings_ledger
+    from . import autocode_idle_policy as idle_policy
+    from . import autocode_job_failure as job_failure
+    from . import autocode_job_source as job_source
+    from . import autocode_milestones as milestones
+    from . import autocode_output_cap as output_cap
+    from . import autocode_output_policy as output_policy
     from . import autocode_planning_artifacts as planning_artifacts
-    from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
+    from . import autocode_progressive_state as progressive_state
+    from . import autocode_provider_refusal as provider_refusal
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_recovery_context as recovery_context
-    from . import autocode_progressive_state as progressive_state
-    from . import autocode_findings as findings_ledger
-    from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
-    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
-        assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
-        normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
-        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
-        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
-    from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
-    from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
-        authorize_failure_retry, automatically_recover_capacity_stage,
-        automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage, automatically_recover_truncated_review,
-        archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
-        prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)
-    from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
-    from . import autocode_idle_policy as idle_policy
+    from . import autocode_recovery_grants as recovery_grants
+    from . import autocode_recovery_limits as recovery_limits
+    from . import autocode_resolver_human as resolver_human
+    from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_reviewer_fallback as reviewer_fallback
+    from . import autocode_run_actions as run_actions
+    from . import autocode_run_setup as run_setup
+    from . import autocode_workflow as workflow
+    from . import autocode_workspaces as task_workspaces
+    from .autocode_activity import CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT, ActivityMonitor
+    from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
+    from .autocode_report_source import (
+        REPAIR_INPUT_ROUTE,
+        recovered_timeout_attempt,
+        repair_report_instruction,
+        repair_report_source,
+        valid_truncated_report_attempt,
+    )
+    from .autocode_run_records import (
+        account_stage,
+        archive_rejected_stage,
+        assert_stage_stopped,
+        attempt_id,
+        check_evidence_options,
+        default_missing_provenance,
+        normalize_human_boundary,
+        normalize_plan_challenge_blocking,
+        now,
+        read_json,
+        recovery_count,
+        repair_limit,
+        stage_completed,
+        stage_supports_sessions,
+    )
+    from .autocode_run_records import write_json as ordinary_write_json
+    from .autocode_stage_recovery import (
+        automatically_recover_report_repair_timeout,
+        automatically_recover_truncated_review,
+        reconcile_rate_limited_stage,
+        stale_report_repair,
+    )
 except ImportError:
-    import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
-    import autocode_workspaces as task_workspaces
-    import autocode_figma as figma
-    import autopilot
-    import autocode_workflow as workflow
-    import autocode_milestones as milestones
+    import autocode_args as cli_args
+    import autocode_budget_recovery as budget_recovery
+    import autocode_build_loop as build_loop
+    import autocode_configure
     import autocode_dispatch as dispatch
-    import autocode_resolver_runtime as resolver_runtime
-    import autocode_resolver_human as resolver_human
-    import autocode_reviewer_fallback as reviewer_fallback
+    import autocode_findings as findings_ledger
+    import autocode_idle_policy as idle_policy
+    import autocode_job_failure as job_failure
+    import autocode_job_source as job_source
+    import autocode_milestones as milestones
+    import autocode_output_cap as output_cap
+    import autocode_output_policy as output_policy
     import autocode_planning_artifacts as planning_artifacts
-    import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
+    import autocode_progressive_state as progressive_state
+    import autocode_provider_refusal as provider_refusal
     import autocode_recovery_accounting as recovery_accounting
     import autocode_recovery_context as recovery_context
-    import autocode_progressive_state as progressive_state
-    import autocode_findings as findings_ledger
-    import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    import autocode_output_policy as output_policy, autocode_output_cap as output_cap
-    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
-        assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
-        normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
-        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
-        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
-    from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
-    from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
-        authorize_failure_retry, automatically_recover_capacity_stage,
-        automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage, automatically_recover_truncated_review,
-        archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
-        prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)
-    from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
-    import autocode_idle_policy as idle_policy
+    import autocode_recovery_grants as recovery_grants
+    import autocode_recovery_limits as recovery_limits
+    import autocode_resolver_human as resolver_human
+    import autocode_resolver_runtime as resolver_runtime
+    import autocode_reviewer_fallback as reviewer_fallback
+    import autocode_run_actions as run_actions
+    import autocode_run_setup as run_setup
+    import autocode_workflow as workflow
+    import autocode_workspaces as task_workspaces
+    import autopilot
+    from autocode_activity import CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT, ActivityMonitor
+    from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
+    from autocode_report_source import (
+        REPAIR_INPUT_ROUTE,
+        recovered_timeout_attempt,
+        repair_report_instruction,
+        repair_report_source,
+        valid_truncated_report_attempt,
+    )
+    from autocode_run_records import (
+        account_stage,
+        archive_rejected_stage,
+        assert_stage_stopped,
+        attempt_id,
+        check_evidence_options,
+        default_missing_provenance,
+        normalize_human_boundary,
+        normalize_plan_challenge_blocking,
+        now,
+        read_json,
+        recovery_count,
+        repair_limit,
+        stage_completed,
+        stage_supports_sessions,
+    )
+    from autocode_run_records import write_json as ordinary_write_json
+    from autocode_stage_recovery import (
+        automatically_recover_report_repair_timeout,
+        automatically_recover_truncated_review,
+        reconcile_rate_limited_stage,
+        stale_report_repair,
+    )
 
 
 write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
@@ -197,6 +323,9 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
         # Persist rejected reports too, so archival never leaves a missing repair input.
         if record.get('output_mode') != 'report_file':
             write_json(Path(record['output']), value)
+    elif record.get("engine") == "qwen":
+        value = qwen.final_report(record["events"])  # Qwen events are authoritative too.
+        write_json(Path(record['output']), value)
     else:
         value = util.read_object(Path(record["output"]))
     reported = copy.deepcopy(cmd_only.refuse(value, record.get("schema")))  # never a report, never run (#512)
@@ -395,6 +524,8 @@ def run_role(
             regression_proof_current=current_proof, regression_handoff=regression.handoff(state) if current_proof else None)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
+    elif engine == "qwen":
+        prompt = qwen.prompt_for_schema(prompt, read_json(schema), events)
     child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
@@ -433,7 +564,7 @@ def run_role(
     record["engine"] = engine
     record['reasoning_effort'] = effort
     record['launch_route'] = {key: route.get(key) for key in ('engine', 'provider', 'model', 'reasoning_effort')}
-    record['output_mode'] = getattr(opencode, 'OUTPUT', 'opencode_events') if engine == 'opencode' else 'codex_events'
+    record['output_mode'] = getattr(opencode, 'OUTPUT', 'opencode_events') if engine == 'opencode' else (qwen.OUTPUT if engine == 'qwen' else 'codex_events')
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
@@ -443,6 +574,8 @@ def run_role(
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")
+    elif engine == "qwen":
+        record.update(isolation=qwen.ISOLATION)
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):
@@ -1091,7 +1224,8 @@ def check_joint_transports(state, workspace):
         except RuntimeError as error:
             raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
         opencode_changed = opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])
-    if codex_changed or opencode_changed:
+    qwen_changed = qwen.transport_changed(state["settings"], identities, workspace, planning.engine_for)
+    if codex_changed or opencode_changed or qwen_changed:
         raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")
 
 
@@ -1219,7 +1353,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                 resolver_human.require_response(candidate, published['request_id'], published['request_token'])
             except ValueError:
                 if run_dir is not None and interventions.pending(run_dir):
-                    raise support.Paused('PAUSED_INTERVENTION_PENDING', 'Queued intervention takes precedence over this human response')
+                    raise support.Paused('PAUSED_INTERVENTION_PENDING', 'Queued intervention takes precedence over this human response') from None
                 raise
         callback(candidate)
         if published:

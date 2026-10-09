@@ -9,19 +9,20 @@ Shared virtualenvs and node_modules are outside this inventory.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager, ExitStack
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import stat
 import sys
 import uuid
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 try:
-    from . import autocode_util as util, autocode_verify as verify
+    from . import autocode_util as util
+    from . import autocode_verify as verify
 except ImportError:
     import autocode_util as util
     import autocode_verify as verify
@@ -168,9 +169,8 @@ def _anchor(root):
 def _parent(root, name, *, create=False, expected_root=None):
     """Pin every parent with no-follow directory opens before reading or writing."""
     if expected_root is None:
-        with _anchor(root) as anchor:
-            with _parent(root, name, create=create, expected_root=anchor) as parent:
-                yield parent
+        with _anchor(root) as anchor, _parent(root, name, create=create, expected_root=anchor) as parent:
+            yield parent
         return
     _path(root, name)
     _fresh(expected_root, root)

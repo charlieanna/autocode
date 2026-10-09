@@ -15,26 +15,32 @@ except ImportError:
 
 import copy
 import json
-from pathlib import Path
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_input_preflight as inputs, autocode_util as util
-    from . import autocode_verify as verify, autocode_launch_inputs as launch_inputs
-    from . import autocode_runner_check as runner_check
-    from . import autocode_preflight_contract as contract, autocode_preflight_worker as workers
+    from . import autocode_input_preflight as inputs
+    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_preflight_contract as contract
     from . import autocode_preflight_design as design
+    from . import autocode_preflight_worker as workers
+    from . import autocode_runner_check as runner_check
+    from . import autocode_util as util
+    from . import autocode_verify as verify
 except ImportError:
-    import autocode_input_preflight as inputs, autocode_util as util
-    import autocode_verify as verify, autocode_launch_inputs as launch_inputs
-    import autocode_runner_check as runner_check
-    import autocode_preflight_contract as contract, autocode_preflight_worker as workers
+    import autocode_input_preflight as inputs
+    import autocode_launch_inputs as launch_inputs
+    import autocode_preflight_contract as contract
     import autocode_preflight_design as design
+    import autocode_preflight_worker as workers
+    import autocode_runner_check as runner_check
+    import autocode_util as util
+    import autocode_verify as verify
 
 PHASES = ("planning", "build", "validate")
 

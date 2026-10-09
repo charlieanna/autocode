@@ -5,11 +5,11 @@ import base64
 import copy
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_brief_acceptance as brief
 

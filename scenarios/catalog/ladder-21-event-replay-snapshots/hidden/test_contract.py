@@ -3,7 +3,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+
 from journal import Journal
+
 
 class ReplayContract(unittest.TestCase):
     def setUp(self):

@@ -2,26 +2,28 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autocode as runner, autocode_format_correction as format_correction
-import autocode_event_log as event_log
+import autocode as runner
 import autocode_configure
+import autocode_event_log as event_log
+import autocode_format_correction as format_correction
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
-import autopilot
 import autocode_support as support
-from . import test_subprocess as subprocess_tests
+import autopilot
+
 from . import opencode_fixture_cli as fixture_cli
+from . import test_subprocess as subprocess_tests
 
 
 def event(kind, **part):
@@ -84,10 +86,9 @@ emit("step_finish", reason="stop", tokens={"input": 10, "output": 5, "reasoning"
     def test_interrupted_recording_keeps_partial_events(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "events.jsonl"
-            with self.assertRaisesRegex(RuntimeError, "interrupted"):
-                with event_log.open_events(path) as sink:
-                    sink.write('{"type":"step_start"}\n')
-                    raise RuntimeError("interrupted")
+            with self.assertRaisesRegex(RuntimeError, "interrupted"), event_log.open_events(path) as sink:
+                sink.write('{"type":"step_start"}\n')
+                raise RuntimeError("interrupted")
             self.assertEqual('{"type":"step_start"}\n', path.read_text())
 
 

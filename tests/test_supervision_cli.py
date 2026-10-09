@@ -1,7 +1,6 @@
 """Public CLI supervisor-loss controls using an explicitly offline provider."""
 import json
 import os
-from pathlib import Path
 import pty
 import shutil
 import signal
@@ -11,10 +10,11 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-import autocode_supervision_cli as bridge
 import autocode_process as processes
+import autocode_supervision_cli as bridge
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 
@@ -43,9 +43,8 @@ class DeclarationTests(unittest.TestCase):
         for change in ({'schema': 2}, {'nonce': 'x' * 32}, {'receipt': 'relative'},
                        {'owner': {'pid': os.getpid(), 'birth_identity': 123}},
                        {'deadline': 99}, {'timeout_seconds': True}, {'deadline': float('nan')}):
-            with self.subTest(change=change):
-                with self.assertRaises(ValueError):
-                    self.read(json.dumps({**self.packet(), **change}).encode() + b'\n')
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.read(json.dumps({**self.packet(), **change}).encode() + b'\n')
 
     def test_closed_writer_and_oversized_declaration_refuse_before_launch(self):
         r, w = os.pipe()
@@ -69,9 +68,8 @@ class DeclarationTests(unittest.TestCase):
             with processes.interruption_handler():
                 self.assertEqual(signal.SIG_IGN, signal.getsignal(signal.SIGHUP))
             signal.signal(signal.SIGHUP, signal.SIG_DFL)
-            with processes.interruption_handler():
-                with self.assertRaises(KeyboardInterrupt):
-                    signal.raise_signal(signal.SIGHUP)
+            with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt):
+                signal.raise_signal(signal.SIGHUP)
             self.assertEqual(signal.SIG_DFL, signal.getsignal(signal.SIGHUP))
         finally:
             signal.signal(signal.SIGHUP, old)

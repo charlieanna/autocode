@@ -10,7 +10,8 @@ import tempfile
 from pathlib import Path
 
 from harness import resolver_calls
-from harness.oracle import Check, python_change_checks, run as command
+from harness.oracle import Check, python_change_checks
+from harness.oracle import run as command
 
 HIDDEN = Path(__file__).resolve().parent / "hidden"
 # The hidden test classes of the two planted defects. Other hidden tests (refusals, the existing report) can

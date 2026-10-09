@@ -7,21 +7,20 @@ recovery regressions in test_autocode/test_report_repair are cited per case.
 import copy
 import errno
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_findings as findings
 import autocode_goals as goals
 import autocode_support as support
+from goal_fixtures import envelope
+
 from . import test_catalogue_t06 as t06
-from goal_fixtures import body, envelope
 
 
 class CrashCase(t06.SolControllerCase):
@@ -65,7 +64,8 @@ class CrashCase(t06.SolControllerCase):
     def invoke_main(self, *args, role=None):
         support.atomic_json(self.run / "state.json", self.state)
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run), *args]
-        import contextlib, io
+        import contextlib
+        import io
         with patch.object(sys, "argv", argv), patch.object(support, "assert_no_legacy_process"), \
                 patch.object(support, "local_settings", return_value={"auth_mode": "fixture"}), \
                 patch.object(runner, "run_role", side_effect=role or AssertionError("No agent may launch")), \
@@ -298,7 +298,8 @@ class CrashScenarios(CrashCase):
         corrupt.write_text('{"version": 3, "status": "RUNNIN')  # truncated mid-write
         original_bytes = corrupt.read_text()
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run)]
-        import contextlib, io
+        import contextlib
+        import io
         with patch.object(sys, "argv", argv), patch.object(support, "assert_no_legacy_process"), \
                 patch.object(runner, "run_role", side_effect=AssertionError("no launch from corrupt state")), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -368,7 +369,7 @@ class CrashScenarios(CrashCase):
         canonical = {"approval": copy.deepcopy(self.state["goal_contract"]["approval_event"]),
                      "findings": findings.summary(self.state)["entries"]}
         for restart in range(3):
-            code = self.invoke_main()  # plain restart; nothing new to do
+            self.invoke_main()  # plain restart; nothing new to do
             self.check(f"[restart {restart}] no_launches", 0,
                        len([op for op in self.bundle.operations if op["kind"] == "blocked_real_launch"]))
             self.check(f"[restart {restart}] status_unchanged", "WAITING_FOR_USER", self.state["status"])
@@ -416,7 +417,7 @@ class CrashScenarios(CrashCase):
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         import os as _os
         _os.environ["AUTOCODE_HOME"] = str(self.root.parent / "registry-crh14")
-        code = self.invoke_main()
+        self.invoke_main()
         self.check("stale_acceptance_reported", True,
                    self.state["status"].startswith("PAUSED_") or self.state["status"] == "TASK_COMPLETE")
         self.check("no_silent_reapproval", True,

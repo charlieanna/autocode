@@ -1,7 +1,7 @@
 """tools/autocode_multicomponent.py: batching/ownership logic, and one end-to-end
 build+integrate through the real CLI with a scripted, per-component fake model."""
-import json
 import copy
+import json
 import os
 import runpy
 import shlex
@@ -15,10 +15,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-import autocode_multicomponent as mc
 import autocode_goals as goals
+import autocode_multicomponent as mc
 import autocode_util as util
 from autocode_taskrun import TaskRun, TaskRunError
+
 from .test_verify import isolated_python_env
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

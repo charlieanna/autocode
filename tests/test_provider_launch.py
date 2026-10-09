@@ -1,6 +1,6 @@
 """Unsupported engines must not silently dispatch through Codex."""
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import autocode_provider_launch as launch
 

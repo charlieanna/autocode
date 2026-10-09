@@ -22,51 +22,56 @@ import sys
 from pathlib import Path
 
 try:
-    from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
-    from . import autocode_job_route as job_route
-    from . import autocode_job_report_recovery as job_report_recovery
-    from . import autopilot
-    from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
+    from . import autocode_dependency as dependency
+    from . import autocode_design_intake as design_intake
+    from . import autocode_design_revision as design_revision
     from . import autocode_dispatch as dispatch
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
+    from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
+    from . import autocode_job_failure as job_failure
+    from . import autocode_job_report_recovery as job_report_recovery
+    from . import autocode_job_route as job_route
     from . import autocode_jobs as jobs
-    from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_member_stop as member_stop
     from . import autocode_milestones as milestones
     from . import autocode_operational_information as operational_information
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
-    from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
-    from . import autocode_resolver_human as resolver_human
+    from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
+    from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
     from . import autocode_run_records as records
     from . import autocode_runner_check as runner_check
     from . import autocode_stop as stop
     from . import autocode_support as support
+    from . import autocode_worker_quota as worker_quota
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
+    from . import autopilot
 except ImportError:
-    import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
-    import autocode_job_route as job_route
-    import autocode_job_report_recovery as job_report_recovery
-    import autopilot
-    import autocode_dependency as dependency
+    import autocode_accepted_source as accepted_source
     import autocode_conversation_ingress as conversation_ingress
+    import autocode_dependency as dependency
+    import autocode_design_intake as design_intake
+    import autocode_design_revision as design_revision
     import autocode_dispatch as dispatch
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
+    import autocode_goal_lifecycle as lifecycle
     import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_job_failure as job_failure
+    import autocode_job_report_recovery as job_report_recovery
+    import autocode_job_route as job_route
     import autocode_jobs as jobs
-    import autocode_goal_lifecycle as lifecycle
     import autocode_member_stop as member_stop
     import autocode_milestones as milestones
     import autocode_operational_information as operational_information
@@ -74,19 +79,19 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
     import autocode_quota_route as quota_route
-    import autocode_worker_quota as worker_quota
-    import autocode_resolver_human as resolver_human
     import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
+    import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
     import autocode_run_records as records
     import autocode_runner_check as runner_check
     import autocode_stop as stop
-    import autocode_accepted_source as accepted_source
     import autocode_support as support
+    import autocode_worker_quota as worker_quota
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
+    import autopilot
 
 
 # An --answer to a published blocker or operational request. The refusal names the form the
@@ -835,6 +840,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if state["settings"].get("engine") == "opencode":
         runner.opencode.check_models({r: config for r, config in state["settings"]["roles"].items()
                                if planning.engine_for(state["settings"], r) == "opencode"}, workspace)
+    if state["settings"].get("engine") == "qwen":
+        runner.qwen.check_models({r: config for r, config in state["settings"]["roles"].items()
+                               if planning.engine_for(state["settings"], r) == "qwen"}, workspace)
     if conversation_ingress.record_build_start(state, getattr(args, 'expected_goal_token', None),
                                                token_for=goals.token, is_approved=goals.approved):
         runner.write_json(state_path, state)
@@ -891,6 +899,11 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         if quota_route.engine(candidate['settings'], role) == 'opencode':
             try:
                 runner.opencode.check_models({role: {'model': model}}, workspace)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from None
+        if quota_route.engine(candidate['settings'], role) == 'qwen':
+            try:
+                runner.qwen.check_models({role: {'model': model}}, workspace)
             except RuntimeError as error:
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):

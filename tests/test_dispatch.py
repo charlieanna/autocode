@@ -3,22 +3,22 @@ import copy
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_goals
-from . import test_subprocess
 import autocode as runner
 import autocode_dispatch as d
-import autocode_goals as g
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as g
 import autocode_milestones as m
 import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope
+
+from . import test_goals, test_subprocess
 
 
 class TaskForTests(unittest.TestCase):
@@ -249,9 +249,8 @@ class DispatchTests(unittest.TestCase):
                 self.build()
         self.assertFalse((self.root / "a.txt").exists())
         before = copy.deepcopy(self.state["stages"])
-        with patch.object(d, "run_workers"):
-            with self.assertRaisesRegex(s.Paused, "Builder M2"):
-                self.build()
+        with patch.object(d, "run_workers"), self.assertRaisesRegex(s.Paused, "Builder M2"):
+            self.build()
         self.assertEqual(before, self.state["stages"])
         self.assertGreater(self.state["active_seconds"], 0)
 
@@ -356,9 +355,8 @@ class DispatchTests(unittest.TestCase):
 
     def test_explicit_retry_only_restarts_failed_member_and_counts_once(self):
         self.prepare()
-        with patch.dict(os.environ, {"AUTOCODE_BUILDER_FAIL": "M2"}):
-            with self.assertRaises(s.Paused):
-                self.build()
+        with patch.dict(os.environ, {"AUTOCODE_BUILDER_FAIL": "M2"}), self.assertRaises(s.Paused):
+            self.build()
         first = (self.root / ".autocode/barrier/M1").read_bytes()
         d.request_retry(self.state, self.run, ["M2"])
         self.build()
@@ -385,9 +383,8 @@ class DispatchTests(unittest.TestCase):
                 raise s.Paused("PAUSED_INTERRUPTED", "After worktree creation")
             return result
 
-        with patch.object(d, "git", side_effect=interrupt):
-            with self.assertRaisesRegex(s.Paused, "After worktree"):
-                self.build()
+        with patch.object(d, "git", side_effect=interrupt), self.assertRaisesRegex(s.Paused, "After worktree"):
+            self.build()
         self.state = s.read(self.run / "state.json")
         with patch.dict(os.environ, {"AUTOCODE_BUILDER_FAIL": "M1"}):
             with self.assertRaisesRegex(s.Paused, "Builder M1"):
@@ -463,9 +460,8 @@ class DispatchTests(unittest.TestCase):
             if args[:2] == ("worktree", "add"):
                 raise s.Paused("PAUSED_INTERRUPTED", "After worktree creation")
             return result
-        with patch.object(d, "git", side_effect=interrupt):
-            with self.assertRaisesRegex(s.Paused, "After worktree"):
-                self.build()
+        with patch.object(d, "git", side_effect=interrupt), self.assertRaisesRegex(s.Paused, "After worktree"):
+            self.build()
         self.state = s.read(self.run / "state.json")
         batch = self.state["orchestration_batch"]
         self.assertEqual(2, len(batch["workers"]))
@@ -504,9 +500,8 @@ class DispatchTests(unittest.TestCase):
                 original(workspace, "worktree", "add", "--no-checkout", *args[2:], **kwargs)
                 raise s.Paused("PAUSED_INTERRUPTED", "Before checkout")
             return original(workspace, *args, **kwargs)
-        with patch.object(d, "git", side_effect=interrupt):
-            with self.assertRaisesRegex(s.Paused, "Before checkout"):
-                self.build()
+        with patch.object(d, "git", side_effect=interrupt), self.assertRaisesRegex(s.Paused, "Before checkout"):
+            self.build()
         self.state = s.read(self.run / "state.json")
         with patch.object(d, "run_workers", side_effect=AssertionError("Must not launch")):
             with self.assertRaisesRegex(s.Paused, "checkout is incomplete"):
@@ -522,9 +517,8 @@ class DispatchTests(unittest.TestCase):
             if args[:2] == ("apply", "--binary"):
                 raise s.Paused("PAUSED_INTERRUPTED", "Injected after patch apply")
             return result
-        with patch.object(d, "git", side_effect=interrupted):
-            with self.assertRaisesRegex(s.Paused, "Injected"):
-                self.build()
+        with patch.object(d, "git", side_effect=interrupted), self.assertRaisesRegex(s.Paused, "Injected"):
+            self.build()
         self.assertEqual("INTEGRATING", self.state["orchestration_batch"]["status"])
         self.state = s.read(self.run / "state.json")
         with patch.object(d, "run_workers", side_effect=AssertionError("Must not replay")):

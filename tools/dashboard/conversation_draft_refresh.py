@@ -7,10 +7,10 @@ except ImportError:
     import autocode_conversation as protocol
 try:
     from . import conversation_draft_cadence as cadence
-    from .dashboard_conversations import _request_id, _now
+    from .dashboard_conversations import _now, _request_id
 except ImportError:
     import conversation_draft_cadence as cadence
-    from dashboard_conversations import _request_id, _now
+    from dashboard_conversations import _now, _request_id
 
 
 class DraftRefreshMixin:

@@ -1,11 +1,11 @@
 """Candidate process IDs must not transfer ownership across birth or parent changes."""
 import builtins
-from contextlib import nullcontext
 import ctypes
 import errno
 import importlib
-from types import SimpleNamespace
 import unittest
+from contextlib import nullcontext
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import autocode_process_children as children
@@ -123,9 +123,8 @@ class ProcessChildrenTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 children._child_pids(10)
             root = self.process(10, 1, 2)
-            with patch.object(children.sys, 'platform', 'darwin'):
-                with self.assertRaises(PermissionError):
-                    children.descendants(root)
+            with patch.object(children.sys, 'platform', 'darwin'), self.assertRaises(PermissionError):
+                children.descendants(root)
             root.children.assert_not_called()
 
     def test_invalid_native_count_fails_closed(self):

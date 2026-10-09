@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
 """Loopback-only UI for autocode's documented command-per-turn CLI."""
-import argparse,json,os,re,selectors,signal,subprocess,sys,threading,time,tomllib,uuid
+import argparse
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import threading
+import time
+import tomllib
+import uuid
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import TCPServer
-from urllib.parse import parse_qs,urlparse
+from urllib.parse import parse_qs, urlparse
+
 sys.dont_write_bytecode=True
 try:
  from .. import autocode_resolver_human as resolver_human
@@ -20,9 +32,9 @@ GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completio
 DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
 REASONING_EFFORTS={'low','medium','high','xhigh','max'}
 try:
- from .dashboard_setup import MODEL_ID, BARE_OPENAI_ALIASES, OPENAI_ALIAS_ROLES, conversation_model_fields
+ from .dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
 except ImportError:
- from dashboard_setup import MODEL_ID, BARE_OPENAI_ALIASES, OPENAI_ALIAS_ROLES, conversation_model_fields
+ from dashboard_setup import BARE_OPENAI_ALIASES, MODEL_ID, OPENAI_ALIAS_ROLES, conversation_model_fields
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
 def pending_decisions(state):
@@ -270,7 +282,7 @@ class LegacyConsole:
  def add_runtime_watch_root(self,raw):
   if not isinstance(raw,str) or not raw.strip():raise ValueError('Watch root path is required')
   try:root=Path(raw).expanduser().resolve(strict=True)
-  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory')
+  except (OSError,ValueError):raise ValueError('Watch root must be an existing directory') from None
   if not root.is_dir():raise ValueError('Watch root must be an existing directory')
   with self.scan_lock:
    if root in self.cli_watch_roots or root in self.runtime_watch_roots:raise ValueError('Watch root is already configured')
@@ -279,7 +291,7 @@ class LegacyConsole:
  def remove_runtime_watch_root(self,raw):
   if not isinstance(raw,str):raise ValueError('Watch root path is required')
   try:root=Path(raw).expanduser().resolve(strict=False)
-  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root')
+  except (OSError,ValueError):raise ValueError('Watch root is not a removable runtime root') from None
   with self.scan_lock:
    if root in self.cli_watch_roots:raise ValueError('CLI watch roots cannot be removed at runtime')
    if root not in self.runtime_watch_roots:raise ValueError('Watch root is not a removable runtime root')
@@ -537,24 +549,24 @@ class LegacyConsole:
   raise ValueError('Unknown action')
 try:
  from .dashboard_backend import RegistryInterventionMixin, approved_goal_token
- from .dashboard_recovery import RecoveryActionsMixin
  from .dashboard_chat import ConversationMixin
- from .dashboard_project_controls import ProjectRemovalMixin
- from .dashboard_tasks import TaskArchiveMixin
- from .dashboard_delete import PermanentDeleteMixin
- from .dashboard_setup import SetupMixin
  from .dashboard_checkpoints import CheckpointMixin
+ from .dashboard_delete import PermanentDeleteMixin
  from .dashboard_evidence import stage_evidence
+ from .dashboard_project_controls import ProjectRemovalMixin
+ from .dashboard_recovery import RecoveryActionsMixin
+ from .dashboard_setup import SetupMixin
+ from .dashboard_tasks import TaskArchiveMixin
 except ImportError:  # Support running this file directly from a source checkout.
  from dashboard_backend import RegistryInterventionMixin, approved_goal_token
- from dashboard_recovery import RecoveryActionsMixin
  from dashboard_chat import ConversationMixin
- from dashboard_project_controls import ProjectRemovalMixin
- from dashboard_tasks import TaskArchiveMixin
- from dashboard_delete import PermanentDeleteMixin
- from dashboard_setup import SetupMixin
  from dashboard_checkpoints import CheckpointMixin
+ from dashboard_delete import PermanentDeleteMixin
  from dashboard_evidence import stage_evidence
+ from dashboard_project_controls import ProjectRemovalMixin
+ from dashboard_recovery import RecoveryActionsMixin
+ from dashboard_setup import SetupMixin
+ from dashboard_tasks import TaskArchiveMixin
 
 class Console(CheckpointMixin, SetupMixin, PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
  def model_catalogue(self,refresh=False):
@@ -586,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
   if len(hosts)!=1 or hosts[0] not in self.server.hosts:return False
   o=self.headers.get('Origin')
   if not o:return True
-  try:p=urlparse(o);port=p.port
+  try:p=urlparse(o);p.port
   except ValueError:return False
   return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
  def do_GET(self):
@@ -648,7 +660,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   if not self.same_origin():return self.reply(403,{'error':'cross-origin mutation rejected'})
   try:
-   d=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));
+   d=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))))
    if not isinstance(d,dict):raise ValueError('JSON body must be an object')
    if self.path=='/api/setup/check':x=self.console.setup_check(d)
    elif self.path=='/api/setup/project':x=self.console.setup_project(d)

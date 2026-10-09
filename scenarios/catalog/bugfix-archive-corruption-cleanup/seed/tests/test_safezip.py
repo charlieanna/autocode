@@ -1,8 +1,8 @@
-from pathlib import Path
 import stat
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 
 import safezip
 
@@ -135,9 +135,8 @@ class ExtractTests(unittest.TestCase):
         write_zip(archive, [("two.bin", b"ab")])
         self.assertEqual(safezip.extract(archive, self.root / "exact", 2), ["two.bin"])
         for number, limit in enumerate((1, -1, True, 1.0)):
-            with self.subTest(limit=limit):
-                with self.assertRaises(ValueError):
-                    safezip.extract(archive, self.root / ("bad-%d" % number), limit)
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                safezip.extract(archive, self.root / ("bad-%d" % number), limit)
         for number, limit in enumerate((2**63 - 1, 2**63, 10**5000)):
             with self.subTest(limit=limit):
                 self.assertEqual(

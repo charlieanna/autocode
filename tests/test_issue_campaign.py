@@ -2,18 +2,17 @@
 import copy
 import hashlib
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
-import score_issue_campaign as campaign
-import live_trial
 import live_scenarios
+import live_trial
 import score_autocode_run as costs
+import score_issue_campaign as campaign
 
 
 def sha(text):

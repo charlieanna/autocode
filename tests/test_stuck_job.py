@@ -1,19 +1,19 @@
 """A stage that stops converging goes to an Investigator before the run pauses for the user."""
 import copy
+import shlex
+import subprocess
+import sys
 import tempfile
 import unittest
-import subprocess
-import shlex
-import sys
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode_builder_failure as builder_failure
 import autocode_jobs as jobs
 import autocode_stuck_job as stuck
+import autocode_util as util
 import autopilot
 from units import autoresolver, common
-import autocode_builder_failure as builder_failure
-import autocode_util as util
 
 
 class Paused(Exception):
@@ -646,7 +646,8 @@ class ProbeTests(unittest.TestCase):
     REJECTED = {"code_refs": ["docs/bugs/cent-drift.json (see the note)"], "summary": "plan"}
 
     def setup(self):
-        import json, subprocess
+        import json
+        import subprocess
         workspace = Path(tempfile.mkdtemp(prefix="stuck-probe-ws-"))
         (workspace / "docs" / "bugs").mkdir(parents=True)
         (workspace / "docs" / "bugs" / "cent-drift.json").write_text("{}\n")

@@ -8,20 +8,20 @@ SES-10 explicit exit-0 rejection).
 """
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
-import autocode_stage_context as stage_context
 import autocode_findings as findings
 import autocode_goals as goals
+import autocode_stage_context as stage_context
 import autocode_support as support
+import autopilot_testkit as kit
+from goal_fixtures import approve_fixture, envelope, seed_greeting_workspace, write_greeting_source
+
 from . import test_autocode as base
-from goal_fixtures import approve_fixture, body, envelope, seed_greeting_workspace, write_greeting_source
 
 
 class SessionCase(kit.CatalogueCase):

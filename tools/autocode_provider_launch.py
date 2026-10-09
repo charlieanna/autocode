@@ -1,17 +1,24 @@
 """Construct the provider command and environment used by both admission and launch."""
 from __future__ import annotations
 
-import os
 import json
-from pathlib import Path
+import os
 import subprocess
 import sys
+from pathlib import Path
+
 try:
-    from . import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
+    from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
+    from . import autocode_output_cap as output_cap
+    from . import autocode_qwen as qwen
+    from . import autocode_util as util
 except ImportError:
-    import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
+    import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
+    import autocode_output_cap as output_cap
+    import autocode_qwen as qwen
+    import autocode_util as util
 
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
@@ -74,6 +81,10 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         command += ["-", "--json", "--output-schema", str(schema), "-o", str(report)]
         if model:
             command += ["--model", model]
+    elif engine == "qwen":
+        command, child_env, overrides = qwen.launch(route_role, workspace, run_dir, session,
+            model, effort, allow_write, planning=planning)
+        environment = agent_env.scrubbed(child_env)
     else:
         raise RuntimeError(f"engine {engine!r} is not bundled in this checkout; providers live in "
                            "~/.config/autocode/providers/ and run with --provider")

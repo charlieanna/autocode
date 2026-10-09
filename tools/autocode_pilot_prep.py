@@ -31,7 +31,7 @@ import json
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -93,7 +93,7 @@ def main(argv=None) -> int:
         brief = Path(args.brief).read_text()
     except OSError as error:
         return _fail([f"cannot read the task brief {args.brief}: {error}"])
-    invocation = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+    invocation = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
     destination = workspace / ".autocode" / "prep" / invocation / "source"
     try:
         head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],

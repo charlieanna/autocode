@@ -3,12 +3,14 @@ import copy
 import json
 import shutil
 import sys
+import unittest
 from pathlib import Path
 from unittest.mock import patch
-import unittest
+
+from goal_fixtures import body
+
 from . import test_autocode as base
 from . import test_subprocess
-from goal_fixtures import body
 from .test_opencode import event, terminal
 
 runner, support = base.runner, base.s
@@ -151,9 +153,8 @@ class RepairTests(unittest.TestCase):
         raw = {'summary': 'Rework is needed', 'concerns': [{
             'id': 'C-1', 'concern': 'Missing requested change',
             'evidence_refs': ['goal_contract.body'], 'acceptance_test': 'Gate passes'}]}
-        with patch.object(runner.opencode, 'final_report', return_value=raw):
-            with self.assertRaises(ValueError):
-                runner.load_stage_report(record)
+        with patch.object(runner.opencode, 'final_report', return_value=raw), self.assertRaises(ValueError):
+            runner.load_stage_report(record)
         self.assertEqual(raw, support.read(Path(record['output'])))
 
     def test_builder_repair_preserves_failed_results_commands_and_user_decisions(self):

@@ -23,6 +23,7 @@ imports nothing from the runner.
 from __future__ import annotations
 
 from functools import partial
+
 try:
     from . import autocode_source_scope as source_scope
 except ImportError:
@@ -31,19 +32,29 @@ except ImportError:
 import datetime as dt
 import json
 import re
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 try:
-    from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
-    from . import autocode_util as util, autocode_verification_schedule as schedule
+    from . import autocode_acceptance_policy as acceptance_policy
+    from . import autocode_brief_evidence as brief_evidence
     from . import autocode_command_receipt as command_receipt
+    from . import autocode_protected_oracles as protected_oracles
+    from . import autocode_risk_evidence as risk_evidence
+    from . import autocode_test_quality as test_quality
+    from . import autocode_util as util
+    from . import autocode_verification_plan as verification_plan
+    from . import autocode_verification_schedule as schedule
 except ImportError:
-    import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
-    import autocode_util as util, autocode_verification_schedule as schedule
+    import autocode_acceptance_policy as acceptance_policy
+    import autocode_brief_evidence as brief_evidence
     import autocode_command_receipt as command_receipt
+    import autocode_protected_oracles as protected_oracles
+    import autocode_risk_evidence as risk_evidence
+    import autocode_test_quality as test_quality
+    import autocode_util as util
+    import autocode_verification_plan as verification_plan
+    import autocode_verification_schedule as schedule
 
 PASS, FAIL = "PASS", "FAIL"
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -216,7 +227,7 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0
               or not command_receipt.completed(row)]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
-              "protected_tests": protected, "brief_acceptance": brief, "risk_acceptance": risk, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+              "protected_tests": protected, "brief_acceptance": brief, "risk_acceptance": risk, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.UTC).isoformat()}
     decisions = [row for row in seen.values() if row.get("scheduling")]
     result["scheduling"] = {
         "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),

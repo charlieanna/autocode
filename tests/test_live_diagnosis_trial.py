@@ -358,9 +358,8 @@ class SharedDeadlineTests(unittest.TestCase):
         bundle = Mock()
         budget = trial.TrialBudget(3, trial.time.monotonic() + 1)
         error = subprocess.TimeoutExpired("autocode", 1, output=b"printed\xff", stderr=b"error")
-        with patch.object(trial.base, "invoke", side_effect=error):
-            with self.assertRaises(trial.TrialError):
-                budget.invoke("start", [], {}, Path("."), bundle)
+        with patch.object(trial.base, "invoke", side_effect=error), self.assertRaises(trial.TrialError):
+            budget.invoke("start", [], {}, Path("."), bundle)
         self.assertEqual(1, budget.used)
         event = bundle.log.call_args
         self.assertEqual("cli_timeout", event.args[0])

@@ -9,25 +9,27 @@ import copy
 import io
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from . import test_carryforward as carry_tests
 import autocode as runner
-import autocode_findings as findings
 import autocode_finding_cause as finding_cause
 import autocode_finding_rescope as rescope
+import autocode_findings as findings
 import autocode_goal_lifecycle as lifecycle
 import autocode_goals as goals
 import autocode_milestones as m
 import autocode_run_view as run_view
 import autocode_support as support
 import autocode_validation_rounds as validation_rounds
-from goal_fixtures import body as fixture_body, seed_greeting_workspace
+from goal_fixtures import body as fixture_body
+from goal_fixtures import seed_greeting_workspace
+
+from . import test_carryforward as carry_tests
 
 # r1: M1 -> M2 -> M5, and AC15 is M2's. r2 moves AC15 to M5.
 R1 = [("M1", ["AC1"], []), ("M2", ["AC10", "AC15"], ["M1"]), ("M5", ["AC20"], ["M2"])]

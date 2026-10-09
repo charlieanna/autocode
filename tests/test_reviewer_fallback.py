@@ -3,14 +3,13 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_reviewer_fallback as fallback
 import autocode_support as support
-
 
 GLM = "zai-coding-plan/glm-5.3"
 MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"

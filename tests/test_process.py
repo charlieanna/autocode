@@ -2,13 +2,13 @@
 import os
 import select
 import signal
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -875,10 +875,9 @@ time.sleep(30)
         self.assertEqual([signal.SIG_DFL, own, signal.default_int_handler],
                          [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)],
                          'nothing changes without an interrupted stage')
-        with processes.interrupts_held(until_exit=True):
-            with processes.interrupts_held():  # main() inside cli()
-                with self.assertRaises(KeyboardInterrupt), processes.interruption_handler():
-                    signal.raise_signal(signal.SIGTERM)
+        with processes.interrupts_held(until_exit=True), processes.interrupts_held():  # main() inside cli()
+            with self.assertRaises(KeyboardInterrupt), processes.interruption_handler():
+                signal.raise_signal(signal.SIGTERM)
         self.assertEqual([signal.SIG_IGN, own, signal.SIG_IGN],
                          [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
 

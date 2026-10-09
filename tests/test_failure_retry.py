@@ -3,7 +3,9 @@ import copy
 import unittest
 from unittest.mock import patch
 
-import autocode as runner, autocode_support as support
+import autocode as runner
+import autocode_support as support
+
 from . import test_autocode, test_subprocess
 
 

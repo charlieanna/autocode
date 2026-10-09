@@ -31,25 +31,25 @@ import math
 from pathlib import Path, PurePosixPath
 
 try:
-    from . import autocode_progressive_plan as rules
-    from . import autocode_util as util
     from . import autocode_contract_identity as goals
+    from . import autocode_progressive_activation as activation
     from . import autocode_progressive_artifacts as artifacts
     from . import autocode_progressive_budget as budget
-    from . import autocode_progressive_activation as activation
+    from . import autocode_progressive_plan as rules
     from . import autocode_progressive_progress as progress_policy
-    from . import autocode_verification_plan as verification
     from . import autocode_repair_provenance as repair_provenance
+    from . import autocode_util as util
+    from . import autocode_verification_plan as verification
 except ImportError:
-    import autocode_progressive_plan as rules
-    import autocode_util as util
     import autocode_contract_identity as goals
+    import autocode_progressive_activation as activation
     import autocode_progressive_artifacts as artifacts
     import autocode_progressive_budget as budget
-    import autocode_progressive_activation as activation
+    import autocode_progressive_plan as rules
     import autocode_progressive_progress as progress_policy
-    import autocode_verification_plan as verification
     import autocode_repair_provenance as repair_provenance
+    import autocode_util as util
+    import autocode_verification_plan as verification
 
 KEY = "progressive"
 VERSION = 1
@@ -387,7 +387,6 @@ def prepare_seal(state, contract_token):
                                ("initial_plan", "plan", "delegation", "active", "completion_proof")}
         prepared["renewal_allowance"] = copy.deepcopy(record.get("pending_allowance") or record["active_allowance"])
     if not record.get("budget"):
-        settings = state.get("settings", {})
         planning = state.get("planning", {})
         review_limit = limits["slice_review_calls"] or 0
         local_limit = limits["slice_stage_seconds"] or 0

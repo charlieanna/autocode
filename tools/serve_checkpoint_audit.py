@@ -1,10 +1,10 @@
 """Serve the actual dashboard against one audit fixture with isolated UI storage."""
 import argparse
 import os
-from pathlib import Path
 import tempfile
-from .dashboard.agent_console import Console, Handler, LoopbackHTTPServer
+from pathlib import Path
 
+from .dashboard.agent_console import Console, Handler, LoopbackHTTPServer
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser()

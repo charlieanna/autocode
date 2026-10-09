@@ -1,26 +1,26 @@
 """Goal gates in isolated Git workspaces. No real model or live run is used."""
-import copy
 import contextlib
+import copy
 import io
 import json
 import os
-from pathlib import Path
 import re
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
-import autocode_stage_context as stage_context
 import autocode_completion as completion_gate
-import autocode_interventions as interventions
-import autocode_support as s
-import autocode_goals as g
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as g
+import autocode_interventions as interventions
+import autocode_stage_context as stage_context
+import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope, seed_greeting_workspace
 
 
@@ -897,7 +897,7 @@ class GoalTests(unittest.TestCase):
 
     def test_optional_backlog_does_not_block_completion(self):
         self.approve()
-        current = self.validation()
+        self.validation()
         decision = self.decision("TASK_COMPLETE")
         decision["deferred_backlog"] = ["Optional web UI", "Optional colours"]
         runner.apply_result(self.state, "astra_review", decision, {"output": "final"}, self.root, self.run)

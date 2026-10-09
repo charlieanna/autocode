@@ -27,9 +27,8 @@ class CacheTests(unittest.TestCase):
         clock = FakeClock()
 
         for capacity in (0, -1, True):
-            with self.subTest(capacity=capacity):
-                with self.assertRaises(ValueError):
-                    Cache(capacity, clock)
+            with self.subTest(capacity=capacity), self.assertRaises(ValueError):
+                Cache(capacity, clock)
 
     def test_ac4_entry_expires_at_inclusive_deadline(self):
         clock = FakeClock(10)
@@ -188,9 +187,8 @@ class CacheTests(unittest.TestCase):
                 self.assertEqual(cache.get("a"), "alpha")
 
         for capacity in (1.0, "2", None, -(10**5000)):
-            with self.subTest(capacity=capacity):
-                with self.assertRaises(ValueError):
-                    Cache(capacity, clock)
+            with self.subTest(capacity=capacity), self.assertRaises(ValueError):
+                Cache(capacity, clock)
 
     def test_ac16_each_invalid_ttl_preserves_value_and_lru(self):
         for ttl in (0, -1, True, float("inf"), float("nan"), float("-inf"), "5", -(10**5000)):

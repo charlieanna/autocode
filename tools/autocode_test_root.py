@@ -6,8 +6,8 @@ generated task. A rooted suite cannot prove changes outside that directory.
 """
 from __future__ import annotations
 
-import re
 import os
+import re
 import stat
 import subprocess
 from contextlib import ExitStack
@@ -72,7 +72,7 @@ def read_policy(workspace: Path, path: Path) -> str:
                 entry = os.stat(part, dir_fd=directories[-1], follow_symlinks=False)
             except FileNotFoundError:
                 if links:
-                    raise ValueError("Current policy link target is absent")
+                    raise ValueError("Current policy link target is absent") from None
                 return ""
             if stat.S_ISLNK(entry.st_mode):
                 step = (tuple(resolved), part, tuple(pending))

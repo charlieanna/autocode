@@ -1,13 +1,13 @@
 """Coverage is recorded before checking; a saved PASS is not current proof."""
 import copy
 import json
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
-import autocode_verification_view as view
 import autocode_verification_inspection as inspection
+import autocode_verification_view as view
 from autocode_util import file_hash
 
 

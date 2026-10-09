@@ -6,21 +6,20 @@ test_milestone_checkpoints are cited per case.
 """
 import copy
 import json
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import autopilot_testkit as kit
 import autocode as runner
 import autocode_completion as completion_gate
 import autocode_findings as findings
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
+
 from . import test_catalogue_t06 as t06
-from goal_fixtures import body, envelope
 
 
 class ReviewCase(t06.SolControllerCase):
@@ -40,8 +39,8 @@ class ReviewCase(t06.SolControllerCase):
     def restart_with_human_contract(self):
         support.atomic_json(self.run / "state.json", self.state)
         self.state = support.read(self.run / "state.json")
-        import autocode_goals as goals
         import autocode_goal_lifecycle as lifecycle
+        import autocode_goals as goals
         from goal_fixtures import body as fixture_body
         lifecycle.install_draft(self.state, fixture_body(human=True), origin="test")
         lifecycle.human.evaluate(self.state)
@@ -269,7 +268,7 @@ class ReviewCase(t06.SolControllerCase):
                            goals.approve_review, self.state, "C1", goals.review_token(self.state), new_current)
         self.check("human_review_invalidated", True,
                    self.state.get("human_reviews", {}).get("C1", {}).get("revision") != new_current["revision"]
-                   or not goals.missing_human_reviews(self.state) is None)
+                   or goals.missing_human_reviews(self.state) is not None)
         self.check_false("stale_acceptance_completes",
                          completion_gate.completion_ready(self.state, self.complete_decision(), new_current))
         self.finish(summary="WAITING_USER: visual approval never carries across changed code")
@@ -349,7 +348,9 @@ class ReviewCase(t06.SolControllerCase):
                                             "automatic_retries": 0}
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         support.atomic_json(self.run / "state.json", self.state)
-        import contextlib, io, sys as _sys
+        import contextlib
+        import io
+        import sys as _sys
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run)]
         with patch.object(_sys, "argv", argv), patch.object(support, "assert_no_legacy_process"), \
                 patch.object(support, "local_settings", return_value={"auth_mode": "fixture"}), \
@@ -366,7 +367,6 @@ class ReviewCase(t06.SolControllerCase):
         # controller-level apply of it leaves the terminal decision untouched.
         before_late = copy.deepcopy(self.state["final_decision"])
         stale = self.sol_report(event_id="stale-late")
-        snapshot_state = copy.deepcopy(self.state)
         try:
             self.apply_sol(stale, event_id="stale-late")
         except (support.Paused, ValueError):

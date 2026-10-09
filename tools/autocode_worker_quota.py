@@ -9,16 +9,19 @@ the question was answered without a model, --retry-builder is that member's one 
 from pathlib import Path
 
 try:
-    from . import autocode_quota_route as quota_route, autocode_util as util, autocode_roles as roles
-    from . import autocode_provider_refusal as provider_refusal, autocode_support as support
     from . import autocode_member_stop as member_stop
+    from . import autocode_provider_refusal as provider_refusal
+    from . import autocode_quota_route as quota_route
+    from . import autocode_roles as roles
+    from . import autocode_support as support
+    from . import autocode_util as util
 except ImportError:
-    import autocode_quota_route as quota_route
-    import autocode_util as util
-    import autocode_roles as roles
-    import autocode_provider_refusal as provider_refusal
-    import autocode_support as support
     import autocode_member_stop as member_stop
+    import autocode_provider_refusal as provider_refusal
+    import autocode_quota_route as quota_route
+    import autocode_roles as roles
+    import autocode_support as support
+    import autocode_util as util
 
 
 def payload(state, directory, workspace):

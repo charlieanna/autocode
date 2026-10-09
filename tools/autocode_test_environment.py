@@ -8,10 +8,10 @@ Python uses it to find that environment's site-packages.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 def dependency_roots(project):

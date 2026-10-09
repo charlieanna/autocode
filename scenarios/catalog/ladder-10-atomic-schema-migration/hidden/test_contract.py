@@ -1,8 +1,10 @@
-from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from pathlib import Path
+
 from app import migrate
+
 
 class MigrationContract(unittest.TestCase):
     def setUp(self):

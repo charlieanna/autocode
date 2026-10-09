@@ -1,14 +1,15 @@
 """Execute retained linked tests against weakening and replacement controls."""
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
 import unittest
+from pathlib import Path
 
 import autocode_protected_oracles as guard
-import autocode_verify as verify
 import autocode_protected_store as store
+import autocode_verify as verify
+
 from .protected_store_fixture import rewrite_archive
 from .test_verify import Project, git
 

@@ -17,39 +17,39 @@ import time
 from pathlib import Path
 
 try:
-    from . import autocode_job_failure as job_failure
     from . import autocode_escalation as escalation
     from . import autocode_failures as failures
-    from . import autocode_report_retry as report_retry
     from . import autocode_interventions as interventions
+    from . import autocode_job_failure as job_failure
+    from . import autocode_permission_recovery as permission_recovery
     from . import autocode_planning as planning
     from . import autocode_process as processes
+    from . import autocode_quota_route as quota_route
+    from . import autocode_report_retry as report_retry
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_reviewer_fallback as reviewer_fallback
-    from . import autocode_support as support
-    from . import autocode_workflow as workflow
     from . import autocode_run_records as records
+    from . import autocode_support as support
     from . import autocode_validation_recovery as validation_recovery
-    from . import autocode_permission_recovery as permission_recovery
-    from . import autocode_quota_route as quota_route
+    from . import autocode_workflow as workflow
 except ImportError:
-    import autocode_job_failure as job_failure
     import autocode_escalation as escalation
     import autocode_failures as failures
-    import autocode_report_retry as report_retry
     import autocode_interventions as interventions
+    import autocode_job_failure as job_failure
+    import autocode_permission_recovery as permission_recovery
     import autocode_planning as planning
     import autocode_process as processes
+    import autocode_quota_route as quota_route
+    import autocode_report_retry as report_retry
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_reviewer_fallback as reviewer_fallback
-    import autocode_support as support
-    import autocode_workflow as workflow
     import autocode_run_records as records
+    import autocode_support as support
     import autocode_validation_recovery as validation_recovery
-    import autocode_permission_recovery as permission_recovery
-    import autocode_quota_route as quota_route
+    import autocode_workflow as workflow
 
 
 def recover_legacy_report_repair(state, run_dir, workspace):

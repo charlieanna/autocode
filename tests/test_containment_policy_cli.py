@@ -7,9 +7,9 @@ qualified_at_setup has only the run-setup check report a qualified host, so the 
 launch fails its boundary: the PAUSED_TOOL_CONTAINMENT path when OpenCode changes mid-run.
 """
 import json
-from pathlib import Path
 import shutil
 import unittest
+from pathlib import Path
 
 from . import opencode_fixture_cli as fixture_cli
 from . import test_subprocess as subprocess_tests

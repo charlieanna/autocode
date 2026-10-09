@@ -1,5 +1,4 @@
 """Issue #288: stop advice never names --grant-recovery unless the CLI will accept it."""
-import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -257,6 +256,7 @@ if __name__ == '__main__':
 class BoundChangeSupersede(unittest.TestCase):
     def test_explicit_budget_flags_count_as_recovery(self):
         from types import SimpleNamespace
+
         import autocode_run_actions as run_actions
         self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(
             _explicit_budget_flags=set(), grant_recovery=None, retry_builder=None,
@@ -271,7 +271,6 @@ class BoundChangeSupersede(unittest.TestCase):
         # An operational-exhaustion request after burn-out may name a different
         # origin.pause_status than the bound the operator is raising (#301).
         relevant = {'PAUSED_TIMEOUT_RECOVERY': ()}  # status map alone would miss it
-        budget_kind = 'max_seconds'
         bound_flags = ('max_seconds',)
         paused_for = 'PAUSED_TIMEOUT_RECOVERY'
         explicit = {'max_seconds'}

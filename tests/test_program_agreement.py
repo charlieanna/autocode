@@ -66,9 +66,8 @@ def add_workstream(manifest, row):
 class ValidateTest(unittest.TestCase):
     def rejects(self, cases):
         for label, change, message in cases:
-            with self.subTest(label):
-                with self.assertRaisesRegex(ValueError, message):
-                    build(change)
+            with self.subTest(label), self.assertRaisesRegex(ValueError, message):
+                build(change)
 
     def test_base_manifest_is_valid(self):
         manifest = build()

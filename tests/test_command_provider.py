@@ -2,16 +2,17 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shlex
 import stat
 import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 import autocode_providers
+
 from tools.providers import command
 
 
@@ -170,9 +171,9 @@ class CommandProviderTests(unittest.TestCase):
         previous = os.environ.get("PATH")
         os.environ["PATH"] = str(binary) + os.pathsep + previous
         self.addCleanup(lambda: os.environ.__setitem__("PATH", previous))
-        path = write_config(self.home, "drift", textwrap.dedent(f"""\
+        path = write_config(self.home, "drift", textwrap.dedent("""\
             name = "drift"
-            command = ["demo-tool", "{{report}}"]
+            command = ["demo-tool", "{report}"]
             version_command = ["demo-tool"]
             models = ["demo"]
         """) + ROLES)
@@ -327,7 +328,6 @@ class CommandProviderTests(unittest.TestCase):
             folder = self.home / f"stage{abs(hash(final_text)) % 1000}"
             folder.mkdir(exist_ok=True)
             path = folder / "sol-01.jsonl"
-            report = json.dumps({"summary": "Repaired fixture report"})
             rows = [
                 {"type": "text", "sessionID": "ses", "part": {"id": "p1", "messageID": "m1", "text": final_text}},
                 {"type": "step_finish", "sessionID": "ses", "part": {"id": "p2", "messageID": "m1", "reason": "stop"}},
@@ -363,7 +363,6 @@ class CommandProviderTests(unittest.TestCase):
             folder = self.home / f"stage{abs(hash(final_text)) % 1000}"
             folder.mkdir(exist_ok=True)
             path = folder / "sol-01.jsonl"
-            report = json.dumps({"summary": "Repaired fixture report"})
             rows = [
                 {"type": "text", "sessionID": "ses", "part": {"id": "p1", "messageID": "m1", "text": final_text}},
                 {"type": "step_finish", "sessionID": "ses", "part": {"id": "p2", "messageID": "m1", "reason": "stop"}},

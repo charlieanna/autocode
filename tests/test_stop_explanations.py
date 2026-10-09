@@ -8,8 +8,8 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
-import autocode_stop_explanations as stop_explanations
 import autocode_run_view as run_view
+import autocode_stop_explanations as stop_explanations
 
 
 class StopExplanationTests(unittest.TestCase):

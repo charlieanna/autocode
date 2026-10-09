@@ -14,8 +14,9 @@ module in the import cycle. The state writer and clock are passed in.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 try:
     from . import autocode_goals as goals

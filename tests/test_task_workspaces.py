@@ -1,13 +1,13 @@
 """Real Git/process tests for concurrent tasks originating in one project."""
 import json
-import os
-from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import unittest
-from unittest.mock import patch
-import autocode_workspaces as w, autocode_support as support
+from pathlib import Path
+
+import autocode_support as support
+import autocode_workspaces as w
+
 from . import test_subprocess
 
 
@@ -33,9 +33,8 @@ class TaskWorkspaces(unittest.TestCase):
                 (left / 'app.txt').write_text('task one\n')
                 (right / 'app.txt').write_text('task two\n')
                 self.assertEqual('user unsaved work\n', (self.project / 'app.txt').read_text())
-                with self.assertRaises(support.Paused):
-                    with support.workspace_lock(left):
-                        pass
+                with self.assertRaises(support.Paused), support.workspace_lock(left):
+                    pass
         self.assertNotEqual(one['branch'], two['branch'])
         self.assertEqual(one['base_commit'], two['base_commit'])
         self.assertEqual('task one\n', (left / 'app.txt').read_text())

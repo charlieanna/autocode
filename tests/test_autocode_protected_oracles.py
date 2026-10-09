@@ -1,18 +1,20 @@
 """Original-oracle binding, execution, revisions and immutable history."""
 import copy
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
 import autocode_protected_oracles as guard
 import autocode_verify as verify
+
 from .protected_store_fixture import retained_text, rewrite_archive
 from .test_protected_oracles_cli import ORIGINAL, VARIANTS
+
 
 class OriginalOracleTests(unittest.TestCase):
     def setUp(self):

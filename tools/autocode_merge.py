@@ -15,11 +15,11 @@ import subprocess
 from pathlib import Path
 
 try:
-    from . import autocode_worktrees as worktrees
     from . import autocode_workspaces as workspaces
+    from . import autocode_worktrees as worktrees
 except ImportError:
-    import autocode_worktrees as worktrees
     import autocode_workspaces as workspaces
+    import autocode_worktrees as worktrees
 
 
 def _git(root, *args, check=True):

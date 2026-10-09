@@ -11,17 +11,17 @@ import random
 import unittest
 from pathlib import Path
 
-from . import test_goals
 import autocode as runner
 import autocode_completion as completion_gate
 import autocode_dispatch as dispatch
 import autocode_findings as findings
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_support as support
 import autopilot
 from goal_fixtures import body, envelope, write_greeting_source
 
+from . import test_goals
 
 EXECUTING = {"terra", "sol", "orchestrator", "astra_review", "astra_resolve"}
 
@@ -307,10 +307,10 @@ class StaleAndDisagreementTests(TortureBase):
                     self.apply("sol", *self.sol("PASS"))
                     self.apply("astra_review", *self.astra("REWORK", "Empty names are accepted"))
                     late = self.sol("PASS")
-                    accepted = self.attempt(lambda: self.apply("sol", *late))
+                    self.attempt(lambda: self.apply("sol", *late))
                 else:
                     self.apply("astra_review", *self.astra("REWORK", "Empty names are accepted"))
-                    accepted = self.attempt(lambda: self.apply("sol", *self.sol("PASS")))
+                    self.attempt(lambda: self.apply("sol", *self.sol("PASS")))
                 self.assertNotEqual("TASK_COMPLETE", self.state["status"])
                 self.assertTrue(any(row["source"] == "astra" and row["finding"] == "Empty names are accepted"
                                     for row in findings.blocking_entries(self.state)))

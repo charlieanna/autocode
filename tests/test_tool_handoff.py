@@ -2,17 +2,17 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode_bug_job as bug
-import autocode_design_job as design
 import autocode_design_check_job as check_design
+import autocode_design_job as design
 import autocode_discuss_job as discuss
 import autocode_review_job as review
 import autocode_stuck_job as stuck

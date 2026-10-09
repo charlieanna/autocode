@@ -12,26 +12,26 @@ except ImportError:
 
 
 import copy
-from contextlib import contextmanager
 import datetime as dt
 import fcntl
-from pathlib import Path
 import uuid
+from contextlib import contextmanager
+from pathlib import Path
 
 try:
+    from . import autocode_carryforward as carryforward
+    from . import autocode_milestone_replan as replan
+    from . import autocode_progressive_state as progressive
+    from . import autocode_review_gate as review_gate
     from . import autocode_util as s
     from .autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
-    from . import autocode_carryforward as carryforward
-    from . import autocode_review_gate as review_gate
-    from . import autocode_progressive_state as progressive
-    from . import autocode_milestone_replan as replan
 except ImportError:
+    import autocode_carryforward as carryforward
+    import autocode_milestone_replan as replan
+    import autocode_progressive_state as progressive
+    import autocode_review_gate as review_gate
     import autocode_util as s
     from autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
-    import autocode_carryforward as carryforward
-    import autocode_review_gate as review_gate
-    import autocode_progressive_state as progressive
-    import autocode_milestone_replan as replan
 
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
@@ -88,11 +88,11 @@ def route_review_only_request(state, request, origin):
         return copy.deepcopy(request)
     try:
         report = s.read(output)
-        from . import autocode_goals as goals
         from . import autocode_findings as findings
+        from . import autocode_goals as goals
     except ImportError:
-        import autocode_goals as goals
         import autocode_findings as findings
+        import autocode_goals as goals
     except (OSError, ValueError):
         return copy.deepcopy(request)
     required = set(scope(state)["acceptance_criteria"]).intersection(goals.missing_human_reviews(state))
@@ -556,7 +556,7 @@ def request_lock(run_dir):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError('Another milestone request is being saved; retry')
+            raise ValueError('Another milestone request is being saved; retry') from None
         try:
             yield
         finally:
@@ -649,7 +649,7 @@ def summary(state):
             active_seconds = active.get('duration_seconds')
             if active_seconds is None:
                 started = dt.datetime.fromisoformat(active['started_at'])
-                active_seconds = max(0, (dt.datetime.now(dt.timezone.utc) - started).total_seconds())
+                active_seconds = max(0, (dt.datetime.now(dt.UTC) - started).total_seconds())
         except (TypeError, ValueError):
             active_seconds = 0
     row = state.get("milestone_progress", {}).get(key(state))

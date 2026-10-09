@@ -15,7 +15,6 @@ import hashlib
 import json
 import math
 
-
 HARD_CEILINGS = {
     "iteration_ceiling": 30,
     "stage_timeout_seconds": 7200,

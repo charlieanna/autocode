@@ -6,10 +6,10 @@ other name loads a TOML config; there is no Python plug-in path.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import tomllib
-from typing import Mapping
+from collections.abc import Mapping
+from pathlib import Path
 
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
 
