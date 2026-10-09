@@ -966,6 +966,8 @@ contract.initial_task executes only slices[0], using the whole-product milestone
 first slice's objective, paths, criteria and checks. One product milestone does not mean one long task.
 Every acceptance criterion ID must be planned on at least one slice or listed in outstanding_criteria;
 a revision may split, reorder or replace future slices but may never drop a criterion from that map.
+A criterion planned on a slice must not also appear in outstanding_criteria; that list contains
+criteria not planned on any slice.
 slices[0] is the first slice: the main user journey across the essential layers, with an observable
 useful result, bounded writable paths (paths), the product criteria it touches (criterion_ids) and
 nonempty checks and tentative: false. All later slices, including any whole-product verification
@@ -998,7 +1000,7 @@ verification.
 def repair_rules(stage, schema):
     """Repeat planning semantics only for fields allowed by the saved repair schema."""
     fields = schema.get("properties", {})
-    if stage not in TRACE_STAGES or "contract" not in fields:
+    if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
     return (REVISION_CONFLICT_RULE
             + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
@@ -1213,7 +1215,8 @@ def context(state, stage, state_path):
         goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS + REVISION_CONFLICT_RULE
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
     progressive_policy = PROGRESSIVE_POLICY if stage in ("astra_discovery", "glm_revise", "astra_challenge",
-                                                         "astra_finalize") else ""
+                                                         "astra_finalize", "plan", "plan_revise",
+                                                         "plan_finalize") else ""
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
     clarification_policy = ("" if stage == "astra_challenge" else QUESTION_POLICY) + (

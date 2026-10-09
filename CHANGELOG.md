@@ -15,6 +15,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Text checkouts use LF across Git line-ending settings, preserving binary
   assets; WSL installation notes separate Linux and Windows environments (#802).
+- V2 contract-writing stages and report repairs receive the progressive-plan
+  rules required by their output schema, including the empty form for small
+  tasks and disjoint planned and outstanding criteria (#801).
+- Source gates exclude test fixtures and cover nested application modules;
+  missing v2 planning routes have a specific pause explanation (#799).
 - Bug investigations receive the configured Python test interpreter, including
   external virtualenvs, for scratch checks and clean replay (#778).
 - Codex and configured-provider judging captures run in a source-bound copy
@@ -26,6 +31,13 @@ PR template asks for an entry here; a change without one is incomplete.
 - Operational pauses retain their recovery authority through queued feedback
   and pause requests; unrelated budget flags and historical job-failure
   records cannot authorize an unscoped retry (#661).
+
+- Fresh `--dry-run` commands work after the addition of `--explain`; actions
+  that need an existing run still require `--run-dir` (#796).
+- `autocode explain` and `--explain` read saved stops, including finished runs,
+  without starting a provider, taking a run lock or creating a worktree (#796).
+- Installed `doctor` commands can read the bundled provider matrix and show
+  untested versions and containment/visual refusals correctly (#794).
 
 ## [0.7.1] — 2026-10-09
 

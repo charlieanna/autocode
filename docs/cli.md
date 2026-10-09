@@ -11,7 +11,8 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | --- | --- |
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
 | `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
-| `autocode status` | The same as `autocode --status`: read-only status of that run. Both words are commands wherever they stand among the options; a task whose whole text is `resume` or `status` goes after `--` (`autocode -- status`). |
+| `autocode status` | The same as `autocode --status`: read-only status of that run. Command words are recognized wherever they stand among the options; a task whose whole text is `resume`, `status` or `explain` goes after `--` (`autocode -- status`). |
+| `autocode explain` | The same as `autocode --explain`: explain the saved run's stop and the offered next command. Reads only; no model call, run lock or workspace changes. |
 | `autopilot` | Deterministic workflow controller. Same loop as `autocode`, and the controller behind the dashboard and macOS app. |
 | `autoplanner` | Planning only. Stops before any Builder starts. |
 | `autocode-build` | Implementation only, from a saved run directory. |
@@ -42,6 +43,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Uncommitted and untracked files there count as the code the task starts from (see [Workflow](workflow.md)). Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
 | `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
+| `--explain` | Read-only explanation of a saved run's stop and what the next command does. Requires a saved run; cannot accompany a new task or new-run inputs. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 
 ### Which run a command acts on
@@ -55,7 +57,7 @@ as if you had passed `--run-dir RUN`.
 | Command | Run it takes |
 | --- | --- |
 | `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode program` or `autocode tasks` drives is left to that command. |
-| `--status`, `--dry-run`, `autocode status` | The only unfinished run; with none, the latest finished one. |
+| `--status`, `--explain`, `--dry-run`, `autocode status`, `autocode explain` | The only unfinished run; with none, the latest finished one. |
 | `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
 | `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
 
