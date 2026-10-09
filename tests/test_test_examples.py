@@ -1,4 +1,5 @@
 """The Builder sees the project's own tests closest to its task (autocode_test_examples)."""
+
 import subprocess
 import tempfile
 import unittest
@@ -18,8 +19,13 @@ def repo(files: dict) -> Path:
 
 
 class ChooseTests(unittest.TestCase):
-    TESTS = ["tests/test_weeks.py", "tests/test_report.py", "timesheet/test_util.py", "web/app.test.ts",
-             "go/pkg/weeks_test.go"]
+    TESTS = [
+        "tests/test_weeks.py",
+        "tests/test_report.py",
+        "timesheet/test_util.py",
+        "web/app.test.ts",
+        "go/pkg/weeks_test.go",
+    ]
 
     def test_recognizes_test_files_across_languages(self):
         for path in self.TESTS + ["spec/user_spec.rb", "src/a.spec.js"]:
@@ -28,10 +34,13 @@ class ChooseTests(unittest.TestCase):
             self.assertFalse(examples.is_test_file(path), path)
 
     def test_the_tasks_own_tests_come_first_then_tests_named_after_its_sources(self):
-        self.assertEqual(["tests/test_report.py", "tests/test_weeks.py"],
-                         examples.choose(["timesheet/weeks.py", "tests/test_report.py"], self.TESTS))
-        self.assertEqual(["tests/test_weeks.py", "go/pkg/weeks_test.go"],
-                         examples.choose(["timesheet/weeks.py"], self.TESTS))
+        self.assertEqual(
+            ["tests/test_report.py", "tests/test_weeks.py"],
+            examples.choose(["timesheet/weeks.py", "tests/test_report.py"], self.TESTS),
+        )
+        self.assertEqual(
+            ["tests/test_weeks.py", "go/pkg/weeks_test.go"], examples.choose(["timesheet/weeks.py"], self.TESTS)
+        )
         # A test directory in affected_paths counts as the task's own tests.
         self.assertEqual(["tests/test_report.py", "tests/test_weeks.py"], examples.choose(["tests/"], self.TESTS))
 
@@ -46,8 +55,10 @@ class ChooseTests(unittest.TestCase):
 
 class SectionTests(unittest.TestCase):
     def test_the_section_shows_the_opening_lines_of_the_closest_tests(self):
-        body = "import unittest\nfrom timesheet.weeks import iso_week\n\n\nclass WeekTests(unittest.TestCase):\n" + \
-               "".join(f"    def test_{n}(self):\n        self.assertEqual({n}, {n})\n" for n in range(60))
+        body = (
+            "import unittest\nfrom timesheet.weeks import iso_week\n\n\nclass WeekTests(unittest.TestCase):\n"
+            + "".join(f"    def test_{n}(self):\n        self.assertEqual({n}, {n})\n" for n in range(60))
+        )
         root = repo({"timesheet/weeks.py": "x = 1\n", "tests/test_weeks.py": body, "tests/test_other.py": "import x\n"})
         text = examples.section(root, {"affected_paths": ["timesheet/weeks.py"]})
         self.assertIn("EXISTING TEST STYLE", text)
@@ -68,9 +79,12 @@ class SectionTests(unittest.TestCase):
         before, after = prompt.split("\nCURRENT HANDOFF DATA\n")
         self.assertIn("--- test_app.py", before)
         self.assertEqual("{}", after)
-        self.assertEqual("x\nCURRENT HANDOFF DATA\n{}",
-                         examples.add_to_prompt("x\nCURRENT HANDOFF DATA\n{}", root, {"affected_paths": ["none.md"]})
-                         .replace(examples.section(root, {"affected_paths": ["none.md"]}), ""))
+        self.assertEqual(
+            "x\nCURRENT HANDOFF DATA\n{}",
+            examples.add_to_prompt("x\nCURRENT HANDOFF DATA\n{}", root, {"affected_paths": ["none.md"]}).replace(
+                examples.section(root, {"affected_paths": ["none.md"]}), ""
+            ),
+        )
 
 
 class BuilderRequestTests(unittest.TestCase):
@@ -78,6 +92,7 @@ class BuilderRequestTests(unittest.TestCase):
         from units import common
 
         from tests.test_bug_job import approved_small_fix
+
         state = approved_small_fix()
         root = Path(state["workspace"])
         (root / "tests").mkdir(exist_ok=True)

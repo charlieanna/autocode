@@ -17,6 +17,7 @@ Everything is versioned; absent keys mean the ordinary (non-progressive) path,
 and legacy or already-approved runs never acquire a delegation from defaults,
 resumes or a model's assertion.
 """
+
 from __future__ import annotations
 
 try:
@@ -71,10 +72,14 @@ def retained_review_budget_pause(state, status):
 
 def initial_limits(state):
     settings = state.get("settings", {})
-    return rules.normalize_limits({"slice_review_calls": settings.get("planning_review_call_limit", 2),
-        "slice_stage_seconds": settings.get("milestone_checkpoints", {}).get("max_seconds", 5400),
-        "run_max_seconds": settings.get("limits", {}).get("max_seconds", 43200),
-        "run_max_seconds_explicit_only": True})
+    return rules.normalize_limits(
+        {
+            "slice_review_calls": settings.get("planning_review_call_limit", 2),
+            "slice_stage_seconds": settings.get("milestone_checkpoints", {}).get("max_seconds", 5400),
+            "run_max_seconds": settings.get("limits", {}).get("max_seconds", 43200),
+            "run_max_seconds_explicit_only": True,
+        }
+    )
 
 
 def product_checklist(body, checks):
@@ -96,8 +101,11 @@ def planning_revision_state(state):
     """Exclude only authenticated runner-authored draft text from product edits."""
     replacement = view(state).get("draft_replacement")
     contract = state.get("goal_contract") or {}
-    if (not replacement or contract.get("approval_status") == "approved"
-            or replacement["contract_token"] != goals.token(contract)):
+    if (
+        not replacement
+        or contract.get("approval_status") == "approved"
+        or replacement["contract_token"] != goals.token(contract)
+    ):
         return state
     revised = {**state, "goal_contract": copy.deepcopy(contract)}
     _strip_disclosure(revised["goal_contract"]["body"], replacement["generated"])
@@ -138,11 +146,17 @@ def accept_proposal(state, value, *, origin):
         _strip_disclosure(body, old_disclosure)
         view(state)["draft_replacement"] = {"contract_token": goals.token(contract), "generated": old_disclosure}
     if not rules.declares(proposal):
-        shown = [line for field in ("constraints", "technical_approach")
-                 for line in body.get(field) or [] if line.startswith(_PREFIXES)]
+        shown = [
+            line
+            for field in ("constraints", "technical_approach")
+            for line in body.get(field) or []
+            if line.startswith(_PREFIXES)
+        ]
         if shown:
-            raise ValueError("the plan card carries progressive disclosure without a progressive_proposal; "
-                             "only the runner's generated disclosure may delegate")
+            raise ValueError(
+                "the plan card carries progressive disclosure without a progressive_proposal; "
+                "only the runner's generated disclosure may delegate"
+            )
         clear_candidate(state)
         return
     rules.validate_proposal(proposal, criteria, initial=True)
@@ -154,9 +168,15 @@ def accept_proposal(state, value, *, origin):
     _install(body, generated)
     rules.check_disclosure(body, proposal, criteria, limits=limits)
     record = state.setdefault(KEY, {"version": VERSION})
-    record["candidate"] = {"proposal": copy.deepcopy(proposal), "plan_hash": rules.plan_identity(proposal),
-                           "origin": origin, "criteria": sorted(criteria), "limits": limits,
-                           "prior_disclosure": old_disclosure, "accepted_at": util.now()}
+    record["candidate"] = {
+        "proposal": copy.deepcopy(proposal),
+        "plan_hash": rules.plan_identity(proposal),
+        "origin": origin,
+        "criteria": sorted(criteria),
+        "limits": limits,
+        "prior_disclosure": old_disclosure,
+        "accepted_at": util.now(),
+    }
     return record["candidate"]
 
 
@@ -169,13 +189,18 @@ def _install(body, generated):
     lines = generated["constraints"] + generated["technical_approach"]
     for line in constraints + approach:
         if line.startswith(_PREFIXES) and line not in lines:
-            raise ValueError("the plan card carries a disclosure line the proposal does not generate: "
-                             + line[:80] + "...")
+            raise ValueError(
+                "the plan card carries a disclosure line the proposal does not generate: " + line[:80] + "..."
+            )
     # The expanded ordinary plan card displays constraints, not scope_exclusions.
-    body["constraints"] = [line for line in constraints if not line.startswith((*_PREFIXES, _RETIREMENT_PREFIX))] \
-        + generated["constraints"] + removals
-    body["technical_approach"] = generated["technical_approach"] \
-        + [line for line in approach if not line.startswith(_PREFIXES)]
+    body["constraints"] = (
+        [line for line in constraints if not line.startswith((*_PREFIXES, _RETIREMENT_PREFIX))]
+        + generated["constraints"]
+        + removals
+    )
+    body["technical_approach"] = generated["technical_approach"] + [
+        line for line in approach if not line.startswith(_PREFIXES)
+    ]
 
 
 def _first_difference(left, right, path="$"):
@@ -221,17 +246,26 @@ def retirement_line(check, removes):
     """Visible declaration signed by the ordinary revised-goal approval."""
     return _RETIREMENT_PREFIX + json.dumps(
         {"check_id": check["id"], "check_hash": rules.check_identity(check), "removes": removes},
-        sort_keys=True, separators=(",", ":"))
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _prepare_retirements(state, body, proposal, previous_token):
     """Reconcile exact old obligations without changing the suspended ledger."""
     record = view(state)
     current = state["goal_contract"]
-    predecessor = next((old for old in state.get("contract_history", [])
-        if old.get("task_id") == current["task_id"] and old.get("revision", 0) < current["revision"]
-        and goals.token(old) == previous_token
-        and goals.approved({"goal_contract": old, "user_events": state.get("user_events", [])})), None)
+    predecessor = next(
+        (
+            old
+            for old in state.get("contract_history", [])
+            if old.get("task_id") == current["task_id"]
+            and old.get("revision", 0) < current["revision"]
+            and goals.token(old) == previous_token
+            and goals.approved({"goal_contract": old, "user_events": state.get("user_events", [])})
+        ),
+        None,
+    )
     if predecessor is None:
         raise ValueError("product revision requires the authenticated earlier approved same-task contract")
     previous_state = {**state, "goal_contract": predecessor}
@@ -259,20 +293,30 @@ def _prepare_retirements(state, body, proposal, previous_token):
                 raise ValueError("unexpected declaration fields")
             check = old_checks.get(declaration["check_id"])
             removes = declaration["removes"]
-            if (check is None or type(removes) is not str or not removes.strip() or "\x00" in removes
-                    or line != retirement_line(check, removes)
-                    or line not in body.get("constraints", [])
-                    or declaration["check_id"] in proposed
-                    or any(row["check_id"] == check["id"] for row in grants)
-                    or not any(row["id"] == check["id"] and rules.check_identity(row) == rules.check_identity(check)
-                               for row in known)
-                    or removes not in old_behaviors or removes in current_behaviors):
+            if (
+                check is None
+                or type(removes) is not str
+                or not removes.strip()
+                or "\x00" in removes
+                or line != retirement_line(check, removes)
+                or line not in body.get("constraints", [])
+                or declaration["check_id"] in proposed
+                or any(row["check_id"] == check["id"] for row in grants)
+                or not any(
+                    row["id"] == check["id"] and rules.check_identity(row) == rules.check_identity(check)
+                    for row in known
+                )
+                or removes not in old_behaviors
+                or removes in current_behaviors
+            ):
                 raise ValueError("unknown, stale, retained or unrelated check/behavior")
         except (ValueError, TypeError, KeyError) as error:
             raise ValueError("invalid explicit progressive check retirement: " + str(error)) from error
         grants.append({"kind": "product_change", **declaration, "visible_removal": line})
         retired.append(copy.deepcopy(check))
-    retained = [copy.deepcopy(row) for row in old_checks.values() if row["id"] not in {check["id"] for check in retired}]
+    retained = [
+        copy.deepcopy(row) for row in old_checks.values() if row["id"] not in {check["id"] for check in retired}
+    ]
     criteria = {row["id"] for row in body["acceptance_criteria"]}
     if any(set(row["criterion_ids"]) - criteria for row in retained):
         raise ValueError("product revision must explicitly reconcile retained criterion/check obligations")
@@ -289,61 +333,76 @@ def prepare_seal(state, contract_token):
     """
     reports = state.get("planning", {}).get("reports", {})
     for row in state.get("stages", []):
-        if (row.get("report_only") and row.get("output")
-                == reports.get(row.get("original_stage"), {}).get("output")):
+        if row.get("report_only") and row.get("output") == reports.get(row.get("original_stage"), {}).get("output"):
             repair_provenance.verify_accepted_repair(state, row)
     record = state.get(KEY)
     candidate = (record or {}).get("candidate")
     if not candidate:
         return
     if state.get("active_stage") or state.get("uncertain_artifacts") or state.get("pending_report_repair"):
-        raise ValueError("initial progressive approval requires a reconciled boundary without an active stage or uncertain report")
+        raise ValueError(
+            "initial progressive approval requires a reconciled boundary without an active stage or uncertain report"
+        )
     previous_grant = record.get("delegation") or {}
     renewing = bool(previous_grant and previous_grant.get("contract_token") != contract_token)
     body = (state.get("goal_contract") or {}).get("body") or {}
     criteria = [row["id"] for row in body.get("acceptance_criteria") or []]
     if sorted(criteria) != candidate.get("criteria"):
-        raise ValueError("the approved plan's product criteria changed since the progressive proposal; "
-                         "re-plan before approval")
+        raise ValueError(
+            "the approved plan's product criteria changed since the progressive proposal; re-plan before approval"
+        )
     if rules.plan_identity(candidate["proposal"]) != candidate.get("plan_hash"):
         raise ValueError("the recorded progressive proposal does not match its sealed plan identity")
     limits = candidate.get("limits") or initial_limits(state)
     rules.check_disclosure(body, candidate["proposal"], criteria, limits=limits)
     delegation = rules.seal_delegation(candidate["proposal"], contract_token, limits=limits)
-    prepared = {"delegation": delegation,
-            "plan": {"proposal": copy.deepcopy(candidate["proposal"]),
-                      "plan_hash": candidate["plan_hash"], "limits": limits, "sealed_at": util.now()}}
+    prepared = {
+        "delegation": delegation,
+        "plan": {
+            "proposal": copy.deepcopy(candidate["proposal"]),
+            "plan_hash": candidate["plan_hash"],
+            "limits": limits,
+            "sealed_at": util.now(),
+        },
+    }
     # Approval consumes the actual final independent review, not a synthetic grant.
     reviewer = "plan_finalize" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_finalize"
     planner = "plan_revise" if reviewer == "plan_finalize" else "glm_revise"
     final = reports.get(reviewer) or {}
     prior = reports.get(planner) or {}
     witness, reviewer_session = repair_provenance.witness(state, reviewer, final.get("output"))
-    if (not prior.get("output") or prior["output"] == final.get("output")
-            or candidate.get("origin") != reviewer
-            or final.get("report", {}).get("progressive_proposal") != candidate["proposal"]
-            or any(row.get("resolved") is not True for row in final["report"].get("decisions", []))):
+    if (
+        not prior.get("output")
+        or prior["output"] == final.get("output")
+        or candidate.get("origin") != reviewer
+        or final.get("report", {}).get("progressive_proposal") != candidate["proposal"]
+        or any(row.get("resolved") is not True for row in final["report"].get("decisions", []))
+    ):
         raise ValueError("initial progressive activation requires the accepted final independent plan review")
     raw = util.read(Path(final["output"]))
     if raw.get("progressive_proposal") != candidate["proposal"]:
         raise ValueError("saved final review differs from its accepted progressive proposal")
-    raw_body = _canonical_contract(raw.get("contract") or {}, candidate["proposal"], criteria,
-                                   limits, candidate.get("prior_disclosure"))
-    reviewed_body = _canonical_contract(final["report"]["contract"], candidate["proposal"], criteria,
-                                         limits, candidate.get("prior_disclosure"))
+    raw_body = _canonical_contract(
+        raw.get("contract") or {}, candidate["proposal"], criteria, limits, candidate.get("prior_disclosure")
+    )
+    reviewed_body = _canonical_contract(
+        final["report"]["contract"], candidate["proposal"], criteria, limits, candidate.get("prior_disclosure")
+    )
     difference = _first_difference(raw_body, reviewed_body)
     if difference:
-        raise ValueError("saved final review differs from the approved progressive contract "
-                         f"at {difference}")
-    if (body != final["report"]["contract"]
-            or state.get("planning", {}).get("final_token") != contract_token):
+        raise ValueError(f"saved final review differs from the approved progressive contract at {difference}")
+    if body != final["report"]["contract"] or state.get("planning", {}).get("final_token") != contract_token:
         raise ValueError("progressive approval requires the exact current independently reviewed displayed contract")
     first_task = body.get("initial_task") or {}
     first_slice = candidate["proposal"]["slices"][0]
     head_commands = {command for row in first_slice["checks"] for command in verification.commands(row["method"])}
-    task_commands = {command for method in first_task.get("validation_plan", []) for command in verification.commands(method)}
+    task_commands = {
+        command for method in first_task.get("validation_plan", []) for command in verification.commands(method)
+    }
     if not task_commands or not task_commands <= head_commands:
-        raise ValueError("progressive initial_task validation must belong to the concrete first slice, not tentative future work")
+        raise ValueError(
+            "progressive initial_task validation must belong to the concrete first slice, not tentative future work"
+        )
     if any(first_task.get("objective") == row["intended_result"] for row in candidate["proposal"]["slices"][1:]):
         raise ValueError("progressive initial_task targets a tentative future slice")
     planner_witness, planner_session = repair_provenance.witness(state, planner, prior["output"])
@@ -355,36 +414,63 @@ def prepare_seal(state, contract_token):
     prepared["required_checks"] = product_checklist(body, rules.cumulative_checks(candidate["proposal"]))
     proposal_report = {"proposal": candidate["proposal"]}
     if renewing:
-        retained, retired, grants = _prepare_retirements(state, body, candidate["proposal"], previous_grant["contract_token"])
+        retained, retired, grants = _prepare_retirements(
+            state, body, candidate["proposal"], previous_grant["contract_token"]
+        )
         prepared["required_checks"] = product_checklist(body, rules.cumulative_checks(candidate["proposal"], retained))
         prepared["retirements"] = grants
-        proposal_report.update(contract_body=copy.deepcopy(body), retired_checks=retired,
-                               predecessor_contract_token=previous_grant["contract_token"])
+        proposal_report.update(
+            contract_body=copy.deepcopy(body),
+            retired_checks=retired,
+            predecessor_contract_token=previous_grant["contract_token"],
+        )
     elif any(line.startswith(_RETIREMENT_PREFIX) for line in body.get("scope_exclusions", [])):
         raise ValueError("check retirement requires an earlier approved progressive contract")
-    envelope, _ = artifacts.prepare("proposal", contract_token=contract_token,
-        predecessor_identity=None, candidate_identity=candidate["plan_hash"],
-        plan_identity=candidate["plan_hash"], source_snapshot_identity=util.digest(snapshot),
-        report=proposal_report)
+    envelope, _ = artifacts.prepare(
+        "proposal",
+        contract_token=contract_token,
+        predecessor_identity=None,
+        candidate_identity=candidate["plan_hash"],
+        plan_identity=candidate["plan_hash"],
+        source_snapshot_identity=util.digest(snapshot),
+        report=proposal_report,
+    )
     identity = artifacts.persist(state["run_dir"], envelope)
     for grant in prepared.get("retirements", []):
         grant.update(contract_token=contract_token, artifact=copy.deepcopy(identity))
-    review_report = {"accepted": True, "candidate_sha256": identity["sha256"],
-                    "stage": reviewer, "role": witness.get("role"),
-                    "output": final["output"], "output_hash": util.file_hash(Path(final["output"])),
-                    "planner_output": prior["output"]}
-    envelope, _ = artifacts.prepare("review", contract_token=contract_token,
-        predecessor_identity=candidate["plan_hash"], candidate_identity=candidate["plan_hash"],
-        plan_identity=candidate["plan_hash"], source_snapshot_identity=util.digest(snapshot), report=review_report)
+    review_report = {
+        "accepted": True,
+        "candidate_sha256": identity["sha256"],
+        "stage": reviewer,
+        "role": witness.get("role"),
+        "output": final["output"],
+        "output_hash": util.file_hash(Path(final["output"])),
+        "planner_output": prior["output"],
+    }
+    envelope, _ = artifacts.prepare(
+        "review",
+        contract_token=contract_token,
+        predecessor_identity=candidate["plan_hash"],
+        candidate_identity=candidate["plan_hash"],
+        plan_identity=candidate["plan_hash"],
+        source_snapshot_identity=util.digest(snapshot),
+        report=review_report,
+    )
     reviewed = artifacts.persist(state["run_dir"], envelope)
-    prepared["active"] = {"definition": copy.deepcopy(candidate["proposal"]["slices"][0]),
-                          "plan_hash": candidate["plan_hash"], "artifact": identity, "review": reviewed}
+    prepared["active"] = {
+        "definition": copy.deepcopy(candidate["proposal"]["slices"][0]),
+        "plan_hash": candidate["plan_hash"],
+        "artifact": identity,
+        "review": reviewed,
+    }
     prepared["outstanding_criteria"] = sorted(criteria)
     if renewing:
         # Explicitly reviewed new-goal approval renews authority, not capacity.
         # No check retirement is inferred from a changed ID or new token.
-        prepared["renewal"] = {key: copy.deepcopy(record.get(key)) for key in
-                               ("initial_plan", "plan", "delegation", "active", "completion_proof")}
+        prepared["renewal"] = {
+            key: copy.deepcopy(record.get(key))
+            for key in ("initial_plan", "plan", "delegation", "active", "completion_proof")
+        }
         prepared["renewal_allowance"] = copy.deepcopy(record.get("pending_allowance") or record["active_allowance"])
     if not record.get("budget"):
         planning = state.get("planning", {})
@@ -393,9 +479,13 @@ def prepare_seal(state, contract_token):
         run_limit = limits["run_max_seconds"] or 0
         provenance = "default" if (review_limit, local_limit, run_limit) == (2, 5400, 43200) else "configured"
         used = state.get("active_seconds", 0)
-        ledger = budget.new_ledger(review_limit=review_limit, local_seconds_limit=local_limit,
-                                   run_seconds_limit=run_limit, run_seconds_used=used,
-                                   limit_provenance=provenance)
+        ledger = budget.new_ledger(
+            review_limit=review_limit,
+            local_seconds_limit=local_limit,
+            run_seconds_limit=run_limit,
+            run_seconds_used=used,
+            limit_provenance=provenance,
+        )
         head = candidate["proposal"]["slices"][0]
         work = "work:" + util.digest({"initial_plan": candidate["plan_hash"], "slice": head})
         pool = "slice:" + work.removeprefix("work:")
@@ -403,19 +493,29 @@ def prepare_seal(state, contract_token):
         for grant in planning.get("recovery_review_grants", []):
             path = Path(grant["receipt_output"])
             receipt = util.read(path)
-            if (util.file_hash(path) != grant["receipt_hash"]
-                    or receipt.get("runner_owned") is not True
-                    or receipt.get("receipt", {}).get("id") != grant["id"]
-                    or receipt["receipt"].get("binding") != grant["binding"]):
+            if (
+                util.file_hash(path) != grant["receipt_hash"]
+                or receipt.get("runner_owned") is not True
+                or receipt.get("receipt", {}).get("id") != grant["id"]
+                or receipt["receipt"].get("binding") != grant["binding"]
+            ):
                 raise ValueError("initial review recovery allowance lacks its authenticated runner receipt")
             used_by = grant.get("consuming_output") if grant.get("consumed") else None
-            if used_by and not any(row.get("output") == used_by and row.get("planning_recovery_grant") == grant["id"]
-                                   for row in state.get("stages", [])):
+            if used_by and not any(
+                row.get("output") == used_by and row.get("planning_recovery_grant") == grant["id"]
+                for row in state.get("stages", [])
+            ):
                 raise ValueError("initial review recovery usage does not match its admitted attempt")
             recovery.append({"id": grant["id"], "provenance": "resolver_receipt:" + grant["id"], "used_by": used_by})
-        prepared["budget"] = budget.allocate(ledger, "initial:" + candidate["plan_hash"], pool,
-                                              approved_work=[work], seed_reviews=planning.get("astra_calls", 0),
-                                              seed_seconds=used, recovery_grants=recovery)
+        prepared["budget"] = budget.allocate(
+            ledger,
+            "initial:" + candidate["plan_hash"],
+            pool,
+            approved_work=[work],
+            seed_reviews=planning.get("astra_calls", 0),
+            seed_seconds=used,
+            recovery_grants=recovery,
+        )
         # Initial planning was accounted before the ledger existed. Pin those
         # already-included records so a recovered copy cannot add their time again.
         for row in state.get("stages", []):
@@ -423,13 +523,25 @@ def prepare_seal(state, contract_token):
             if not identity or not row.get("accounted"):
                 continue
             duration = 0 if row.get("duration_seconds") is None else row["duration_seconds"]
-            if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration < 0:
+            if (
+                isinstance(duration, bool)
+                or not isinstance(duration, (int, float))
+                or not math.isfinite(duration)
+                or duration < 0
+            ):
                 raise ValueError("initial planning has invalid accounted duration")
-            prepared["budget"]["attempts"][identity] = {"pool": pool, "review": False,
-                "recovery_grant": None, "refunded": False,
-                "outcome": {"exit_code": row.get("exit_code"), "timed_out": bool(row.get("timed_out"))}}
+            prepared["budget"]["attempts"][identity] = {
+                "pool": pool,
+                "review": False,
+                "recovery_grant": None,
+                "refunded": False,
+                "outcome": {"exit_code": row.get("exit_code"), "timed_out": bool(row.get("timed_out"))},
+            }
             prepared["budget"]["time_receipts"]["time:" + identity] = {
-                "attempt": identity, "pool": pool, "seconds": duration}
+                "attempt": identity,
+                "pool": pool,
+                "seconds": duration,
+            }
         prepared["initial_allowance"] = {"slice_id": head["id"], "pool_id": pool, "work_id": work}
     return prepared
 
@@ -477,9 +589,14 @@ def enabled(state):
     body = (state.get("goal_contract") or {}).get("body") or {}
     record = state.get(KEY)
     malformed = KEY in state and (not isinstance(record, dict) or record.get("version") != VERSION)
-    return bool(malformed or view(state).get("delegation") or any(
-        isinstance(line, str) and line.startswith(rules.DISCLOSURE_DELEGATION)
-        for line in body.get("constraints", [])))
+    return bool(
+        malformed
+        or view(state).get("delegation")
+        or any(
+            isinstance(line, str) and line.startswith(rules.DISCLOSURE_DELEGATION)
+            for line in body.get("constraints", [])
+        )
+    )
 
 
 def armed(state):
@@ -495,10 +612,13 @@ def armed(state):
 def require_active(state):
     record = view(state)
     contract = state.get("goal_contract") or {}
-    rules.require_delegation(record, contract_token=goals.token(contract),
-                             contract_body=contract.get("body") or {},
-                             contract_approved=goals.approved(state),
-                             contract_sealed=goals.sealed(contract))
+    rules.require_delegation(
+        record,
+        contract_token=goals.token(contract),
+        contract_body=contract.get("body") or {},
+        contract_approved=goals.approved(state),
+        contract_sealed=goals.sealed(contract),
+    )
     active = record.get("active")
     if not isinstance(active, dict) or not active.get("artifact") or not active.get("review"):
         raise ValueError("progressive execution requires a persisted independently reviewed active slice")
@@ -509,36 +629,47 @@ def require_active(state):
     review = artifacts.verify(state.get("run_dir"), active["review"])
     proposal = candidate["report"].get("proposal")
     criteria = [row["id"] for row in contract["body"].get("acceptance_criteria", [])]
-    if (not isinstance(proposal, dict) or not proposal.get("slices")
-            or rules.validate_slice(proposal["slices"][0], criteria) != rules.validate_slice(definition, criteria)
-            or rules.plan_identity(proposal) != active.get("plan_hash")
-            or candidate["plan_identity"] != active["plan_hash"]):
+    if (
+        not isinstance(proposal, dict)
+        or not proposal.get("slices")
+        or rules.validate_slice(proposal["slices"][0], criteria) != rules.validate_slice(definition, criteria)
+        or rules.plan_identity(proposal) != active.get("plan_hash")
+        or candidate["plan_identity"] != active["plan_hash"]
+    ):
         raise ValueError("active slice differs from its persisted reviewed plan")
-    if (candidate["contract_token"] != goals.token(contract)
-            or review["contract_token"] != goals.token(contract)
-            or review["kind"] != "review" or review["report"].get("accepted") is not True
-            or review["report"].get("candidate_sha256") != active["artifact"]["sha256"]
-            or review["candidate_identity"] != candidate["candidate_identity"]
-            or review["plan_identity"] != candidate["plan_identity"]
-            or review["source_snapshot_identity"] != candidate["source_snapshot_identity"]):
+    if (
+        candidate["contract_token"] != goals.token(contract)
+        or review["contract_token"] != goals.token(contract)
+        or review["kind"] != "review"
+        or review["report"].get("accepted") is not True
+        or review["report"].get("candidate_sha256") != active["artifact"]["sha256"]
+        or review["candidate_identity"] != candidate["candidate_identity"]
+        or review["plan_identity"] != candidate["plan_identity"]
+        or review["source_snapshot_identity"] != candidate["source_snapshot_identity"]
+    ):
         raise ValueError("active slice review does not bind its exact contract, plan and retained source")
     return active
 
 
 def context(state):
     """Read the same reviewed slice and checklist used for execution/replay."""
-    if (not enabled(state) or (state.get("goal_contract") or {}).get("approval_status") != "approved"
-            or not goals.approved(state)):
+    if (
+        not enabled(state)
+        or (state.get("goal_contract") or {}).get("approval_status") != "approved"
+        or not goals.approved(state)
+    ):
         return {}
     active = require_active(state)
     record = view(state)
     due = due_checks(state)
-    return {"active_slice": copy.deepcopy(active["definition"]),
-            "plan_hash": active["plan_hash"],
-            "required_checks": due,
-            "checkpoint_checks": copy.deepcopy(record.get("required_checks", [])),
-            "done_slices": [row["slice_id"] for row in record.get("history", [])],
-            "outstanding_criteria": deferred_criteria(state, due)}
+    return {
+        "active_slice": copy.deepcopy(active["definition"]),
+        "plan_hash": active["plan_hash"],
+        "required_checks": due,
+        "checkpoint_checks": copy.deepcopy(record.get("required_checks", [])),
+        "done_slices": [row["slice_id"] for row in record.get("history", [])],
+        "outstanding_criteria": deferred_criteria(state, due),
+    }
 
 
 def pending_product_criteria(state):
@@ -551,7 +682,9 @@ def deferred_criteria(state, due):
     targets = {cid for row in due if row["relation"] == "fully_verify" for cid in row["criterion_ids"]}
     pending = pending_product_criteria(state)
     targets -= pending
-    return sorted(row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"] if row["id"] not in targets)
+    return sorted(
+        row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"] if row["id"] not in targets
+    )
 
 
 def due_checks(state):
@@ -564,19 +697,36 @@ def due_checks(state):
     task = state.get("current_task") or {}
     commands = {command for method in task.get("validation_plan", []) for command in verification.commands(method)}
     historical = {row["id"] for entry in ledger.get("history", []) for row in entry.get("required_checks", [])}
-    fully_requested = {cid for row in ledger.get("required_checks", []) if row["relation"] == "fully_verify"
-                       and set(verification.commands(row["method"])) <= commands for cid in row["criterion_ids"]}
-    guards = {row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"]
-              if row.get("verification_method", "").strip().startswith("guard:")}
-    rows = [copy.deepcopy(row) for row in ledger.get("required_checks", [])
-            if row["id"] in historical or guards.intersection(row["criterion_ids"])
-            or ledger.get("proven_obligations", {}).get(row["id"]) == rules.check_identity(row)
-            or fully_requested.intersection(row["criterion_ids"])
-            or set(verification.commands(row["method"])) <= commands]
+    fully_requested = {
+        cid
+        for row in ledger.get("required_checks", [])
+        if row["relation"] == "fully_verify" and set(verification.commands(row["method"])) <= commands
+        for cid in row["criterion_ids"]
+    }
+    guards = {
+        row["id"]
+        for row in state["goal_contract"]["body"]["acceptance_criteria"]
+        if row.get("verification_method", "").strip().startswith("guard:")
+    }
+    rows = [
+        copy.deepcopy(row)
+        for row in ledger.get("required_checks", [])
+        if row["id"] in historical
+        or guards.intersection(row["criterion_ids"])
+        or ledger.get("proven_obligations", {}).get(row["id"]) == rules.check_identity(row)
+        or fully_requested.intersection(row["criterion_ids"])
+        or set(verification.commands(row["method"])) <= commands
+    ]
     covered = {command for row in rows for command in verification.commands(row["method"])}
     for command in sorted(commands - covered):
-        rows.append({"id": "task-check:" + util.digest(command), "method": command,
-                     "relation": "contributes_to", "criterion_ids": list(task.get("acceptance_criteria", []))})
+        rows.append(
+            {
+                "id": "task-check:" + util.digest(command),
+                "method": command,
+                "relation": "contributes_to",
+                "criterion_ids": list(task.get("acceptance_criteria", [])),
+            }
+        )
     return product_checklist(state["goal_contract"]["body"], rows)
 
 
@@ -619,9 +769,13 @@ def guard_slice_assignment(body, spec, paths, definition):
     owned = [PurePosixPath(path.rstrip("/")) for path in definition["paths"]]
     for path in paths:
         target = PurePosixPath(path.rstrip("/"))
-        if (target.is_absolute() or ".." in target.parts or not target.parts
-                or any(char in path for char in "*?[]\\")
-                or not any(target == root or root in target.parents for root in owned)):
+        if (
+            target.is_absolute()
+            or ".." in target.parts
+            or not target.parts
+            or any(char in path for char in "*?[]\\")
+            or not any(target == root or root in target.parents for root in owned)
+        ):
             raise ValueError(f"task path {path!r} exceeds active slice writable ownership")
 
 
@@ -648,7 +802,10 @@ def guard_dispatch(state, stage):
     if stage not in ("terra", "sol", "astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"):
         return
     if view(state).get("transition"):
-        raise util.Paused("PAUSED_PROGRESSIVE_TRANSITION", "Slice continuation must finish its saved planning/decision boundary before execution")
+        raise util.Paused(
+            "PAUSED_PROGRESSIVE_TRANSITION",
+            "Slice continuation must finish its saved planning/decision boundary before execution",
+        )
     try:
         active = require_active(state)
         task = state.get("current_task") or {}
@@ -666,9 +823,13 @@ def bind_task(state):
     active = require_active(state)
     task = state["current_task"]
     task["slice_id"] = active["definition"]["id"]
-    binding = {"contract_token": goals.token(state["goal_contract"]),
-               "plan_hash": active["plan_hash"], "slice_id": task["slice_id"],
-               "task_id": task["id"], "assignment_source": task["source_revision"]}
+    binding = {
+        "contract_token": goals.token(state["goal_contract"]),
+        "plan_hash": active["plan_hash"],
+        "slice_id": task["slice_id"],
+        "task_id": task["id"],
+        "assignment_source": task["source_revision"],
+    }
     view(state).setdefault("tasks", {})[task["id"]] = binding
 
 
@@ -694,38 +855,67 @@ def _admit_attempt(state, record, before):
     stage = record.get("original_stage") or record["stage"]
     if approved:
         guard_dispatch(state, stage)
-    elif stage not in ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
-                       "astra_finalize", "requirements", "plan", "plan_review", "plan_revise", "plan_finalize"):
+    elif stage not in (
+        "requirements_gather",
+        "astra_discovery",
+        "astra_challenge",
+        "glm_revise",
+        "astra_finalize",
+        "requirements",
+        "plan",
+        "plan_review",
+        "plan_revise",
+        "plan_finalize",
+    ):
         raise ValueError("suspended progressive delegation permits only ordinary new-goal planning")
     pool = (ledger.get("pending_allowance") or ledger.get("active_allowance") or {}).get("pool_id")
     if not pool:
         raise util.Paused("PAUSED_PROGRESSIVE_AUTHORITY", "No reserved progressive allowance")
     identity = attempt_identity(record)
     try:
-        if (approved and ledger.get("transition", {}).get("phase") == "detail"
-                and stage in ("glm_revise", "plan_revise")):
+        if (
+            approved
+            and ledger.get("transition", {}).get("phase") == "detail"
+            and stage in ("glm_revise", "plan_revise")
+        ):
             status = budget.check_budget(ledger["budget"], pool, review=True)
             if not status["allowed"]:
-                raise util.Paused("PAUSED_PLANNING_BUDGET", "No reserved independent review capacity: " + ", ".join(status["exhausted"]))
-        ledger["budget"] = budget.admit(ledger["budget"], identity, pool,
+                raise util.Paused(
+                    "PAUSED_PLANNING_BUDGET",
+                    "No reserved independent review capacity: " + ", ".join(status["exhausted"]),
+                )
+        ledger["budget"] = budget.admit(
+            ledger["budget"],
+            identity,
+            pool,
             review=stage in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize")
-                    and not record.get("report_only"))
+            and not record.get("report_only"),
+        )
     except budget.BudgetExhausted as error:
         raise util.Paused("PAUSED_PROGRESSIVE_BUDGET", str(error)) from error
     task = state.get("current_task") or {}
-    if approved and stage in ("terra", "sol", "astra_plan", "astra_review", "astra_checkpoint", "astra_resolve") and task:
+    if (
+        approved
+        and stage in ("terra", "sol", "astra_plan", "astra_review", "astra_checkpoint", "astra_resolve")
+        and task
+    ):
         binding = ledger.get("tasks", {}).get(task["id"])
         if not binding or binding["slice_id"] != task.get("slice_id"):
             raise util.Paused("PAUSED_PROGRESSIVE_AUTHORITY", "Task lacks immutable slice assignment")
         prior = [row for row in ledger.get("attempts", {}).values() if row.get("task_id") == task["id"]]
         if not prior and before["revision"] != binding["assignment_source"]:
             raise ValueError("source changed between reviewed assignment and its first provider launch")
-        attempt = {**binding, "attempt": 1 + sum(row.get("task_id") == task["id"]
-                   for row in ledger.get("attempts", {}).values()), "launch_source": before["revision"],
-                   "stage": stage, "role": record.get("role")}
+        attempt = {
+            **binding,
+            "attempt": 1 + sum(row.get("task_id") == task["id"] for row in ledger.get("attempts", {}).values()),
+            "launch_source": before["revision"],
+            "stage": stage,
+            "role": record.get("role"),
+        }
         previous = ledger.setdefault("attempts", {}).get(identity)
-        if previous and any(previous.get(key) != attempt.get(key)
-                            for key in (*binding, "launch_source", "stage", "role")):
+        if previous and any(
+            previous.get(key) != attempt.get(key) for key in (*binding, "launch_source", "stage", "role")
+        ):
             raise ValueError("progressive attempt identity cannot be rebound")
         if not previous:
             ledger["attempts"][identity] = attempt
@@ -738,11 +928,16 @@ def account_stage(state, record):
     if not ledger.get("budget") or identity not in ledger["budget"]["attempts"]:
         return True
     first = "time:" + identity not in ledger["budget"]["time_receipts"]
-    updated = budget.record_time(ledger["budget"], "time:" + identity, identity,
-                                 0 if record.get("duration_seconds") is None else record["duration_seconds"])
+    updated = budget.record_time(
+        ledger["budget"],
+        "time:" + identity,
+        identity,
+        0 if record.get("duration_seconds") is None else record["duration_seconds"],
+    )
     if type(record.get("exit_code")) is int:
-        updated = budget.refund_review(updated, identity, exit_code=record["exit_code"],
-                                       timed_out=bool(record.get("timed_out")))
+        updated = budget.refund_review(
+            updated, identity, exit_code=record["exit_code"], timed_out=bool(record.get("timed_out"))
+        )
     ledger["budget"] = updated
     return first
 
@@ -786,8 +981,9 @@ def set_explicit_limits(state, *, run_seconds=None, slice_seconds=None, review_c
             continue
         binding = None if kind == "run_seconds" else pool
         change = "user_cli:" + util.digest({"kind": kind, "pool": binding, "limit": limit})
-        ledger["budget"] = budget.change_limit(ledger["budget"], change, kind, limit,
-            provenance="user_cli_explicit", explicit=True, pool_id=binding)
+        ledger["budget"] = budget.change_limit(
+            ledger["budget"], change, kind, limit, provenance="user_cli_explicit", explicit=True, pool_id=binding
+        )
 
 
 def apply_recovery_limit(state, extension, receipt_id):
@@ -800,20 +996,29 @@ def apply_recovery_limit(state, extension, receipt_id):
     ledger = view(state)
     if not ledger.get("budget"):
         return False
-    kind = {"milestone_max_seconds": "local_seconds", "planning_review_call_limit": "reviews"}.get(extension.get("kind"))
+    kind = {"milestone_max_seconds": "local_seconds", "planning_review_call_limit": "reviews"}.get(
+        extension.get("kind")
+    )
     if not kind:
         return False
     receipt = (state.get("resolver") or {}).get("operational_receipts", {}).get(receipt_id)
-    if (not receipt or receipt.get("runner_owned") is not True
-            or receipt.get("decision", {}).get("action") != "extend_default_budget"
-            or receipt.get("receipt", {}).get("id") != receipt_id
-            or receipt["receipt"].get("evidence") != extension
-            or util.read(Path(receipt["output"])) != receipt
-            or extension not in state["resolver"].get("budget_extensions", [])):
+    if (
+        not receipt
+        or receipt.get("runner_owned") is not True
+        or receipt.get("decision", {}).get("action") != "extend_default_budget"
+        or receipt.get("receipt", {}).get("id") != receipt_id
+        or receipt["receipt"].get("evidence") != extension
+        or util.read(Path(receipt["output"])) != receipt
+        or extension not in state["resolver"].get("budget_extensions", [])
+    ):
         raise ValueError("local recovery extension requires the exact issued runner receipt")
     bindings = ledger.setdefault("recovery_bindings", {})
-    requested = {"pool": (ledger.get("pending_allowance") or ledger["active_allowance"])["pool_id"],
-                 "kind": kind, "from": extension["from"], "to": extension["to"]}
+    requested = {
+        "pool": (ledger.get("pending_allowance") or ledger["active_allowance"])["pool_id"],
+        "kind": kind,
+        "from": extension["from"],
+        "to": extension["to"],
+    }
     binding = bindings.setdefault(receipt_id, requested)
     if any(binding[key] != requested[key] for key in ("kind", "from", "to")):
         raise ValueError("local recovery receipt cannot be rebound")
@@ -824,8 +1029,15 @@ def apply_recovery_limit(state, extension, receipt_id):
     change = "resolver:" + receipt_id
     if change not in ledger["budget"]["limit_changes"] and pool[limit_key] != binding["from"]:
         return False
-    ledger["budget"] = budget.change_limit(ledger["budget"], change, kind, binding["to"],
-        provenance="resolver_receipt:" + receipt_id, explicit=True, pool_id=binding["pool"])
+    ledger["budget"] = budget.change_limit(
+        ledger["budget"],
+        change,
+        kind,
+        binding["to"],
+        provenance="resolver_receipt:" + receipt_id,
+        explicit=True,
+        pool_id=binding["pool"],
+    )
     return True
 
 
@@ -835,22 +1047,33 @@ def check_result_binding(state, record, current):
     row = view(state).get("attempts", {}).get(record.get("output"))
     task = state.get("current_task") or {}
     active = require_active(state)
-    if (not row or row["task_id"] != task.get("id") or row["slice_id"] != task.get("slice_id")
-            or row["plan_hash"] != active["plan_hash"]
-            or row["contract_token"] != goals.token(state["goal_contract"])
-            or row.get("stage") != (record.get("original_stage") or record.get("stage"))
-            or row.get("role") != record.get("role")
-            or record.get("source_revision") != current["revision"]):
+    if (
+        not row
+        or row["task_id"] != task.get("id")
+        or row["slice_id"] != task.get("slice_id")
+        or row["plan_hash"] != active["plan_hash"]
+        or row["contract_token"] != goals.token(state["goal_contract"])
+        or row.get("stage") != (record.get("original_stage") or record.get("stage"))
+        or row.get("role") != record.get("role")
+        or record.get("source_revision") != current["revision"]
+    ):
         raise ValueError("result does not belong to its immutable progressive attempt and current source")
-    return {key: row[key] for key in ("contract_token", "plan_hash", "slice_id", "task_id",
-                                     "assignment_source", "attempt")} | {"validated_source": current["revision"]}
+    return {
+        key: row[key] for key in ("contract_token", "plan_hash", "slice_id", "task_id", "assignment_source", "attempt")
+    } | {"validated_source": current["revision"]}
 
 
 def validation_receipts(state, current, *, checks=None, allow_failed=False):
     """Authenticate only runner replay output, never a model's PASS dictionary."""
     validation = state.get("validation") or {}
-    record = next((row for row in reversed(state.get("stages", []) + [state.get("active_stage") or {}])
-                   if row.get("output") == validation.get("output")), None)
+    record = next(
+        (
+            row
+            for row in reversed(state.get("stages", []) + [state.get("active_stage") or {}])
+            if row.get("output") == validation.get("output")
+        ),
+        None,
+    )
     if not record or (not allow_failed and validation.get("verdict") != "PASS"):
         raise ValueError("progressive proof needs a current independent Validator PASS")
     binding = check_result_binding(state, record, current)
@@ -860,15 +1083,26 @@ def validation_receipts(state, current, *, checks=None, allow_failed=False):
     executions = {}
     for row in replay.get("checks", []):
         path = row.get("output")
-        if allow_failed and (type(row.get("exit_code")) is not int or row["exit_code"] != 0
-                             or row.get("timed_out") or row.get("error")):
+        if allow_failed and (
+            type(row.get("exit_code")) is not int or row["exit_code"] != 0 or row.get("timed_out") or row.get("error")
+        ):
             continue
-        if (type(row.get("exit_code")) is not int or row["exit_code"] != 0 or row.get("timed_out")
-                or row.get("error") or not path or not Path(path).is_file()
-                or util.file_hash(Path(path)) != row.get("output_sha256")):
+        if (
+            type(row.get("exit_code")) is not int
+            or row["exit_code"] != 0
+            or row.get("timed_out")
+            or row.get("error")
+            or not path
+            or not Path(path).is_file()
+            or util.file_hash(Path(path)) != row.get("output_sha256")
+        ):
             raise ValueError("runner replay output is missing, failed or changed")
-        executions[row["command"]] = {"command": row["command"], "status": "PASS", "exit_code": 0,
-                                      "evidence_hashes": {path: row["output_sha256"]}}
+        executions[row["command"]] = {
+            "command": row["command"],
+            "status": "PASS",
+            "exit_code": 0,
+            "evidence_hashes": {path: row["output_sha256"]},
+        }
     results = {}
     for check in view(state)["required_checks"] if checks is None else checks:
         commands = verification.commands(check["method"])
@@ -879,11 +1113,18 @@ def validation_receipts(state, current, *, checks=None, allow_failed=False):
             raise ValueError("cumulative progressive check was not independently replayed")
         rows = [executions[command] for command in commands]
         pins = {path: digest for row in rows for path, digest in row["evidence_hashes"].items()}
-        results[check["id"]] = {"status": "PASS", "exit_code": 0,
-            "check_hash": rules.check_identity(check), "contract_token": binding["contract_token"],
-            "source_revision": current["revision"], "evidence_hashes": pins, "executions": rows,
-            "replayed": True, "binding": binding,
-            "identity": util.digest({"check": check, "binding": binding, "executions": rows})}
+        results[check["id"]] = {
+            "status": "PASS",
+            "exit_code": 0,
+            "check_hash": rules.check_identity(check),
+            "contract_token": binding["contract_token"],
+            "source_revision": current["revision"],
+            "evidence_hashes": pins,
+            "executions": rows,
+            "replayed": True,
+            "binding": binding,
+            "identity": util.digest({"check": check, "binding": binding, "executions": rows}),
+        }
     return binding, results
 
 
@@ -895,20 +1136,30 @@ def assert_product_claims(state, current, validation):
     if not claimed:
         return
     checks = product_checklist(state["goal_contract"]["body"], view(state)["required_checks"])
-    binding, results = validation_receipts({**state, "validation": validation}, current, checks=checks, allow_failed=True)
-    proof = rules.criterion_proof(checks, results, contract_token=binding["contract_token"],
-                                 source_revision=current["revision"], receipts_authenticated=True)
+    binding, results = validation_receipts(
+        {**state, "validation": validation}, current, checks=checks, allow_failed=True
+    )
+    proof = rules.criterion_proof(
+        checks,
+        results,
+        contract_token=binding["contract_token"],
+        source_revision=current["revision"],
+        receipts_authenticated=True,
+    )
     pending = pending_product_criteria(state)
     missing = sorted(cid for cid in claimed if proof.get(cid) is not True or cid in pending)
     if missing:
-        raise ValueError("Product PASS is not established by authenticated cumulative fully_verify proof: " + ", ".join(missing))
+        raise ValueError(
+            "Product PASS is not established by authenticated cumulative fully_verify proof: " + ", ".join(missing)
+        )
 
 
 def require_reported_checks(state, checks):
     if not enabled(state):
         return
-    required = {command for row in context(state)["required_checks"]
-                for command in verification.commands(row["method"])}
+    required = {
+        command for row in context(state)["required_checks"] for command in verification.commands(row["method"])
+    }
     reported = {row.get("command") for row in checks}
     if required - reported:
         raise ValueError("Validator omitted cumulative progressive checks: " + ", ".join(sorted(required - reported)))
@@ -923,22 +1174,33 @@ def classify_validation(state, current):
         binding, results = validation_receipts(state, current, checks=due)
     except ValueError:
         return {"kind": "failure", "reason": "missing_current_replay", "proof_identity": None}
-    gaps = [{"kind": "criterion", "id": row["id"], "status": row["status"]}
-            for row in (state.get("validation") or {}).get("criterion_results", []) if row["status"] != "PASS"]
+    gaps = [
+        {"kind": "criterion", "id": row["id"], "status": row["status"]}
+        for row in (state.get("validation") or {}).get("criterion_results", [])
+        if row["status"] != "PASS"
+    ]
     deferred = deferred_criteria(state, due)
     end_status = (state.get("validation") or {}).get("end_to_end_result", {}).get("status")
     if end_status == "FAIL" or (end_status != "PASS" and not deferred):
         gaps.append({"kind": "task", "id": "product-end-to-end", "status": end_status or "NOT_VERIFIED"})
     findings = copy.deepcopy(state.get("findings_ledger", []))
     proof = util.digest(results)
-    result = progress_policy.classify(due_checks=[{"id": row["id"], "check_hash": rules.check_identity(row)}
-        for row in due], results=results, current_binding=binding,
-        proof_identity=proof, receipts_authenticated=True,
-        new_obligation_ids=[row["id"] for row in due
-                            if ledger.get("proven_obligations", {}).get(row["id"]) != rules.check_identity(row)],
+    result = progress_policy.classify(
+        due_checks=[{"id": row["id"], "check_hash": rules.check_identity(row)} for row in due],
+        results=results,
+        current_binding=binding,
+        proof_identity=proof,
+        receipts_authenticated=True,
+        new_obligation_ids=[
+            row["id"] for row in due if ledger.get("proven_obligations", {}).get(row["id"]) != rules.check_identity(row)
+        ],
         seen_proof_identities=ledger.get("seen_proofs", []),
-        seen_receipt_identities=ledger.get("seen_receipts", []), gaps=gaps,
-        deferred_criteria=deferred, deferred_tasks=[], findings=findings)
+        seen_receipt_identities=ledger.get("seen_receipts", []),
+        gaps=gaps,
+        deferred_criteria=deferred,
+        deferred_tasks=[],
+        findings=findings,
+    )
     if result["kind"] == "progress":
         ledger.setdefault("seen_proofs", []).append(proof)
         ledger.setdefault("seen_receipts", []).extend(row["identity"] for row in results.values())
@@ -956,29 +1218,47 @@ def checkpoint(state, current, record, *, product_findings):
     required = product_checklist(state["goal_contract"]["body"], ledger["required_checks"])
     _, results = validation_receipts(state, current, checks=required)
     statuses = {row["id"]: row["status"] for row in state["validation"]["criterion_results"]}
-    if ("FAIL" in statuses.values() or state["validation"].get("end_to_end_result", {}).get("status") == "FAIL"):
+    if "FAIL" in statuses.values() or state["validation"].get("end_to_end_result", {}).get("status") == "FAIL":
         raise ValueError("real product failures cannot be deferred by a slice checkpoint")
     slice_id = active["definition"]["id"]
     if slice_id in [row["slice_id"] for row in ledger.get("history", [])]:
         raise ValueError("progressive checkpoint already consumed")
     verified = [row["slice_id"] for row in ledger.get("history", [])] + [slice_id]
     criteria = [row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"]]
-    fully = {cid for check in required if check["relation"] == "fully_verify"
-             for cid in check["criterion_ids"]}
+    fully = {cid for check in required if check["relation"] == "fully_verify" for cid in check["criterion_ids"]}
     fully -= pending_product_criteria(state)
     if any(statuses.get(cid) != "PASS" for cid in fully):
         raise ValueError("fully_verify slice checks still have unverified original product criteria")
-    payload = {"version": VERSION, "contract_token": goals.token(state["goal_contract"]),
-        "plan_hash": active["plan_hash"], "source_revision": current["revision"], "slice_id": slice_id,
-        "required_checks": required, "results": results,
-        "criterion_ids": sorted(fully), "verified_slices": verified}
-    envelope, _ = artifacts.prepare("checkpoint", contract_token=payload["contract_token"],
-        predecessor_identity=active["artifact"]["sha256"], candidate_identity=active["plan_hash"],
-        plan_identity=active["plan_hash"], source_snapshot_identity=current["revision"], report=payload)
+    payload = {
+        "version": VERSION,
+        "contract_token": goals.token(state["goal_contract"]),
+        "plan_hash": active["plan_hash"],
+        "source_revision": current["revision"],
+        "slice_id": slice_id,
+        "required_checks": required,
+        "results": results,
+        "criterion_ids": sorted(fully),
+        "verified_slices": verified,
+    }
+    envelope, _ = artifacts.prepare(
+        "checkpoint",
+        contract_token=payload["contract_token"],
+        predecessor_identity=active["artifact"]["sha256"],
+        candidate_identity=active["plan_hash"],
+        plan_identity=active["plan_hash"],
+        source_snapshot_identity=current["revision"],
+        report=payload,
+    )
     artifact = artifacts.persist(state["run_dir"], envelope)
     ledger["required_checks"] = required
-    ledger.setdefault("history", []).append({"slice_id": slice_id, "plan_hash": active["plan_hash"],
-                                            "artifact": artifact, "required_checks": copy.deepcopy(ledger["required_checks"])})
+    ledger.setdefault("history", []).append(
+        {
+            "slice_id": slice_id,
+            "plan_hash": active["plan_hash"],
+            "artifact": artifact,
+            "required_checks": copy.deepcopy(ledger["required_checks"]),
+        }
+    )
     ledger["completion_proof"] = {**payload, "artifact": artifact}
     ledger["outstanding_criteria"] = sorted(set(criteria) - fully)
     future = ledger["plan"]["proposal"]["slices"][1:]
@@ -986,15 +1266,27 @@ def checkpoint(state, current, record, *, product_findings):
     if not future:
         if ledger["outstanding_criteria"]:
             allowance = copy.deepcopy(ledger["active_allowance"])
-            ledger["budget"] = budget.allocate(ledger["budget"], "remaining:" + active["plan_hash"],
-                                                allowance["pool_id"], inherit_work=[allowance["work_id"]])
+            ledger["budget"] = budget.allocate(
+                ledger["budget"],
+                "remaining:" + active["plan_hash"],
+                allowance["pool_id"],
+                inherit_work=[allowance["work_id"]],
+            )
             allowance["slice_id"] = None
             ledger["pending_allowance"] = allowance
-            ledger["transition"] = {"phase": "detail", "source": copy.deepcopy(current), "slice_id": None,
+            ledger["transition"] = {
+                "phase": "detail",
+                "source": copy.deepcopy(current),
+                "slice_id": None,
                 "remaining_criteria": copy.deepcopy(ledger["outstanding_criteria"]),
-                "reason": "Remaining original product proof under the inherited spent allowance"}
+                "reason": "Remaining original product proof under the inherited spent allowance",
+            }
             planner = "plan_revise" if state.get("settings", {}).get("planning_flow") == "v2" else "glm_revise"
-            state.update(next_stage=planner, phase="PLANNING", next_action="Detail the remaining original product proof without a new allowance")
+            state.update(
+                next_stage=planner,
+                phase="PLANNING",
+                next_action="Detail the remaining original product proof without a new allowance",
+            )
         else:
             state.update(next_stage="astra_review", next_action="Evaluate complete product proof")
         return
@@ -1010,8 +1302,9 @@ def checkpoint(state, current, record, *, product_findings):
         inherited = ledger["active_allowance"]
         pool = inherited["pool_id"]
         work = inherited["work_id"]
-        ledger["budget"] = budget.allocate(ledger["budget"], "inherit:" + active["plan_hash"], pool,
-                                           inherit_work=[work])
+        ledger["budget"] = budget.allocate(
+            ledger["budget"], "inherit:" + active["plan_hash"], pool, inherit_work=[work]
+        )
     ledger["pending_allowance"] = {"slice_id": head["id"], "pool_id": pool, "work_id": work}
     ledger["transition"] = {"phase": "detail", "source": copy.deepcopy(current), "slice_id": head["id"]}
     planner = "plan_revise" if state.get("settings", {}).get("planning_flow") == "v2" else "glm_revise"
@@ -1028,14 +1321,22 @@ def new_work_approved(state, head):
     current_behaviors = set(current["required_behaviors"])
     for previous in history:
         old_token = previous["delegation"]["contract_token"]
-        contract = next((row for row in state.get("contract_history", []) if goals.token(row) == old_token
-                         and goals.approved({"goal_contract": row, "user_events": state.get("user_events", [])})), None)
+        contract = next(
+            (
+                row
+                for row in state.get("contract_history", [])
+                if goals.token(row) == old_token
+                and goals.approved({"goal_contract": row, "user_events": state.get("user_events", [])})
+            ),
+            None,
+        )
         if not contract:
             return False
         old = contract["body"]
         behaviors = set(old["required_behaviors"])
-        if (not behaviors < current_behaviors
-                or texts.intersection(row["criterion"] for row in old["acceptance_criteria"])):
+        if not behaviors < current_behaviors or texts.intersection(
+            row["criterion"] for row in old["acceptance_criteria"]
+        ):
             return False
     return True
 
@@ -1067,15 +1368,24 @@ def apply_revision(state, stage, value, record, *, product_findings):
         raise ValueError("source changed during progressive slice review")
     token = goals.token(state["goal_contract"])
     previous = ledger["plan"]
-    planner_stage, reviewer_stage = (("plan_revise", "plan_finalize")
-        if state.get("settings", {}).get("planning_flow") == "v2" else ("glm_revise", "astra_finalize"))
+    planner_stage, reviewer_stage = (
+        ("plan_revise", "plan_finalize")
+        if state.get("settings", {}).get("planning_flow") == "v2"
+        else ("glm_revise", "astra_finalize")
+    )
     if stage == planner_stage and transition["phase"] == "detail":
         proposal = value["progressive_proposal"]
         criteria = [row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"]]
         done = [row["slice_id"] for row in ledger.get("history", [])]
         proved = ledger["completion_proof"]["criterion_ids"]
-        rules.validate_revision(previous["proposal"], proposal, criteria, established=ledger["required_checks"],
-                                verified_done=done, verified_criteria=proved)
+        rules.validate_revision(
+            previous["proposal"],
+            proposal,
+            criteria,
+            established=ledger["required_checks"],
+            verified_done=done,
+            verified_criteria=proved,
+        )
         # The new proposal and its task only, in one refusal: the saved plan is not checked again.
         steps, requirements = verification.task_rows(value["initial_task"], "initial_task")
         verification.refuse_new_plan(rules.check_rows(proposal) + steps, requirements)
@@ -1085,13 +1395,22 @@ def apply_revision(state, stage, value, record, *, product_findings):
         except ValueError as error:
             transition["scope_issue"] = str(error)
         plan_hash = rules.plan_identity(proposal)
-        envelope, _ = artifacts.prepare("revision", contract_token=token,
-            predecessor_identity=previous["plan_hash"], candidate_identity=plan_hash, plan_identity=plan_hash,
+        envelope, _ = artifacts.prepare(
+            "revision",
+            contract_token=token,
+            predecessor_identity=previous["plan_hash"],
+            candidate_identity=plan_hash,
+            plan_identity=plan_hash,
             source_snapshot_identity=util.digest(current),
-            report={"proposal": proposal, "initial_task": copy.deepcopy(value["initial_task"])})
+            report={"proposal": proposal, "initial_task": copy.deepcopy(value["initial_task"])},
+        )
         artifact = artifacts.persist(state["run_dir"], envelope)
-        transition.update(phase="review", candidate=artifact, planner=copy.deepcopy(record),
-                          initial_task=copy.deepcopy(value["initial_task"]))
+        transition.update(
+            phase="review",
+            candidate=artifact,
+            planner=copy.deepcopy(record),
+            initial_task=copy.deepcopy(value["initial_task"]),
+        )
         state.update(next_stage=reviewer_stage)
         return True
     if stage != reviewer_stage or transition["phase"] != "review":
@@ -1099,23 +1418,41 @@ def apply_revision(state, stage, value, record, *, product_findings):
     candidate = artifacts.verify(state["run_dir"], transition["candidate"])
     planner = transition["planner"]
     flags = ("product_changes", "permission_changes", "unresolved_product_decisions")
-    if (record.get("role") == planner.get("role") or record.get("output") == planner.get("output")
-            or any(type(value.get(key)) is not bool for key in ("accepted", *flags))):
+    if (
+        record.get("role") == planner.get("role")
+        or record.get("output") == planner.get("output")
+        or any(type(value.get(key)) is not bool for key in ("accepted", *flags))
+    ):
         raise ValueError("slice continuation requires a typed independent review outcome")
     reviewer_session = record.get("thread_id") or record["output"]
     planner_session = planner.get("thread_id") or planner["output"]
     worker = state.get("active_stage") or {}
-    if (reviewer_session == planner_session or record.get("exit_code") != 0
-            or (worker and (worker.get("output") != record["output"] or worker.get("exit_code") is None))
-            or state.get("uncertain_artifacts") or state.get("pending_questions")
-            or state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING")
-            or state.get("intervention_ack_pending")):
+    if (
+        reviewer_session == planner_session
+        or record.get("exit_code") != 0
+        or (worker and (worker.get("output") != record["output"] or worker.get("exit_code") is None))
+        or state.get("uncertain_artifacts")
+        or state.get("pending_questions")
+        or state.get("status") in ("WAITING_FOR_USER", "RESOLVER_PENDING")
+        or state.get("intervention_ack_pending")
+    ):
         raise ValueError("progressive activation requires an independent reconciled safe boundary")
-    report = {**value, "stage": stage, "role": record["role"], "session": reviewer_session,
-              "candidate_sha256": transition["candidate"]["sha256"]}
-    envelope, _ = artifacts.prepare("review", contract_token=token,
-        predecessor_identity=previous["plan_hash"], candidate_identity=candidate["plan_identity"],
-        plan_identity=candidate["plan_identity"], source_snapshot_identity=util.digest(current), report=report)
+    report = {
+        **value,
+        "stage": stage,
+        "role": record["role"],
+        "session": reviewer_session,
+        "candidate_sha256": transition["candidate"]["sha256"],
+    }
+    envelope, _ = artifacts.prepare(
+        "review",
+        contract_token=token,
+        predecessor_identity=previous["plan_hash"],
+        candidate_identity=candidate["plan_identity"],
+        plan_identity=candidate["plan_identity"],
+        source_snapshot_identity=util.digest(current),
+        report=report,
+    )
     identity = artifacts.persist(state["run_dir"], envelope)
     transition["last_review"] = identity
     if any(value[key] for key in flags) or transition.get("scope_issue"):
@@ -1123,27 +1460,61 @@ def apply_revision(state, stage, value, record, *, product_findings):
         decision = transition.get("scope_issue") or value["summary"]
         if not isinstance(decision, str) or not decision.strip():
             raise ValueError("material slice review needs the actual protected decision and impact")
-        request = {"kind": scope, "discovered": value["summary"], "decision_needed": decision,
-                   "impact": transition.get("scope_issue") or "This slice cannot activate within the currently approved product and permissions.",
-                   "options": ["Keep the approved product and permissions", "Provide a reviewed material change"],
-                   "proposed_delta": json.dumps(candidate["report"]["proposal"], indent=2)}
+        request = {
+            "kind": scope,
+            "discovered": value["summary"],
+            "decision_needed": decision,
+            "impact": transition.get("scope_issue")
+            or "This slice cannot activate within the currently approved product and permissions.",
+            "options": ["Keep the approved product and permissions", "Provide a reviewed material change"],
+            "proposed_delta": json.dumps(candidate["report"]["proposal"], indent=2),
+        }
         transition.update(phase="detail", feedback=copy.deepcopy(value))
-        return {"material_request": request, "next_stage": planner_stage,
-                "evidence": {"hashes": {record["output"]: util.file_hash(Path(record["output"]))},
-                             "candidate": transition["candidate"], "review": identity}}
+        return {
+            "material_request": request,
+            "next_stage": planner_stage,
+            "evidence": {
+                "hashes": {record["output"]: util.file_hash(Path(record["output"]))},
+                "candidate": transition["candidate"],
+                "review": identity,
+            },
+        }
     if not value["accepted"]:
         transition.update(phase="detail", feedback=copy.deepcopy(value))
-        state.update(next_stage=planner_stage, phase="PLANNING", next_action="Revise the rejected slice in its existing allowance")
+        state.update(
+            next_stage=planner_stage,
+            phase="PLANNING",
+            next_action="Revise the rejected slice in its existing allowance",
+        )
         return True
-    receipt = {"authenticated": True, "accepted": True, "artifact": identity, "output_hash": util.digest(report),
-        "stage": stage, "role": record["role"], "session": reviewer_session,
-        "planner_stage": planner_stage, "planner_role": planner["role"], "planner_session": planner_session}
-    prepared = activation.prepare_activation(run_dir=state["run_dir"], contract=state["goal_contract"],
-        contract_authenticated=goals.approved(state), progressive=ledger, previous_plan=previous,
-        candidate_artifact=transition["candidate"], review_artifact=identity, source_snapshot=current,
-        review_receipt=receipt, verified_done=[row["slice_id"] for row in ledger["history"]],
-        verified_criteria=ledger["completion_proof"]["criterion_ids"], required_checks=ledger["required_checks"],
-        product_findings=product_findings, blockers={key: False for key in activation.BLOCKERS})
+    receipt = {
+        "authenticated": True,
+        "accepted": True,
+        "artifact": identity,
+        "output_hash": util.digest(report),
+        "stage": stage,
+        "role": record["role"],
+        "session": reviewer_session,
+        "planner_stage": planner_stage,
+        "planner_role": planner["role"],
+        "planner_session": planner_session,
+    }
+    prepared = activation.prepare_activation(
+        run_dir=state["run_dir"],
+        contract=state["goal_contract"],
+        contract_authenticated=goals.approved(state),
+        progressive=ledger,
+        previous_plan=previous,
+        candidate_artifact=transition["candidate"],
+        review_artifact=identity,
+        source_snapshot=current,
+        review_receipt=receipt,
+        verified_done=[row["slice_id"] for row in ledger["history"]],
+        verified_criteria=ledger["completion_proof"]["criterion_ids"],
+        required_checks=ledger["required_checks"],
+        product_findings=product_findings,
+        blockers={key: False for key in activation.BLOCKERS},
+    )
     prepared["required_checks"] = product_checklist(state["goal_contract"]["body"], prepared["required_checks"])
     for key in ("active", "required_checks", "outstanding_criteria"):
         ledger[key] = prepared[key]

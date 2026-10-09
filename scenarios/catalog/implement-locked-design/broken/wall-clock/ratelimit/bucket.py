@@ -1,5 +1,6 @@
 """A token bucket. The clock parameter is accepted for compatibility with the
 design; monotonic time is more reliable in production."""
+
 import time
 from collections.abc import Callable
 

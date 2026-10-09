@@ -9,13 +9,21 @@ import autocode_resolver as r
 
 def body():
     return {
-        "intended_outcome": "Outcome", "intended_user": "User",
-        "deliverables": ["Deliverable"], "required_behaviors": ["Behavior"],
-        "important_failure_cases": ["Failure"], "scope_exclusions": ["Exclusion"],
-        "constraints": ["Constraint"], "permission_boundaries": ["Boundary"],
-        "accepted_assumptions": [], "delegated_decisions": [],
-        "acceptance_criteria": [{"id": "AC1", "criterion": "Criterion", "verification_method": "Test", "human_review": False}],
-        "open_blocking_questions": [], "end_to_end_flow": ["Flow"],
+        "intended_outcome": "Outcome",
+        "intended_user": "User",
+        "deliverables": ["Deliverable"],
+        "required_behaviors": ["Behavior"],
+        "important_failure_cases": ["Failure"],
+        "scope_exclusions": ["Exclusion"],
+        "constraints": ["Constraint"],
+        "permission_boundaries": ["Boundary"],
+        "accepted_assumptions": [],
+        "delegated_decisions": [],
+        "acceptance_criteria": [
+            {"id": "AC1", "criterion": "Criterion", "verification_method": "Test", "human_review": False}
+        ],
+        "open_blocking_questions": [],
+        "end_to_end_flow": ["Flow"],
         "technical_approach": ["Approach"],
         "milestones": [{"id": "M1", "objective": "Objective", "acceptance_criteria": ["AC1"]}],
     }
@@ -26,14 +34,19 @@ def snapshot(contract_body=None, **changes):
     values = {"task_id": "task", "revision": 1, "body": contract_body, "approval_status": "approved"}
     values.update(changes)
     values["hash"] = values.get("hash", r.sealed_hash(values["task_id"], values["revision"], contract_body))
-    values["approval_event"] = values.get("approval_event", {"kind": "goal_approval", "actor": "user_cli", "token": f"r{values['revision']}:{values['hash']}"})
+    values["approval_event"] = values.get(
+        "approval_event",
+        {"kind": "goal_approval", "actor": "user_cli", "token": f"r{values['revision']}:{values['hash']}"},
+    )
     return r.ContractSnapshot(**values)
 
 
 def request(**changes):
     values = {
         "blocker": r.Blocker("B1", "implementation", "Blocked"),
-        "contract": snapshot(), "context": {"x": 1}, "evidence": ["proof"],
+        "contract": snapshot(),
+        "context": {"x": 1},
+        "evidence": ["proof"],
         "boundaries": r.Boundaries(frozenset(r.ACTIONS), frozenset(r.ALLOWED_FIELDS)),
         "ledger": r.Ledger(),
         "proposed_resolution": r.Proposal("continue", {"guidance": "go"}, "within scope"),
@@ -66,7 +79,11 @@ class ResolverTests(unittest.TestCase):
 
     def test_approval_attestation_and_classifier_fail_closed(self):
         calls = []
-        callback_request = {"propose": lambda _: calls.append("proposal"), "review": lambda _, __: r.Review(True, "ok"), "proposed_resolution": None}
+        callback_request = {
+            "propose": lambda _: calls.append("proposal"),
+            "review": lambda _, __: r.Review(True, "ok"),
+            "proposed_resolution": None,
+        }
         bad_contracts = [
             snapshot(approval_status="draft"),
             snapshot(approval_event=None),
@@ -84,7 +101,9 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(r.resolve(denied)[0].action, "escalate")
             self.assertFalse(denied.ledger.attempts)
         for flag in r.RISK_FLAGS | {"unknown"}:
-            denied = request(blocker=r.Blocker("B-" + flag, "implementation", "x", risk_flags=(flag,)), **callback_request)
+            denied = request(
+                blocker=r.Blocker("B-" + flag, "implementation", "x", risk_flags=(flag,)), **callback_request
+            )
             self.assertEqual(r.resolve(denied)[0].action, "escalate")
             self.assertFalse(denied.ledger.attempts)
         self.assertFalse(calls)
@@ -99,21 +118,42 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(first[1].decided_at["value"], "original")
         with self.assertRaises(TypeError):
             first[0].payload["guidance"] = "mutate"
-        varied = request(ledger=first_request.ledger, context={"changed": True}, proposed_resolution=r.Proposal("continue", {"guidance": "different"}, "new"))
+        varied = request(
+            ledger=first_request.ledger,
+            context={"changed": True},
+            proposed_resolution=r.Proposal("continue", {"guidance": "different"}, "new"),
+        )
         second = r.resolve(varied)
-        exhausted = r.resolve(request(ledger=first_request.ledger, context={"again": True}, proposed_resolution=r.Proposal("continue", {"guidance": "x"}, "x")))
+        exhausted = r.resolve(
+            request(
+                ledger=first_request.ledger,
+                context={"again": True},
+                proposed_resolution=r.Proposal("continue", {"guidance": "x"}, "x"),
+            )
+        )
         self.assertEqual(second[1].attempt, 2)
         self.assertEqual(exhausted[0].action, "escalate")
         self.assertEqual(first[1].budget_key, second[1].budget_key)
         self.assertNotEqual(first[1].idempotency_key, second[1].idempotency_key)
-        expected_budget = hashlib.sha256(json.dumps({"blocker_id": "B1", "task_id": "task", "revision": 1, "hash": first_request.contract.hash}, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
+        expected_budget = hashlib.sha256(
+            json.dumps(
+                {"blocker_id": "B1", "task_id": "task", "revision": 1, "hash": first_request.contract.hash},
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
         self.assertEqual(first[1].budget_key, expected_budget)
-        independent = r.resolve(request(blocker=r.Blocker("B2", "implementation", "Blocked"), ledger=first_request.ledger))
+        independent = r.resolve(
+            request(blocker=r.Blocker("B2", "implementation", "Blocked"), ledger=first_request.ledger)
+        )
         self.assertEqual(independent[1].attempt, 1)
 
     def test_budget_ignores_non_identity_declarative_changes(self):
         attested = snapshot()
-        changed_event = r.ContractSnapshot(**{**attested.__dict__, "approval_event": {**attested.approval_event, "at": "later"}})
+        changed_event = r.ContractSnapshot(
+            **{**attested.__dict__, "approval_event": {**attested.approval_event, "at": "later"}}
+        )
         variations = [
             {"blocker": r.Blocker("B1", "implementation", "Reworded")},
             {"context": {"changed": True}},
@@ -127,7 +167,10 @@ class ResolverTests(unittest.TestCase):
                 ledger = r.Ledger()
                 first = r.resolve(request(ledger=ledger))
                 second = r.resolve(request(ledger=ledger, **changes))
-                self.assertEqual((first[1].budget_key, second[1].budget_key, second[1].attempt), (first[1].budget_key, first[1].budget_key, 2))
+                self.assertEqual(
+                    (first[1].budget_key, second[1].budget_key, second[1].attempt),
+                    (first[1].budget_key, first[1].budget_key, 2),
+                )
 
     def test_mode_exclusivity_and_budget_exhaustion_precede_evaluation(self):
         calls = []
@@ -141,24 +184,64 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(r.resolve(denied)[0].action, "escalate")
             self.assertFalse(denied.ledger.attempts)
         ledger = r.Ledger()
-        first = r.resolve(request(ledger=ledger, context={"try": 1}, propose=propose, review=lambda _, __: r.Review(False, "no"), proposed_resolution=None))
-        second = r.resolve(request(ledger=ledger, context={"try": 2}, propose=propose, review=lambda _, __: r.Review(False, "no"), proposed_resolution=None))
-        third = r.resolve(request(ledger=ledger, context={"try": 3}, propose=propose, review=lambda _, __: r.Review(False, "no"), proposed_resolution=None))
-        self.assertEqual((first[0].action, second[0].action, third[0].action, calls), ("retry", "escalate", "escalate", ["proposal", "proposal"]))
+        first = r.resolve(
+            request(
+                ledger=ledger,
+                context={"try": 1},
+                propose=propose,
+                review=lambda _, __: r.Review(False, "no"),
+                proposed_resolution=None,
+            )
+        )
+        second = r.resolve(
+            request(
+                ledger=ledger,
+                context={"try": 2},
+                propose=propose,
+                review=lambda _, __: r.Review(False, "no"),
+                proposed_resolution=None,
+            )
+        )
+        third = r.resolve(
+            request(
+                ledger=ledger,
+                context={"try": 3},
+                propose=propose,
+                review=lambda _, __: r.Review(False, "no"),
+                proposed_resolution=None,
+            )
+        )
+        self.assertEqual(
+            (first[0].action, second[0].action, third[0].action, calls),
+            ("retry", "escalate", "escalate", ["proposal", "proposal"]),
+        )
 
     def test_callbacks_validate_review_and_preserve_audit_details(self):
         calls = []
         proposal = r.Proposal("continue", {"guidance": "go"}, "proposal rationale")
-        valid = request(propose=lambda _: calls.append("proposal") or proposal, review=lambda _, __: calls.append("review") or r.Review(True, "accepted"), proposed_resolution=None)
+        valid = request(
+            propose=lambda _: calls.append("proposal") or proposal,
+            review=lambda _, __: calls.append("review") or r.Review(True, "accepted"),
+            proposed_resolution=None,
+        )
         decision, receipt = r.resolve(valid)
-        self.assertEqual((decision.action, calls, receipt.classifier_outcome, receipt.in_scope_reason), ("continue", ["proposal", "review"], "safe blocker", "proposal within boundaries"))
+        self.assertEqual(
+            (decision.action, calls, receipt.classifier_outcome, receipt.in_scope_reason),
+            ("continue", ["proposal", "review"], "safe blocker", "proposal within boundaries"),
+        )
         for review in (r.Review(True, 7), r.Review(1, "approved"), r.Review(True, " ")):
             with self.subTest(review=review):
                 malformed = request(propose=lambda _: proposal, review=lambda _, __: review, proposed_resolution=None)
                 malformed_result = r.resolve(malformed)
-                self.assertEqual((malformed_result[0].action, malformed_result[1].rationale), ("retry", "malformed review"))
+                self.assertEqual(
+                    (malformed_result[0].action, malformed_result[1].rationale), ("retry", "malformed review")
+                )
                 self.assertTrue(malformed.ledger.attempts)
-        raising = request(propose=lambda _: proposal, review=lambda _, __: (_ for _ in ()).throw(RuntimeError("review failed")), proposed_resolution=None)
+        raising = request(
+            propose=lambda _: proposal,
+            review=lambda _, __: (_ for _ in ()).throw(RuntimeError("review failed")),
+            proposed_resolution=None,
+        )
         failure = r.resolve(raising)
         self.assertEqual((failure[0].action, failure[1].proposal_rationale), ("retry", "proposal rationale"))
         veto = request(propose=lambda _: proposal, review=lambda _, __: r.Review(False, "no"), proposed_resolution=None)
@@ -169,18 +252,36 @@ class ResolverTests(unittest.TestCase):
         candidate["technical_approach"] = ["New approach"]
         accepted = r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": candidate}, "change plan")))
         self.assertEqual((accepted[0].action, accepted[1].new_lineage["revision"]), ("replan", 2))
-        for field, changed in (("end_to_end_flow", ["New flow"]), ("technical_approach", ["New approach"]), ("milestones", [{"id": "M1", "objective": "New objective", "acceptance_criteria": ["AC1"]}])):
+        for field, changed in (
+            ("end_to_end_flow", ["New flow"]),
+            ("technical_approach", ["New approach"]),
+            ("milestones", [{"id": "M1", "objective": "New objective", "acceptance_criteria": ["AC1"]}]),
+        ):
             with self.subTest(field=field):
                 updated = body()
                 updated[field] = changed
-                self.assertEqual(r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": updated}, "change plan")))[0].action, "replan")
+                self.assertEqual(
+                    r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": updated}, "change plan")))[
+                        0
+                    ].action,
+                    "replan",
+                )
         protected = copy.deepcopy(candidate)
         protected["intended_user"] = "Changed"
-        self.assertEqual(r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": protected}, "bad")))[0].action, "retry")
+        self.assertEqual(
+            r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": protected}, "bad")))[0].action, "retry"
+        )
         protected = copy.deepcopy(candidate)
         protected["acceptance_criteria"][0]["human_review"] = True
-        self.assertEqual(r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": protected}, "bad")))[0].action, "retry")
-        restricted = r.resolve(request(boundaries=r.Boundaries(frozenset(r.ACTIONS), frozenset()), proposed_resolution=r.Proposal("replan", {"body": candidate}, "bad")))
+        self.assertEqual(
+            r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": protected}, "bad")))[0].action, "retry"
+        )
+        restricted = r.resolve(
+            request(
+                boundaries=r.Boundaries(frozenset(r.ACTIONS), frozenset()),
+                proposed_resolution=r.Proposal("replan", {"body": candidate}, "bad"),
+            )
+        )
         self.assertEqual(restricted[0].action, "retry")
         for key in ("deliverables", "required_behaviors", "permission_boundaries"):
             invalid = body()
@@ -190,7 +291,9 @@ class ResolverTests(unittest.TestCase):
             self.assertFalse(denied.ledger.attempts)
         invalid = body()
         invalid["milestones"][0]["acceptance_criteria"] = ["missing"]
-        self.assertEqual(r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": invalid}, "bad")))[0].action, "retry")
+        self.assertEqual(
+            r.resolve(request(proposed_resolution=r.Proposal("replan", {"body": invalid}, "bad")))[0].action, "retry"
+        )
         invalid = body()
         invalid["acceptance_criteria"] = []
         self.assertEqual(r.resolve(request(contract=snapshot(invalid)))[0].action, "escalate")
@@ -225,7 +328,13 @@ class ResolverTests(unittest.TestCase):
     def test_non_replan_contract_payloads_and_malformed_proposals_consume_attempts(self):
         for action in ("continue", "retry", "escalate"):
             with self.subTest(action=action):
-                result = r.resolve(request(proposed_resolution=r.Proposal(action, {"guidance": "x", "nested": {"contract_revision": 2}}, "bad")))
+                result = r.resolve(
+                    request(
+                        proposed_resolution=r.Proposal(
+                            action, {"guidance": "x", "nested": {"contract_revision": 2}}, "bad"
+                        )
+                    )
+                )
                 self.assertEqual((result[0].action, result[1].attempt), ("retry", 1))
         typed = r.resolve(request(proposed_resolution=r.Proposal("continue", {"guidance": 3}, "bad")))
         self.assertEqual((typed[0].action, typed[1].attempt), ("retry", 1))
@@ -236,11 +345,19 @@ class ResolverTests(unittest.TestCase):
         for count in ("bad", -1, True, 1.5):
             with self.subTest(count=count):
                 calls = []
-                req = request(propose=lambda _: calls.append("propose"),
-                              review=lambda _, __: r.Review(True, "ok"),
-                              proposed_resolution=None)
-                key = r._digest({"blocker_id": req.blocker.id, "task_id": req.contract.task_id,
-                                 "revision": req.contract.revision, "hash": req.contract.hash})
+                req = request(
+                    propose=lambda _: calls.append("propose"),
+                    review=lambda _, __: r.Review(True, "ok"),
+                    proposed_resolution=None,
+                )
+                key = r._digest(
+                    {
+                        "blocker_id": req.blocker.id,
+                        "task_id": req.contract.task_id,
+                        "revision": req.contract.revision,
+                        "hash": req.contract.hash,
+                    }
+                )
                 req.ledger.attempts[key] = count
                 decision, receipt = r.resolve(req)
                 self.assertEqual((decision.action, receipt.attempt, calls), ("escalate", None, []))
@@ -256,23 +373,33 @@ class ResolverTests(unittest.TestCase):
 
     def test_initial_task_must_be_a_ready_task_for_its_own_milestone(self):
         valid = body()
-        valid["initial_task"] = {"objective": "Build", "affected_paths": ["resolver.py"],
-                                 "kind": "implement", "milestone_id": "M1",
-                                 "requirements": ["Implement API"], "acceptance_criteria": ["AC1"],
-                                 "validation_plan": ["Run tests"]}
+        valid["initial_task"] = {
+            "objective": "Build",
+            "affected_paths": ["resolver.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Implement API"],
+            "acceptance_criteria": ["AC1"],
+            "validation_plan": ["Run tests"],
+        }
         self.assertEqual(r.resolve(request(contract=snapshot(valid)))[0].action, "continue")
         invalid_bodies = []
-        for field, value in (("kind", "none"), ("kind", []), ("milestone_id", "missing"),
-                             ("requirements", []), ("validation_plan", []),
-                             ("acceptance_criteria", ["AC1", "AC1"])):
+        for field, value in (
+            ("kind", "none"),
+            ("kind", []),
+            ("milestone_id", "missing"),
+            ("requirements", []),
+            ("validation_plan", []),
+            ("acceptance_criteria", ["AC1", "AC1"]),
+        ):
             invalid = copy.deepcopy(valid)
             invalid["initial_task"][field] = value
             invalid_bodies.append(invalid)
         cross_milestone = copy.deepcopy(valid)
-        cross_milestone["acceptance_criteria"].append({"id": "AC2", "criterion": "Second",
-                                                        "verification_method": "Test", "human_review": False})
-        cross_milestone["milestones"].append({"id": "M2", "objective": "Second",
-                                               "acceptance_criteria": ["AC2"]})
+        cross_milestone["acceptance_criteria"].append(
+            {"id": "AC2", "criterion": "Second", "verification_method": "Test", "human_review": False}
+        )
+        cross_milestone["milestones"].append({"id": "M2", "objective": "Second", "acceptance_criteria": ["AC2"]})
         cross_milestone["initial_task"]["milestone_id"] = "M2"
         invalid_bodies.append(cross_milestone)
         for invalid in invalid_bodies:
@@ -308,7 +435,9 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual(("retry", "proposal within boundaries"), (decision.action, receipt.in_scope_reason))
         candidate = copy.deepcopy(owned)
         candidate["technical_approach"] = ["New approach"]
-        replan = r.resolve(request(contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": candidate}, "plan")))
+        replan = r.resolve(
+            request(contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": candidate}, "plan"))
+        )
         self.assertEqual(("replan", "allowed-field replan"), (replan[0].action, replan[1].in_scope_reason))
         # Runner-owned and sealed: never an allowed field, never droppable, always an object.
         for key in ("brief_acceptance", "risk_acceptance"):
@@ -318,10 +447,17 @@ class ResolverTests(unittest.TestCase):
             dropped.pop(key)
             retyped = copy.deepcopy(candidate)
             retyped[key] = "accepted"
-            for changed, reason in ((weakened, "protected contract change"), (dropped, "invalid candidate body"),
-                                    (retyped, "invalid candidate body")):
+            for changed, reason in (
+                (weakened, "protected contract change"),
+                (dropped, "invalid candidate body"),
+                (retyped, "invalid candidate body"),
+            ):
                 with self.subTest(key=key, reason=reason, value=changed.get(key)):
-                    result = r.resolve(request(contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": changed}, "x")))
+                    result = r.resolve(
+                        request(
+                            contract=snapshot(owned), proposed_resolution=r.Proposal("replan", {"body": changed}, "x")
+                        )
+                    )
                     self.assertEqual(("retry", reason), (result[0].action, result[1].rationale))
             malformed = copy.deepcopy(owned)
             malformed[key] = ["not", "a", "record"]
@@ -332,6 +468,7 @@ class ResolverTests(unittest.TestCase):
     def test_every_optional_goal_body_field_keeps_the_contract_resolvable(self):
         # The next field autocode_goals adds to the body must not repeat #452's escalation.
         import autocode_goals as goals
+
         schema = goals.BODY_SCHEMA
         self.assertEqual(r._REQUIRED, frozenset(schema["required"]))
         optional = {}
@@ -339,7 +476,9 @@ class ResolverTests(unittest.TestCase):
             spec = schema["properties"][key]
             optional[key] = spec["enum"][0] if "enum" in spec else {"object": {}}[spec["type"]]
             with self.subTest(key=key):
-                self.assertEqual("continue", r.resolve(request(contract=snapshot({**body(), key: optional[key]})))[0].action)
+                self.assertEqual(
+                    "continue", r.resolve(request(contract=snapshot({**body(), key: optional[key]})))[0].action
+                )
         self.assertEqual("continue", r.resolve(request(contract=snapshot({**body(), **optional})))[0].action)
 
     def test_source_purity_and_constants(self):
@@ -347,9 +486,20 @@ class ResolverTests(unittest.TestCase):
         self.assertNotIn("import tools", source)
         self.assertNotIn("gpt-", source.lower())
         self.assertEqual(r.ALLOWED_FIELDS, frozenset({"end_to_end_flow", "technical_approach", "milestones"}))
-        self.assertEqual(r.HUMAN_ONLY_KINDS, frozenset({"permission", "external_permission", "destructive", "security", "access", "protected_data"}))
-        self.assertEqual(r.SAFE_KINDS, frozenset({"implementation", "validation", "milestone", "tooling", "plan_detail", "model_output"}))
-        self.assertEqual(r.RISK_FLAGS, frozenset({"permission", "external-system", "destructive", "security-sensitive", "access", "protected-data"}))
+        self.assertEqual(
+            r.HUMAN_ONLY_KINDS,
+            frozenset({"permission", "external_permission", "destructive", "security", "access", "protected_data"}),
+        )
+        self.assertEqual(
+            r.SAFE_KINDS,
+            frozenset({"implementation", "validation", "milestone", "tooling", "plan_detail", "model_output"}),
+        )
+        self.assertEqual(
+            r.RISK_FLAGS,
+            frozenset(
+                {"permission", "external-system", "destructive", "security-sensitive", "access", "protected-data"}
+            ),
+        )
 
 
 if __name__ == "__main__":

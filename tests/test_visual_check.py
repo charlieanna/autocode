@@ -1,4 +1,5 @@
 """Public visual-check behavior, including enforcement in real clean-copy replay."""
+
 from __future__ import annotations
 
 import contextlib
@@ -32,8 +33,9 @@ class VisualCheckTests(unittest.TestCase):
         return project
 
     def report(self, result, status):
-        self.assertEqual({"PASS": 0, "FAIL": 1, "UNVERIFIED": 2}[status], result.returncode,
-                         result.stdout + "\n" + result.stderr)
+        self.assertEqual(
+            {"PASS": 0, "FAIL": 1, "UNVERIFIED": 2}[status], result.returncode, result.stdout + "\n" + result.stderr
+        )
         try:
             report = json.loads(result.stdout)
         except ValueError:
@@ -73,9 +75,13 @@ class VisualCheckTests(unittest.TestCase):
         for variant in ("shift", "missing-control"):
             with self.subTest(variant=variant):
                 project.configure(variants={"desktop": variant})
-                functional = subprocess.run([sys.executable, "-c",
-                                             "from app import functional_value; assert functional_value() == 42"],
-                                            cwd=project.root, capture_output=True, text=True, timeout=10)
+                functional = subprocess.run(
+                    [sys.executable, "-c", "from app import functional_value; assert functional_value() == 42"],
+                    cwd=project.root,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
                 self.assertEqual(0, functional.returncode, functional.stderr)
                 report = self.report(project.invoke(), "FAIL")
                 self.assertEqual("FAIL", report["cases"][0]["status"])
@@ -84,12 +90,26 @@ class VisualCheckTests(unittest.TestCase):
                 self.assertEqual(original, project.inputs(), "mismatches must never update the baseline or policy")
 
     def test_every_viewport_and_state_is_mandatory(self):
-        cases = [{"id": "desktop", "state": "ready", "route": "/",
-                  "viewport": {"width": 100, "height": 80, "device_scale_factor": 1}},
-                 {"id": "mobile-empty", "state": "empty", "route": "/inbox",
-                  "viewport": {"width": 80, "height": 100, "device_scale_factor": 1}},
-                 {"id": "desktop-error", "state": "error", "route": "/inbox",
-                  "viewport": {"width": 100, "height": 80, "device_scale_factor": 1}}]
+        cases = [
+            {
+                "id": "desktop",
+                "state": "ready",
+                "route": "/",
+                "viewport": {"width": 100, "height": 80, "device_scale_factor": 1},
+            },
+            {
+                "id": "mobile-empty",
+                "state": "empty",
+                "route": "/inbox",
+                "viewport": {"width": 80, "height": 100, "device_scale_factor": 1},
+            },
+            {
+                "id": "desktop-error",
+                "state": "error",
+                "route": "/inbox",
+                "viewport": {"width": 100, "height": 80, "device_scale_factor": 1},
+            },
+        ]
         project = self.project(cases=cases)
         report = self.report(project.invoke(), "PASS")
         self.assertEqual({row["id"] for row in cases}, {row["id"] for row in report["cases"]})
@@ -109,7 +129,8 @@ class VisualCheckTests(unittest.TestCase):
         allowed = self.report(project.invoke(), "PASS")
         self.assertGreater(allowed["cases"][0]["changed_pixels"], 0)
         project.policy["cases"][0]["regions"] = [
-            {"id": "critical-control", "x": 80, "y": 64, "width": 10, "height": 8, "max_changed_ratio": 0.0}]
+            {"id": "critical-control", "x": 80, "y": 64, "width": 10, "height": 8, "max_changed_ratio": 0.0}
+        ]
         project.pin_policy()
         strict = self.report(project.invoke(), "FAIL")
         self.assertLess(strict["cases"][0]["changed_ratio"], 0.02)
@@ -118,9 +139,25 @@ class VisualCheckTests(unittest.TestCase):
 
     def test_invalid_capture_inventories_and_images_are_unverified(self):
         project = self.project()
-        for mode in ("no-inventory", "missing", "duplicate", "unknown-case", "bad-viewport", "bad-state",
-                     "bad-route", "unknown-field", "malformed-inventory", "duplicate-key", "missing-image",
-                     "corrupt", "truncated", "wrong-size", "escape", "symlink", "nonzero"):
+        for mode in (
+            "no-inventory",
+            "missing",
+            "duplicate",
+            "unknown-case",
+            "bad-viewport",
+            "bad-state",
+            "bad-route",
+            "unknown-field",
+            "malformed-inventory",
+            "duplicate-key",
+            "missing-image",
+            "corrupt",
+            "truncated",
+            "wrong-size",
+            "escape",
+            "symlink",
+            "nonzero",
+        ):
             with self.subTest(mode=mode):
                 project.configure(mode=mode)
                 self.report(project.invoke(), "UNVERIFIED")
@@ -128,28 +165,49 @@ class VisualCheckTests(unittest.TestCase):
     def test_policy_is_strict_and_rejected_before_capture(self):
         project = self.project()
         original = copy.deepcopy(project.policy)
-        bad_values = [(("version",), True), (("version",), 2), (("unknown",), "not allowed"),
-                      (("timeout_seconds",), True), (("timeout_seconds",), 0),
-                      (("timeout_seconds",), float("nan")), (("timeout_seconds",), float("inf")),
-                      (("capture_command",), "python capture.py"), (("capture_command",), []),
-                      (("capture_command",), [sys.executable, False]), (("cases",), []),
-                      (("manifest", "unknown"), 1), (("manifest", "sha256"), "bad hash"),
-                      (("manifest", "sha256"), None),
-                      (("cases", 0, "id"), "absent"), (("cases", 0, "unknown"), True)]
+        bad_values = [
+            (("version",), True),
+            (("version",), 2),
+            (("unknown",), "not allowed"),
+            (("timeout_seconds",), True),
+            (("timeout_seconds",), 0),
+            (("timeout_seconds",), float("nan")),
+            (("timeout_seconds",), float("inf")),
+            (("capture_command",), "python capture.py"),
+            (("capture_command",), []),
+            (("capture_command",), [sys.executable, False]),
+            (("cases",), []),
+            (("manifest", "unknown"), 1),
+            (("manifest", "sha256"), "bad hash"),
+            (("manifest", "sha256"), None),
+            (("cases", 0, "id"), "absent"),
+            (("cases", 0, "unknown"), True),
+        ]
         for value in (True, -1, 255, 256, 0.5, "0", float("nan")):
             bad_values.append((("cases", 0, "channel_tolerance"), value))
         for value in (True, -0.1, 1.0, 1.01, "0", float("nan"), float("inf"), -float("inf")):
             bad_values.append((("cases", 0, "max_changed_ratio"), value))
         region = {"id": "control", "x": 80, "y": 64, "width": 10, "height": 8, "max_changed_ratio": 0.0}
-        for field, value in (("unknown", 1), ("x", -1), ("x", True), ("width", 0),
-                             ("height", 0.5), ("max_changed_ratio", float("nan")),
-                             ("max_changed_ratio", True)):
+        for field, value in (
+            ("unknown", 1),
+            ("x", -1),
+            ("x", True),
+            ("width", 0),
+            ("height", 0.5),
+            ("max_changed_ratio", float("nan")),
+            ("max_changed_ratio", True),
+        ):
             bad_values.append((("cases", 0, "regions"), [{**region, field: value}]))
-        bad_values += [(("cases",), [original["cases"][0], original["cases"][0]]),
-                       (("cases", 0, "regions"), [region, region]),
-                       (("cases",), [None]), (("cases", 0, "id"), []),
-                       (("manifest",), []), (("capture_command",), [None]),
-                       (("timeout_seconds",), 10 ** 400), (("cases", 0, "regions"), [None])]
+        bad_values += [
+            (("cases",), [original["cases"][0], original["cases"][0]]),
+            (("cases", 0, "regions"), [region, region]),
+            (("cases",), [None]),
+            (("cases", 0, "id"), []),
+            (("manifest",), []),
+            (("capture_command",), [None]),
+            (("timeout_seconds",), 10**400),
+            (("cases", 0, "regions"), [None]),
+        ]
         for keys, value in bad_values:
             with self.subTest(keys=keys, value=value):
                 project.policy = copy.deepcopy(original)
@@ -181,8 +239,13 @@ class VisualCheckTests(unittest.TestCase):
 
     def test_malformed_json_and_duplicate_policy_keys_are_not_accepted(self):
         project = self.project()
-        for text in ("", "[]", "null", "{broken", json.dumps(project.policy).replace(
-                '"version": 1', '"version": 0, "version": 1', 1)):
+        for text in (
+            "",
+            "[]",
+            "null",
+            "{broken",
+            json.dumps(project.policy).replace('"version": 1', '"version": 0, "version": 1', 1),
+        ):
             with self.subTest(text=text[:50]):
                 project.policy_path.write_text(text)
                 self.report(project.invoke(), "UNVERIFIED")
@@ -339,10 +402,13 @@ class VisualCheckTests(unittest.TestCase):
         util.atomic_json(output / "capture-result.json", {"exit_code": 0, "timed_out": False, "error": ""})
         process = mock.Mock()
         process.poll.return_value = -9
-        with mock.patch.object(visual_check.subprocess, "Popen", return_value=process), \
-                mock.patch.object(visual_check.os, "killpg") as kill:
-            result = visual_check._capture([sys.executable, "capture.py"], project.root, output,
-                                           project.manifest_path, 1)
+        with (
+            mock.patch.object(visual_check.subprocess, "Popen", return_value=process),
+            mock.patch.object(visual_check.os, "killpg") as kill,
+        ):
+            result = visual_check._capture(
+                [sys.executable, "capture.py"], project.root, output, project.manifest_path, 1
+            )
         self.assertEqual(0, result["exit_code"])
         kill.assert_not_called()
 
@@ -357,8 +423,11 @@ class VisualCheckTests(unittest.TestCase):
         before = util.snapshot(project.root)["revision"]
         self.report(project.invoke(), "UNVERIFIED")
         self.assertTrue((project.root / "web/generated.css").exists())
-        self.assertEqual(before, util.snapshot(project.root)["revision"],
-                         "the source-only Git snapshot alone cannot detect this ignored input")
+        self.assertEqual(
+            before,
+            util.snapshot(project.root)["revision"],
+            "the source-only Git snapshot alone cannot detect this ignored input",
+        )
 
     def test_existing_output_is_refused_without_overwriting_old_evidence(self):
         project = self.project()
@@ -368,8 +437,9 @@ class VisualCheckTests(unittest.TestCase):
         before = {str(file.relative_to(path)): file.read_bytes() for file in path.rglob("*") if file.is_file()}
         project.configure(variants={"desktop": "shift"})
         self.report(project.invoke(output=output), "UNVERIFIED")
-        self.assertEqual(before, {str(file.relative_to(path)): file.read_bytes()
-                                  for file in path.rglob("*") if file.is_file()})
+        self.assertEqual(
+            before, {str(file.relative_to(path)): file.read_bytes() for file in path.rglob("*") if file.is_file()}
+        )
 
     def test_each_default_invocation_recaptures_into_a_fresh_directory(self):
         project = self.project()
@@ -417,17 +487,36 @@ class VisualCheckTests(unittest.TestCase):
         with socket.create_server(("127.0.0.1", 0)) as server:
             server.settimeout(10)
             address = server.getsockname()
-            handshake = ("import os, socket\n"
-                         f"channel = socket.create_connection({address!r}, timeout=10)\n"
-                         "channel.settimeout(None)\n"
-                         "channel.sendall((str(os.getpid()) + '\\n').encode())\n"
-                         "channel.recv(1)\n")
-            project.write("capture.py", "import subprocess, sys\n"
-                          f"subprocess.Popen([sys.executable, '-c', {handshake!r}], start_new_session=True)\n" + handshake)
-            command = [sys.executable, str(MODULE), "--workspace", str(project.root),
-                       "--policy", "visual-policy.json", "--policy-sha256", sha256(project.policy_path)]
-            process = subprocess.Popen(command, cwd=project.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       start_new_session=True, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+            handshake = (
+                "import os, socket\n"
+                f"channel = socket.create_connection({address!r}, timeout=10)\n"
+                "channel.settimeout(None)\n"
+                "channel.sendall((str(os.getpid()) + '\\n').encode())\n"
+                "channel.recv(1)\n"
+            )
+            project.write(
+                "capture.py",
+                "import subprocess, sys\n"
+                f"subprocess.Popen([sys.executable, '-c', {handshake!r}], start_new_session=True)\n" + handshake,
+            )
+            command = [
+                sys.executable,
+                str(MODULE),
+                "--workspace",
+                str(project.root),
+                "--policy",
+                "visual-policy.json",
+                "--policy-sha256",
+                sha256(project.policy_path),
+            ]
+            process = subprocess.Popen(
+                command,
+                cwd=project.root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
             descendants, connections, peer_pids = [], [], set()
             try:
                 for _ in range(2):
@@ -460,16 +549,18 @@ class VisualCheckTests(unittest.TestCase):
 
     def test_missing_pillow_has_an_explicit_unverified_report(self):
         project = self.project()
-        bootstrap = ("import builtins, runpy, sys\n"
-                     "original = builtins.__import__\n"
-                     "def without_pillow(name, *args, **kwargs):\n"
-                     "    if name == 'PIL' or name.startswith('PIL.'):\n"
-                     "        raise ImportError('Pillow intentionally unavailable')\n"
-                     "    return original(name, *args, **kwargs)\n"
-                     "builtins.__import__ = without_pillow\n"
-                     "sys.argv = sys.argv[1:]\n"
-                     "sys.path.insert(0, str(__import__('pathlib').Path(sys.argv[0]).parent))\n"
-                     "runpy.run_path(sys.argv[0], run_name='__main__')\n")
+        bootstrap = (
+            "import builtins, runpy, sys\n"
+            "original = builtins.__import__\n"
+            "def without_pillow(name, *args, **kwargs):\n"
+            "    if name == 'PIL' or name.startswith('PIL.'):\n"
+            "        raise ImportError('Pillow intentionally unavailable')\n"
+            "    return original(name, *args, **kwargs)\n"
+            "builtins.__import__ = without_pillow\n"
+            "sys.argv = sys.argv[1:]\n"
+            "sys.path.insert(0, str(__import__('pathlib').Path(sys.argv[0]).parent))\n"
+            "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+        )
         report = self.report(project.invoke(bootstrap=bootstrap), "UNVERIFIED")
         self.assertIn("pillow", json.dumps(report).lower())
 
@@ -484,11 +575,26 @@ class VisualCheckTests(unittest.TestCase):
 
     def test_prescribed_visual_check_survives_validator_omission_and_scratch_cleanup(self):
         project = self.project()
-        command = shlex.join([sys.executable, str(MODULE), "--workspace", ".", "--policy", "visual-policy.json",
-                              "--policy-sha256", sha256(project.policy_path)])
-        approved = {"goal_contract": {"body": {"acceptance_criteria": [
-            {"id": "AC-visual", "human_review": False, "verification_method": command}]}},
-                    "current_task": {"acceptance_criteria": ["AC-visual"], "validation_plan": []}}
+        command = shlex.join(
+            [
+                sys.executable,
+                str(MODULE),
+                "--workspace",
+                ".",
+                "--policy",
+                "visual-policy.json",
+                "--policy-sha256",
+                sha256(project.policy_path),
+            ]
+        )
+        approved = {
+            "goal_contract": {
+                "body": {
+                    "acceptance_criteria": [{"id": "AC-visual", "human_review": False, "verification_method": command}]
+                }
+            },
+            "current_task": {"acceptance_criteria": ["AC-visual"], "validation_plan": []},
+        }
         unrelated = shlex.join([sys.executable, "-c", "print('unrelated passing check')"])
         checks = [{"command": unrelated, "exit_code": 0, "evidence_ref": "event:validator"}]
         for variant, status in (("match", "PASS"), ("missing-control", "FAIL")):
@@ -497,13 +603,21 @@ class VisualCheckTests(unittest.TestCase):
                 run_dir = project.root / ".autocode" / ("replay-" + variant)
                 record = {"output": "validator-01.json", "source_revision": util.snapshot(project.root)["revision"]}
                 if status == "PASS":
-                    result = check_replay.replay(checks, project.root, run_dir, record, verify.scratch_run,
-                                                 approved_state=approved, timeout=30)
+                    result = check_replay.replay(
+                        checks, project.root, run_dir, record, verify.scratch_run, approved_state=approved, timeout=30
+                    )
                     self.assertEqual("PASS", result["verdict"])
                 else:
                     with self.assertRaisesRegex(ValueError, "autocode_visual_check.*exited 1"):
-                        check_replay.replay(checks, project.root, run_dir, record, verify.scratch_run,
-                                            approved_state=approved, timeout=30)
+                        check_replay.replay(
+                            checks,
+                            project.root,
+                            run_dir,
+                            record,
+                            verify.scratch_run,
+                            approved_state=approved,
+                            timeout=30,
+                        )
                 [output] = (run_dir / "check-replay").glob("validator-01-*")
                 receipt = json.loads((output / "replay.json").read_text())
                 self.assertEqual(status, receipt["verdict"])
@@ -523,7 +637,9 @@ class VisualCheckTests(unittest.TestCase):
                 self.assertEqual("NOT_PERFORMED", report["independent_visual_review"])
                 self.assertGreater(len(log), check_replay.TAIL_CHARS, "the retained JSON must not be a tail excerpt")
                 self.assertFalse((output / "check-02/scratch/tree").exists())
-        self.assertFalse((project.root / ".autocode/visual-checks").exists(), "replay must not capture in the source tree")
+        self.assertFalse(
+            (project.root / ".autocode/visual-checks").exists(), "replay must not capture in the source tree"
+        )
 
     def test_task_run_cannot_complete_with_an_omitted_failing_visual_criterion(self):
         for variant in ("match", "missing-control"):
@@ -531,15 +647,42 @@ class VisualCheckTests(unittest.TestCase):
                 project = self.project()
                 project.configure(variants={"desktop": variant})
                 project.write("greet.py", "# Greeting CLI to be implemented by the offline fixture.\n")
-                command = shlex.join([sys.executable, str(MODULE), "--workspace", ".", "--policy",
-                                      "visual-policy.json", "--policy-sha256", sha256(project.policy_path)])
+                command = shlex.join(
+                    [
+                        sys.executable,
+                        str(MODULE),
+                        "--workspace",
+                        ".",
+                        "--policy",
+                        "visual-policy.json",
+                        "--policy-sha256",
+                        sha256(project.policy_path),
+                    ]
+                )
                 env = offline_provider_environment(project, command)
-                run = taskrun.TaskRun.start(project.root, "Build the offline greeting CLI and preserve the approved UI",
-                                           options=("--engine", "codex", "--joint-planning",
-                                                    "--astra-model", "gpt-6-astra", "--terra-model", "gpt-5.6-terra",
-                                                    "--sol-model", "gpt-5.6-sol", "--completion-model", "gpt-6-astra",
-                                                    "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra"),
-                                           env=env, timeout=90)
+                run = taskrun.TaskRun.start(
+                    project.root,
+                    "Build the offline greeting CLI and preserve the approved UI",
+                    options=(
+                        "--engine",
+                        "codex",
+                        "--joint-planning",
+                        "--astra-model",
+                        "gpt-6-astra",
+                        "--terra-model",
+                        "gpt-5.6-terra",
+                        "--sol-model",
+                        "gpt-5.6-sol",
+                        "--completion-model",
+                        "gpt-6-astra",
+                        "--glm-model",
+                        "gpt-5.6-sol",
+                        "--plan-reviewer-model",
+                        "gpt-6-astra",
+                    ),
+                    env=env,
+                    timeout=90,
+                )
                 view = run.advance_until_input()
                 self.assertEqual("approve_plan", view["needs"]["kind"], view)
                 run.approve_plan(view["needs"]["token"])
@@ -548,16 +691,19 @@ class VisualCheckTests(unittest.TestCase):
                     self.assertTrue(view["done"], view)
                     self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
                     checks = view["evidence"]["check_replay"]["checks"]
-                    self.assertTrue(any(row["command"] == command and row["exit_code"] == 0
-                                        for row in checks), checks)
+                    self.assertTrue(any(row["command"] == command and row["exit_code"] == 0 for row in checks), checks)
                 else:
                     self.assertFalse(view["done"], view)
                     self.assertIn("autocode_visual_check", view["stop_reason"])
                     self.assertIn("exited 1", view["stop_reason"])
                     reports = list(run.run_dir.glob("check-replay/**/replay.json"))
                     self.assertTrue(reports, view)
-                    failed = [row for path in reports for row in json.loads(path.read_text())["checks"]
-                              if row["command"] == command and row["exit_code"] == 1]
+                    failed = [
+                        row
+                        for path in reports
+                        for row in json.loads(path.read_text())["checks"]
+                        if row["command"] == command and row["exit_code"] == 1
+                    ]
                     self.assertTrue(failed, reports)
                     report = json.loads(Path(failed[-1]["output"]).read_text())
                     self.assertEqual("FAIL", report["status"])

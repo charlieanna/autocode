@@ -1,4 +1,5 @@
 """Original brief output is a public completion gate, independently of delivered tests."""
+
 from __future__ import annotations
 
 import base64
@@ -35,23 +36,26 @@ class BriefCliTests(unittest.TestCase):
     def start(self, *, planning, solution="reference", env=None):
         project = without_maintenance(materialize(self.scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(self.scenario, self.root, self.scenario.dir / solution)
-        environment = {**provider_env, "AUTOCODE_HOME": str(self.root / "registry"),
-                       "PYTHONDONTWRITEBYTECODE": "1", **(env or {})}
+        environment = {
+            **provider_env,
+            "AUTOCODE_HOME": str(self.root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            **(env or {}),
+        }
         # The fake and the product's python3 checks use this fixture interpreter.
         paths = environment["PATH"].split(os.pathsep)
         environment["PATH"] = os.pathsep.join([paths[0], str(Path(sys.executable).parent), *paths[1:]])
-        run = taskrun.TaskRun.start(project, self.scenario.brief,
-                                   options=(*flags, *planning), env=environment,
-                                   timeout=180, cwd=self.root)
+        run = taskrun.TaskRun.start(
+            project, self.scenario.brief, options=(*flags, *planning), env=environment, timeout=180, cwd=self.root
+        )
         return run, self.drive(run)
 
     def test_period_separated_commands_complete_without_a_phantom_add_observation(self):
-        self.assertIn('exits 0. `todo.py list`', self.scenario.brief)
-        run, view = self.start(planning=('--joint-planning', '--no-adaptive-planning'))
+        self.assertIn("exits 0. `todo.py list`", self.scenario.brief)
+        run, view = self.start(planning=("--joint-planning", "--no-adaptive-planning"))
         self.assert_reference(run, view)
-        rows = view['approved_contract']['body']['brief_acceptance']['manifest']['observations']
-        self.assertEqual([['list']], [row['declaration']['observe_argv'] for row in rows])
-
+        rows = view["approved_contract"]["body"]["brief_acceptance"]["manifest"]["observations"]
+        self.assertEqual([["list"]], [row["declaration"]["observe_argv"] for row in rows])
 
     def drive(self, run):
         """Serve this fixture's delegated plan approval through the task-run API."""
@@ -70,8 +74,7 @@ class BriefCliTests(unittest.TestCase):
         self.fail("The scripted task did not stop within twelve public approval gates")
 
     def reattach(self, run):
-        return taskrun.TaskRun(run.workspace, run.run_dir, options=run.options,
-                               env=run.env, timeout=180, cwd=self.root)
+        return taskrun.TaskRun(run.workspace, run.run_dir, options=run.options, env=run.env, timeout=180, cwd=self.root)
 
     def assert_reference(self, run, view):
         self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
@@ -100,18 +103,27 @@ class BriefCliTests(unittest.TestCase):
     def assert_mutant(self, run, view):
         self.assertNotEqual("TASK_COMPLETE", view["status"], self.details(view))
         self.assertFalse(view["done"], self.details(view))
-        delivered = subprocess.run([sys.executable, "-m", "unittest", "test_todo.py"],
-                                   cwd=run.workspace, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-                                   capture_output=True, text=True, timeout=30)
+        delivered = subprocess.run(
+            [sys.executable, "-m", "unittest", "test_todo.py"],
+            cwd=run.workspace,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         self.assertEqual(0, delivered.returncode, (delivered.stdout + delivered.stderr)[-800:])
         self.assertIn("Ran 3 tests", delivered.stderr)
         checked = verdict.evaluate(self.scenario, run.workspace)
         self.assertEqual(10, len(checked.checks))
-        self.assertEqual({"add_then_list", "complete_marks_done", "ids_stable_across_restarts"},
-                         {check.name for check in checked.checks if not check.ok}, checked.summary)
+        self.assertEqual(
+            {"add_then_list", "complete_marks_done", "ids_stable_across_restarts"},
+            {check.name for check in checked.checks if not check.ok},
+            checked.summary,
+        )
         # Read owned runner evidence, without changing a checkpoint or provider result.
-        failures = [json.loads(path.read_text()) for path in
-                    run.run_dir.glob("check-replay/**/brief-acceptance/*/summary.json")]
+        failures = [
+            json.loads(path.read_text()) for path in run.run_dir.glob("check-replay/**/brief-acceptance/*/summary.json")
+        ]
         self.assertTrue(failures, "The runtime must retain its independently executed rejection")
         format_failures = []
         for receipt in failures:
@@ -172,18 +184,18 @@ class BriefCliTests(unittest.TestCase):
     def test_builder_report_without_evidence_gets_the_usual_report_repair(self):
         # Live #452 run jb1acns9: after approval, AutoResolver escalated this ordinary
         # rejection as "invalid contract or declarative input" because of brief_acceptance.
-        run, view = self.start(planning=("--no-adaptive-planning",),
-                               env={"SCENARIO_FAKE_BUILDER_NO_EVIDENCE": "1"})
+        run, view = self.start(planning=("--no-adaptive-planning",), env={"SCENARIO_FAKE_BUILDER_NO_EVIDENCE": "1"})
         self.assertTrue((self.root / "fake-builder-no-evidence").exists(), "The Builder report cited no evidence")
         self.assert_reference(run, view)
         self.assertNotIn("invalid contract", view.get("stop_reason") or "")
         self.assertGreaterEqual(view["efficiency"]["by_category"]["report_repair"]["attempts"], 1)
 
     def test_omitted_reviewer_observations_cannot_reach_build_or_completion(self):
-        run, view = self.start(planning=("--no-adaptive-planning",),
-                               env={"SCENARIO_FAKE_BRIEF_OMIT": "1"})
+        run, view = self.start(planning=("--no-adaptive-planning",), env={"SCENARIO_FAKE_BRIEF_OMIT": "1"})
         self.assertFalse(view["done"], self.details(view))
-        self.assertFalse((run.workspace / "todo.py").exists(), "Missing source-linked proof must stop before the Builder")
+        self.assertFalse(
+            (run.workspace / "todo.py").exists(), "Missing source-linked proof must stop before the Builder"
+        )
         self.assertEqual(0, view["efficiency"]["delivery"]["verified_deliveries"])
         self.assertFalse(self.reattach(run).status()["done"])
 

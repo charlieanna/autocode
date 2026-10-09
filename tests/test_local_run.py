@@ -6,6 +6,7 @@ in for containers, and waiting uses a fake clock. The CLI-level path with a fake
 `docker` executable is CliTests.test_cli_runs_the_integrated_system_locally in
 test_multicomponent; the refusals before any build are here.
 """
+
 import contextlib
 import io
 import json
@@ -33,8 +34,7 @@ FAKE_DOCKER = Path(__file__).resolve().parents[1] / "tools" / "fixtures" / "fake
 
 
 def service(port=8000, health="/health", depends=(), start="python3 server.py"):
-    return ComponentRuntime(kind="service", port=port, start=start, health=health,
-                            runtime_depends_on=tuple(depends))
+    return ComponentRuntime(kind="service", port=port, start=start, health=health, runtime_depends_on=tuple(depends))
 
 
 def database():
@@ -143,10 +143,24 @@ def smoke(*steps):
 
 
 NOTE_STEPS = (
-    {"name": "create", "service": "api", "method": "POST", "path": "/notes", "body": {"text": "hello"},
-     "expect_status": 201, "expect_json": {"text": "hello"}, "capture": {"note_id": "id"}},
-    {"name": "read back", "service": "api", "method": "GET", "path": "/notes/{{note_id}}",
-     "expect_status": 200, "expect_json": {"text": "hello"}},
+    {
+        "name": "create",
+        "service": "api",
+        "method": "POST",
+        "path": "/notes",
+        "body": {"text": "hello"},
+        "expect_status": 201,
+        "expect_json": {"text": "hello"},
+        "capture": {"note_id": "id"},
+    },
+    {
+        "name": "read back",
+        "service": "api",
+        "method": "GET",
+        "path": "/notes/{{note_id}}",
+        "expect_status": 200,
+        "expect_json": {"text": "hello"},
+    },
 )
 
 
@@ -169,8 +183,16 @@ class Workspace:
     def run(self, docker, **options):
         plan = lr.prepare(self.architecture, self.runtimes)
         out = io.StringIO()
-        local = lr.LocalRun(plan, self.tree, self.workdir, runner=docker, clock=options.pop("clock", FakeClock()),
-                            out=out, project="autocode-test", **options)
+        local = lr.LocalRun(
+            plan,
+            self.tree,
+            self.workdir,
+            runner=docker,
+            clock=options.pop("clock", FakeClock()),
+            out=out,
+            project="autocode-test",
+            **options,
+        )
         summary = local.run()
         return summary, out.getvalue()
 
@@ -192,23 +214,31 @@ class PrepareTests(unittest.TestCase):
             lr.prepare(ws.architecture, ws.runtimes)
 
     def test_a_smoke_step_must_go_to_a_service(self):
-        ws = Workspace(self, {"api": service(depends=["db"]), "db": database()},
-                       smoke({"service": "db", "method": "GET", "path": "/", "expect_status": 200}))
+        ws = Workspace(
+            self,
+            {"api": service(depends=["db"]), "db": database()},
+            smoke({"service": "db", "method": "GET", "path": "/", "expect_status": 200}),
+        )
         with self.assertRaisesRegex(ValueError, "a database, whose port is never published"):
             lr.prepare(ws.architecture, ws.runtimes)
 
     def test_a_valid_architecture_gives_its_start_layers(self):
-        ws = Workspace(self, {"api": service(depends=["db"]), "db": database(), "lib": ComponentRuntime("library")},
-                       smoke(*NOTE_STEPS))
+        ws = Workspace(
+            self,
+            {"api": service(depends=["db"]), "db": database(), "lib": ComponentRuntime("library")},
+            smoke(*NOTE_STEPS),
+        )
         self.assertEqual([["db"], ["api"]], lr.prepare(ws.architecture, ws.runtimes).layers)
 
 
 class DockerCheckTests(unittest.TestCase):
     def test_selected_remote_context_is_refused_before_daemon_contact(self):
         calls = []
+
         def runner(argv, timeout):
             calls.append(argv)
             return lr.CommandResult(0, "2.29.0" if argv[1] == "compose" else "ssh://remote")
+
         with self.assertRaises(lr.DockerUnavailable):
             lr.check_docker(runner, env={"DOCKER_HOST": "unix:///ignored", "DOCKER_CONTEXT": "remote"})
         self.assertIn(["docker", "context", "inspect", "remote", "--format", "{{.Endpoints.docker.Host}}"], calls)
@@ -230,6 +260,7 @@ class DockerCheckTests(unittest.TestCase):
             if argv[1:3] == ["context", "inspect"]:
                 return lr.CommandResult(1, "", "no context") if fail == "context" else lr.CommandResult(0, endpoint)
             raise AssertionError(argv)
+
         return run
 
     def test_missing_compose_plugin_and_unreachable_daemon_are_named(self):
@@ -251,14 +282,22 @@ class DockerCheckTests(unittest.TestCase):
 
     def test_a_daemon_on_another_machine_is_refused(self):
         # Ports would publish on that machine while probes and smoke requests go to 127.0.0.1 here.
-        for env, endpoint in (({"DOCKER_HOST": "tcp://10.0.0.5:2376"}, "unix:///var/run/docker.sock"),
-                              ({"DOCKER_HOST": "ssh://me@build-box"}, "unix:///var/run/docker.sock"),
-                              ({}, "tcp://10.0.0.5:2376"), ({"DOCKER_HOST": ""}, "ssh://me@build-box\n")):
-            with self.subTest(env=env, endpoint=endpoint), \
-                    self.assertRaisesRegex(lr.DockerUnavailable, "needs a Docker daemon on this machine"):
+        for env, endpoint in (
+            ({"DOCKER_HOST": "tcp://10.0.0.5:2376"}, "unix:///var/run/docker.sock"),
+            ({"DOCKER_HOST": "ssh://me@build-box"}, "unix:///var/run/docker.sock"),
+            ({}, "tcp://10.0.0.5:2376"),
+            ({"DOCKER_HOST": ""}, "ssh://me@build-box\n"),
+        ):
+            with (
+                self.subTest(env=env, endpoint=endpoint),
+                self.assertRaisesRegex(lr.DockerUnavailable, "needs a Docker daemon on this machine"),
+            ):
                 lr.check_docker(self.runner(endpoint=endpoint), env=env)
-        for env, endpoint in (({"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}, "tcp://ignored:1"),
-                              ({}, "unix:///var/run/docker.sock\n"), ({}, "npipe:////./pipe/docker_engine")):
+        for env, endpoint in (
+            ({"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}, "tcp://ignored:1"),
+            ({}, "unix:///var/run/docker.sock\n"),
+            ({}, "npipe:////./pipe/docker_engine"),
+        ):
             with self.subTest(env=env, endpoint=endpoint):
                 lr.check_docker(self.runner(endpoint=endpoint), env=env)
 
@@ -279,6 +318,7 @@ class RunTests(unittest.TestCase):
     def test_preflight_endpoint_is_pinned_across_context_changes_and_recovery(self):
         socket = "unix:///validated local.sock"
         preflight_calls = []
+
         def preflight(argv, timeout):
             preflight_calls.append(argv)
             if argv[1] == "compose":
@@ -286,19 +326,24 @@ class RunTests(unittest.TestCase):
             if argv[1] == "context":
                 return lr.CommandResult(0, socket)
             return lr.CommandResult(0, "27.0.0")
+
         endpoint = lr.check_docker(preflight, env={"DOCKER_CONTEXT": "local"})
         self.assertEqual(socket, endpoint)
-        self.assertEqual(["docker", "--host", socket, "version", "--format", "{{.Server.Version}}"], preflight_calls[-1])
+        self.assertEqual(
+            ["docker", "--host", socket, "version", "--format", "{{.Server.Version}}"], preflight_calls[-1]
+        )
         server = start_server(self)
         ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
         docker = FakeDocker({"api": server.server_port})
         calls = []
+
         def runner(argv, timeout):
             calls.append(argv)
             self.assertEqual(["docker", "--host", socket], argv[:3])
             if "down" in argv:
                 return lr.CommandResult(1, "", "cleanup failed")
             return docker([argv[0], *argv[3:]], timeout)
+
         plan = replace(lr.prepare(ws.architecture, ws.runtimes), endpoint=endpoint)
         with mock.patch.dict(os.environ, {"DOCKER_CONTEXT": "remote", "DOCKER_HOST": "ssh://remote"}):
             summary = lr.LocalRun(plan, ws.tree, ws.workdir, runner=runner, clock=FakeClock(), out=io.StringIO()).run()
@@ -311,12 +356,17 @@ class RunTests(unittest.TestCase):
 
     def test_cleanup_failure_cannot_pass_and_recovery_preserves_quoted_paths(self):
         server = start_server(self)
-        for failure in (lr.CommandResult(1, "", "network busy"), lr.CommandResult(124, "", "timeout"),
-                        lr.DockerUnavailable("docker lost"), OSError("transport lost")):
+        for failure in (
+            lr.CommandResult(1, "", "network busy"),
+            lr.CommandResult(124, "", "timeout"),
+            lr.DockerUnavailable("docker lost"),
+            OSError("transport lost"),
+        ):
             with self.subTest(failure=failure):
                 ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
                 ws.workdir /= "path with spaces"
                 docker = FakeDocker({"api": server.server_port})
+
                 def runner(argv, timeout):
                     if argv[6:7] == ["down"]:
                         docker.calls.append(argv)
@@ -324,23 +374,28 @@ class RunTests(unittest.TestCase):
                             raise failure
                         return failure
                     return docker(argv, timeout)
+
                 summary, said = ws.run(runner)
                 self.assertEqual("failed", summary["status"])
                 self.assertFalse(summary["torn_down"])
                 self.assertFalse(summary["kept_running"])
                 self.assertTrue(all(step["ok"] for step in summary["steps"]))
                 self.assertIn("could not tear down", summary["cleanup_detail"])
-                self.assertEqual(["docker", "compose", "-p", summary["project"], "-f", summary["compose_file"],
-                                  *lr.LocalRun.DOWN], shlex.split(summary["stop_command"]))
+                self.assertEqual(
+                    ["docker", "compose", "-p", summary["project"], "-f", summary["compose_file"], *lr.LocalRun.DOWN],
+                    shlex.split(summary["stop_command"]),
+                )
                 self.assertIn(summary["stop_command"], said)
 
     def test_helper_cleanup_uncertainty_survives_successful_down(self):
         ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
         docker = FakeDocker({})
+
         def runner(argv, timeout):
             if argv[6:7] == ["up"]:
                 raise lr.DockerCleanupUnavailable("owned helper cleanup unknown")
             return docker(argv, timeout)
+
         summary, _ = ws.run(runner)
         self.assertEqual("failed", summary["status"])
         self.assertFalse(summary["torn_down"])
@@ -352,10 +407,12 @@ class RunTests(unittest.TestCase):
         for failure in (RuntimeError("unexpected"), KeyboardInterrupt(), SystemExit(143)):
             with self.subTest(failure=type(failure).__name__):
                 docker = FakeDocker({})
+
                 def runner(argv, timeout):
                     if argv[6:7] == ["ps"]:
                         raise failure
                     return docker(argv, timeout)
+
                 before = signal.getsignal(signal.SIGTERM)
                 if isinstance(failure, Exception):
                     summary, _ = ws.run(runner)
@@ -368,36 +425,45 @@ class RunTests(unittest.TestCase):
 
     def test_timeout_and_sigterm_stop_detached_helpers_before_down_and_preserve_sentinel(self):
         import autocode_grader_process as supervisor
+
         for interrupted in (False, True):
             with self.subTest(interrupted=interrupted):
                 ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
                 pidfile = ws.workdir / "helper.pid"
                 pidfile.parent.mkdir(parents=True, exist_ok=True)
-                script = ("import subprocess,sys,time; from pathlib import Path; "
-                          "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
-                          f"Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(60)")
-                sentinel = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+                script = (
+                    "import subprocess,sys,time; from pathlib import Path; "
+                    "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],start_new_session=True); "
+                    f"Path({str(pidfile)!r}).write_text(str(p.pid)); time.sleep(60)"
+                )
+                sentinel = subprocess.Popen(
+                    [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+                )
                 docker, stopped_at_down = FakeDocker({}), []
                 sent = False
                 real_clock = supervisor.time
+
                 def alive():
                     try:
                         process = psutil.Process(int(pidfile.read_text()))
                         return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
                     except (FileNotFoundError, psutil.NoSuchProcess):
                         return False
+
                 def clock_tick():
                     nonlocal sent
                     if interrupted and pidfile.exists() and not sent:
                         sent = True
                         signal.raise_signal(signal.SIGTERM)
                     return real_clock.monotonic()
+
                 def runner(argv, timeout):
                     if argv[6:7] == ["up"]:
                         return lr.subprocess_runner([sys.executable, "-c", script], 2)
                     if argv[6:7] == ["down"]:
                         stopped_at_down.append(not alive())
                     return docker(argv, timeout)
+
                 clock = mock.Mock(wraps=real_clock)
                 clock.monotonic.side_effect = clock_tick
                 before = signal.getsignal(signal.SIGTERM)
@@ -424,16 +490,25 @@ class RunTests(unittest.TestCase):
 
     def test_layers_start_in_order_each_after_the_previous_is_ready_and_the_smoke_check_passes(self):
         server = start_server(self)
-        ws = Workspace(self, {"api": service(depends=["db"]), "db": database(), "jobs": worker(depends=["api"])},
-                       smoke(*NOTE_STEPS))
+        ws = Workspace(
+            self,
+            {"api": service(depends=["db"]), "db": database(), "jobs": worker(depends=["api"])},
+            smoke(*NOTE_STEPS),
+        )
         docker = FakeDocker({"api": server.server_port}, health={"db": ["starting", "starting", "healthy"]})
         clock = FakeClock()
         summary, _ = ws.run(docker, clock=clock)
 
         self.assertEqual("passed", summary["status"], summary["detail"])
         ups = [call[7:] for call in docker.calls if call[6:7] == ["up"]]
-        self.assertEqual([["-d", "--build", "--no-deps", "db"], ["-d", "--build", "--no-deps", "api"],
-                          ["-d", "--build", "--no-deps", "jobs"]], ups)
+        self.assertEqual(
+            [
+                ["-d", "--build", "--no-deps", "db"],
+                ["-d", "--build", "--no-deps", "api"],
+                ["-d", "--build", "--no-deps", "jobs"],
+            ],
+            ups,
+        )
         commands = docker.commands()
         # db is polled until healthy (two polls "starting") before api is started.
         self.assertEqual(["up", "ps", "ps", "ps", "up"], commands[:5])
@@ -475,25 +550,33 @@ class RunTests(unittest.TestCase):
         self.assertEqual("down", docker.commands()[-1])
 
     def test_an_unhealthy_or_exited_container_fails_at_once(self):
-        for health, states, expected in ((["unhealthy"], {}, "db's health command reports unhealthy"),
-                                         (["starting"], {"db": "exited"}, "db is not running (state exited)")):
+        for health, states, expected in (
+            (["unhealthy"], {}, "db's health command reports unhealthy"),
+            (["starting"], {"db": "exited"}, "db is not running (state exited)"),
+        ):
             with self.subTest(expected=expected):
                 ws = Workspace(self, {"api": service(depends=["db"]), "db": database()}, smoke(*NOTE_STEPS))
                 docker = FakeDocker({}, health={"db": health}, states=states)
                 clock = FakeClock()
                 summary, _ = ws.run(docker, clock=clock)
-                self.assertEqual(("failed", "db", expected), (summary["status"], summary["failed_component"],
-                                                              summary["detail"]))
+                self.assertEqual(
+                    ("failed", "db", expected), (summary["status"], summary["failed_component"], summary["detail"])
+                )
                 self.assertEqual(0, clock.slept)
                 self.assertEqual(1, docker.commands().count("up"))
                 self.assertEqual("down", docker.commands()[-1])
 
     def test_the_smoke_check_stops_at_the_first_failing_step(self):
         server = start_server(self)
-        ws = Workspace(self, {"api": service()}, smoke(
-            NOTE_STEPS[0],
-            {"name": "wrong id", "service": "api", "method": "GET", "path": "/notes/999", "expect_status": 200},
-            {"name": "never sent", "service": "api", "method": "GET", "path": "/never", "expect_status": 200}))
+        ws = Workspace(
+            self,
+            {"api": service()},
+            smoke(
+                NOTE_STEPS[0],
+                {"name": "wrong id", "service": "api", "method": "GET", "path": "/notes/999", "expect_status": 200},
+                {"name": "never sent", "service": "api", "method": "GET", "path": "/never", "expect_status": 200},
+            ),
+        )
         docker = FakeDocker({"api": server.server_port})
         summary, said = ws.run(docker)
 
@@ -510,8 +593,9 @@ class RunTests(unittest.TestCase):
     def test_expect_json_and_captures_are_checked(self):
         server = start_server(self)
         for step, detail in (
-                (NOTE_STEPS[0] | {"expect_json": {"text": "other"}}, "does not match expect_json"),
-                (NOTE_STEPS[0] | {"capture": {"note_id": "missing"}}, "cannot capture note_id")):
+            (NOTE_STEPS[0] | {"expect_json": {"text": "other"}}, "does not match expect_json"),
+            (NOTE_STEPS[0] | {"capture": {"note_id": "missing"}}, "cannot capture note_id"),
+        ):
             with self.subTest(detail=detail):
                 ws = Workspace(self, {"api": service()}, smoke(step))
                 summary, _ = ws.run(FakeDocker({"api": server.server_port}))
@@ -530,8 +614,9 @@ class RunTests(unittest.TestCase):
                     raise KeyboardInterrupt
                 return super().request(method, port, path, body, timeout)
 
-        local = lr.LocalRun(plan, ws.tree, ws.workdir, runner=docker, http=Interrupted(), clock=FakeClock(),
-                            out=io.StringIO())
+        local = lr.LocalRun(
+            plan, ws.tree, ws.workdir, runner=docker, http=Interrupted(), clock=FakeClock(), out=io.StringIO()
+        )
         with self.assertRaises(KeyboardInterrupt):
             local.run()
         self.assertEqual("down", docker.commands()[-1])
@@ -562,6 +647,7 @@ class RunTests(unittest.TestCase):
                 docker.calls.append(list(argv))
                 return lr.CommandResult(1, "", "Error response from daemon")
             return docker(argv, timeout)
+
         summary, _ = ws.run(runner)
         self.assertIn("docker compose ps failed: Error response from daemon", summary["detail"])
         self.assertIn(["logs", "--no-color", "--tail", "50", "api", "web"], [call[6:] for call in docker.calls])
@@ -579,9 +665,12 @@ class RunTests(unittest.TestCase):
                 docker.states["api"] = "exited"
                 return lr.CommandResult(1, "", 'service "api" is not running')
             return docker(argv, timeout)
+
         summary, _ = ws.run(runner)
-        self.assertEqual(("failed", "api", "api is not running (state exited)"),
-                         (summary["status"], summary["failed_component"], summary["detail"]))
+        self.assertEqual(
+            ("failed", "api", "api is not running (state exited)"),
+            (summary["status"], summary["failed_component"], summary["detail"]),
+        )
         self.assertIn("boom", summary["logs"])
 
     def test_keep_running_leaves_the_system_up_and_says_how_to_stop_it(self):
@@ -615,6 +704,7 @@ class RunTests(unittest.TestCase):
                 rows = [json.loads(line) for line in result.stdout.splitlines()]
                 return lr.CommandResult(0, json.dumps(rows))
             return result
+
         summary, _ = ws.run(runner)
         self.assertEqual("passed", summary["status"], summary["detail"])
 
@@ -635,8 +725,9 @@ class MatchTests(unittest.TestCase):
 
 
 def git(cwd, *args):
-    subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args], cwd=cwd, check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args], cwd=cwd, check=True, capture_output=True
+    )
 
 
 class CliRefusalTests(unittest.TestCase):
@@ -649,17 +740,30 @@ class CliRefusalTests(unittest.TestCase):
         git(self.repo, "init", "-q")
         self.arch = self.repo / "architecture"
         (self.arch / "contracts").mkdir(parents=True)
-        (self.arch / "components.json").write_text(json.dumps([
-            {"id": "api", "description": "the api", "requirements": ["R1"], "depends_on": [],
-             "runtime": {"kind": "service", "port": 8000, "start": "python3 server.py", "health": "/health"}}]))
+        (self.arch / "components.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "api",
+                        "description": "the api",
+                        "requirements": ["R1"],
+                        "depends_on": [],
+                        "runtime": {"kind": "service", "port": 8000, "start": "python3 server.py", "health": "/health"},
+                    }
+                ]
+            )
+        )
         (self.arch / "smoke.json").write_text(json.dumps(smoke(*NOTE_STEPS)))
         self.bindir = self.repo / "bin"
         self.bindir.mkdir()
 
     def cli(self, *args, path=None):
         stderr = io.StringIO()
-        with mock.patch.dict(os.environ, {"PATH": str(path or self.bindir)}), \
-                contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as stop:
+        with (
+            mock.patch.dict(os.environ, {"PATH": str(path or self.bindir)}),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as stop,
+        ):
             autocode_components.cli(["architecture", "--workspace", str(self.repo), *args])
         self.assertEqual(2, stop.exception.code)
         self.assertFalse((self.repo / ".autocode-components").exists())
@@ -677,8 +781,10 @@ class CliRefusalTests(unittest.TestCase):
     def test_a_health_timeout_that_is_not_a_positive_finite_number_is_refused(self):
         for value in ("nan", "inf", "-inf", "0", "-1"):
             with self.subTest(value=value):
-                self.assertIn("--health-timeout must be a positive, finite number",
-                              self.cli("--integrate", "out", "--run-local", f"--health-timeout={value}"))
+                self.assertIn(
+                    "--health-timeout must be a positive, finite number",
+                    self.cli("--integrate", "out", "--run-local", f"--health-timeout={value}"),
+                )
 
     def test_a_remote_docker_daemon_is_refused(self):
         fake = self.bindir / "docker"
@@ -700,8 +806,10 @@ class CliRefusalTests(unittest.TestCase):
 
     def test_an_unreachable_daemon_is_refused(self):
         fake = self.bindir / "docker"
-        fake.write_text("#!/bin/sh\nif [ \"$1\" = --host ]; then shift 2; fi\nif [ \"$1\" = version ]; then echo 'Cannot connect to the Docker daemon' >&2; "
-                        "exit 1; fi\nif [ \"$1\" = context ]; then echo unix:///var/run/docker.sock; exit 0; fi\necho 2.29.0\n")
+        fake.write_text(
+            '#!/bin/sh\nif [ "$1" = --host ]; then shift 2; fi\nif [ "$1" = version ]; then echo \'Cannot connect to the Docker daemon\' >&2; '
+            'exit 1; fi\nif [ "$1" = context ]; then echo unix:///var/run/docker.sock; exit 0; fi\necho 2.29.0\n'
+        )
         fake.chmod(0o755)
         said = self.cli("--integrate", "out", "--run-local")
         self.assertIn("daemon is not reachable", said)

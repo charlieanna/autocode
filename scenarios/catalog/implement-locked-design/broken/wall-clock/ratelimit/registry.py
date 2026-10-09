@@ -1,4 +1,5 @@
 """One token bucket per key, all sharing the registry's clock."""
+
 from collections.abc import Callable
 
 from .bucket import TokenBucket

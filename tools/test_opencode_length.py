@@ -1,4 +1,5 @@
 """Output-limit regressions using native transport fixtures, never live providers."""
+
 import copy
 import json
 import sys
@@ -16,15 +17,21 @@ from goal_fixtures import approve_fixture
 
 
 def event(kind, **part):
-    return {"type": kind, "sessionID": "ses_limit", "part": {
-        "id": "prt_" + kind, "sessionID": "ses_limit", "messageID": "msg_limit", **part}}
+    return {
+        "type": kind,
+        "sessionID": "ses_limit",
+        "part": {"id": "prt_" + kind, "sessionID": "ses_limit", "messageID": "msg_limit", **part},
+    }
 
 
 def length_event():
     # Usage reported by the real failed implementation attempt. Reasoning and
     # visible output share the output cap; cache reads count toward input usage.
-    return event("step_finish", reason="length", tokens={"total": 56262,
-        "input": 11206, "output": 47, "reasoning": 31953, "cache": {"write": 0, "read": 13056}})
+    return event(
+        "step_finish",
+        reason="length",
+        tokens={"total": 56262, "input": 11206, "output": 47, "reasoning": 31953, "cache": {"write": 0, "read": 13056}},
+    )
 
 
 class OutputLimitTests(unittest.TestCase):
@@ -49,8 +56,15 @@ class OutputLimitTests(unittest.TestCase):
         self.assertEqual("output_token_limit", failures[0]["error"]["code"])
         self.assertIn("output token limit", support.terminal_failure_reason(self.log))
         metrics = support.event_metrics(self.log)
-        self.assertEqual({"input_tokens": 24262, "cached_input_tokens": 13056,
-                          "output_tokens": 32000, "reasoning_output_tokens": 31953}, metrics["provider_tokens"])
+        self.assertEqual(
+            {
+                "input_tokens": 24262,
+                "cached_input_tokens": 13056,
+                "output_tokens": 32000,
+                "reasoning_output_tokens": 31953,
+            },
+            metrics["provider_tokens"],
+        )
         self.assertEqual(0, metrics["completed_turns"])
         # Output capacity is not an account quota failure or an approval.
         self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(self.log))
@@ -58,8 +72,12 @@ class OutputLimitTests(unittest.TestCase):
             opencode.final_report(self.log)
 
     def test_length_usage_includes_prior_unique_steps(self):
-        first = event("step_finish", id="prt_first", reason="tool-calls", tokens={
-            "input": 10, "output": 5, "reasoning": 7, "cache": {"read": 2, "write": 3}})
+        first = event(
+            "step_finish",
+            id="prt_first",
+            reason="tool-calls",
+            tokens={"input": 10, "output": 5, "reasoning": 7, "cache": {"read": 2, "write": 3}},
+        )
         self.write_events([first, copy.deepcopy(first), length_event()])
         usage = support.event_metrics(self.log)["provider_tokens"]
         self.assertEqual(24277, usage["input_tokens"])
@@ -103,15 +121,17 @@ class OutputLimitTests(unittest.TestCase):
     def test_newest_unique_terminal_selects_report_despite_old_finish_replay(self):
         tokens = {"input": 10, "output": 5, "reasoning": 7, "cache": {"read": 2, "write": 3}}
         previous = event("step_finish", id="prt_old_finish", messageID="msg_old", reason="stop", tokens=tokens)
-        self.write_events([
-            event("step_start", id="prt_old_start"),
-            event("text", id="prt_old_text", messageID="msg_old", text='{"result":"old"}'),
-            previous,
-            event("step_start", id="prt_new_start"),
-            event("text", id="prt_new_text", messageID="msg_new", text='{"result":"new"}'),
-            event("step_finish", id="prt_new_finish", messageID="msg_new", reason="stop", tokens=tokens),
-            copy.deepcopy(previous),
-        ])
+        self.write_events(
+            [
+                event("step_start", id="prt_old_start"),
+                event("text", id="prt_old_text", messageID="msg_old", text='{"result":"old"}'),
+                previous,
+                event("step_start", id="prt_new_start"),
+                event("text", id="prt_new_text", messageID="msg_new", text='{"result":"new"}'),
+                event("step_finish", id="prt_new_finish", messageID="msg_new", reason="stop", tokens=tokens),
+                copy.deepcopy(previous),
+            ]
+        )
         metrics = support.event_metrics(self.log)
         self.assertEqual(1, metrics["completed_turns"])
         self.assertEqual(30, metrics["provider_tokens"]["input_tokens"])
@@ -119,24 +139,31 @@ class OutputLimitTests(unittest.TestCase):
         self.assertEqual({"result": "new"}, opencode.final_report(self.log))
 
     def test_incomplete_or_mixed_session_stream_does_not_claim_terminal_length(self):
-        for rows in ([length_event(), event("step_start")],
-                     [length_event(), {**event("text"), "sessionID": "ses_other"}],
-                     [event("text", text="The output token limit was exhausted")]):
+        for rows in (
+            [length_event(), event("step_start")],
+            [length_event(), {**event("text"), "sessionID": "ses_other"}],
+            [event("text", text="The output token limit was exhausted")],
+        ):
             with self.subTest(rows=rows):
                 self.write_events(rows)
                 self.assertIsNone(support.terminal_failure_reason(self.log))
                 self.assertEqual(0, support.event_metrics(self.log)["completed_turns"])
 
     def test_real_provider_error_keeps_existing_failure_classification(self):
-        self.write_events([length_event(), {"type": "error", "sessionID": "ses_limit",
-                                          "error": {"message": "rate_limit: 429"}}])
+        self.write_events(
+            [length_event(), {"type": "error", "sessionID": "ses_limit", "error": {"message": "rate_limit: 429"}}]
+        )
         self.assertEqual("PAUSED_RATE_LIMIT", support.failure_status(self.log))
         self.assertEqual(32000, support.event_metrics(self.log)["provider_tokens"]["output_tokens"])
         self.assertFalse(any(row["type"] == "turn.completed" for row in support.events(self.log)))
 
     def test_success_and_failed_usage_are_counted_with_only_success_completed(self):
-        self.write_events([{"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 4}},
-                           {"type": "turn.failed", "usage": {"input_tokens": 7, "output_tokens": 2}}])
+        self.write_events(
+            [
+                {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 4}},
+                {"type": "turn.failed", "usage": {"input_tokens": 7, "output_tokens": 2}},
+            ]
+        )
         metrics = support.event_metrics(self.log)
         self.assertEqual(17, metrics["provider_tokens"]["input_tokens"])
         self.assertEqual(6, metrics["provider_tokens"]["output_tokens"])
@@ -144,9 +171,17 @@ class OutputLimitTests(unittest.TestCase):
         self.assertIsNone(metrics["provider_tokens"]["reasoning_output_tokens"])
 
     def test_runner_pauses_then_explicit_recovery_retains_usage_and_approval(self):
-        state = {"version": 2, "workspace": str(self.root), "task": "Fixture",
-                 "status": "RUNNING", "iteration": 1, "sessions": {}, "stages": [], "history": [],
-                 "settings": {"engine": "opencode", "roles": {"terra": {"model": "fixture/model"}}}}
+        state = {
+            "version": 2,
+            "workspace": str(self.root),
+            "task": "Fixture",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "settings": {"engine": "opencode", "roles": {"terra": {"model": "fixture/model"}}},
+        }
         approve_fixture(state, goals)
         approved = copy.deepcopy(state["goal_contract"])
         emitted = [event("step_start"), length_event()]
@@ -154,20 +189,32 @@ class OutputLimitTests(unittest.TestCase):
 
         class Child:
             pid = 987654321
+
             def __init__(child, command, **kwargs):
                 launches.append(command)
                 kwargs["stdout"].write("\n".join(json.dumps(row) for row in emitted))
 
         snapshot = {"head": "h", "files": {}, "revision": "r"}
-        with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
-             patch.object(runner.subprocess, "Popen", Child), \
-             patch.object(support, "snapshot", return_value=snapshot), \
-             patch.object(runner.processes, "process_table", return_value={}), \
-             patch.object(runner.processes, "wait_for_stage", return_value=(0, False)):
+        with (
+            patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})),
+            patch.object(runner.subprocess, "Popen", Child),
+            patch.object(support, "snapshot", return_value=snapshot),
+            patch.object(runner.processes, "process_table", return_value={}),
+            patch.object(runner.processes, "wait_for_stage", return_value=(0, False)),
+        ):
             with self.assertRaises(support.Paused) as caught:
-                runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,
-                    run_dir=self.run, state=state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
-                    model="fixture/model", allow_write=True, dry_run=False)
+                runner.run_role(
+                    role="terra",
+                    prompt="Fixture",
+                    sandbox="workspace-write",
+                    workspace=self.root,
+                    run_dir=self.run,
+                    state=state,
+                    schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                    model="fixture/model",
+                    allow_write=True,
+                    dry_run=False,
+                )
         self.assertEqual(1, len(launches))
         self.assertEqual("PAUSED_UNCERTAIN_STAGE", caught.exception.status)
         self.assertIn("output token limit", str(caught.exception))

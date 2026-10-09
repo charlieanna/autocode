@@ -1,4 +1,5 @@
 """Public CLI and adversarial oracle checks, with no live model requests."""
+
 import copy
 import json
 import os
@@ -18,21 +19,50 @@ import provider_conformance_transport as transport
 class OracleTests(unittest.TestCase):
     def setUp(self):
         self.data = {"probe_id": "current", "workspace": "/a path/project", "phase": "build"}
-        self.report = {"probe_id": "current", "workspace": "/a path/project", "nonce": "abc",
-                       "checks": [{"command": c, "exit_code": code} for c, code in contract.COMMANDS.items()]}
+        self.report = {
+            "probe_id": "current",
+            "workspace": "/a path/project",
+            "nonce": "abc",
+            "checks": [{"command": c, "exit_code": code} for c, code in contract.COMMANDS.items()],
+        }
         self.rows = [{"type": "thread.started", "thread_id": "s1"}]
         for index, (command, code) in enumerate(contract.COMMANDS.items()):
-            self.rows.append({"type": "item.completed", "item": {"type": "command_execution", "id": str(index),
-                              "command": command, "exit_code": code,
-                              "aggregated_output": "PROBE_OK" if code == 0 else "EXPECTED_FAILURE"}})
-        self.rows.append({"type": "turn.completed", "usage": {"input_tokens": 100,
-                         "cached_input_tokens": 20, "output_tokens": 30, "reasoning_output_tokens": 5}})
+            self.rows.append(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "command_execution",
+                        "id": str(index),
+                        "command": command,
+                        "exit_code": code,
+                        "aggregated_output": "PROBE_OK" if code == 0 else "EXPECTED_FAILURE",
+                    },
+                }
+            )
+        self.rows.append(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 20,
+                    "output_tokens": 30,
+                    "reasoning_output_tokens": 5,
+                },
+            }
+        )
         self.before = {"head": "h", "files": {"output.txt": "old", "input.txt": "seed"}}
         self.after = {"head": "h", "files": {"output.txt": "new", "input.txt": "seed"}}
 
     def assess(self, **overrides):
-        values = dict(report=self.report, rows=self.rows, data=self.data, nonce="abc",
-                      before=self.before, after=self.after, output=b"abc\n")
+        values = dict(
+            report=self.report,
+            rows=self.rows,
+            data=self.data,
+            nonce="abc",
+            before=self.before,
+            after=self.after,
+            output=b"abc\n",
+        )
         return contract.assess(**{**values, **overrides})
 
     def test_pass_preserves_nonzero_check_and_reasoning_subset(self):
@@ -60,14 +90,20 @@ class OracleTests(unittest.TestCase):
         self.assertNotIn("input_tokens", result["usage"])
 
     def test_completed_report_does_not_override_incomplete_or_error_turn(self):
-        for rows in (self.rows[:-1], self.rows + [{"type": "error"}], self.rows + [self.rows[-1]],
-                     self.rows + [{"type": "turn.started"}]):
+        for rows in (
+            self.rows[:-1],
+            self.rows + [{"type": "error"}],
+            self.rows + [self.rows[-1]],
+            self.rows + [{"type": "turn.started"}],
+        ):
             with self.subTest(rows=rows):
                 self.assertIn("terminal_completion", self.assess(rows=rows)["failures"])
 
     def test_token_subsets_cannot_exceed_their_totals(self):
-        for key, error in (("cached_input_tokens", "usage_cache_exceeds_input"),
-                           ("reasoning_output_tokens", "usage_reasoning_invalid")):
+        for key, error in (
+            ("cached_input_tokens", "usage_cache_exceeds_input"),
+            ("reasoning_output_tokens", "usage_reasoning_invalid"),
+        ):
             rows = copy.deepcopy(self.rows)
             rows[-1]["usage"][key] = 101
             with self.subTest(key=key):
@@ -94,8 +130,12 @@ class OracleTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def invoke(self, directory, *args):
-        completed = subprocess.run([sys.executable, str(Path(cli.__file__)), "--output", str(directory), *args],
-                                   capture_output=True, text=True, timeout=60)
+        completed = subprocess.run(
+            [sys.executable, str(Path(cli.__file__)), "--output", str(directory), *args],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         reports = list(Path(directory).glob("*/summary.json"))
         return completed, json.loads(reports[-1].read_text()) if reports else None
 
@@ -118,7 +158,8 @@ class CliTests(unittest.TestCase):
         # The larger fault matrix is available through --fake-fault. Keep the
         # routine gate small; pure oracle tests cover the other rejection rules.
         expected = {
-            "malformed_report": "report_schema", "process_failure": None,
+            "malformed_report": "report_schema",
+            "process_failure": None,
         }
         for fault, reason in expected.items():
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
@@ -138,8 +179,9 @@ class CliTests(unittest.TestCase):
             root = Path(directory)
             env = fake.environment(root, os.environ)
             env["AUTOCODE_CONFORMANCE_OPENCODE_GENERATION"] = "2"
-            result = cli.run_route("opencode", "test/probe", root / "route",
-                                   effort="high", timeout=30, env=env, fake_mode=True)
+            result = cli.run_route(
+                "opencode", "test/probe", root / "route", effort="high", timeout=30, env=env, fake_mode=True
+            )
             self.assertEqual("PASS", result["status"], result)
             launch = json.loads((Path(result["phases"][0]["artifacts"]) / "launch.json").read_text())
             argv = launch["argv"]
@@ -157,19 +199,21 @@ class CliTests(unittest.TestCase):
             self.assertIsNone(summary)
 
     def test_unavailable_route_cannot_pass(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(
-                transport, "preflight", side_effect=RuntimeError("not installed")):
-            result = cli.run_route("codex", "probe", Path(directory) / "route",
-                                   effort="medium", timeout=1, env={})
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(transport, "preflight", side_effect=RuntimeError("not installed")),
+        ):
+            result = cli.run_route("codex", "probe", Path(directory) / "route", effort="medium", timeout=1, env={})
             self.assertEqual("UNAVAILABLE", result["status"])
             self.assertEqual([], result["phases"])
 
     def test_interruption_preserves_failure_and_stops_route(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(
-                transport, "preflight", return_value={}), patch.object(
-                transport, "execute", side_effect=KeyboardInterrupt) as execute:
-            result = cli.run_route("codex", "probe", Path(directory) / "route",
-                                   effort="medium", timeout=1, env={})
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(transport, "preflight", return_value={}),
+            patch.object(transport, "execute", side_effect=KeyboardInterrupt) as execute,
+        ):
+            result = cli.run_route("codex", "probe", Path(directory) / "route", effort="medium", timeout=1, env={})
             self.assertEqual("INTERRUPTED", result["status"])
             self.assertEqual(1, execute.call_count)
             self.assertTrue((Path(result["phases"][0]["artifacts"]) / "result.json").is_file())

@@ -7,6 +7,7 @@ stay non-passing, but name the seam and the way out: a test through APIs that ex
 the fix that drives the real failure path. These fixtures run real unittest and Go suites in
 scratch Git worktrees; no provider is launched.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -47,7 +48,7 @@ def save(directory, name, data):
         handle.write(data)
     replace_file(temporary, os.path.join(directory, name))
 '''
-TESTS = '''import os
+TESTS = """import os
 import tempfile
 import unittest
 from unittest import mock
@@ -61,8 +62,10 @@ class SaveTests(unittest.TestCase):
             store.save(directory, "a", "x")
             with open(os.path.join(directory, "a")) as handle:
                 self.assertEqual("x", handle.read())
-'''
-SEAM_TEST = TESTS.replace("import store\n", "import store\nfrom store import replace_file\n") + '''
+"""
+SEAM_TEST = (
+    TESTS.replace("import store\n", "import store\nfrom store import replace_file\n")
+    + """
     def test_t1_rename_failure_is_raised(self):
         with mock.patch.object(store, "replace_file", side_effect=OSError("disk full")) as spy, \\
                 tempfile.TemporaryDirectory() as directory:
@@ -70,33 +73,48 @@ SEAM_TEST = TESTS.replace("import store\n", "import store\nfrom store import rep
                 store.save(directory, "a", "x")
         spy.assert_called_once()
         self.assertIs(os.rename, replace_file)
-'''
+"""
+)
 # The same seam, reached only at run time: nothing imports it, so the module loads on the unfixed code and
 # the test errors there ("does not have the attribute") instead of failing on the bug.
-RUNTIME_SEAM_TEST = TESTS + '''
+RUNTIME_SEAM_TEST = (
+    TESTS
+    + """
     def test_t1_rename_failure_is_raised(self):
         with mock.patch.object(store, "replace_file", side_effect=OSError("disk full")) as spy, \\
                 tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(OSError):
                 store.save(directory, "a", "x")
         spy.assert_called_once()
-'''
+"""
+)
 # The same failure, reached through save() as it exists before the fix: a directory is in the way.
-BEHAVIOR_TEST = TESTS + '''
+BEHAVIOR_TEST = (
+    TESTS
+    + """
     def test_t1_rename_failure_is_raised(self):
         with tempfile.TemporaryDirectory() as directory:
             os.makedirs(os.path.join(directory, "a", "kept"))
             with self.assertRaises(OSError):
                 store.save(directory, "a", "x")
-'''
-CASE = {"id": "T1", "criterion": "Given a directory where the file goes; when save runs; then it raises OSError",
-        "verification_method": "test: test_t1_rename_failure_is_raised"}
+"""
+)
+CASE = {
+    "id": "T1",
+    "criterion": "Given a directory where the file goes; when save runs; then it raises OSError",
+    "verification_method": "test: test_t1_rename_failure_is_raised",
+}
 
 
 def bugfix_state(project):
-    return {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
-            "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [CASE],
-                                       "milestones": [{"id": "M1"}]}}}
+    return {
+        "base_commit": project.base,
+        "settings": {},
+        "iteration": 1,
+        "stages": [],
+        "history": [],
+        "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [CASE], "milestones": [{"id": "M1"}]}},
+    }
 
 
 class PythonSeamProofTests(unittest.TestCase):
@@ -120,32 +138,46 @@ class PythonSeamProofTests(unittest.TestCase):
         self.assertNotIn("Write the regression test against behavior that exists before the fix", reason)
         # Genuine application errors remain eligible even when a changed name appears in the trace.
         self.assertNotIn("cannot pass this proof", reason)
-        self.assertIn("only because replace_file is missing there is not a reproduction, even if it reaches "
-                      "replace_file at run time", reason)
+        self.assertIn(
+            "only because replace_file is missing there is not a reproduction, even if it reaches "
+            "replace_file at run time",
+            reason,
+        )
 
     def test_runtime_mock_preparation_is_not_a_reproduction(self):
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
         self.assertEqual(verify.FAIL, proof["verdict"])
         self.assertEqual([], proof["fail_to_pass"])
-        self.assertTrue(any("test_t1_rename_failure_is_raised" in reason and "prepare its mock" in reason
-                            and "replace_file" in reason for reason in proof["failures"]), proof)
+        self.assertTrue(
+            any(
+                "test_t1_rename_failure_is_raised" in reason
+                and "prepare its mock" in reason
+                and "replace_file" in reason
+                for reason in proof["failures"]
+            ),
+            proof,
+        )
 
     def test_broken_product_cannot_pass_by_testing_an_unused_mock(self):
         broken = STORE.replace("import os", "import os\nreplace_file = os.rename")
-        mock_only = TESTS + '''
+        mock_only = (
+            TESTS
+            + """
     def test_t1_rename_failure_is_raised(self):
         with mock.patch.object(store, "replace_file", side_effect=OSError("injected")) as spy:
             with self.assertRaises(OSError):
                 store.replace_file("unused", "unused")
         spy.assert_called_once()
-'''
+"""
+        )
         proof = self.prove({"store.py": broken, "test_store.py": mock_only})
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertEqual([], proof["fail_to_pass"])
 
     def test_runtime_import_is_not_a_bug_reproduction(self):
         runtime_import = SEAM_TEST.replace("from store import replace_file\n", "").replace(
-            "        with mock.patch.object", "        from store import replace_file\n        with mock.patch.object")
+            "        with mock.patch.object", "        from store import replace_file\n        with mock.patch.object"
+        )
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": runtime_import})
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertEqual([], proof["fail_to_pass"])
@@ -153,26 +185,33 @@ class PythonSeamProofTests(unittest.TestCase):
 
     def test_genuine_product_attribute_error_still_proves_a_fix(self):
         existing_source = "def stable():\n    return 9\n"
-        existing_tests = ("import unittest\nimport store\nclass Existing(unittest.TestCase):\n"
-                          "    def test_stable(self): self.assertEqual(9, store.stable())\n")
-        seed = {"store.py": existing_source + "def read():\n    return None.missing\n",
-                "test_store.py": existing_tests}
-        tests = existing_tests + "class ReadTests(unittest.TestCase):\n" \
-                "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.read())\n"
-        proof = self.prove({"store.py": existing_source + "def read():\n    return 1\n",
-                            "test_store.py": tests}, seed)
+        existing_tests = (
+            "import unittest\nimport store\nclass Existing(unittest.TestCase):\n"
+            "    def test_stable(self): self.assertEqual(9, store.stable())\n"
+        )
+        seed = {"store.py": existing_source + "def read():\n    return None.missing\n", "test_store.py": existing_tests}
+        tests = (
+            existing_tests + "class ReadTests(unittest.TestCase):\n"
+            "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.read())\n"
+        )
+        proof = self.prove({"store.py": existing_source + "def read():\n    return 1\n", "test_store.py": tests}, seed)
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["test_store.ReadTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
         self.assertIn("test_store.Existing.test_stable", proof["pass_to_pass"])
 
     def test_public_attribute_assertion_without_product_trace_is_still_proof(self):
-        existing_tests = ("import unittest\nimport store\nclass Existing(unittest.TestCase):\n"
-                          "    def test_kind(self): self.assertEqual('value', store.Value().kind)\n")
+        existing_tests = (
+            "import unittest\nimport store\nclass Existing(unittest.TestCase):\n"
+            "    def test_kind(self): self.assertEqual('value', store.Value().kind)\n"
+        )
         seed = {"store.py": "class Value:\n    kind = 'value'\n", "test_store.py": existing_tests}
-        tests = existing_tests + "class ReadTests(unittest.TestCase):\n" \
-                "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.Value().value)\n"
-        proof = self.prove({"store.py": "class Value:\n    kind = 'value'\n    value = 1\n",
-                            "test_store.py": tests}, seed)
+        tests = (
+            existing_tests + "class ReadTests(unittest.TestCase):\n"
+            "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.Value().value)\n"
+        )
+        proof = self.prove(
+            {"store.py": "class Value:\n    kind = 'value'\n    value = 1\n", "test_store.py": tests}, seed
+        )
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["test_store.ReadTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
         self.assertIn("test_store.Existing.test_kind", proof["pass_to_pass"])
@@ -184,8 +223,10 @@ class PythonSeamProofTests(unittest.TestCase):
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertEqual(["test_store.SaveTests.test_other_rename_failure_is_raised"], proof["fail_to_pass"])
         self.assertTrue(any("T1" in reason for reason in proof["failures"]), proof)
-        self.assertTrue(any("test_t1_rename_failure_is_raised" in note and "prepare its mock" in note
-                            for note in proof["notes"]), proof)
+        self.assertTrue(
+            any("test_t1_rename_failure_is_raised" in note and "prepare its mock" in note for note in proof["notes"]),
+            proof,
+        )
 
     def test_feature_proof_still_allows_a_new_mockable_api(self):
         project = Project({"store.py": STORE, "test_store.py": TESTS})
@@ -207,8 +248,7 @@ class PythonSeamProofTests(unittest.TestCase):
 
     def test_a_behavior_test_through_the_existing_api_is_not_flagged(self):
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST})
-        self.assertFalse(any("replace_file" in reason for reason in proof["review_reasons"]),
-                         proof["review_reasons"])
+        self.assertFalse(any("replace_file" in reason for reason in proof["review_reasons"]), proof["review_reasons"])
 
     def test_the_same_fix_is_proven_by_a_test_through_the_existing_api(self):
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST})
@@ -220,38 +260,48 @@ class PythonSeamProofTests(unittest.TestCase):
         seam_only = SEAM_TEST.replace("test_t1_rename_failure_is_raised", "test_rename_is_wired")
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST, "test_seam.py": seam_only})
         self.assertEqual(verify.PASS, proof["verdict"], proof["failures"] + proof["unverified"])
-        self.assertTrue(any("Not counted as proof" in note and "replace_file" in note for note in proof["notes"]),
-                        proof["notes"])
+        self.assertTrue(
+            any("Not counted as proof" in note and "replace_file" in note for note in proof["notes"]), proof["notes"]
+        )
 
     def test_a_collection_error_with_no_seam_keeps_the_generic_reason(self):
         broken = STORE.replace("import os\n", "import os\nimport legacy_backend\n")  # the fix removes it
-        proof = self.prove({"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST},
-                           seed={"store.py": broken, "test_store.py": TESTS})
+        proof = self.prove(
+            {"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST}, seed={"store.py": broken, "test_store.py": TESTS}
+        )
         self.assertEqual(verify.FAIL, proof["verdict"])
-        self.assertTrue(any("Write the regression test against behavior that exists before the fix" in failure
-                            for failure in proof["failures"]), proof["failures"])
+        self.assertTrue(
+            any(
+                "Write the regression test against behavior that exists before the fix" in failure
+                for failure in proof["failures"]
+            ),
+            proof["failures"],
+        )
         self.assertFalse(any("which only the fix adds" in failure for failure in proof["failures"]))
 
 
 @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
 class PytestSeamProofTests(unittest.TestCase):
     def test_real_junit_missing_mock_target_is_not_proof(self):
-        project = Project({"store.py": STORE, "test_store.py": TESTS,
-                           "pytest.ini": "[pytest]\naddopts = --confcutdir=.\n"})
+        project = Project(
+            {"store.py": STORE, "test_store.py": TESTS, "pytest.ini": "[pytest]\naddopts = --confcutdir=.\n"}
+        )
         self.addCleanup(project.close)
         project.write({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
         framework = verify.detect_framework(project.root, python=sys.executable)
-        baseline = verify.baseline(project.root, project.base, project.evidence, framework=framework,
-                                   suite_command=framework.suite, timeout=30)
-        proof = verify.verify(project.root, project.base, project.evidence, framework=framework,
-                              base_suite=baseline, timeout=30)
+        baseline = verify.baseline(
+            project.root, project.base, project.evidence, framework=framework, suite_command=framework.suite, timeout=30
+        )
+        proof = verify.verify(
+            project.root, project.base, project.evidence, framework=framework, base_suite=baseline, timeout=30
+        )
         self.assertEqual("pytest", framework.name)
         self.assertEqual(verify.FAIL, proof["verdict"], proof)
         self.assertEqual([], proof["fail_to_pass"])
         self.assertTrue(any("prepare its mock" in reason for reason in proof["failures"]), proof)
 
 
-GO_STORE = '''package store
+GO_STORE = """package store
 
 import (
 	"os"
@@ -267,11 +317,11 @@ func Save(dir, name string, data []byte) error {
 	os.Rename(tmp, filepath.Join(dir, name))
 	return nil
 }
-'''
+"""
 GO_FIXED = GO_STORE.replace("// Save", "var renameFile = os.Rename\n\n// Save").replace(
-    "\tos.Rename(tmp, filepath.Join(dir, name))\n\treturn nil\n",
-    "\treturn renameFile(tmp, filepath.Join(dir, name))\n")
-GO_TESTS = '''package store
+    "\tos.Rename(tmp, filepath.Join(dir, name))\n\treturn nil\n", "\treturn renameFile(tmp, filepath.Join(dir, name))\n"
+)
+GO_TESTS = """package store
 
 import (
 	%s"os"
@@ -288,8 +338,10 @@ func TestSaveWrites(t *testing.T) {
 		t.Fatalf("read %%q", got)
 	}
 }
-'''
-GO_SEAM_TEST = GO_TESTS % '"errors"\n\t' + '''
+"""
+GO_SEAM_TEST = (
+    GO_TESTS % '"errors"\n\t'
+    + """
 func Test_t1_rename_failure_is_returned(t *testing.T) {
 	renameFile = func(string, string) error { return errors.New("disk full") }
 	defer func() { renameFile = os.Rename }()
@@ -297,8 +349,11 @@ func Test_t1_rename_failure_is_returned(t *testing.T) {
 		t.Fatal("Save returned nil although the rename failed")
 	}
 }
-'''
-GO_BEHAVIOR_TEST = GO_TESTS % "" + '''
+"""
+)
+GO_BEHAVIOR_TEST = (
+    GO_TESTS % ""
+    + """
 func Test_t1_rename_failure_is_returned(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "a", "kept"), 0o755); err != nil {
@@ -308,7 +363,8 @@ func Test_t1_rename_failure_is_returned(t *testing.T) {
 		t.Fatal("Save returned nil although the rename failed")
 	}
 }
-'''
+"""
+)
 GO_SEED = {"go.mod": "module store\n\ngo 1.21\n", "store.go": GO_STORE, "store_test.go": GO_TESTS % ""}
 
 
@@ -324,8 +380,13 @@ class GoSeamProofTests(unittest.TestCase):
         result = self.verify(GO_SEAM_TEST)
         self.assertEqual(verify.FAIL, result["verdict"])
         self.assertEqual([], result["fail_to_pass"])
-        self.assertTrue(any("store::[build failed]" in failure and "use renameFile, which only the fix adds" in failure
-                            for failure in result["failures"]), result["failures"])
+        self.assertTrue(
+            any(
+                "store::[build failed]" in failure and "use renameFile, which only the fix adds" in failure
+                for failure in result["failures"]
+            ),
+            result["failures"],
+        )
 
     def test_the_same_go_fix_is_proven_through_the_existing_api(self):
         result = self.verify(GO_BEHAVIOR_TEST)
@@ -335,17 +396,20 @@ class GoSeamProofTests(unittest.TestCase):
 
 class SeamNameTests(unittest.TestCase):
     def test_missing_names_are_read_from_compiler_and_import_errors(self):
-        output = "\n".join((
-            '{"Action":"build-output","Output":"./store_test.go:18:2: undefined: renameFile\\n"}',
-            "./x_test.go:3: undefined: store.Hook",
-            "ImportError: cannot import name 'replace_file' from 'store' (/tmp/store.py)",
-            "AttributeError: module 'store' has no attribute 'flush_dir'",
-            "ModuleNotFoundError: No module named 'store.sync'",
-            "AttributeError: <module 'store' from '/tmp/store.py'> does not have the attribute 'fsync_dir'",
-            "SyntaxError: invalid syntax",
-        ))
-        self.assertEqual({"renameFile", "Hook", "replace_file", "flush_dir", "sync", "fsync_dir"},
-                         proof_seam.missing_names(output))
+        output = "\n".join(
+            (
+                '{"Action":"build-output","Output":"./store_test.go:18:2: undefined: renameFile\\n"}',
+                "./x_test.go:3: undefined: store.Hook",
+                "ImportError: cannot import name 'replace_file' from 'store' (/tmp/store.py)",
+                "AttributeError: module 'store' has no attribute 'flush_dir'",
+                "ModuleNotFoundError: No module named 'store.sync'",
+                "AttributeError: <module 'store' from '/tmp/store.py'> does not have the attribute 'fsync_dir'",
+                "SyntaxError: invalid syntax",
+            )
+        )
+        self.assertEqual(
+            {"renameFile", "Hook", "replace_file", "flush_dir", "sync", "fsync_dir"}, proof_seam.missing_names(output)
+        )
 
     def test_added_names_come_from_the_changed_lines_even_when_a_comment_already_used_the_word(self):
         before = "// rename the file\nfunc Save() {\n\tos.Rename(a, b)\n}\n"

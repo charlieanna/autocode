@@ -6,6 +6,7 @@ visible output and reasoning are separate too. Replayed finish events are one
 request, including when later stages reuse a session. Unknown usage/rates remain
 unknown rather than turning into zero-cost calls.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,8 +25,7 @@ def request_cost(tokens: dict, model: str, card: dict) -> float:
     if any(type(tokens.get(key)) is not int or tokens[key] < 0 for key in FIELDS):
         raise ValueError("missing or invalid request token usage")
     policy = card.get("long_context") or {}
-    long = (model in policy.get("models", []) and
-            sum(tokens[key] for key in FIELDS[:3]) > policy["input_threshold"])
+    long = model in policy.get("models", []) and sum(tokens[key] for key in FIELDS[:3]) > policy["input_threshold"]
     result = 0.0
     for key in FIELDS:
         if not tokens[key]:
@@ -97,10 +97,14 @@ def estimate(state: dict, card: dict) -> dict:
                 continue
             cache = usage.get("cache") or {}
             visible, reasoning = usage.get("output"), usage.get("reasoning")
-            tokens = {"input": usage.get("input"), "cache_read": cache.get("read"),
-                      "cache_write": cache.get("write"),
-                      "output": visible + reasoning if (type(visible) is int and type(reasoning) is int
-                                                         and visible >= 0 and reasoning >= 0) else None}
+            tokens = {
+                "input": usage.get("input"),
+                "cache_read": cache.get("read"),
+                "cache_write": cache.get("write"),
+                "output": visible + reasoning
+                if (type(visible) is int and type(reasoning) is int and visible >= 0 and reasoning >= 0)
+                else None,
+            }
             try:
                 cost = request_cost(tokens, model, card)
             except (KeyError, ValueError) as error:
@@ -113,7 +117,14 @@ def estimate(state: dict, card: dict) -> dict:
                 continue
             requests[key] = row
     known = sum(row["usd"] for row in requests.values())
-    return {"usd": round(known, 8) if not issues else None, "known_usd": round(known, 8),
-            "requests": len(requests), "complete": not issues and bool(requests), "issues": issues,
-            "by_model": {model: round(sum(row["usd"] for row in requests.values() if row["model"] == model), 8)
-                         for model in sorted({row["model"] for row in requests.values()})}}
+    return {
+        "usd": round(known, 8) if not issues else None,
+        "known_usd": round(known, 8),
+        "requests": len(requests),
+        "complete": not issues and bool(requests),
+        "issues": issues,
+        "by_model": {
+            model: round(sum(row["usd"] for row in requests.values() if row["model"] == model), 8)
+            for model in sorted({row["model"] for row in requests.values()})
+        },
+    }

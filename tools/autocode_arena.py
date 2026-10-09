@@ -4,6 +4,7 @@ Oracle scripts are trusted evaluator code: python ORACLE WORKSPACE emits
 {"checks": [{"name": "...", "ok": true}]}. They run outside the Builder's
 checkout. This is process/workspace separation, not a security sandbox.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -50,8 +51,12 @@ def git(repo: Path, *args: str, timeout: int = 60) -> str:
 
 def checkout(repo: Path, commit: str, workspace: Path) -> None:
     """Archive only the frozen tree, without later commits, remotes or hooks."""
-    data = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", commit],
-                          capture_output=True, check=True, timeout=BULK_GIT_TIMEOUT).stdout
+    data = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", commit],
+        capture_output=True,
+        check=True,
+        timeout=BULK_GIT_TIMEOUT,
+    ).stdout
     workspace.mkdir(parents=True)
     if git(repo, "ls-tree", "-r", "--name-only", commit):
         with tarfile.open(fileobj=io.BytesIO(data)) as archive:
@@ -59,8 +64,19 @@ def checkout(repo: Path, commit: str, workspace: Path) -> None:
             archive.extractall(workspace, filter="data")
     git(workspace, "init", "-q")
     git(workspace, "add", ".", timeout=BULK_GIT_TIMEOUT)
-    git(workspace, "-c", "user.name=AutoCode Arena", "-c", "user.email=arena@example.invalid",
-        "commit", "-q", "--allow-empty", "-m", f"Frozen benchmark {commit}", timeout=BULK_GIT_TIMEOUT)
+    git(
+        workspace,
+        "-c",
+        "user.name=AutoCode Arena",
+        "-c",
+        "user.email=arena@example.invalid",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        f"Frozen benchmark {commit}",
+        timeout=BULK_GIT_TIMEOUT,
+    )
 
 
 def snapshot(workspace: Path) -> str:
@@ -79,9 +95,11 @@ def snapshot(workspace: Path) -> str:
 
 def version_identity(root: Path) -> str:
     # Runtime source, including local changes. Does not hash dependencies or credentials.
-    rows = [(str(p.relative_to(root)), digest(p.read_bytes()))
-            for p in sorted((root / "tools").rglob("*"))
-            if p.is_file() and "__pycache__" not in p.parts and p.suffix in (".py", ".json", ".toml", ".cjs", ".mjs")]
+    rows = [
+        (str(p.relative_to(root)), digest(p.read_bytes()))
+        for p in sorted((root / "tools").rglob("*"))
+        if p.is_file() and "__pycache__" not in p.parts and p.suffix in (".py", ".json", ".toml", ".cjs", ".mjs")
+    ]
     if not rows or not (root / "tools/autocode.py").is_file():
         raise ArenaError("runner must be an AutoCode checkout")
     rows.append(("pyproject.toml", digest((root / "pyproject.toml").read_bytes())))
@@ -94,21 +112,27 @@ def evaluate(case: dict, workspace: Path, timeout: int) -> list[dict]:
         raise ArenaError("oracle changed")
     before = snapshot(workspace)
     try:
-        code, output, errors = run_oracle([sys.executable, str(oracle), str(workspace)],
-                                          cwd=oracle.parent, timeout=timeout)
+        code, output, errors = run_oracle(
+            [sys.executable, str(oracle), str(workspace)], cwd=oracle.parent, timeout=timeout
+        )
     except psutil.Error as error:
         raise ArenaError(f"oracle supervision unavailable: {error}") from error
     if code != 0:
         raise ArenaError(f"oracle failed ({code}): {errors[-600:]}")
     import json
+
     result = json.loads(output)
     checks = result.get("checks") if isinstance(result, dict) else None
     if not isinstance(checks, list) or not checks:
         raise ArenaError("oracle emitted no checks")
     names = []
     for row in checks:
-        if (not isinstance(row, dict) or not isinstance(row.get("name"), str)
-                or not row["name"].strip() or type(row.get("ok")) is not bool):
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("name"), str)
+            or not row["name"].strip()
+            or type(row.get("ok")) is not bool
+        ):
             raise ArenaError("malformed oracle check")
         names.append(row["name"])
     if len(names) != len(set(names)) or not set(case["required_checks"]).issubset(names):
@@ -135,12 +159,21 @@ def ingest(args, store: Store):
     issue_path, oracle_path = directory / "issue.json", directory / "oracle.py"
     write_json(issue_path, issue)
     shutil.copyfile(args.oracle, oracle_path)
-    case = {"id": args.id, "repository": str(repo), "base_commit": commit,
-            "base_tree": git(repo, "rev-parse", f"{commit}^{{tree}}"),
-            "issue_ref": str(ref), "issue_path": str(issue_path), "issue_sha256": digest(issue_path.read_bytes()),
-            "oracle_path": str(oracle_path), "oracle_sha256": digest(oracle_path.read_bytes()),
-            "split": args.split, "required_checks": args.check,
-            "task": brief(ref, issue, args.note), "reference_sha256": snapshot(args.reference.resolve())}
+    case = {
+        "id": args.id,
+        "repository": str(repo),
+        "base_commit": commit,
+        "base_tree": git(repo, "rev-parse", f"{commit}^{{tree}}"),
+        "issue_ref": str(ref),
+        "issue_path": str(issue_path),
+        "issue_sha256": digest(issue_path.read_bytes()),
+        "oracle_path": str(oracle_path),
+        "oracle_sha256": digest(oracle_path.read_bytes()),
+        "split": args.split,
+        "required_checks": args.check,
+        "task": brief(ref, issue, args.note),
+        "reference_sha256": snapshot(args.reference.resolve()),
+    }
     if len(set(args.check)) != len(args.check):
         raise ArenaError("duplicate required check")
     control = directory / "negative-control"
@@ -162,8 +195,19 @@ def attempt(args, store: Store):
     options = tuple(args.option)
     # Workspace/run identity and operator actions belong to Arena, not forwarded flags.
     config = argparse.ArgumentParser(add_help=False, allow_abbrev=False, exit_on_error=False)
-    for name in ("engine", "provider", "single-model", "astra-model", "terra-model", "sol-model", "glm-model",
-                 "completion-model", "plan-reviewer-model", "test-command", "max-iterations"):
+    for name in (
+        "engine",
+        "provider",
+        "single-model",
+        "astra-model",
+        "terra-model",
+        "sol-model",
+        "glm-model",
+        "completion-model",
+        "plan-reviewer-model",
+        "test-command",
+        "max-iterations",
+    ):
         config.add_argument("--" + name)
     config.add_argument("--joint-planning", action="store_true")
     try:
@@ -180,12 +224,23 @@ def attempt(args, store: Store):
     directory = store.root / "attempts" / ident
     workspace = directory / "workspace"
     directory.mkdir(parents=True)
-    row = {"id": ident, "case_id": case["id"], "case_sha256": case["sha256"],
-           "cohort": args.cohort, "version_sha256": version_identity(runner),
-           "execution_kind": "fixture" if args.fixture else "live", "options": list(options),
-           "workspace": str(workspace), "verdict": "RUNNING", "checks": [], "error": None,
-           "plan_approval": "benchmark_automation" if args.approve_benchmark_plans else "operator",
-           "elapsed_seconds": None, "usage": None, "estimated_usd": None}
+    row = {
+        "id": ident,
+        "case_id": case["id"],
+        "case_sha256": case["sha256"],
+        "cohort": args.cohort,
+        "version_sha256": version_identity(runner),
+        "execution_kind": "fixture" if args.fixture else "live",
+        "options": list(options),
+        "workspace": str(workspace),
+        "verdict": "RUNNING",
+        "checks": [],
+        "error": None,
+        "plan_approval": "benchmark_automation" if args.approve_benchmark_plans else "operator",
+        "elapsed_seconds": None,
+        "usage": None,
+        "estimated_usd": None,
+    }
     store.insert(row)  # Interrupted attempts remain visible and disqualify comparisons.
     started = time.monotonic()
     try:
@@ -198,8 +253,9 @@ def attempt(args, store: Store):
             (bindir / "codex").chmod(0o755)
             env["PATH"] = f"{bindir}{os.pathsep}{os.environ['PATH']}"
         command = (sys.executable, str(runner / "tools/autocode.py"))
-        run = TaskRun.start(workspace, case["task"], command=command, options=options, env=env,
-                            timeout=args.timeout, cwd=runner)
+        run = TaskRun.start(
+            workspace, case["task"], command=command, options=options, env=env, timeout=args.timeout, cwd=runner
+        )
         row["run_dir"] = str(run.run_dir)
         view = run.advance_until_input()
         if args.approve_benchmark_plans and (view.get("needs") or {}).get("kind") == "approve_plan":
@@ -208,8 +264,12 @@ def attempt(args, store: Store):
             view = run.advance_until_input()
         # Answers, human review, quota overrides and deployment are never automated.
         write_json(directory / "status.json", view)
-        row.update(runner_status=view["status"], needs=view.get("needs"), usage=view.get("usage"),
-                   candidate_sha256=snapshot(workspace))
+        row.update(
+            runner_status=view["status"],
+            needs=view.get("needs"),
+            usage=view.get("usage"),
+            candidate_sha256=snapshot(workspace),
+        )
         row["checks"] = evaluate(case, workspace, args.oracle_timeout)
         if view["status"] in ("TASK_COMPLETE", "COMPLETE") and view.get("done") is not True:
             raise ArenaError("runner completion is not currently accepted by its public status view")
@@ -238,14 +298,35 @@ def proposal(store: Store, cohort: str):
     # No automatic root-cause claim: supply evidence for investigation.
     failures = [r for r in store.rows(cohort) if r["verdict"] != "PASS"]
     visible = {c["id"] for c in store.cases() if c["split"] == "development"}
-    rows = [{"attempt": r["id"], "case": r["case_id"], "outcome": r["verdict"],
-             "failed_checks": [c["name"] for c in r["checks"] if not c["ok"]],
-             "error": r["error"], "root_cause": "UNDETERMINED"} for r in failures if r["case_id"] in visible]
-    return {"cohort": cohort, "development_failures": rows,
-            "investigate": ["requirements", "planning", "repo_exploration", "implementation",
-                            "testing", "validation", "completion", "provider_or_harness"],
-            "acceptance": "fresh paired regression and holdout evaluation; operator review",
-            "self_modification": False, "promoted": False}
+    rows = [
+        {
+            "attempt": r["id"],
+            "case": r["case_id"],
+            "outcome": r["verdict"],
+            "failed_checks": [c["name"] for c in r["checks"] if not c["ok"]],
+            "error": r["error"],
+            "root_cause": "UNDETERMINED",
+        }
+        for r in failures
+        if r["case_id"] in visible
+    ]
+    return {
+        "cohort": cohort,
+        "development_failures": rows,
+        "investigate": [
+            "requirements",
+            "planning",
+            "repo_exploration",
+            "implementation",
+            "testing",
+            "validation",
+            "completion",
+            "provider_or_harness",
+        ],
+        "acceptance": "fresh paired regression and holdout evaluation; operator review",
+        "self_modification": False,
+        "promoted": False,
+    }
 
 
 def main(argv=None):
@@ -290,9 +371,12 @@ def main(argv=None):
             store.initialize()
             result = {"initialized": str(store.root)}
         elif args.action == "cases":
-            result = {"cases": [{key: case[key] for key in
-                       ("id", "issue_ref", "split", "base_commit")}
-                      for case in (store.case(row["id"]) for row in store.cases())]}
+            result = {
+                "cases": [
+                    {key: case[key] for key in ("id", "issue_ref", "split", "base_commit")}
+                    for case in (store.case(row["id"]) for row in store.cases())
+                ]
+            }
         elif args.action == "ingest":
             result = ingest(args, store)
         elif args.action == "run":

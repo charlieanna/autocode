@@ -1,4 +1,5 @@
 """The wrong environment-construction order, reproduced in an isolated child."""
+
 import json
 import os
 import shutil
@@ -26,9 +27,12 @@ class EnvironmentOrderingRegressionTests(unittest.TestCase):
             home = fixture / "home"
             home.mkdir()
             child_env = dict(os.environ)
-            child_env.update(PATH=str(binary) + os.pathsep + child_env.get("PATH", ""),
-                             HOME=str(home), XDG_CONFIG_HOME=str(fixture / "config"),
-                             OPENCODE_TEST_MANAGED_CONFIG_DIR=str(fixture / "managed"))
+            child_env.update(
+                PATH=str(binary) + os.pathsep + child_env.get("PATH", ""),
+                HOME=str(home),
+                XDG_CONFIG_HOME=str(fixture / "config"),
+                OPENCODE_TEST_MANAGED_CONFIG_DIR=str(fixture / "managed"),
+            )
             script = textwrap.dedent("""
                 import json, os, sys
                 sys.path.insert(0, sys.argv[1])
@@ -59,8 +63,13 @@ class EnvironmentOrderingRegressionTests(unittest.TestCase):
                                   'prepared_version': settings['version'],
                                   'restored': dict(os.environ) == snapshot}))
             """)
-            result = subprocess.run([sys.executable, "-c", script, str(repo / "tools"), str(workspace)],
-                                    env=child_env, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                [sys.executable, "-c", script, str(repo / "tools"), str(workspace)],
+                env=child_env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
             record = json.loads(result.stdout)
             self.assertFalse(record["wrong_has_path"])

@@ -5,6 +5,7 @@ Each job module is pure (prompt, schema, transition, rendering) and has
 ended in this job) and ``render(state)``. This table is what the runner and
 Autopilot consult, so adding a job means adding it here, not editing them.
 """
+
 from __future__ import annotations
 
 try:
@@ -27,9 +28,15 @@ except ImportError:
 JOBS = (review_job, bug_job, design_job, discuss_job, design_check_job, stuck_job, design_intake)
 # Which unit prepares and applies each job's stage (autopilot.unit_for). Units
 # expose apply_job(stage, state, value, record, workspace).
-UNIT = {review_job.STAGE: "autoreview", bug_job.STAGE: "autoresolver", design_job.STAGE: "autoreview",
-        discuss_job.STAGE: "autoresolver", design_check_job.STAGE: "autoreview",
-        stuck_job.STAGE: "autoresolver", design_intake.STAGE: "autoreview"}
+UNIT = {
+    review_job.STAGE: "autoreview",
+    bug_job.STAGE: "autoresolver",
+    design_job.STAGE: "autoreview",
+    discuss_job.STAGE: "autoresolver",
+    design_check_job.STAGE: "autoreview",
+    stuck_job.STAGE: "autoresolver",
+    design_intake.STAGE: "autoreview",
+}
 STAGES = tuple(UNIT)
 
 

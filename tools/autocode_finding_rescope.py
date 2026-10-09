@@ -55,6 +55,7 @@ Each move is recorded once, on the row it started from: ``scope_history`` gains
 and by people reading the ledger. Imports only cycle-free modules: the contract identity, the
 workflow approval rule and the finding cause identity.
 """
+
 from __future__ import annotations
 
 import copy
@@ -71,8 +72,16 @@ except ImportError:
 # Fields a split copy does not take from the row: its identity, its scope and the row's own move
 # history, and bookkeeping about the row rather than the defect (a resolution attempt over the
 # row's whole scope, the tasks assigned to fix the row, how the row's scope was restored).
-_NOT_COPIED = ("id", "scope", "scope_history", "split_from", "pending_resolution", "assigned_task",
-               "assigned_history", "scope_restored_from")
+_NOT_COPIED = (
+    "id",
+    "scope",
+    "scope_history",
+    "split_from",
+    "pending_resolution",
+    "assigned_task",
+    "assigned_history",
+    "scope_restored_from",
+)
 
 
 def previous_approved(state):
@@ -80,15 +89,20 @@ def previous_approved(state):
 
     Call it before the new approval event is saved: the open findings were recorded under this
     contract. A contract counts only with a saved goal_approval event for its exact token."""
-    events = [event for event in state.get("user_events") or []
-              if isinstance(event, dict) and event.get("kind") == "goal_approval"]
+    events = [
+        event
+        for event in state.get("user_events") or []
+        if isinstance(event, dict) and event.get("kind") == "goal_approval"
+    ]
     contracts = [*(state.get("contract_history") or []), state.get("goal_contract")]
     for contract in reversed(contracts):
         if not isinstance(contract, dict) or "revision" not in contract or "hash" not in contract:
             continue
         token = identity.token(contract)
-        if any(event.get("token") == token and workflows.approval_actor_ok(contract.get("origin"), event)
-               for event in events):
+        if any(
+            event.get("token") == token and workflows.approval_actor_ok(contract.get("origin"), event)
+            for event in events
+        ):
             return contract
     return None
 
@@ -96,18 +110,24 @@ def previous_approved(state):
 def _milestones(body):
     """Milestone id -> its row, in contract order, skipping malformed rows."""
     milestones = body.get("milestones") if isinstance(body, dict) else None
-    return {row["id"]: row for row in (milestones if isinstance(milestones, list) else [])
-            if isinstance(row, dict) and isinstance(row.get("id"), str)
-            and isinstance(row.get("acceptance_criteria"), list)}
+    return {
+        row["id"]: row
+        for row in (milestones if isinstance(milestones, list) else [])
+        if isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("acceptance_criteria"), list)
+    }
 
 
 def _downstream(milestones, roots):
     """``roots`` and every milestone that depends on one of them, directly or not."""
     found = set(roots)
     while True:
-        more = {mid for mid, row in milestones.items()
-                if mid not in found and isinstance(row.get("depends_on"), list)
-                and any(isinstance(dep, str) and dep in found for dep in row["depends_on"])}
+        more = {
+            mid
+            for mid, row in milestones.items()
+            if mid not in found
+            and isinstance(row.get("depends_on"), list)
+            and any(isinstance(dep, str) and dep in found for dep in row["depends_on"])
+        }
         if not more:
             return found
         found |= more
@@ -121,12 +141,21 @@ def _reviewed_anyway(old_body, new_body, reusable):
     definitions = []
     for body in (old_body, new_body):
         rows = body.get("acceptance_criteria") if isinstance(body, dict) else None
-        definitions.append({row.get("id"): row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)})
+        definitions.append(
+            {row.get("id"): row for row in (rows if isinstance(rows, list) else []) if isinstance(row, dict)}
+        )
     old_definitions, new_definitions = definitions
-    revalidated = {mid for mid, row in new_rows.items()
-                   if mid not in reusable or old_rows.get(mid) != row
-                   or any(old_definitions.get(cid) != new_definitions.get(cid)
-                          for cid in row["acceptance_criteria"] if isinstance(cid, str))}
+    revalidated = {
+        mid
+        for mid, row in new_rows.items()
+        if mid not in reusable
+        or old_rows.get(mid) != row
+        or any(
+            old_definitions.get(cid) != new_definitions.get(cid)
+            for cid in row["acceptance_criteria"]
+            if isinstance(cid, str)
+        )
+    }
     return _downstream(new_rows, revalidated)
 
 
@@ -156,9 +185,13 @@ def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
         if not isinstance(saved, dict) or row.get("status") != "open":
             continue
         owner, criteria = saved.get("milestone_id"), saved.get("criteria")
-        if (not isinstance(row.get("id"), str) or not isinstance(owner, str)
-                or not isinstance(criteria, list) or not criteria
-                or any(not isinstance(cid, str) or not cid for cid in criteria)):
+        if (
+            not isinstance(row.get("id"), str)
+            or not isinstance(owner, str)
+            or not isinstance(criteria, list)
+            or not criteria
+            or any(not isinstance(cid, str) or not cid for cid in criteria)
+        ):
             continue
         cited = set(criteria)
         if owner not in old or not cited <= old[owner]:
@@ -178,8 +211,13 @@ def plan(rows, old_body, new_body, reusable=()) -> list[dict]:
         if not parts:
             continue
         owners = ([owner] if owner in parts else []) + sorted((mid for mid in parts if mid != owner), key=order.get)
-        moves.append({"id": row.get("id"), "from": copy.deepcopy(saved),
-                      "to": [{"milestone_id": mid, "criteria": parts[mid]} for mid in owners]})
+        moves.append(
+            {
+                "id": row.get("id"),
+                "from": copy.deepcopy(saved),
+                "to": [{"milestone_id": mid, "criteria": parts[mid]} for mid in owners],
+            }
+        )
     return moves
 
 
@@ -197,8 +235,7 @@ def apply(rows, moves, *, contract_token, at, new_id) -> list[dict]:
         results = [{"id": row["id"], **copy.deepcopy(kept)}]
         for scope in others:
             part = copy.deepcopy({key: value for key, value in row.items() if key not in _NOT_COPIED})
-            part.update(id=new_id(), scope=copy.deepcopy(scope), split_from=cause.split_family(row),
-                        assigned_task=None)
+            part.update(id=new_id(), scope=copy.deepcopy(scope), split_from=cause.split_family(row), assigned_task=None)
             rows.append(part)
             results.append({"id": part["id"], **copy.deepcopy(scope)})
         row["scope"] = copy.deepcopy(kept)
@@ -211,9 +248,11 @@ def apply(rows, moves, *, contract_token, at, new_id) -> list[dict]:
             pending["unverified_criteria"] = [cid for cid in unverified if cid in kept["criteria"]]
             pending["moved_unverified_criteria"] = [*(pending.get("moved_unverified_criteria") or []), *moved]
             if not pending["unverified_criteria"]:
-                pending["reason"] = (f"Finding scope lacked fully passing verification only on {', '.join(moved)}, which "
-                                     "an approved revision then moved to another milestone; a fresh report must "
-                                     "resolve it")
+                pending["reason"] = (
+                    f"Finding scope lacked fully passing verification only on {', '.join(moved)}, which "
+                    "an approved revision then moved to another milestone; a fresh report must "
+                    "resolve it"
+                )
         record = {"from": copy.deepcopy(move["from"]), "to": results, "contract_token": contract_token, "at": at}
         row.setdefault("scope_history", []).append(record)
         records.append({"finding": row["id"], **copy.deepcopy(record)})
@@ -224,10 +263,17 @@ def _reusable(state, contract_hash):
     """Milestones accepted under the contract with this hash with a reuse manifest that carry-forward
     could reuse (``milestone_progress``; ``autocode_carryforward.carry`` revalidates the others)."""
     progress = state.get("milestone_progress")
-    return {row.get("id") for row in (progress.values() if isinstance(progress, dict) else [])
-            if isinstance(row, dict) and row.get("accepted") and row.get("contract_hash") == contract_hash
-            and isinstance(row.get("reuse_manifest"), dict) and not row.get("carried_from")
-            and not row.get("accepted_batch") and not row.get("milestone_ids")}
+    return {
+        row.get("id")
+        for row in (progress.values() if isinstance(progress, dict) else [])
+        if isinstance(row, dict)
+        and row.get("accepted")
+        and row.get("contract_hash") == contract_hash
+        and isinstance(row.get("reuse_manifest"), dict)
+        and not row.get("carried_from")
+        and not row.get("accepted_batch")
+        and not row.get("milestone_ids")
+    }
 
 
 def on_approval(state, previous, *, contract_token, at, new_id) -> list[dict]:
@@ -237,14 +283,24 @@ def on_approval(state, previous, *, contract_token, at, new_id) -> list[dict]:
     rows = state.get("findings_ledger")
     if not previous or not rows:
         return []
-    moves = plan(rows, previous.get("body"), (state.get("goal_contract") or {}).get("body"),
-                 _reusable(state, previous.get("hash")))
+    moves = plan(
+        rows,
+        previous.get("body"),
+        (state.get("goal_contract") or {}).get("body"),
+        _reusable(state, previous.get("hash")),
+    )
     return apply(rows, moves, contract_token=contract_token, at=at, new_id=new_id)
 
 
 def history(rows) -> list[dict]:
     """Every recorded move, oldest first per finding: ``{"finding", "from", "to", "contract_token", "at"}``."""
-    return [{"finding": row.get("id"), **{key: copy.deepcopy(entry.get(key))
-                                         for key in ("from", "to", "contract_token", "at")}}
-            for row in rows or [] if isinstance(row, dict)
-            for entry in row.get("scope_history") or [] if isinstance(entry, dict)]
+    return [
+        {
+            "finding": row.get("id"),
+            **{key: copy.deepcopy(entry.get(key)) for key in ("from", "to", "contract_token", "at")},
+        }
+        for row in rows or []
+        if isinstance(row, dict)
+        for entry in row.get("scope_history") or []
+        if isinstance(entry, dict)
+    ]

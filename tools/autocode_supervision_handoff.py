@@ -1,4 +1,5 @@
 """Process-local admission into an enclosing CLI's independent supervisor."""
+
 import os
 import threading
 from contextlib import contextmanager
@@ -14,7 +15,7 @@ def enclosing_guard(admit):
     token = (os.getpid(), admit)
     with _lock:
         if _guard is not None:
-            raise RuntimeError('An enclosing supervision guard is already installed')
+            raise RuntimeError("An enclosing supervision guard is already installed")
         _guard = token
     try:
         yield

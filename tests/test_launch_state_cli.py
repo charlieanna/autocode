@@ -3,6 +3,7 @@
 Real Git, real CLI and real unittest suites in scratch worktrees; no provider is launched except
 the fake one the flow puts on PATH. Slow (tests/suite_slow.json): each case launches the CLI.
 """
+
 import json
 import subprocess
 import unittest
@@ -25,9 +26,23 @@ class InPlaceLaunchCli(unittest.TestCase):
         return flow
 
     def launch(self, flow, workspace):
-        result = subprocess.run([*flow.entry, "--workspace", str(workspace), "--engine", "codex", "--no-chat",
-                                 "--in-place", "Add a feature function"], cwd=flow.root, capture_output=True,
-                                text=True, env={**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"}, timeout=240)
+        result = subprocess.run(
+            [
+                *flow.entry,
+                "--workspace",
+                str(workspace),
+                "--engine",
+                "codex",
+                "--no-chat",
+                "--in-place",
+                "Add a feature function",
+            ],
+            cwd=flow.root,
+            capture_output=True,
+            text=True,
+            env={**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"},
+            timeout=240,
+        )
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         run = next((workspace / ".autocode/runs").iterdir())
         return run, json.loads((run / "state.json").read_text())

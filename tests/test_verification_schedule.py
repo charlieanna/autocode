@@ -1,4 +1,5 @@
 """Exact-obligation policy, real clean-copy receipts and invalidation controls."""
+
 import copy
 import json
 import os
@@ -25,9 +26,17 @@ class ReceiptPolicyTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
-        self.identity = {"source": "full-source", "command": "exact command", "environment": "env",
-                         "runtime": "runtime", "dependencies": "deps", "fixture": "seed",
-                         "contract": "C1 wording", "purpose": "independent_clean_replay", "obligation": "event-1"}
+        self.identity = {
+            "source": "full-source",
+            "command": "exact command",
+            "environment": "env",
+            "runtime": "runtime",
+            "dependencies": "deps",
+            "fixture": "seed",
+            "contract": "C1 wording",
+            "purpose": "independent_clean_replay",
+            "obligation": "event-1",
+        }
         self.calls = []
 
     def execute(self, out):
@@ -35,14 +44,33 @@ class ReceiptPolicyTests(unittest.TestCase):
         out.mkdir(parents=True)
         log = out / "output.log"
         log.write_text("original PASS output\n")
-        return {"command": "exact command", "exit_code": 0, "timed_out": False, "error": "",
-                "output": str(log), "output_sha256": util.file_hash(log), "duration_seconds": 1.5,
-                "results": {"passed": ["test_app.Case.test_c1"], "failed": [], "skipped": [],
-                            "collection_errors": [], "complete": True, "total": 1}}
+        return {
+            "command": "exact command",
+            "exit_code": 0,
+            "timed_out": False,
+            "error": "",
+            "output": str(log),
+            "output_sha256": util.file_hash(log),
+            "duration_seconds": 1.5,
+            "results": {
+                "passed": ["test_app.Case.test_c1"],
+                "failed": [],
+                "skipped": [],
+                "collection_errors": [],
+                "complete": True,
+                "total": 1,
+            },
+        }
 
     def run_check(self, *, execute=None, allow=True):
-        return schedule.run(self.root, copy.deepcopy(self.identity), execute or self.execute,
-                            reuse_allowed=allow, reason="new_obligation", current_identity=lambda: self.identity)
+        return schedule.run(
+            self.root,
+            copy.deepcopy(self.identity),
+            execute or self.execute,
+            reuse_allowed=allow,
+            reason="new_obligation",
+            current_identity=lambda: self.identity,
+        )
 
     def test_complete_receipt_resumes_without_a_second_launch(self):
         first = self.run_check()
@@ -88,11 +116,32 @@ class ReceiptPolicyTests(unittest.TestCase):
         self.assertEqual(["test_app.Case.test_c1"], second["results"]["passed"])
 
     def test_failed_timeout_zero_incomplete_and_absent_results_never_reuse(self):
-        mutations = [{"exit_code": 1}, {"timed_out": True}, {"error": "partial output"},
-                     {"results": None}, {"results": {"total": 0, "complete": True,
-                      "passed": [], "failed": [], "skipped": [], "collection_errors": []}},
-                     {"results": {"total": 2, "complete": False, "passed": ["test_a"],
-                      "failed": [], "skipped": [], "collection_errors": []}}]
+        mutations = [
+            {"exit_code": 1},
+            {"timed_out": True},
+            {"error": "partial output"},
+            {"results": None},
+            {
+                "results": {
+                    "total": 0,
+                    "complete": True,
+                    "passed": [],
+                    "failed": [],
+                    "skipped": [],
+                    "collection_errors": [],
+                }
+            },
+            {
+                "results": {
+                    "total": 2,
+                    "complete": False,
+                    "passed": ["test_a"],
+                    "failed": [],
+                    "skipped": [],
+                    "collection_errors": [],
+                }
+            },
+        ]
         for i, mutation in enumerate(mutations):
             with self.subTest(mutation=mutation):
                 self.identity["obligation"] = str(i)
@@ -104,8 +153,15 @@ class ReceiptPolicyTests(unittest.TestCase):
     def test_only_entries_that_never_collected_break_attribution(self):
         # A failed hook or fixture executed its test; a module that never collected did
         # not. Results saved before the split have no ``uncollected`` list and fail closed.
-        hook_failure = {"passed": ["a"], "failed": ["b"], "skipped": [], "collection_errors": ["b"],
-                        "uncollected": [], "total": 2, "complete": True}
+        hook_failure = {
+            "passed": ["a"],
+            "failed": ["b"],
+            "skipped": [],
+            "collection_errors": ["b"],
+            "uncollected": [],
+            "total": 2,
+            "complete": True,
+        }
         self.assertTrue(schedule.complete_results({"results": dict(hook_failure)}))
         legacy = {key: value for key, value in hook_failure.items() if key != "uncollected"}
         self.assertFalse(schedule.complete_results({"results": legacy}))
@@ -119,22 +175,34 @@ class ReceiptPolicyTests(unittest.TestCase):
         # runs a fresh check instead of pausing forever.
         def scratch_error(out):
             raise RuntimeError("git rev-parse failed")
+
         def interrupted(out):
             self.execute(out)
             raise KeyboardInterrupt()
+
         def source_changed(out):
             return self.execute(out)
+
         def stale_obligation():
             raise ValueError("The source changed since this Validator obligation; fresh validation is required")
-        cases = (("scratch error", scratch_error, lambda: self.identity),
-                 ("interrupted", interrupted, lambda: self.identity),
-                 ("source changed", source_changed, stale_obligation))
+
+        cases = (
+            ("scratch error", scratch_error, lambda: self.identity),
+            ("interrupted", interrupted, lambda: self.identity),
+            ("source changed", source_changed, stale_obligation),
+        )
         for name, execute, current in cases:
             with self.subTest(case=name):
                 self.identity["obligation"] = name
                 with self.assertRaises((RuntimeError, KeyboardInterrupt, ValueError)):
-                    schedule.run(self.root, copy.deepcopy(self.identity), execute, reuse_allowed=True,
-                                 reason="new_obligation", current_identity=current)
+                    schedule.run(
+                        self.root,
+                        copy.deepcopy(self.identity),
+                        execute,
+                        reuse_allowed=True,
+                        reason="new_obligation",
+                        current_identity=current,
+                    )
                 schedule.guard(self.root)
                 directory = self.root / util.digest(self.identity)
                 reference = util.read(directory / "completed.json")
@@ -154,6 +222,7 @@ class ReceiptPolicyTests(unittest.TestCase):
         def crash(out):
             self.execute(out)
             raise KeyboardInterrupt()
+
         with self.assertRaises(KeyboardInterrupt):
             self.run_check(execute=crash)
         self.assertEqual("execute", self.run_check()["scheduling"]["action"])
@@ -166,6 +235,7 @@ class ReceiptPolicyTests(unittest.TestCase):
         def uncertain(out):
             self.calls.append(out)
             raise command_receipt.OwnershipUncertain("Recorded command descendants may still be alive")
+
         with self.assertRaises(command_receipt.OwnershipUncertain) as error:
             self.run_check(execute=uncertain)
         self.assertEqual("PAUSED_VERIFICATION_UNCERTAIN", error.exception.status)
@@ -181,8 +251,10 @@ class ReceiptPolicyTests(unittest.TestCase):
     def test_a_hard_crash_pending_launch_still_pauses(self):
         # What a hard crash leaves: a pending launch nothing ran to record an
         # outcome for. That stays a human reconciliation, never a fresh launch.
-        util.atomic_json(self.root / "pending.json", {"attempt_id": "orphan", "identity": self.identity,
-                                                      "started_at": "2026-10-05T00:00:00Z"})
+        util.atomic_json(
+            self.root / "pending.json",
+            {"attempt_id": "orphan", "identity": self.identity, "started_at": "2026-10-05T00:00:00Z"},
+        )
         with self.assertRaisesRegex(util.Paused, "no completed receipt"):
             self.run_check()
         self.assertEqual([], self.calls)
@@ -208,10 +280,12 @@ class ReceiptPolicyTests(unittest.TestCase):
 
     def test_crash_after_durable_completion_resumes_without_double_launch(self):
         original = Path.unlink
+
         def crash(path, *args, **kwargs):
             if path.name == "pending.json":
                 raise KeyboardInterrupt()
             return original(path, *args, **kwargs)
+
         with mock.patch.object(Path, "unlink", crash), self.assertRaises(KeyboardInterrupt):
             self.run_check()
         result = self.run_check()
@@ -223,6 +297,7 @@ class ReceiptPolicyTests(unittest.TestCase):
             result = self.execute(out)
             self.identity["fixture"] = "changed while running"
             return result
+
         result = self.run_check(execute=changed)
         self.assertIn("changed during", result["error"])
         self.assertFalse(schedule.reusable(result))
@@ -230,28 +305,57 @@ class ReceiptPolicyTests(unittest.TestCase):
 
 class CleanReplayTests(unittest.TestCase):
     def setUp(self):
-        self.project = Project({"app.py": "def value():\n    return 3\n",
-            "test_app.py": "import unittest\nfrom app import value\nclass Case(unittest.TestCase):\n"
-                           "    def test_c1(self):\n        self.assertEqual(3, value())\n"})
+        self.project = Project(
+            {
+                "app.py": "def value():\n    return 3\n",
+                "test_app.py": "import unittest\nfrom app import value\nclass Case(unittest.TestCase):\n"
+                "    def test_c1(self):\n        self.assertEqual(3, value())\n",
+            }
+        )
         self.addCleanup(self.project.close)
         self.run = self.project.evidence
         self.run.mkdir()
         self.events = self.run / "validator.events"
         self.events.write_text("runner-authenticated validator execution\n")
         self.command = f"{sys.executable} -m unittest -v test_app"
-        self.record = {"stage": "sol", "events": str(self.events), "output": "validator.json", "task_id": "T1",
-                       "source_revision": util.snapshot(self.project.root)["revision"]}
-        self.state = {"goal_contract": {"hash": "approved", "body": {"acceptance_criteria": [
-            {"id": "C1", "criterion": "value returns 3", "verification_method": "Inspect independent evidence"}]}},
-            "current_task": {"id": "T1", "acceptance_criteria": ["C1"]}}
+        self.record = {
+            "stage": "sol",
+            "events": str(self.events),
+            "output": "validator.json",
+            "task_id": "T1",
+            "source_revision": util.snapshot(self.project.root)["revision"],
+        }
+        self.state = {
+            "goal_contract": {
+                "hash": "approved",
+                "body": {
+                    "acceptance_criteria": [
+                        {
+                            "id": "C1",
+                            "criterion": "value returns 3",
+                            "verification_method": "Inspect independent evidence",
+                        }
+                    ]
+                },
+            },
+            "current_task": {"id": "T1", "acceptance_criteria": ["C1"]},
+        }
 
     def replay(self, command=None):
         # Policy identity is injected here; actual runtime binding has a separate
         # integration test below, without repeatedly hashing the whole interpreter.
-        return replay.replay([{"command": command or self.command, "exit_code": 0, "evidence_ref": "event:check"}],
-            self.project.root, self.run, self.record, verify.scratch_run, approved_state=self.state,
-            execution_identity=lambda *a, **kw: {"source_revision": util.snapshot(self.project.root)["revision"],
-                                                "reuse_supported": True})
+        return replay.replay(
+            [{"command": command or self.command, "exit_code": 0, "evidence_ref": "event:check"}],
+            self.project.root,
+            self.run,
+            self.record,
+            verify.scratch_run,
+            approved_state=self.state,
+            execution_identity=lambda *a, **kw: {
+                "source_revision": util.snapshot(self.project.root)["revision"],
+                "reuse_supported": True,
+            },
+        )
 
     def test_report_format_only_repeat_uses_genuine_collected_runner_proof(self):
         first = self.replay()
@@ -262,8 +366,7 @@ class CleanReplayTests(unittest.TestCase):
         self.assertEqual(first["checks"][0]["output"], second["checks"][0]["output"])
         self.assertEqual(["test_app.Case.test_c1"], second["checks"][0]["results"]["passed"])
         row = second["checks"][0]
-        self.assertEqual(row["supervision_sha256"],
-                         replay.evidence_pins(second)[row["supervision"]["receipt"]])
+        self.assertEqual(row["supervision_sha256"], replay.evidence_pins(second)[row["supervision"]["receipt"]])
 
     @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
     def test_pytest_reuse_requires_actual_junit_inventory_and_broken_source_fails(self):
@@ -309,17 +412,23 @@ class CleanReplayTests(unittest.TestCase):
         directory.mkdir(parents=True)
         # What a hard crash leaves: a pending launch nothing recorded an outcome
         # for. An in-process exception no longer reaches this state (#414).
-        util.atomic_json(directory / "pending.json",
-                         {"attempt_id": "orphan", "identity": {"obligation": "older-validator"},
-                          "started_at": "2026-10-05T00:00:00Z"})
+        util.atomic_json(
+            directory / "pending.json",
+            {
+                "attempt_id": "orphan",
+                "identity": {"obligation": "older-validator"},
+                "started_at": "2026-10-05T00:00:00Z",
+            },
+        )
         with mock.patch.object(replay.protected_oracles, "replay") as protected:
             with self.assertRaisesRegex(util.Paused, "no completed receipt"):
                 self.replay()
             protected.assert_not_called()
 
     def test_plan_projection_does_not_claim_model_selectors_are_collected_tests(self):
-        self.state["goal_contract"]["body"]["acceptance_criteria"].append({
-            "id": "C2", "criterion": "Future milestone", "verification_method": "Run `python3 -m unittest -v later`"})
+        self.state["goal_contract"]["body"]["acceptance_criteria"].append(
+            {"id": "C2", "criterion": "Future milestone", "verification_method": "Run `python3 -m unittest -v later`"}
+        )
         declaration = plan.obligations(self.state)
         self.assertFalse(declaration["complete"])
         self.assertIsNone(declaration["checks"][0]["collected_test_ids"])
@@ -351,9 +460,15 @@ class ExecutionIdentityTests(unittest.TestCase):
         project = Project({"app.py": "x = 1\n", ".gitignore": ".venv\n"})
         self.addCleanup(project.close)
         site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
-        project.write({".venv/pyvenv.cfg": "include-system-site-packages = false\n", ".venv/bin/.keep": "",
-                       f"{site}/demo-1.dist-info/direct_url.json": json.dumps({
-                           "dir_info": {"editable": True}, "url": (project.root.parent / "outside").as_uri()})})
+        project.write(
+            {
+                ".venv/pyvenv.cfg": "include-system-site-packages = false\n",
+                ".venv/bin/.keep": "",
+                f"{site}/demo-1.dist-info/direct_url.json": json.dumps(
+                    {"dir_info": {"editable": True}, "url": (project.root.parent / "outside").as_uri()}
+                ),
+            }
+        )
         python = project.root / ".venv/bin/python"
         python.symlink_to(sys._base_executable)
         result = verify.execution_identity(project.root, command=f"{python} -m unittest -v")
@@ -369,9 +484,15 @@ class ExecutionIdentityTests(unittest.TestCase):
         controller = Path(verify.__file__).resolve().parent.parent
         package = Path(verify.__file__).resolve().parent.relative_to(controller).as_posix()
         site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
-        project.write({".venv/pyvenv.cfg": "include-system-site-packages = false\n", ".venv/bin/.keep": "",
-                       f"{site}/autocode_cli-1.dist-info/direct_url.json": json.dumps({
-                           "dir_info": {"editable": True}, "url": controller.as_uri()})})
+        project.write(
+            {
+                ".venv/pyvenv.cfg": "include-system-site-packages = false\n",
+                ".venv/bin/.keep": "",
+                f"{site}/autocode_cli-1.dist-info/direct_url.json": json.dumps(
+                    {"dir_info": {"editable": True}, "url": controller.as_uri()}
+                ),
+            }
+        )
         python = project.root / ".venv/bin/python"
         python.symlink_to(sys._base_executable)
         snapshot = util.snapshot
@@ -382,6 +503,7 @@ class ExecutionIdentityTests(unittest.TestCase):
                     return snapshot(path)
                 inventory = {f"{package}/autocode_verify.py": "v1", **files}
                 return {"head": "h", "files": inventory, "revision": util.digest({"head": "h", "files": inventory})}
+
             with mock.patch.object(util, "snapshot", side_effect=controller_snapshot):
                 return verify.execution_identity(project.root, command=f"{python} -m unittest -v")
 
@@ -393,17 +515,27 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertNotEqual(base["editable_sources"], identity(**{f"{package}/new_module.py": "x"})["editable_sources"])
 
     def test_unreadable_controller_editable_source_keeps_valid_checks_fresh(self):
-        project = Project({"app.py": "VALUE = 1\n",
-                           "test_app.py": "import unittest\nfrom app import VALUE\nclass Case(unittest.TestCase):\n"
-                           "    def test_c1(self):\n        self.assertEqual(1, VALUE)\n",
-                           ".gitignore": ".venv\n"})
+        project = Project(
+            {
+                "app.py": "VALUE = 1\n",
+                "test_app.py": "import unittest\nfrom app import VALUE\nclass Case(unittest.TestCase):\n"
+                "    def test_c1(self):\n        self.assertEqual(1, VALUE)\n",
+                ".gitignore": ".venv\n",
+            }
+        )
         self.addCleanup(project.close)
         controller = Path(verify.__file__).resolve().parent.parent
         site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
         metadata = project.root / site / "autocode_cli-1.dist-info/direct_url.json"
-        project.write({".venv/pyvenv.cfg": "include-system-site-packages = false\n", ".venv/bin/.keep": "",
-                       str(metadata.relative_to(project.root)): json.dumps({
-                           "dir_info": {"editable": True}, "url": controller.as_uri()})})
+        project.write(
+            {
+                ".venv/pyvenv.cfg": "include-system-site-packages = false\n",
+                ".venv/bin/.keep": "",
+                str(metadata.relative_to(project.root)): json.dumps(
+                    {"dir_info": {"editable": True}, "url": controller.as_uri()}
+                ),
+            }
+        )
         python = project.root / ".venv/bin/python"
         python.symlink_to(sys._base_executable)
         command = f"{python} -m unittest -v test_app"
@@ -411,8 +543,9 @@ class ExecutionIdentityTests(unittest.TestCase):
 
         def unreadable_controller(path):
             if Path(path).resolve() == controller:
-                raise subprocess.CalledProcessError(128, ["git", "rev-parse", "HEAD"],
-                                                    stderr="nested test repository has no HEAD")
+                raise subprocess.CalledProcessError(
+                    128, ["git", "rev-parse", "HEAD"], stderr="nested test repository has no HEAD"
+                )
             return snapshot(path)
 
         with mock.patch.object(util, "snapshot", side_effect=unreadable_controller) as collect:
@@ -427,10 +560,21 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertEqual("fresh_execution_only", result["cache_policy"])
 
         framework = verify.command_framework(command)
+
         def execute(out):
             return verify.run_suite(framework, command, project.root, out, "fresh-check", timeout=30)
-        checks = [schedule.run(project.evidence, result, execute, reuse_allowed=result["reuse_supported"],
-                               reason="unbound_editable", current_identity=lambda: result) for _ in range(2)]
+
+        checks = [
+            schedule.run(
+                project.evidence,
+                result,
+                execute,
+                reuse_allowed=result["reuse_supported"],
+                reason="unbound_editable",
+                current_identity=lambda: result,
+            )
+            for _ in range(2)
+        ]
         self.assertTrue(all(schedule.reusable(check) for check in checks), checks)
         self.assertEqual(["execute", "execute"], [check["scheduling"]["action"] for check in checks])
         self.assertNotEqual(checks[0]["output"], checks[1]["output"])
@@ -457,8 +601,9 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertEqual("fresh_execution_only", result["cache_policy"])
 
     def test_full_source_ignored_fixture_dependencies_environment_and_runtime_are_bound(self):
-        project = Project({"app.py": "x = 1\n", "elsewhere/test_hidden.py": "x = 1\n",
-                           ".gitignore": "vendor/\n_generated.py\n"})
+        project = Project(
+            {"app.py": "x = 1\n", "elsewhere/test_hidden.py": "x = 1\n", ".gitignore": "vendor/\n_generated.py\n"}
+        )
         self.addCleanup(project.close)
         project.write({"vendor/fixture.txt": "seed 1", "_generated.py": "x = 1\n"})
         # Runtime introspection must not execute candidate startup hooks.
@@ -467,24 +612,36 @@ class ExecutionIdentityTests(unittest.TestCase):
         # Keep dependency scans focused for this test; the actual selected
         # interpreter and shell are still measured by execution_identity.
         original = schedule.tree_identity
+
         def focused(path, **kwargs):
             path = Path(path)
-            return original(path, **kwargs) if path.is_relative_to(project.root) or path.is_file() else {"path": str(path)}
+            return (
+                original(path, **kwargs) if path.is_relative_to(project.root) or path.is_file() else {"path": str(path)}
+            )
+
         with mock.patch.object(schedule, "tree_identity", side_effect=focused):
             previous = verify.execution_identity(project.root, command=command)
             for path in ("elsewhere/test_hidden.py", "config.ini", "vendor/fixture.txt", "_generated.py"):
                 project.write({path: "changed bytes\n"})
                 current = verify.execution_identity(project.root, command=command)
-                component = ("dependencies" if path.startswith("vendor/") else
-                             "generated_sources" if path == "_generated.py" else "source_revision")
+                component = (
+                    "dependencies"
+                    if path.startswith("vendor/")
+                    else "generated_sources"
+                    if path == "_generated.py"
+                    else "source_revision"
+                )
                 self.assertNotEqual(previous[component], current[component], path)
                 previous = current
             with mock.patch.dict(os.environ, {"VERIFICATION_FIXTURE_SEED": "new-seed"}):
-                self.assertNotEqual(previous["environment_hash"],
-                                    verify.execution_identity(project.root, command=command)["environment_hash"])
+                self.assertNotEqual(
+                    previous["environment_hash"],
+                    verify.execution_identity(project.root, command=command)["environment_hash"],
+                )
             with mock.patch.object(sys, "platform", "different-runtime"):
-                self.assertNotEqual(previous["platform"],
-                                    verify.execution_identity(project.root, command=command)["platform"])
+                self.assertNotEqual(
+                    previous["platform"], verify.execution_identity(project.root, command=command)["platform"]
+                )
             (project.root / "app.py").chmod(0o400)
             changed = verify.execution_identity(project.root, command=command)
             self.assertEqual(previous["source_revision"], changed["source_revision"])
@@ -496,9 +653,11 @@ class VerificationRestartCLI(unittest.TestCase):
         from harness import catalog
 
         from scenarios import run
+
         results = run.self_test(catalog.load("verification-reuse"))
-        self.assertEqual(["seed", "reference", "broken/accepts-empty", "broken/vacuous-tests"],
-                         [name for name, _, _ in results])
+        self.assertEqual(
+            ["seed", "reference", "broken/accepts-empty", "broken/vacuous-tests"], [name for name, _, _ in results]
+        )
         self.assertTrue(all(ok for _, ok, _ in results), results)
 
     def test_restart_reuses_only_completed_supplemental_check_and_keeps_canonical_execution(self):
@@ -507,6 +666,7 @@ class VerificationRestartCLI(unittest.TestCase):
         from harness.project import materialize
 
         from scenarios import run as scenario_run
+
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix="verification-restart-", dir=results)
@@ -523,9 +683,14 @@ class VerificationRestartCLI(unittest.TestCase):
         shutil.copy2(scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")
         marker = root / "verification-committed.json"
         # Exercise the repair packet before the crash: it has no live goal contract.
-        env.update(PYTHONPATH=str(hooks), SCENARIO_VERIFICATION_CRASH=str(marker),
-                   XDG_CONFIG_HOME=str(root / "config"), CODEX_HOME=str(root / "codex-home"),
-                   AUTOCODE_PROVIDER="opencode", SCENARIO_VERIFICATION_FORCE_REPAIR="1")
+        env.update(
+            PYTHONPATH=str(hooks),
+            SCENARIO_VERIFICATION_CRASH=str(marker),
+            XDG_CONFIG_HOME=str(root / "config"),
+            CODEX_HOME=str(root / "codex-home"),
+            AUTOCODE_PROVIDER="opencode",
+            SCENARIO_VERIFICATION_FORCE_REPAIR="1",
+        )
         driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=20, timeout_seconds=180)
         try:
             stopped = driver.drive(scenario.brief)

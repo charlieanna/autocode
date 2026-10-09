@@ -5,6 +5,7 @@ records are written here. Dispatch receipts live on stages.recovery_novelty, so
 restart, task reassignment and session rotation cannot create a second history.
 There is no controller, process termination, model call, or acceptance shortcut.
 """
+
 from __future__ import annotations
 
 try:
@@ -105,8 +106,13 @@ def _artifact_owned(path, workspace, run, state):
     path = _owned(path, workspace)
     # The rule acceptance and Completion routing apply. Pins here come from several stages, so a
     # contained stage's capture is owned through any launch record of this run (#419).
-    if not rework.owned(path, workspace, run, settings=state.get("settings"),
-                        scratch=containment.recorded_scratch(state.get("stages", []), workspace)):
+    if not rework.owned(
+        path,
+        workspace,
+        run,
+        settings=state.get("settings"),
+        scratch=containment.recorded_scratch(state.get("stages", []), workspace),
+    ):
         _stale("evidence belongs to another run")
     return path
 
@@ -138,16 +144,23 @@ def _binding(state, revision):
     # identity has changed; any actual entry remains strictly bound below.
     if settings.get("transport_identities") == {}:
         settings.pop("transport_identities")
-    return {"contract_hash": contract.get("hash"), "contract_revision": contract.get("revision"),
-            "task_id": (state.get("current_task") or {}).get("id"), "source_revision": revision,
-            "settings_hash": util.digest(settings)}
+    return {
+        "contract_hash": contract.get("hash"),
+        "contract_revision": contract.get("revision"),
+        "task_id": (state.get("current_task") or {}).get("id"),
+        "source_revision": revision,
+        "settings_hash": util.digest(settings),
+    }
 
 
 def _scope(state):
     task, contract = state.get("current_task") or {}, state.get("goal_contract") or {}
-    return {"task_id": contract.get("task_id"), "contract_hash": contract.get("hash"),
-            "milestones": sorted(task.get("milestone_ids") or [task.get("milestone_id") or ""]),
-            "criteria": sorted(task.get("acceptance_criteria") or [])}
+    return {
+        "task_id": contract.get("task_id"),
+        "contract_hash": contract.get("hash"),
+        "milestones": sorted(task.get("milestone_ids") or [task.get("milestone_id") or ""]),
+        "criteria": sorted(task.get("acceptance_criteria") or []),
+    }
 
 
 def _source_revision(state, stage, pointer, packet, workspace):
@@ -157,8 +170,11 @@ def _source_revision(state, stage, pointer, packet, workspace):
     the current revision, so other content, such as a person's new edit or a further change after
     the last attempt, remains a stale handoff."""
     current, bound = source_scope.snapshot(workspace, state), packet["binding"]["source_revision"]
-    if (stage == "terra" and current["revision"] != bound
-            and retained.own_repair_source(state.get("stages", []), pointer, bound, current)):
+    if (
+        stage == "terra"
+        and current["revision"] != bound
+        and retained.own_repair_source(state.get("stages", []), pointer, bound, current)
+    ):
         return bound
     return current["revision"]
 
@@ -176,8 +192,14 @@ def _decided(packet):
     """The criteria the packet's sealed decision assigns to its next task, within that task's approved
     milestone when it is the failed task's own. The Resolver cannot change either: both are hashed."""
     task = (packet.get("current_error") or {}).get("next_task") or {}
-    milestone = next((row for row in (packet.get("protected_obligations") or {}).get("milestones", [])
-                      if isinstance(row, dict) and row.get("id") == task.get("milestone_id")), None)
+    milestone = next(
+        (
+            row
+            for row in (packet.get("protected_obligations") or {}).get("milestones", [])
+            if isinstance(row, dict) and row.get("id") == task.get("milestone_id")
+        ),
+        None,
+    )
     if milestone is None or [task.get("milestone_id")] != packet["scope"]["milestones"]:
         return set()
     return set(task.get("acceptance_criteria") or []) & set(milestone.get("acceptance_criteria") or [])
@@ -189,8 +211,9 @@ def _returned_nothing(row):
     the attempt's log or output for that before it accounts the attempt and archives it as
     abandoned and rejected, so it returned no report. A truncated review report came back cut
     short, so it still counts."""
-    return (all(row.get(key) for key in ("accounted", "automatic_recovery", "abandoned", "rejected"))
-            and not row.get("truncated_output"))
+    return all(row.get(key) for key in ("accounted", "automatic_recovery", "abandoned", "rejected")) and not row.get(
+        "truncated_output"
+    )
 
 
 def receipts(state, *, returned=False):
@@ -204,8 +227,12 @@ def receipts(state, *, returned=False):
     found = {}
     for row in rows:
         receipt = row.get("recovery_novelty")
-        if (receipt and not row.get("dry_run") and not row.get("report_only")
-                and not (returned and _returned_nothing(row))):
+        if (
+            receipt
+            and not row.get("dry_run")
+            and not row.get("report_only")
+            and not (returned and _returned_nothing(row))
+        ):
             found[receipt["dispatch_id"]] = receipt
     return list(found.values())
 
@@ -225,8 +252,7 @@ def _archive(path, run, expected=None):
             _stale("retained original was changed; never overwrite it")
     else:
         util.atomic_json(target, blob)
-    return {"original_path": str(path), "sha256": digest,
-            "path": str(target), "archive_sha256": util.file_hash(target)}
+    return {"original_path": str(path), "sha256": digest, "path": str(target), "archive_sha256": util.file_hash(target)}
 
 
 def _failed_output(validation, check, stages):
@@ -247,8 +273,13 @@ def _incidents(state, decision, record, wrappers):
     if validation.get("task_id") not in (None, task.get("id")):
         validation = {}
     criteria = _scope(state)["criteria"]
-    invariant = util.digest([row for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
-                             if row.get("id") in criteria])
+    invariant = util.digest(
+        [
+            row
+            for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
+            if row.get("id") in criteria
+        ]
+    )
     affected = util.digest(_scope(state))
     request = decision.get("user_request") or {}
     failure = (state.get("failure_history") or {}).get(record.get("failure_key"), {})
@@ -267,21 +298,48 @@ def _incidents(state, decision, record, wrappers):
         output = re.sub(r"(?m)^Ran (\d+) tests? in [0-9.]+s$", r"Ran \1 tests in <duration>", output)
         failure = output or f"exit_code={check['exit_code']}"
         command = check.get("command") or "validation"
-        item = novelty.Incident(novelty.normalize(command, wrappers),
-            novelty.failure_text(failure, command, wrappers), invariant, affected, cause)
+        item = novelty.Incident(
+            novelty.normalize(command, wrappers),
+            novelty.failure_text(failure, command, wrappers),
+            invariant,
+            affected,
+            cause,
+        )
         result.append(asdict(item))
     if not result:
         findings = decision.get("findings") or validation.get("findings") or []
         for finding in findings:
             text = finding.get("finding") or finding.get("evidence")
             if text:
-                result.append(asdict(novelty.Incident(record.get("stage") or "review",
-                    novelty.normalize(text, wrappers), invariant, affected, cause)))
+                result.append(
+                    asdict(
+                        novelty.Incident(
+                            record.get("stage") or "review",
+                            novelty.normalize(text, wrappers),
+                            invariant,
+                            affected,
+                            cause,
+                        )
+                    )
+                )
     if not result:
-        result.append(asdict(novelty.Incident(record.get("stage") or "review",
-            novelty.normalize(decision.get("summary") or decision.get("blocker") or
-                              decision.get("next_objective") or "Unresolved review", wrappers),
-            invariant, affected, cause)))
+        result.append(
+            asdict(
+                novelty.Incident(
+                    record.get("stage") or "review",
+                    novelty.normalize(
+                        decision.get("summary")
+                        or decision.get("blocker")
+                        or decision.get("next_objective")
+                        or "Unresolved review",
+                        wrappers,
+                    ),
+                    invariant,
+                    affected,
+                    cause,
+                )
+            )
+        )
     return result
 
 
@@ -294,8 +352,9 @@ def prepare_resolution(state, decision, record):
     # This serial policy cannot attest an integrated worker graph. Keep the
     # already-validated Resolver handoff and its existing finite bounds, without
     # opening worker files or treating a foreign artifact as serial evidence.
-    if ((state.get("current_task") or {}).get("milestone_ids") or any(state.get(key) for key in
-            ("parent_run", "parent_batch", "orchestration_batch", "orchestration_history"))):
+    if (state.get("current_task") or {}).get("milestone_ids") or any(
+        state.get(key) for key in ("parent_run", "parent_batch", "orchestration_batch", "orchestration_history")
+    ):
         request["recovery_novelty_skipped"] = "parallel_or_integrated_scope_uses_existing_resolver_bounds"
         return
     run, workspace = _run_root(state, record), Path(state["workspace"]).resolve()
@@ -329,8 +388,11 @@ def prepare_resolution(state, decision, record):
             originals.append(_archive(path, run))
             with contextlib.suppress(UnicodeError):
                 sources[relative] = path.read_text()  # The byte-exact original remains available even for binary files.
-    records = [copy.deepcopy(row) for row in state.get("stages", [])
-               if row.get("stage") in ("terra", "astra_resolve", "astra_diagnose", "sol", "astra_review")]
+    records = [
+        copy.deepcopy(row)
+        for row in state.get("stages", [])
+        if row.get("stage") in ("terra", "astra_resolve", "astra_diagnose", "sol", "astra_review")
+    ]
     # Preserve diffs and logs from all prior repair attempts before later paths can change.
     seen = {row["original_path"] for row in originals}
     for row in records:
@@ -340,19 +402,31 @@ def prepare_resolution(state, decision, record):
                 _artifact_owned(path, workspace, run, state)
                 originals.append(_archive(path, run))
                 seen.add(path)
-    packet = {"version": 1, "run_dir": str(run), "binding": _binding(state, current["revision"]),
-              "source_output": record["output"], "settings": copy.deepcopy(state.get("settings", {})),
-              "scope": _scope(state), "incidents": _incidents(state, decision, record, wrappers),
-              "originals": originals, "sources": sources, "wrappers": wrappers,
-              "current_error": copy.deepcopy(decision), "validation": copy.deepcopy(state.get("validation")),
-              "prior_attempts": records, "prior_receipts": receipts(state),
-              "findings": copy.deepcopy(state.get("findings_ledger", [])),
-              "protected_obligations": copy.deepcopy(state.get("goal_contract", {}).get("body", {})),
-              "protected_tests": copy.deepcopy(state.get("settings", {}).get("protected_tests", {})),
-              "model_pins": copy.deepcopy(state.get("settings", {}).get("roles", {})),
-              "saved_limits": copy.deepcopy(state.get("settings", {}).get("limits", {})),
-              "permitted_controls": list(observed_inputs), "inputs": observed_inputs, "input_pins": input_pins,
-              "failure_history": copy.deepcopy(state.get("failure_history", {}))}
+    packet = {
+        "version": 1,
+        "run_dir": str(run),
+        "binding": _binding(state, current["revision"]),
+        "source_output": record["output"],
+        "settings": copy.deepcopy(state.get("settings", {})),
+        "scope": _scope(state),
+        "incidents": _incidents(state, decision, record, wrappers),
+        "originals": originals,
+        "sources": sources,
+        "wrappers": wrappers,
+        "current_error": copy.deepcopy(decision),
+        "validation": copy.deepcopy(state.get("validation")),
+        "prior_attempts": records,
+        "prior_receipts": receipts(state),
+        "findings": copy.deepcopy(state.get("findings_ledger", [])),
+        "protected_obligations": copy.deepcopy(state.get("goal_contract", {}).get("body", {})),
+        "protected_tests": copy.deepcopy(state.get("settings", {}).get("protected_tests", {})),
+        "model_pins": copy.deepcopy(state.get("settings", {}).get("roles", {})),
+        "saved_limits": copy.deepcopy(state.get("settings", {}).get("limits", {})),
+        "permitted_controls": list(observed_inputs),
+        "inputs": observed_inputs,
+        "input_pins": input_pins,
+        "failure_history": copy.deepcopy(state.get("failure_history", {})),
+    }
     path = _owned(run / "resolver" / "recovery" / (util.digest(packet) + ".json"), run)
     if path.exists() and util.read(path) != packet:
         _stale("incident draft changed; no repinning")
@@ -411,14 +485,17 @@ def _attest(packet, change):
             if incident_ids.intersection(prior.get("incident_ids", [])) and prior.get("packet"):
                 original = load_packet(prior["packet"], packet["run_dir"])
                 if "inputs" in original:
-                    ident = inputs.change_identity(change, packet["inputs"], original["inputs"],
-                        operations=operations, wrappers=packet["wrappers"])
+                    ident = inputs.change_identity(
+                        change, packet["inputs"], original["inputs"], operations=operations, wrappers=packet["wrappers"]
+                    )
                 break
     else:
-        ident = novelty.change_identity(change, sources=packet["sources"], allowed_paths=allowed,
-                                        operations=operations, wrappers=packet["wrappers"])
-    if not ident and not novelty.bounded_change(change, sources=packet["sources"], allowed_paths=allowed,
-                                                operations=operations, wrappers=packet["wrappers"]):
+        ident = novelty.change_identity(
+            change, sources=packet["sources"], allowed_paths=allowed, operations=operations, wrappers=packet["wrappers"]
+        )
+    if not ident and not novelty.bounded_change(
+        change, sources=packet["sources"], allowed_paths=allowed, operations=operations, wrappers=packet["wrappers"]
+    ):
         bounds = "an attested input transition" if is_input else "a bounded attested source change"
         return None, f"not {bounds} with the original discriminating check"
     refs = change.get("evidence_refs", [])
@@ -427,10 +504,18 @@ def _attest(packet, change):
         return None, "evidence_refs do not cite pinned originals"
     validation = packet.get("validation") or {}
     event_refs = {row.get("evidence_ref") for row in validation.get("checks", [])}
-    streams = {row["events"] for row in packet["prior_attempts"] if row.get("stage") == "sol" and row.get("events")
-               and row.get("output") == validation.get("output") and row["events"] in available}
-    resolved_refs = {next(iter(streams)) if ref.startswith("event:") and ref in event_refs and len(streams) == 1
-                     else ref for ref in refs}
+    streams = {
+        row["events"]
+        for row in packet["prior_attempts"]
+        if row.get("stage") == "sol"
+        and row.get("events")
+        and row.get("output") == validation.get("output")
+        and row["events"] in available
+    }
+    resolved_refs = {
+        next(iter(streams)) if ref.startswith("event:") and ref in event_refs and len(streams) == 1 else ref
+        for ref in refs
+    }
     if not resolved_refs <= available:
         return None, "evidence_refs do not cite pinned originals"
     if is_input and not resolved_refs.intersection(packet["input_pins"]):
@@ -446,7 +531,10 @@ def _sort_change(packet, change):
     """
     _, why = _attest(packet, change)
     if why:
-        return None, {"change": copy.deepcopy(change), "reason": f"Recovery packet: proposed change is unproven ({why})"}
+        return None, {
+            "change": copy.deepcopy(change),
+            "reason": f"Recovery packet: proposed change is unproven ({why})",
+        }
     return copy.deepcopy(change), None
 
 
@@ -485,8 +573,10 @@ def diagnosis_change(request, change, run_dir):
     if not change:
         return None, None
     if not request.get("recovery_packet"):
-        return None, {"change": copy.deepcopy(change),
-                      "reason": "No incident packet attests a proposal in parallel or integrated scope"}
+        return None, {
+            "change": copy.deepcopy(change),
+            "reason": "No incident packet attests a proposal in parallel or integrated scope",
+        }
     packet = load_packet(request["recovery_packet"], run_dir)
     try:
         return _sort_change(packet, change)
@@ -503,9 +593,13 @@ def prepare_diagnosis(state, request, record, run_dir):
     candidate = copy.deepcopy(state)
     candidate["run_dir"] = str(Path(run_dir).resolve())
     candidate["resolution_request"] = copy.deepcopy(request)
-    decision = {"summary": request["description"], "findings": [], "operational_diagnosis": True,
-                "user_request": {"kind": "none"}, "affected_paths":
-                (state.get("current_task") or {}).get("affected_paths", [])}
+    decision = {
+        "summary": request["description"],
+        "findings": [],
+        "operational_diagnosis": True,
+        "user_request": {"kind": "none"},
+        "affected_paths": (state.get("current_task") or {}).get("affected_paths", []),
+    }
     # A Builder report rejection is not an old independent Validator's incident.
     candidate.pop("validation", None)
     prepare_resolution(candidate, decision, record)
@@ -517,33 +611,51 @@ def prepare_diagnosis(state, request, record, run_dir):
 def _live_grant(state, packet, record, authorization):
     # The caller passes only this CLI invocation's successfully guarded object.
     # Its durable audit copy never carries either of these live-use markers.
-    if (not isinstance(authorization, dict) or authorization.get("consumed") is not True
-            or authorization.get("_novelty_consumed")
-            or (authorization.get("stage") or (authorization.get("identity") or {}).get("stage")) != record["stage"]
-            or state.get("next_stage") not in (record["stage"], "orchestrator" if record["stage"] == "terra" else record["stage"])
-            or state.get("pending_report_repair")):
+    if (
+        not isinstance(authorization, dict)
+        or authorization.get("consumed") is not True
+        or authorization.get("_novelty_consumed")
+        or (authorization.get("stage") or (authorization.get("identity") or {}).get("stage")) != record["stage"]
+        or state.get("next_stage")
+        not in (record["stage"], "orchestrator" if record["stage"] == "terra" else record["stage"])
+        or state.get("pending_report_repair")
+    ):
         return None
     binding = _binding(state, packet["binding"]["source_revision"])
     if authorization.get("novelty_packet"):
         held = _request(state, record["stage"]).get("novelty_hold") or {}
-        valid = (authorization.get("actor") == "user_cli"
-                 and authorization["novelty_packet"] == util.digest(packet)
-                 and authorization.get("binding") == packet["binding"]
-                 and authorization.get("dispatch_binding") == binding
-                 and held.get("binding") == binding and held.get("scope") == _scope(state))
+        valid = (
+            authorization.get("actor") == "user_cli"
+            and authorization["novelty_packet"] == util.digest(packet)
+            and authorization.get("binding") == packet["binding"]
+            and authorization.get("dispatch_binding") == binding
+            and held.get("binding") == binding
+            and held.get("scope") == _scope(state)
+        )
     else:
         previous = next((row for row in reversed(state.get("stages", [])) if row.get("failure_key")), {})
         repeated = failures.repeated(state, previous) if previous else None
-        valid = (authorization.get("consumed") is True and repeated is not None
-                 and authorization.get("failure_key") == previous.get("failure_key")
-                 and authorization.get("identity") == repeated["identity"]
-                 and type(authorization.get("count")) is int and authorization["count"] == repeated["count"]
-                 and authorization.get("source_revision") == previous.get("source_revision") == packet["binding"]["source_revision"]
-                 and (previous.get("original_stage") or previous.get("stage")) == record["stage"]
-                 and repeated["identity"].get("stage") == record["stage"]
-                 and previous.get("task_id", binding["task_id"]) == binding["task_id"])
-    return util.digest({key: value for key, value in authorization.items()
-                        if key not in ("consumed", "_novelty_consumed")}) if valid else None
+        valid = (
+            authorization.get("consumed") is True
+            and repeated is not None
+            and authorization.get("failure_key") == previous.get("failure_key")
+            and authorization.get("identity") == repeated["identity"]
+            and type(authorization.get("count")) is int
+            and authorization["count"] == repeated["count"]
+            and authorization.get("source_revision")
+            == previous.get("source_revision")
+            == packet["binding"]["source_revision"]
+            and (previous.get("original_stage") or previous.get("stage")) == record["stage"]
+            and repeated["identity"].get("stage") == record["stage"]
+            and previous.get("task_id", binding["task_id"]) == binding["task_id"]
+        )
+    return (
+        util.digest(
+            {key: value for key, value in authorization.items() if key not in ("consumed", "_novelty_consumed")}
+        )
+        if valid
+        else None
+    )
 
 
 def _time(value):
@@ -561,45 +673,76 @@ def _builder_grant(state, packet, request, record, prior):
         return None
     key = builder_policy.key(state)
     lane = state.get("builder_retries", {}).get(key) or {}
-    grant = next((row for row in reversed(state.get("builder_retry_decisions", []))
-                  if row.get("milestone_key") == key), {})
+    grant = next(
+        (row for row in reversed(state.get("builder_retry_decisions", [])) if row.get("milestone_key") == key), {}
+    )
     source = packet.get("source_output")
     at = _time(grant.get("at"))
-    if (not at or state.get("builder_retry_key") != key or lane.get("action") != "retry"
-            or grant.get("owner") != "user_cli" or grant.get("action") != "retry"
-            or not source or grant.get("failure") != source or lane.get("failures", [])[-1:] != [source]
-            or type(grant.get("attempt")) is not int or grant["attempt"] != len(lane["failures"])
-            or grant.get("selected_model") != state["settings"]["roles"]["terra"].get("model")
-            or grant.get("selected_effort") != state["settings"]["roles"]["terra"].get("reasoning_effort")):
+    if (
+        not at
+        or state.get("builder_retry_key") != key
+        or lane.get("action") != "retry"
+        or grant.get("owner") != "user_cli"
+        or grant.get("action") != "retry"
+        or not source
+        or grant.get("failure") != source
+        or lane.get("failures", [])[-1:] != [source]
+        or type(grant.get("attempt")) is not int
+        or grant["attempt"] != len(lane["failures"])
+        or grant.get("selected_model") != state["settings"]["roles"]["terra"].get("model")
+        or grant.get("selected_effort") != state["settings"]["roles"]["terra"].get("reasoning_effort")
+    ):
         return None
-    event = next((row for row in reversed(state.get("user_events", [])) if row.get("kind") == "builder_retry"
-                  and sorted(row.get("milestone_ids", [])) == packet["scope"]["milestones"]), {})
-    if (event.get("actor") != "user_cli" or event.get("mode") != "serial"
-            or event.get("at") != grant["at"] or event.get("failure") != source):
+    event = next(
+        (
+            row
+            for row in reversed(state.get("user_events", []))
+            if row.get("kind") == "builder_retry"
+            and sorted(row.get("milestone_ids", [])) == packet["scope"]["milestones"]
+        ),
+        {},
+    )
+    if (
+        event.get("actor") != "user_cli"
+        or event.get("mode") != "serial"
+        or event.get("at") != grant["at"]
+        or event.get("failure") != source
+    ):
         return None
     pending = state.get("resolution_request") if stage == "astra_resolve" else state.get("repair_plan")
     if request is not pending or request.get("source_output") != source or not request.get("recovery_packet"):
         return None
-    if stage == "terra" and (not request.get("recovery_admission")
-                             or (state.get("current_task") or {}).get("kind") != "implement"):
+    if stage == "terra" and (
+        not request.get("recovery_admission") or (state.get("current_task") or {}).get("kind") != "implement"
+    ):
         return None
     rows = state.get("stages", [])
     origin = next((index for index, row in reversed(list(enumerate(rows))) if row.get("output") == source), None)
     if origin is None:
         return None
     finished = _time(rows[origin].get("finished_at"))
-    if (not finished or finished > at or rows[origin].get("source_revision") != packet["binding"]["source_revision"]
-            or rows[origin].get("contract_hash") != packet["binding"]["contract_hash"]):
+    if (
+        not finished
+        or finished > at
+        or rows[origin].get("source_revision") != packet["binding"]["source_revision"]
+        or rows[origin].get("contract_hash") != packet["binding"]["contract_hash"]
+    ):
         return None
     original = next((row for row in packet["originals"] if row["original_path"] == source), None)
     if not original or _hash(_owned(source, packet["run_dir"])) != original["sha256"]:
         _stale("Builder retry source no longer matches its bound accepted failure")
     ident = util.digest(grant)
-    if any(row.get("grant_id") == ident and (stage == "astra_resolve" or row.get("action") == "repair") for row in prior):
+    if any(
+        row.get("grant_id") == ident and (stage == "astra_resolve" or row.get("action") == "repair") for row in prior
+    ):
         return None
     diagnoses = 0
-    for row in rows[origin + 1:]:
-        if row.get("stage") not in ("terra", "astra_resolve", "astra_diagnose") or row.get("report_only") or row.get("dry_run"):
+    for row in rows[origin + 1 :]:
+        if (
+            row.get("stage") not in ("terra", "astra_resolve", "astra_diagnose")
+            or row.get("report_only")
+            or row.get("dry_run")
+        ):
             continue
         started = _time(row.get("started_at"))
         if started is None:
@@ -607,8 +750,13 @@ def _builder_grant(state, packet, request, record, prior):
         if started < at:
             continue
         receipt = row.get("recovery_novelty") or {}
-        if (stage != "terra" or row.get("stage") != "astra_resolve" or receipt.get("grant_kind") != "builder"
-                or receipt.get("grant_id") != ident or receipt.get("packet") != request["recovery_packet"]):
+        if (
+            stage != "terra"
+            or row.get("stage") != "astra_resolve"
+            or receipt.get("grant_kind") != "builder"
+            or receipt.get("grant_id") != ident
+            or receipt.get("packet") != request["recovery_packet"]
+        ):
             return None
         diagnoses += 1
         if diagnoses > 1:
@@ -636,17 +784,30 @@ def _diagnosis_grant(state, packet, request, record):
     """
     pointer = request.get("recovery_packet")
     recommendation = request.get("recommendation") or {}
-    if (record["stage"] != "terra" or request is not state.get("repair_plan")
-            or request.get("kind") != "operational-diagnosis" or recommendation.get("action") != "retry"
-            or not packet["current_error"].get("operational_diagnosis")):
+    if (
+        record["stage"] != "terra"
+        or request is not state.get("repair_plan")
+        or request.get("kind") != "operational-diagnosis"
+        or recommendation.get("action") != "retry"
+        or not packet["current_error"].get("operational_diagnosis")
+    ):
         return None
-    retry = next((row for entry in (state.get("failure_history") or {}).values()
-                  for row in reversed(entry.get("diagnostic_retries") or [])
-                  if row.get("recovery_packet") == pointer and row.get("recommendation") == recommendation), {})
+    retry = next(
+        (
+            row
+            for entry in (state.get("failure_history") or {}).values()
+            for row in reversed(entry.get("diagnostic_retries") or [])
+            if row.get("recovery_packet") == pointer and row.get("recommendation") == recommendation
+        ),
+        {},
+    )
     # The runner's own accepted retry outcome, not only the plan that cites it.
     accepted = retry.get("receipt") and any(
-        row.get("runner_owned") and (row.get("decision") or {}).get("action") == "retry"
-        and (row.get("receipt") or {}).get("idempotency_key") == retry["receipt"] for row in state.get("stages", []))
+        row.get("runner_owned")
+        and (row.get("decision") or {}).get("action") == "retry"
+        and (row.get("receipt") or {}).get("idempotency_key") == retry["receipt"]
+        for row in state.get("stages", [])
+    )
     return util.digest({"diagnosis_retry": retry["receipt"], "packet": pointer}) if accepted else None
 
 
@@ -666,22 +827,48 @@ def _investigation_grant(state, request, record):
     pause, such as a novelty hold (PAUSED_NO_PROGRESS), grants nothing.
     """
     pointer, current = request.get("recovery_packet"), state.get("stuck_investigation") or {}
-    if (record["stage"] != "terra" or not current.get("in_force") or current.get("stage") != "terra"
-            or current.get("status") not in REJECTED_OUTPUT):
+    if (
+        record["stage"] != "terra"
+        or not current.get("in_force")
+        or current.get("stage") != "terra"
+        or current.get("status") not in REJECTED_OUTPUT
+    ):
         return None
-    entry = next((row for row in reversed(state.get("stuck_investigations") or [])
-                  if row.get("identity") == current.get("identity")), {})
+    entry = next(
+        (
+            row
+            for row in reversed(state.get("stuck_investigations") or [])
+            if row.get("identity") == current.get("identity")
+        ),
+        {},
+    )
     # The rejected attempt it followed is the latest that returned a result: a relaunch automatic
     # recovery archived without a report (a provider timeout) neither replaces it nor spends the grant.
-    last = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"
-                 and not row.get("report_only") and not row.get("dry_run") and not _returned_nothing(row)), {})
+    last = next(
+        (
+            row
+            for row in reversed(state.get("stages", []))
+            if row.get("stage") == "terra"
+            and not row.get("report_only")
+            and not row.get("dry_run")
+            and not _returned_nothing(row)
+        ),
+        {},
+    )
     asked, rejected = _time(entry.get("requested_at")), _time(last.get("finished_at"))
-    if (entry.get("outcome") != "retried" or entry.get("trigger") != "rejected_output" or not last.get("rejected")
-            or (last.get("recovery_novelty") or {}).get("packet") != pointer
-            or not asked or not rejected or asked < rejected):
+    if (
+        entry.get("outcome") != "retried"
+        or entry.get("trigger") != "rejected_output"
+        or not last.get("rejected")
+        or (last.get("recovery_novelty") or {}).get("packet") != pointer
+        or not asked
+        or not rejected
+        or asked < rejected
+    ):
         return None
-    return util.digest({"stuck_investigation": entry["identity"], "requested_at": entry["requested_at"],
-                        "packet": pointer})
+    return util.digest(
+        {"stuck_investigation": entry["identity"], "requested_at": entry["requested_at"], "packet": pointer}
+    )
 
 
 def _explicit_grant(state, packet, request, record, prior, authorization):
@@ -716,8 +903,12 @@ def finish_resolution_packet(state, request, plan):
             plan.pop("recovery_change", None)
             plan.pop("recovery_change_id", None)
             plan["unattested_change"] = unattested
-        admission = {"packet": request["recovery_packet"], "binding": _binding(state, packet["binding"]["source_revision"]),
-                     "scope": _scope(state), "retry_charge": copy.deepcopy(state.get("builder_retry_decisions", [])[-1:])}
+        admission = {
+            "packet": request["recovery_packet"],
+            "binding": _binding(state, packet["binding"]["source_revision"]),
+            "scope": _scope(state),
+            "retry_charge": copy.deepcopy(state.get("builder_retry_decisions", [])[-1:]),
+        }
         path = _owned(run / "resolver" / "recovery" / (util.digest(admission) + ".json"), run)
         if path.exists() and util.read(path) != admission:
             _stale("repair admission receipt changed")
@@ -735,8 +926,9 @@ def _verify_reports(state, decision, record, accepted, run_dir):
     validation = state["validation"]
     report = check_refs.resolve(_read(accepted["output"]))
     if any(validation.get(key) != value for key, value in report.items()) or any(
-            validation.get(key) != accepted.get(key) for key in
-            ("task_id", "contract_hash", "contract_revision", "source_revision")):
+        validation.get(key) != accepted.get(key)
+        for key in ("task_id", "contract_hash", "contract_revision", "source_revision")
+    ):
         _stale("accepted Validator body or provenance differs from its original seal")
     pins = validation.get("evidence_hashes") or {}
     if not pins:
@@ -766,54 +958,115 @@ def _completed_owner(state, record):
     active = state.get("active_stage")
     if not active:
         return
-    if (any(active.get(key) != record.get(key) for key in ("stage", "output", "events", "task_id"))
-            or not record.get("finished_at") or not record.get("processes") or record.get("cleanup_error")
-            or record.get("uncertain") or record.get("interrupted") or record.get("timed_out")):
-        raise util.Paused("PAUSED_WORKSPACE_BUSY", "Reconcile the owned active or uncertain stage before recovery; no worker is restarted")
+    if (
+        any(active.get(key) != record.get(key) for key in ("stage", "output", "events", "task_id"))
+        or not record.get("finished_at")
+        or not record.get("processes")
+        or record.get("cleanup_error")
+        or record.get("uncertain")
+        or record.get("interrupted")
+        or record.get("timed_out")
+    ):
+        raise util.Paused(
+            "PAUSED_WORKSPACE_BUSY",
+            "Reconcile the owned active or uncertain stage before recovery; no worker is restarted",
+        )
     try:
         worker = processes.recorded_worker_state(record)
     except (ValueError, KeyError, TypeError):
         worker = {"checked": False, "alive": None}
     if worker.get("checked") is not True or worker.get("alive") is not False:
-        raise util.Paused("PAUSED_WORKSPACE_BUSY", "Reconcile the owned provider or its descendants before recovery; no worker is restarted")
+        raise util.Paused(
+            "PAUSED_WORKSPACE_BUSY",
+            "Reconcile the owned provider or its descendants before recovery; no worker is restarted",
+        )
 
 
 def route_known_change(runtime, state, decision, record, *, run_dir, retry_policy):
     """Use ordinary task assignment for an attested repair, not another diagnosis."""
     change = decision.get("recovery_change")
     request = state.get("resolution_request") or {}
-    if ((decision.get("next_task") or {}).get("kind") != "implement"
-            or not isinstance(change, dict) or not change or change.get("question", "").strip()
-            or not request.get("recovery_packet")
-            or any(state.get(key) for key in ("parent_run", "active_runner_check", "uncertain_artifacts",
-                                            "orchestration_batch", "pending_report_repair", "user_request", "pending_questions"))
-            or state.get("settings", {}).get("workflow") or not retry_policy.enabled(state)):
+    if (
+        (decision.get("next_task") or {}).get("kind") != "implement"
+        or not isinstance(change, dict)
+        or not change
+        or change.get("question", "").strip()
+        or not request.get("recovery_packet")
+        or any(
+            state.get(key)
+            for key in (
+                "parent_run",
+                "active_runner_check",
+                "uncertain_artifacts",
+                "orchestration_batch",
+                "pending_report_repair",
+                "user_request",
+                "pending_questions",
+            )
+        )
+        or state.get("settings", {}).get("workflow")
+        or not retry_policy.enabled(state)
+    ):
         return False
     _completed_owner(state, record)
     validation, task = state.get("validation") or {}, state.get("current_task") or {}
     packet = load_packet(request["recovery_packet"], run_dir)
-    if (validation.get("verdict") != "FAIL" or decision.get("status") != "REWORK"
-            or (decision.get("user_request") or {}).get("kind") != "none"
-            or not record.get("rework_evidence") or record.get("report_repaired")
-            or packet["scope"] != _scope(state) or change.get("target") in packet["protected_tests"].get("files", {})):
+    if (
+        validation.get("verdict") != "FAIL"
+        or decision.get("status") != "REWORK"
+        or (decision.get("user_request") or {}).get("kind") != "none"
+        or not record.get("rework_evidence")
+        or record.get("report_repaired")
+        or packet["scope"] != _scope(state)
+        or change.get("target") in packet["protected_tests"].get("files", {})
+    ):
         return False
-    if any(validation.get(key) != expected for key, expected in (
-            ("task_id", task.get("id")), ("source_revision", record.get("source_revision")),
-            ("contract_hash", state["goal_contract"]["hash"]), ("reviewer_role", "sol"))):
+    if any(
+        validation.get(key) != expected
+        for key, expected in (
+            ("task_id", task.get("id")),
+            ("source_revision", record.get("source_revision")),
+            ("contract_hash", state["goal_contract"]["hash"]),
+            ("reviewer_role", "sol"),
+        )
+    ):
         return False
-    accepted = next((row for row in state.get("stages", []) if row.get("output") == validation.get("output")
-                     and row.get("stage") == "sol" and not row.get("rejected")), None)
-    if not accepted or not accepted.get("rework_evidence") or accepted.get("report_only") or accepted.get("changed_files"):
+    accepted = next(
+        (
+            row
+            for row in state.get("stages", [])
+            if row.get("output") == validation.get("output") and row.get("stage") == "sol" and not row.get("rejected")
+        ),
+        None,
+    )
+    if (
+        not accepted
+        or not accepted.get("rework_evidence")
+        or accepted.get("report_only")
+        or accepted.get("changed_files")
+    ):
         return False
-    builder = next((row for row in reversed(state.get("stages", [])) if row.get("stage") == "terra"
-                    and row.get("task_id") == task.get("id") and not row.get("rejected")), {})
+    builder = next(
+        (
+            row
+            for row in reversed(state.get("stages", []))
+            if row.get("stage") == "terra" and row.get("task_id") == task.get("id") and not row.get("rejected")
+        ),
+        {},
+    )
     roles = state.get("settings", {}).get("roles", {})
     builder_model = (builder.get("launch_route") or roles.get("terra") or {}).get("model", "")
     validator_model = (accepted.get("launch_route") or roles.get("sol") or {}).get("model", "")
-    if (not builder or accepted.get("role") != "sol" or type(accepted.get("exit_code")) is not int
-            or accepted["exit_code"] != 0 or not builder_model or not validator_model
-            or builder_model.rsplit("/", 1)[-1] == validator_model.rsplit("/", 1)[-1]
-            or (builder.get("thread_id") and builder.get("thread_id") == accepted.get("thread_id"))):
+    if (
+        not builder
+        or accepted.get("role") != "sol"
+        or type(accepted.get("exit_code")) is not int
+        or accepted["exit_code"] != 0
+        or not builder_model
+        or not validator_model
+        or builder_model.rsplit("/", 1)[-1] == validator_model.rsplit("/", 1)[-1]
+        or (builder.get("thread_id") and builder.get("thread_id") == accepted.get("thread_id"))
+    ):
         return False
     _verify_reports(state, decision, record, accepted, run_dir)
     validate_decision(state, decision, record)
@@ -823,26 +1076,43 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         # queued Resolver route stays, and its admission decides without novelty.
         return False
     prior = [row for row in receipts(state, returned=True) if row.get("action") == "repair"]
-    if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
-                         expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
+    if any(
+        novelty.decide(
+            novelty.Incident(**incident),
+            prior,
+            action="repair",
+            change_id=ident,
+            expected_check=change["expected_check"],
+        ).action
+        != "repair"
+        for incident in packet["incidents"]
+    ):
         return False
     current = source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)
     if _binding(state, current["revision"]) != packet["binding"]:
         _stale("known correction changed scope or source before assignment")
-    failed = [check for check in validation.get("checks", []) if type(check.get("exit_code")) is int and check["exit_code"]]
+    failed = [
+        check for check in validation.get("checks", []) if type(check.get("exit_code")) is int and check["exit_code"]
+    ]
     if not failed:
         return False
     try:
-        verified_checks = copy.deepcopy(validation['checks'])
-        runtime.support.verify_checks(verified_checks, state["workspace"], accepted["events"],
-                                      **runtime.check_evidence_options(accepted))
+        verified_checks = copy.deepcopy(validation["checks"])
+        runtime.support.verify_checks(
+            verified_checks, state["workspace"], accepted["events"], **runtime.check_evidence_options(accepted)
+        )
     except ValueError as error:
         _stale("known correction lacks an executed independent failure: " + str(error))
-    facts = builder_failure.check_facts(verified_checks, accepted, state['workspace'], read_events=support.events)
-    if classification.classify({'record': accepted, 'checks': facts, 'checks_verified': True}) != 'execution':
+    facts = builder_failure.check_facts(verified_checks, accepted, state["workspace"], read_events=support.events)
+    if classification.classify({"record": accepted, "checks": facts, "checks_verified": True}) != "execution":
         return False  # Retain the existing queued diagnosis; do not charge an operational check failure.
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
+    if (
+        _binding(
+            state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]
+        )
+        != packet["binding"]
+    ):
         _stale("source or binding changed while checking the failed evidence")
     candidate = copy.deepcopy(state)
     candidate["iteration"] += 1
@@ -854,12 +1124,18 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
         if not error.status.startswith("PAUSED_MILESTONE_"):
             raise
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
+    if (
+        _binding(
+            state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]
+        )
+        != packet["binding"]
+    ):
         _stale("source or binding changed while checking the proposed correction")
-    action = retry_policy.failure(candidate, record["output"], "Attested bounded correction: " + change["hypothesis"],
-                                  classification='execution')
-    if action not in ('retry', 'escalate', 'pause', 'defer'):
-        raise util.Paused('PAUSED_BUILDER_CLASSIFICATION', 'Verified correction returned a non-execution action')
+    action = retry_policy.failure(
+        candidate, record["output"], "Attested bounded correction: " + change["hypothesis"], classification="execution"
+    )
+    if action not in ("retry", "escalate", "pause", "defer"):
+        raise util.Paused("PAUSED_BUILDER_CLASSIFICATION", "Verified correction returned a non-execution action")
     if action in ("pause", "defer"):
         candidate["next_stage"] = "terra"
         runtime.goals.record_decision(candidate, decision)
@@ -871,25 +1147,45 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     except util.Paused as error:
         if not error.status.startswith("PAUSED_MILESTONE_"):
             raise
-        runtime.milestones.handle_gate(candidate, error, current,
-            origin={"stage": "astra_review", "output": record["output"]}, ask_user=runtime.lifecycle.wait_for_user)
+        runtime.milestones.handle_gate(
+            candidate,
+            error,
+            current,
+            origin={"stage": "astra_review", "output": record["output"]},
+            ask_user=runtime.lifecycle.wait_for_user,
+        )
         runtime.goals.record_decision(candidate, decision)
         state.clear()
         state.update(candidate)
         return True
     saved = candidate.pop("resolution_request")
-    plan = {"kind": "known-correction", "version": 1, "source_output": record["output"],
-            "source_revision": current["revision"], "contract_hash": state["goal_contract"]["hash"],
-            "tasks": [copy.deepcopy(candidate["current_task"])], "evidence_hashes": saved["evidence_hashes"],
-            "retry_charge": {"action": action, "evidence": record["output"]}}
+    plan = {
+        "kind": "known-correction",
+        "version": 1,
+        "source_output": record["output"],
+        "source_revision": current["revision"],
+        "contract_hash": state["goal_contract"]["hash"],
+        "tasks": [copy.deepcopy(candidate["current_task"])],
+        "evidence_hashes": saved["evidence_hashes"],
+        "retry_charge": {"action": action, "evidence": record["output"]},
+    }
     finish_resolution_packet(candidate, saved, plan)
     candidate["repair_plan"] = plan
     candidate.setdefault("resolution_history", []).append(copy.deepcopy(plan))
     runtime.goals.record_decision(candidate, decision)
-    candidate.update(status="RUNNING", phase="EXECUTING", next_action=decision["next_objective"],
-                     next_stage=runtime.dispatch.build_stage(candidate))
+    candidate.update(
+        status="RUNNING",
+        phase="EXECUTING",
+        next_action=decision["next_objective"],
+        next_stage=runtime.dispatch.build_stage(candidate),
+    )
     _verify_reports(state, decision, record, accepted, run_dir)
-    if _binding(state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]) != packet["binding"]:
+    if (
+        _binding(
+            state, source_scope.snapshot(state["workspace"], state, base_snapshot=runtime.support.snapshot)["revision"]
+        )
+        != packet["binding"]
+    ):
         _stale("source or binding changed before committing the proposed correction")
     state.clear()
     state.update(candidate)
@@ -902,7 +1198,16 @@ def authorize_retry(runner, state, run_dir, workspace):
     held = request.get("novelty_hold")
     if not held:
         return None
-    if any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts", "orchestration_batch", "pending_report_repair")):
+    if any(
+        state.get(key)
+        for key in (
+            "active_stage",
+            "active_runner_check",
+            "uncertain_artifacts",
+            "orchestration_batch",
+            "pending_report_repair",
+        )
+    ):
         raise ValueError("Reconcile owned active or uncertain workers before authorizing recovery")
     packet = load_packet(request["recovery_packet"], run_dir)
     revision = _source_revision(state, held.get("stage"), request["recovery_packet"], packet, workspace)
@@ -913,21 +1218,35 @@ def authorize_retry(runner, state, run_dir, workspace):
     public = runner.resolver_human.current(state)
     if public:
         entry = state.get("resolver", {}).get("human_escalations", {}).get(public["request_id"], {})
-        if (public.get("scope") != "operational_exhaustion" or entry.get("identity", {}).get("proposal", {}).get(
-                "origin", {}).get("pause_status") != "PAUSED_NO_PROGRESS"):
+        if (
+            public.get("scope") != "operational_exhaustion"
+            or entry.get("identity", {}).get("proposal", {}).get("origin", {}).get("pause_status")
+            != "PAUSED_NO_PROGRESS"
+        ):
             raise ValueError("A different human decision cannot grant a recovery retry")
     pending = state.get(runner.resolver_human.PRIVATE)
-    if pending and (pending.get("scope") != "operational_exhaustion"
-            or pending.get("origin", {}).get("pause_status") != "PAUSED_NO_PROGRESS"
-            or pending.get("origin", {}).get("stage") != state.get("next_stage")):
+    if pending and (
+        pending.get("scope") != "operational_exhaustion"
+        or pending.get("origin", {}).get("pause_status") != "PAUSED_NO_PROGRESS"
+        or pending.get("origin", {}).get("stage") != state.get("next_stage")
+    ):
         raise ValueError("A different pending decision cannot grant a recovery retry")
-    if not (public or pending) and (state.get("status") != "PAUSED_NO_PROGRESS"
-            or state.get("pending_questions") or (state.get("user_request") or {}).get("kind") not in (None, "none")):
+    if not (public or pending) and (
+        state.get("status") != "PAUSED_NO_PROGRESS"
+        or state.get("pending_questions")
+        or (state.get("user_request") or {}).get("kind") not in (None, "none")
+    ):
         raise ValueError("A different pending decision cannot grant a recovery retry")
-    grant = {"actor": "user_cli", "at": util.now(), "novelty_packet": util.digest(packet),
-             "binding": packet["binding"], "dispatch_binding": copy.deepcopy(held["binding"]),
-             "stage": held.get("stage") or ("terra" if state.get("next_stage") == "orchestrator" else state.get("next_stage")),
-             "ordinal": len(state.get("failure_retry_authorizations", []))}
+    grant = {
+        "actor": "user_cli",
+        "at": util.now(),
+        "novelty_packet": util.digest(packet),
+        "binding": packet["binding"],
+        "dispatch_binding": copy.deepcopy(held["binding"]),
+        "stage": held.get("stage")
+        or ("terra" if state.get("next_stage") == "orchestrator" else state.get("next_stage")),
+        "ordinal": len(state.get("failure_retry_authorizations", [])),
+    }
     if pending:
         grant["superseded_proposal"] = copy.deepcopy(pending)
         state.pop(runner.resolver_human.PRIVATE)
@@ -949,11 +1268,14 @@ def _request(state, stage):
     plan = state.get("repair_plan") or {}
     if any(row.get("id") == task_id for row in plan.get("tasks", [])):
         return plan
-    direct = next((row for row in reversed(state.get("direct_rework_assignments", []))
-                   if row.get("assigned_task_id") == task_id), None)
+    direct = next(
+        (row for row in reversed(state.get("direct_rework_assignments", [])) if row.get("assigned_task_id") == task_id),
+        None,
+    )
     if direct:
-        return next((row for row in reversed(state.get("stages", []))
-                     if row.get("output") == direct.get("source_output")), {})
+        return next(
+            (row for row in reversed(state.get("stages", [])) if row.get("output") == direct.get("source_output")), {}
+        )
     return {}
 
 
@@ -966,8 +1288,12 @@ def _validation_only(request, packet):
         return False
     source = request.get("source_output")
     original = next((row for row in packet["originals"] if row["original_path"] == source), None)
-    if (not source or source != packet["source_output"] or not original
-            or util.digest(request.get("review")) != util.digest(decision)):
+    if (
+        not source
+        or source != packet["source_output"]
+        or not original
+        or util.digest(request.get("review")) != util.digest(decision)
+    ):
         _stale("validation-only request differs from its bound accepted decision")
     path = _owned(source, packet["run_dir"])
     if _hash(path) != original["sha256"] or util.digest(_read(path)) != util.digest(decision):
@@ -979,12 +1305,19 @@ def _validation_only(request, packet):
     approved_ids = {row["id"] for row in approved.get("acceptance_criteria", [])}
     milestone = next((row for row in approved.get("milestones", []) if row["id"] == milestone_id), None)
     scoped_ids = set(milestone["acceptance_criteria"] if milestone else packet["scope"]["criteria"])
-    if (decision.get("status") != "REWORK" or (decision.get("user_request") or {}).get("kind") != "none"
-            or any(decision.get(key) != packet["binding"][key] for key in
-                   ("task_id", "contract_hash", "contract_revision"))
-            or not isinstance(criteria, list) or not criteria or not all(isinstance(item, str) for item in criteria)
-            or milestone_id not in packet["scope"]["milestones"] or not set(criteria) <= (approved_ids & scoped_ids)
-            or not isinstance(plan, list) or not plan or not all(isinstance(check, str) and check.strip() for check in plan)):
+    if (
+        decision.get("status") != "REWORK"
+        or (decision.get("user_request") or {}).get("kind") != "none"
+        or any(decision.get(key) != packet["binding"][key] for key in ("task_id", "contract_hash", "contract_revision"))
+        or not isinstance(criteria, list)
+        or not criteria
+        or not all(isinstance(item, str) for item in criteria)
+        or milestone_id not in packet["scope"]["milestones"]
+        or not set(criteria) <= (approved_ids & scoped_ids)
+        or not isinstance(plan, list)
+        or not plan
+        or not all(isinstance(check, str) and check.strip() for check in plan)
+    ):
         _stale("validation-only correction lacks its approved scope or bounded checks")
     return True
 
@@ -996,56 +1329,87 @@ def _exhausted_builder(state, request, packet):
     # This locked preview must never turn an ambiguous source proposal into an
     # execution failure or launch an Investigator. Only sealed independent FAIL
     # evidence can prove an already exhausted execution lane here.
-    validation = packet.get('validation') or {}
-    binding = packet.get('binding') or {}
+    validation = packet.get("validation") or {}
+    binding = packet.get("binding") or {}
     try:
         from . import autocode_failure_classification as classification
     except ImportError:
         import autocode_failure_classification as classification
-    if (request.get('provenance') == 'source_report_not_accepted_review'
-            or validation.get('verdict') != 'FAIL'
-            or any(validation.get(key) != binding.get(key) for key in ('task_id', 'source_revision', 'contract_hash'))
-            or not any(row.get('stage') == 'sol' and not row.get('rejected')
-                       and row.get('output') == validation.get('output') for row in packet.get('prior_attempts', []))
-            or not any(type(check.get('exit_code')) is int and check['exit_code'] > 0
-                       for check in validation.get('checks', []))):
+    if (
+        request.get("provenance") == "source_report_not_accepted_review"
+        or validation.get("verdict") != "FAIL"
+        or any(validation.get(key) != binding.get(key) for key in ("task_id", "source_revision", "contract_hash"))
+        or not any(
+            row.get("stage") == "sol" and not row.get("rejected") and row.get("output") == validation.get("output")
+            for row in packet.get("prior_attempts", [])
+        )
+        or not any(
+            type(check.get("exit_code")) is int and check["exit_code"] > 0 for check in validation.get("checks", [])
+        )
+    ):
         return
-    row = next((row for row in state.get('milestone_progress', {}).values()
-                if row.get('contract_hash') == binding.get('contract_hash')
-                and (state.get('current_task') or {}).get('milestone_id') in
-                row.get('milestone_ids', [row.get('id')])), {})
-    if row.get('builder_reassessment'):
+    row = next(
+        (
+            row
+            for row in state.get("milestone_progress", {}).values()
+            if row.get("contract_hash") == binding.get("contract_hash")
+            and (state.get("current_task") or {}).get("milestone_id") in row.get("milestone_ids", [row.get("id")])
+        ),
+        {},
+    )
+    if row.get("builder_reassessment"):
         return  # The bounded reassessment assignment gate, not execution policy, owns this request.
-    accepted = next(row for row in packet['prior_attempts'] if row.get('stage') == 'sol'
-                    and not row.get('rejected') and row.get('output') == validation.get('output'))
-    verified_checks = copy.deepcopy(validation.get('checks', []))
-    paths = [accepted.get('events'), *[check['evidence_ref'] for check in verified_checks
-                                     if not check['evidence_ref'].startswith('event:')]]
-    originals = {str(Path(item['original_path']).resolve()): item['sha256'] for item in packet['originals']}
+    accepted = next(
+        row
+        for row in packet["prior_attempts"]
+        if row.get("stage") == "sol" and not row.get("rejected") and row.get("output") == validation.get("output")
+    )
+    verified_checks = copy.deepcopy(validation.get("checks", []))
+    paths = [
+        accepted.get("events"),
+        *[check["evidence_ref"] for check in verified_checks if not check["evidence_ref"].startswith("event:")],
+    ]
+    originals = {str(Path(item["original_path"]).resolve()): item["sha256"] for item in packet["originals"]}
     for path in paths:
         if not path:
             continue
-        current_path = Path(path) if Path(path).is_absolute() else Path(state['workspace']) / path
-        if (str(current_path.resolve()) not in originals or not current_path.is_file()
-                or util.file_hash(current_path) != originals[str(current_path.resolve())]):
-            _stale('verified failure evidence changed before exhaustion preview')
+        current_path = Path(path) if Path(path).is_absolute() else Path(state["workspace"]) / path
+        if (
+            str(current_path.resolve()) not in originals
+            or not current_path.is_file()
+            or util.file_hash(current_path) != originals[str(current_path.resolve())]
+        ):
+            _stale("verified failure evidence changed before exhaustion preview")
     try:
-        support.verify_checks(verified_checks, state['workspace'], accepted.get('events'),
-                              receipt_only=accepted.get('output_mode') == 'report_file',
-                              capture_context=accepted.get('capture_context'))
+        support.verify_checks(
+            verified_checks,
+            state["workspace"],
+            accepted.get("events"),
+            receipt_only=accepted.get("output_mode") == "report_file",
+            capture_context=accepted.get("capture_context"),
+        )
     except (ValueError, OSError) as error:
-        _stale('exhaustion preview lacks a verified current failure: ' + str(error))
-    facts = builder_failure.check_facts(verified_checks, accepted, state['workspace'], read_events=support.events)
-    classification_value = classification.classify({
-        'record': next((row for row in packet.get('prior_attempts', [])
-                        if row.get('output') == request['source_output']), {}),
-        # A stalled-approach checkpoint cannot renew spent execution authority.
-        'checks': facts, 'checks_verified': True})
-    if classification_value != 'execution':
+        _stale("exhaustion preview lacks a verified current failure: " + str(error))
+    facts = builder_failure.check_facts(verified_checks, accepted, state["workspace"], read_events=support.events)
+    classification_value = classification.classify(
+        {
+            "record": next(
+                (row for row in packet.get("prior_attempts", []) if row.get("output") == request["source_output"]), {}
+            ),
+            # A stalled-approach checkpoint cannot renew spent execution authority.
+            "checks": facts,
+            "checks_verified": True,
+        }
+    )
+    if classification_value != "execution":
         return  # Non-execution decisions belong to the controller, never locked preview.
     candidate = copy.deepcopy(state)
-    action = builder_policy.failure(candidate, request["source_output"],
-                                    "Independent failure reached the saved Builder retry/escalation limit", classification='execution')
+    action = builder_policy.failure(
+        candidate,
+        request["source_output"],
+        "Independent failure reached the saved Builder retry/escalation limit",
+        classification="execution",
+    )
     if action not in ("pause", "defer"):
         return  # A preview must not charge, grant a retry, or switch any route.
     candidate["next_stage"] = "terra"
@@ -1060,11 +1424,17 @@ def known_builder_pause(state):
     key = builder_policy.key(state)
     lane = state.get("builder_retries", {}).get(key) or {}
     decision = (state.get("builder_retry_decisions") or [{}])[-1]
-    return bool(source and state.get("status") == "PAUSED_BUILDER_RETRY_LIMIT"
-                and state.get("next_stage") == "terra"
-                and lane.get("action") == "pause" and lane.get("failures", [])[-1:] == [source]
-                and decision.get("owner") == "autoresolver" and decision.get("action") == "pause"
-                and decision.get("failure") == source and decision.get("milestone_key") == key)
+    return bool(
+        source
+        and state.get("status") == "PAUSED_BUILDER_RETRY_LIMIT"
+        and state.get("next_stage") == "terra"
+        and lane.get("action") == "pause"
+        and lane.get("failures", [])[-1:] == [source]
+        and decision.get("owner") == "autoresolver"
+        and decision.get("action") == "pause"
+        and decision.get("failure") == source
+        and decision.get("milestone_key") == key
+    )
 
 
 def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=None):
@@ -1077,8 +1447,10 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
     if not pointer:
         return  # Legacy requests retain their existing conservative limits.
     packet = load_packet(pointer, run_dir)
-    if stage == "astra_resolve" and (request.get("source_output") != packet.get("source_output")
-            or ("review" in request and util.digest(request["review"]) != util.digest(packet["current_error"]))):
+    if stage == "astra_resolve" and (
+        request.get("source_output") != packet.get("source_output")
+        or ("review" in request and util.digest(request["review"]) != util.digest(packet["current_error"]))
+    ):
         _stale("pending resolution differs from its original bound source or decision")
     if packet.get("inputs"):
         try:
@@ -1107,14 +1479,19 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         _stale("current source, task, settings, contract or scope changed before admission")
     active = state.get("active_stage")
     if active and active is not record and active.get("output") != record.get("output"):
-        raise util.Paused("PAUSED_NO_PROGRESS", "Reconcile the owned active recovery attempt; no duplicate worker will launch")
+        raise util.Paused(
+            "PAUSED_NO_PROGRESS", "Reconcile the owned active recovery attempt; no duplicate worker will launch"
+        )
     if any(state.get(key) for key in ("uncertain_artifacts", "active_runner_check", "orchestration_batch")):
-        raise util.Paused("PAUSED_NO_PROGRESS", "Reconcile owned active or uncertain workers before recovery; do not restart them")
+        raise util.Paused(
+            "PAUSED_NO_PROGRESS", "Reconcile owned active or uncertain workers before recovery; do not restart them"
+        )
     if stage == "astra_resolve":
         _exhausted_builder(state, request, packet)
     prior = receipts(state)
-    dispatch_id = util.digest({"output": record.get("output"), "started_at": record.get("started_at"),
-                               "packet": pointer, "stage": stage})
+    dispatch_id = util.digest(
+        {"output": record.get("output"), "started_at": record.get("started_at"), "packet": pointer, "stage": stage}
+    )
     if record.get("recovery_novelty"):
         if record["recovery_novelty"].get("dispatch_id") != dispatch_id:
             _stale("saved dispatch receipt changed")
@@ -1126,40 +1503,79 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
     change = proposal if isinstance(proposal, dict) else {}
     action = "repair" if stage == "terra" else "diagnosis"
     considered = [row for row in receipts(state, returned=True) if action != "repair" or row.get("action") == "repair"]
-    if (action == "repair" and packet["current_error"].get("operational_diagnosis")
-            and any(entry.get("count", 0) for entry in packet["failure_history"].values())):
-        considered.append({"incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
-                           "action": "repair", "change_id": None})
+    if (
+        action == "repair"
+        and packet["current_error"].get("operational_diagnosis")
+        and any(entry.get("count", 0) for entry in packet["failure_history"].values())
+    ):
+        considered.append(
+            {
+                "incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
+                "action": "repair",
+                "change_id": None,
+            }
+        )
     grant, grant_kind = _explicit_grant(state, packet, request, record, prior, retry_authorization)
     decisions = []
     for raw in packet["incidents"]:
         incident = novelty.Incident(**raw)
         same = [row for row in considered if incident.id in row.get("incident_ids", [])]
         is_input = change.get("target") in packet.get("permitted_controls", [])
-        decision = novelty.decide(incident, considered, action=action, change_id=None if is_input else change_id,
-            changed_input=change_id if is_input else None, explicit_grant=grant,
-            expected_check=change.get("expected_check"), unresolved_question=change.get("question") or
-            (f"Why does {incident.operation} violate {incident.invariant}: {incident.failure}?" if not same else None),
-            workers="uncertain" if any(state.get(key) for key in
-                ("uncertain_artifacts", "active_runner_check", "orchestration_batch")) else "stopped")
+        decision = novelty.decide(
+            incident,
+            considered,
+            action=action,
+            change_id=None if is_input else change_id,
+            changed_input=change_id if is_input else None,
+            explicit_grant=grant,
+            expected_check=change.get("expected_check"),
+            unresolved_question=change.get("question")
+            or (
+                f"Why does {incident.operation} violate {incident.invariant}: {incident.failure}?" if not same else None
+            ),
+            workers="uncertain"
+            if any(state.get(key) for key in ("uncertain_artifacts", "active_runner_check", "orchestration_batch"))
+            else "stopped",
+        )
         if decision.action in ("hold", "request"):
-            reason = (f"Incident {incident.id[:12]} ({incident.operation}): {decision.reason}. Exact packet: {pointer['path']}. "
-                      "After inspection, --resume-paused --retry-failed-stage authorizes one attempt under existing limits")
+            reason = (
+                f"Incident {incident.id[:12]} ({incident.operation}): {decision.reason}. Exact packet: {pointer['path']}. "
+                "After inspection, --resume-paused --retry-failed-stage authorizes one attempt under existing limits"
+            )
             if proposal and change_id is None:
-                reason += (f". Proposed change is unproven ({unproven or 'unsupported grammar or unchanged structure'}), "
-                           "not accepted as a new experiment")
-            request["novelty_hold"] = {"binding": bound, "scope": _scope(state), "stage": stage,
-                                       "incident_id": incident.id, "reason": reason}
-            efficiency.record_observation(state, event_id="recovery-hold:" + util.digest({"packet": pointer, "incident": incident.id}),
-                kind="suppressed", category="diagnosis" if action == "diagnosis" else "build",
-                reason="duplicate_no_new_information", provenance={"incident_id": incident.id, "packet": pointer, "reason": reason})
+                reason += (
+                    f". Proposed change is unproven ({unproven or 'unsupported grammar or unchanged structure'}), "
+                    "not accepted as a new experiment"
+                )
+            request["novelty_hold"] = {
+                "binding": bound,
+                "scope": _scope(state),
+                "stage": stage,
+                "incident_id": incident.id,
+                "reason": reason,
+            }
+            efficiency.record_observation(
+                state,
+                event_id="recovery-hold:" + util.digest({"packet": pointer, "incident": incident.id}),
+                kind="suppressed",
+                category="diagnosis" if action == "diagnosis" else "build",
+                reason="duplicate_no_new_information",
+                provenance={"incident_id": incident.id, "packet": pointer, "reason": reason},
+            )
             state.update(stop_reason=reason)
             raise util.Paused("PAUSED_NO_PROGRESS", reason)
         decisions.append(decision)
-    record["recovery_novelty"] = {"version": 1, "dispatch_id": dispatch_id,
+    record["recovery_novelty"] = {
+        "version": 1,
+        "dispatch_id": dispatch_id,
         "incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
-        "action": action, "reason": decisions[0].reason, "change_id": change_id,
-        "packet": copy.deepcopy(pointer), "grant_id": grant, "grant_kind": grant_kind,
-        "expected_checks": [row["operation"] for row in packet["incidents"]]}
+        "action": action,
+        "reason": decisions[0].reason,
+        "change_id": change_id,
+        "packet": copy.deepcopy(pointer),
+        "grant_id": grant,
+        "grant_kind": grant_kind,
+        "expected_checks": [row["operation"] for row in packet["incidents"]],
+    }
     if grant_kind == "invocation":
         retry_authorization["_novelty_consumed"] = True

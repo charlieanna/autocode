@@ -6,6 +6,7 @@ the state it saved; git commands pass through to the real binary. No provider
 is launched. The final test drives the real CLI with the fake Codex fixture up
 to the first human gate.
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -49,26 +50,54 @@ def git(root, *args):
 
 def manifest(*, deploy=False):
     rows = [
-        {"id": "contracts", "kind": "code", "skeleton": True, "brief": "Write the shared contracts", "owns": ["contracts/"],
-         "depends_on": []},
+        {
+            "id": "contracts",
+            "kind": "code",
+            "skeleton": True,
+            "brief": "Write the shared contracts",
+            "owns": ["contracts/"],
+            "depends_on": [],
+        },
         {"id": "a", "kind": "code", "brief": "Build service a", "owns": ["a/"], "depends_on": ["contracts"]},
         {"id": "b", "kind": "code", "brief": "Build service b", "owns": ["b/"], "depends_on": ["contracts"]},
-        {"id": "integration", "kind": "integration", "brief": "Validate the whole flow", "owns": ["tests/"],
-         "depends_on": ["a", "b"]},
+        {
+            "id": "integration",
+            "kind": "integration",
+            "brief": "Validate the whole flow",
+            "owns": ["tests/"],
+            "depends_on": ["a", "b"],
+        },
     ]
     if deploy:
-        rows.append({"id": "deploy", "kind": "deployment", "brief": "Write deployment descriptors", "owns": ["deploy/"],
-                     "depends_on": ["integration"]})
-    return {"version": 1, "name": "Demo program", "brief": "A two-service demo",
-            "journeys": [{"id": "J1", "name": "Order through both services", "steps": ["call a", "call b"]}],
-            "shared": {"constraints": ["stdlib only"], "interfaces": [{"id": "contracts", "summary": "JSON shapes", "paths": ["contracts/"]}]},
-            "workstreams": rows}
+        rows.append(
+            {
+                "id": "deploy",
+                "kind": "deployment",
+                "brief": "Write deployment descriptors",
+                "owns": ["deploy/"],
+                "depends_on": ["integration"],
+            }
+        )
+    return {
+        "version": 1,
+        "name": "Demo program",
+        "brief": "A two-service demo",
+        "journeys": [{"id": "J1", "name": "Order through both services", "steps": ["call a", "call b"]}],
+        "shared": {
+            "constraints": ["stdlib only"],
+            "interfaces": [{"id": "contracts", "summary": "JSON shapes", "paths": ["contracts/"]}],
+        },
+        "workstreams": rows,
+    }
 
 
 def with_requirements(value):
     """The demo program with requirements: a inherits C2, b inherits C3, the skeleton C1."""
-    value["requirements"] = [{"id": "C1", "criterion": "Contracts exist"}, {"id": "C2", "criterion": "a answers"},
-                             {"id": "C3", "criterion": "b answers"}]
+    value["requirements"] = [
+        {"id": "C1", "criterion": "Contracts exist"},
+        {"id": "C2", "criterion": "a answers"},
+        {"id": "C3", "criterion": "b answers"},
+    ]
     for row, cid in zip(value["workstreams"], ("C1", "C2", "C3"), strict=False):
         row["acceptance_criteria"] = [cid]
     value["shared"]["interfaces"][0].update(producer="contracts", consumers=["a", "b"])
@@ -101,67 +130,88 @@ class ManifestTests(unittest.TestCase):
         program.validate_manifest(copy.deepcopy(task_scenarios.PROGRAM_MANIFEST))
 
     def test_rejects_cycles_unknown_and_duplicate_ids(self):
-        value = manifest(); value["workstreams"][0]["depends_on"] = ["a"]
+        value = manifest()
+        value["workstreams"][0]["depends_on"] = ["a"]
         with self.assertRaisesRegex(ValueError, "cycle"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"][1]["depends_on"] = ["nope"]
+        value = manifest()
+        value["workstreams"][1]["depends_on"] = ["nope"]
         with self.assertRaisesRegex(ValueError, "unknown"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"][2]["id"] = "a"
+        value = manifest()
+        value["workstreams"][2]["id"] = "a"
         with self.assertRaisesRegex(ValueError, "unique"):
             program.validate_manifest(value)
 
     def test_parallel_workstreams_cannot_share_ownership_but_dependent_ones_can(self):
-        value = manifest(); value["workstreams"][2]["owns"] = ["a/handlers"]
+        value = manifest()
+        value["workstreams"][2]["owns"] = ["a/handlers"]
         with self.assertRaisesRegex(ValueError, "both own"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"][2]["owns"] = ["a/handlers"]; value["workstreams"][2]["depends_on"] = ["a"]
+        value = manifest()
+        value["workstreams"][2]["owns"] = ["a/handlers"]
+        value["workstreams"][2]["depends_on"] = ["a"]
         program.validate_manifest(value)
 
     def test_code_workstreams_declare_ownership_and_paths_stay_inside_the_repo(self):
-        value = manifest(); value["workstreams"][1]["owns"] = []
+        value = manifest()
+        value["workstreams"][1]["owns"] = []
         with self.assertRaisesRegex(ValueError, "must declare"):
             program.validate_manifest(value)
         for bad in ("../outside", "/abs", ".git/hooks", ".autocode/runs", "src/*", "src/[ab].py"):
-            value = manifest(); value["workstreams"][1]["owns"] = [bad]
+            value = manifest()
+            value["workstreams"][1]["owns"] = [bad]
             with self.assertRaisesRegex(ValueError, "not an allowed"):
                 program.validate_manifest(value)
 
     def test_ui_workstreams_are_explicitly_deferred(self):
-        value = manifest(); value["workstreams"][1]["kind"] = "ui"
+        value = manifest()
+        value["workstreams"][1]["kind"] = "ui"
         with self.assertRaisesRegex(ValueError, "UI checkpoint recovery"):
             program.validate_manifest(value)
 
     def test_integration_must_cover_every_workstream_and_be_unique(self):
-        value = manifest(); value["workstreams"][-1]["depends_on"] = ["a"]
+        value = manifest()
+        value["workstreams"][-1]["depends_on"] = ["a"]
         with self.assertRaisesRegex(ValueError, "must \\(transitively\\) depend on b"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"].append({"id": "x", "kind": "integration", "brief": "again", "owns": [], "depends_on": ["a"]})
+        value = manifest()
+        value["workstreams"].append(
+            {"id": "x", "kind": "integration", "brief": "again", "owns": [], "depends_on": ["a"]}
+        )
         with self.assertRaisesRegex(ValueError, "exactly one integration"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"].pop()
+        value = manifest()
+        value["workstreams"].pop()
         with self.assertRaisesRegex(ValueError, "exactly one integration"):
             program.validate_manifest(value)
 
     def test_every_part_extends_the_walking_skeleton_unless_exempt_with_a_reason(self):
-        value = manifest(); value["workstreams"][2]["depends_on"] = []
+        value = manifest()
+        value["workstreams"][2]["depends_on"] = []
         with self.assertRaisesRegex(ValueError, "must \\(transitively\\) depend on the walking skeleton contracts"):
             program.validate_manifest(value)
-        value = manifest(); value["workstreams"][2].update(kind="content", depends_on=[], skeleton_exempt="Lesson text only; nothing runs")
+        value = manifest()
+        value["workstreams"][2].update(kind="content", depends_on=[], skeleton_exempt="Lesson text only; nothing runs")
         program.validate_manifest(value)
-        value = manifest(); value["workstreams"][0].pop("skeleton")
+        value = manifest()
+        value["workstreams"][0].pop("skeleton")
         with self.assertRaisesRegex(ValueError, "exactly one code workstream skeleton"):
             program.validate_manifest(value)
-        value = manifest(); value.pop("journeys")
+        value = manifest()
+        value.pop("journeys")
         with self.assertRaisesRegex(ValueError, "needs journeys"):
             program.validate_manifest(value)
 
     def test_deployment_placement_rules(self):
         value = manifest(deploy=True)
-        value["workstreams"].append({"id": "c", "kind": "code", "brief": "after deploy", "owns": ["c/"], "depends_on": ["deploy"]})
+        value["workstreams"].append(
+            {"id": "c", "kind": "code", "brief": "after deploy", "owns": ["c/"], "depends_on": ["deploy"]}
+        )
         with self.assertRaisesRegex(ValueError, "cannot depend on a deployment"):
             program.validate_manifest(value)
-        value = manifest(deploy=True); value["workstreams"][-1]["depends_on"] = ["a"]
+        value = manifest(deploy=True)
+        value["workstreams"][-1]["depends_on"] = ["a"]
         with self.assertRaisesRegex(ValueError, "must \\(transitively\\) depend on the integration"):
             program.validate_manifest(value)
 
@@ -185,18 +235,27 @@ class ManifestTests(unittest.TestCase):
     def test_malformed_interfaces_and_contract_are_refused_as_manifest_errors(self):
         # The CLI reports only ValueError; a string of paths was iterated character by character.
         for field, bad in (("paths", "contracts"), ("producer", ["contracts"]), ("consumers", [["a"]])):
-            value = manifest(); value["shared"]["interfaces"][0][field] = bad
+            value = manifest()
+            value["shared"]["interfaces"][0][field] = bad
             with self.subTest(field=field), self.assertRaises(ValueError):
                 program.validate_manifest(value)
         for bad in ("text", None, [], {"body": "text"}):
-            value = manifest(); value["contract"] = bad
+            value = manifest()
+            value["contract"] = bad
             with self.subTest(contract=bad), self.assertRaisesRegex(ValueError, "contract must be an object"):
                 program.validate_manifest(value)
 
     def test_the_skeleton_brief_walks_each_journey_by_its_steps(self):
         value = manifest()
-        value["journeys"].append({"id": "J2", "name": "Simulated load", "steps": ["simulate", "count"],
-                                  "simulated": True, "does_not_prove": "real traffic"})
+        value["journeys"].append(
+            {
+                "id": "J2",
+                "name": "Simulated load",
+                "steps": ["simulate", "count"],
+                "simulated": True,
+                "does_not_prove": "real traffic",
+            }
+        )
         value = program.validate_manifest(value)
         text = program.compose_brief(value, value["workstreams"][0], {"workstreams": {}})
         self.assertIn("- J1 Order through both services: call a -> call b", text)
@@ -220,25 +279,64 @@ class ManifestTests(unittest.TestCase):
 
 class DeriveTests(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
-        env = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")}); env.start(); self.addCleanup(env.stop)
+        env = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
+        env.start()
+        self.addCleanup(env.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        git(self.root, "-c", "user.name=F", "-c", "user.email=f@example.test", "commit", "--allow-empty", "-qm", "fixture")
-        self.state = {"version": 2, "workspace": str(self.root), "task": "Build greeting and goodbye", "status": "RUNNING",
-                      "iteration": 1, "sessions": {}, "stages": [], "history": [], "next_stage": "terra", "acceptance_criteria": [],
-                      "settings": {"roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
-                                   "transport_identity": {"auth_mode": "fixture"}, "headroom": {"enabled": False},
-                                   "context_soft_tokens": 10000,
-                                   "limits": {"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3}}}
+        git(
+            self.root,
+            "-c",
+            "user.name=F",
+            "-c",
+            "user.email=f@example.test",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        )
+        self.state = {
+            "version": 2,
+            "workspace": str(self.root),
+            "task": "Build greeting and goodbye",
+            "status": "RUNNING",
+            "iteration": 1,
+            "sessions": {},
+            "stages": [],
+            "history": [],
+            "next_stage": "terra",
+            "acceptance_criteria": [],
+            "settings": {
+                "roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
+                "transport_identity": {"auth_mode": "fixture"},
+                "headroom": {"enabled": False},
+                "context_soft_tokens": 10000,
+                "limits": {"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3},
+            },
+        }
         lifecycle.migrate(self.state)
 
     def two_milestones(self):
         body = goal_fixtures.body()
-        body["acceptance_criteria"].append({"id": "C2", "criterion": "Goodbye CLI prints Goodbye, NAME",
-                                            "verification_method": "Run bye.py", "human_review": False})
-        body["milestones"].append({"id": "M2", "objective": "Deliver goodbye CLI", "acceptance_criteria": ["C2"],
-                                   "depends_on": ["M1"], "affected_paths": ["bye.py"]})
+        body["acceptance_criteria"].append(
+            {
+                "id": "C2",
+                "criterion": "Goodbye CLI prints Goodbye, NAME",
+                "verification_method": "Run bye.py",
+                "human_review": False,
+            }
+        )
+        body["milestones"].append(
+            {
+                "id": "M2",
+                "objective": "Deliver goodbye CLI",
+                "acceptance_criteria": ["C2"],
+                "depends_on": ["M1"],
+                "affected_paths": ["bye.py"],
+            }
+        )
         return body
 
     def test_unapproved_plan_cannot_become_a_program(self):
@@ -266,7 +364,10 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(str(self.root / "run"), value["source_run"])
         # The first milestone without dependencies is the walking skeleton; the approved flow is the main journey.
         self.assertTrue(by_id["M1"]["skeleton"])
-        self.assertEqual({"id": "J1", "name": "Main user journey", "steps": goal_fixtures.body()["end_to_end_flow"]}, value["journeys"][0])
+        self.assertEqual(
+            {"id": "J1", "name": "Main user journey", "steps": goal_fixtures.body()["end_to_end_flow"]},
+            value["journeys"][0],
+        )
         self.assertEqual(["skeleton-journey"], by_id["M1"]["journeys"])
 
     def test_every_child_receives_the_complete_approved_contract(self):
@@ -285,8 +386,11 @@ class DeriveTests(unittest.TestCase):
             self.assertIn("CLI regression tests", text)
             self.assertIn("Approving the parent approves neither this child plan", text)
             # The approved flow is the whole product's, context for each workstream rather than its own to verify.
-            self.assertIn("The whole product's end-to-end flow (context: later workstreams build the rest; this "
-                          "workstream's own flow is the part its objective delivers):\n- Run the CLI with a name", text)
+            self.assertIn(
+                "The whole product's end-to-end flow (context: later workstreams build the rest; this "
+                "workstream's own flow is the part its objective delivers):\n- Run the CLI with a name",
+                text,
+            )
             self.assertIn("Execute greeting and invalid-input regression checks", text)
         value["contract"]["body"]["scope_exclusions"].append("Other")
         self.assertEqual(body, self.state["goal_contract"]["body"])
@@ -296,14 +400,35 @@ class DeriveTests(unittest.TestCase):
         # brief-literal rule demand `say \\"hi\\" \\u00e9` back verbatim, and every other workstream's literals too.
         body = goal_fixtures.body()
         body["milestones"] = [
-            {"id": "M1", "objective": "Add notes", "acceptance_criteria": ["C1"], "depends_on": [], "affected_paths": ["a.py"]},
-            {"id": "M2", "objective": "Export notes", "acceptance_criteria": ["C2"], "depends_on": ["M1"],
-             "affected_paths": ["b.py"]}]
+            {
+                "id": "M1",
+                "objective": "Add notes",
+                "acceptance_criteria": ["C1"],
+                "depends_on": [],
+                "affected_paths": ["a.py"],
+            },
+            {
+                "id": "M2",
+                "objective": "Export notes",
+                "acceptance_criteria": ["C2"],
+                "depends_on": ["M1"],
+                "affected_paths": ["b.py"],
+            },
+        ]
         body["acceptance_criteria"] = [
-            {"id": "C1", "criterion": 'Adding `say "hi" é` then listing prints `1 say "hi" é`',
-             "verification_method": "python3 -m unittest", "human_review": False},
-            {"id": "C2", "criterion": "Export prints `[{\"id\": 1}]`", "verification_method": "python3 -m unittest",
-             "human_review": False}]
+            {
+                "id": "C1",
+                "criterion": 'Adding `say "hi" é` then listing prints `1 say "hi" é`',
+                "verification_method": "python3 -m unittest",
+                "human_review": False,
+            },
+            {
+                "id": "C2",
+                "criterion": 'Export prints `[{"id": 1}]`',
+                "verification_method": "python3 -m unittest",
+                "human_review": False,
+            },
+        ]
         lifecycle.install_draft(self.state, body, origin="test")
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
@@ -324,7 +449,9 @@ class DeriveTests(unittest.TestCase):
         lifecycle.present(self.state)
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
         value = program.derive_manifest(run_view.approved_contract(self.state))
-        owed = requirement_cues.cue_sentences(program.compose_brief(value, value["workstreams"][0], {"workstreams": {}}))
+        owed = requirement_cues.cue_sentences(
+            program.compose_brief(value, value["workstreams"][0], {"workstreams": {}})
+        )
         self.assertTrue(any("must end with an exclamation mark" in sentence for sentence in owed), owed)
         # The parent plan is quoted only in the fenced block, so its other sentences are context.
         self.assertFalse(any("must only extend the CLI" in sentence for sentence in owed), owed)
@@ -345,9 +472,11 @@ class ProgramHarness(unittest.TestCase):
     """Real worktrees and merges; the child autocode process is scripted, including its status view."""
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
-        self.project = self.root / "project"; self.project.mkdir()
+        self.project = self.root / "project"
+        self.project.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "main", str(self.project)], check=True)
         (self.project / "README.md").write_text("# demo\n")
         git(self.project, "add", "-A")
@@ -374,8 +503,13 @@ class ProgramHarness(unittest.TestCase):
         return command[0] != "git" and "--status" not in command and "--feedback" not in command
 
     def owned(self, wid):
-        return {"contracts": "contracts/spec.json", "a": "a/service.py", "b": "b/service.py",
-                "integration": "tests/test_flow.py", "deploy": "deploy/compose.yml"}.get(wid, f"{wid}/result.txt")
+        return {
+            "contracts": "contracts/spec.json",
+            "a": "a/service.py",
+            "b": "b/service.py",
+            "integration": "tests/test_flow.py",
+            "deploy": "deploy/compose.yml",
+        }.get(wid, f"{wid}/result.txt")
 
     @staticmethod
     def approved_plan_view(run, saved):
@@ -383,8 +517,14 @@ class ProgramHarness(unittest.TestCase):
         own, approved by the person, keeping every id its brief said the workstream inherits."""
         body = {"acceptance_criteria": list(saved.get("definitions", {}).values()), **saved.get("boundaries", {})}
         digest = hashlib.sha256(json.dumps({"run": run.name, "body": body}, sort_keys=True).encode()).hexdigest()
-        return {"revision": 1, "hash": digest, "token": f"r1:{digest}", "task_id": run.name,
-                "approved_at": "2026-10-07T00:00:00Z", "body": body}
+        return {
+            "revision": 1,
+            "hash": digest,
+            "token": f"r1:{digest}",
+            "task_id": run.name,
+            "approved_at": "2026-10-07T00:00:00Z",
+            "body": body,
+        }
 
     def fake_status(self, command):
         """`autocode --status`: the status view of the saved run as the real CLI prints it, plus the
@@ -454,31 +594,64 @@ class ProgramHarness(unittest.TestCase):
             value = program.validate_manifest(json.loads((self.root / "program.json").read_text()))
             definitions = program.agreement.definitions(value, wid)
             parent, shared = (value.get("contract") or {}).get("body") or {}, value.get("shared") or {}
-            boundaries = {key: list(dict.fromkeys(parent.get(key, []) + shared.get(key, [])))
-                          for key in ("constraints", "permission_boundaries", "scope_exclusions")}
+            boundaries = {
+                key: list(dict.fromkeys(parent.get(key, []) + shared.get(key, [])))
+                for key in ("constraints", "permission_boundaries", "scope_exclusions")
+            }
             run = workspace / ".autocode/runs" / f"run-{wid}-{len(self.launches) + 1}"
             run.mkdir(parents=True)
-        self.launches.append({"id": wid, "workspace": str(workspace), "brief": brief, "run_dir": str(run), "files": sorted(
-            p.relative_to(workspace).as_posix() for p in workspace.rglob("*")
-            if p.is_file() and not {".git", ".autocode"} & set(p.relative_to(workspace).parts)),
-            "resume": "--run-dir" in command, "in_place": "--in-place" in command,
-            "workflow": command[command.index("--workflow") + 1] if "--workflow" in command else None})
+        self.launches.append(
+            {
+                "id": wid,
+                "workspace": str(workspace),
+                "brief": brief,
+                "run_dir": str(run),
+                "files": sorted(
+                    p.relative_to(workspace).as_posix()
+                    for p in workspace.rglob("*")
+                    if p.is_file() and not {".git", ".autocode"} & set(p.relative_to(workspace).parts)
+                ),
+                "resume": "--run-dir" in command,
+                "in_place": "--in-place" in command,
+                "workflow": command[command.index("--workflow") + 1] if "--workflow" in command else None,
+            }
+        )
         outcome = self.child_outcome.get(wid, "TASK_COMPLETE")
         view = copy.deepcopy(self.child_view.get(wid, {}))
         if outcome == "TASK_COMPLETE":
             owned = self.owned(wid)
-            target = workspace / owned; target.parent.mkdir(parents=True, exist_ok=True)
+            target = workspace / owned
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(f"{wid} result\n")
             for rel, text in self.child_extra_files.get(wid, {}).items():
                 (workspace / rel).parent.mkdir(parents=True, exist_ok=True)
                 (workspace / rel).write_text(text)
             checks = self.child_checks.get(wid, [f"test -f {owned}"])
-            view.setdefault("evidence", {
-                "acceptance": [{"id": jid, "status": status} for jid, status in
-                               ({"J1": "verified", **self.journey_status}.items() if wid == "integration" else ())],
-                "check_replay": {"verdict": "PASS", "checks": [{"command": c, "exit_code": 0} for c in checks]}})
-        (run / "state.json").write_text(json.dumps({"status": outcome, "workstream": wid, "workspace": str(workspace),
-                                                     "inherits": inherits, "definitions": definitions, "boundaries": boundaries, "view": view}))
+            view.setdefault(
+                "evidence",
+                {
+                    "acceptance": [
+                        {"id": jid, "status": status}
+                        for jid, status in (
+                            {"J1": "verified", **self.journey_status}.items() if wid == "integration" else ()
+                        )
+                    ],
+                    "check_replay": {"verdict": "PASS", "checks": [{"command": c, "exit_code": 0} for c in checks]},
+                },
+            )
+        (run / "state.json").write_text(
+            json.dumps(
+                {
+                    "status": outcome,
+                    "workstream": wid,
+                    "workspace": str(workspace),
+                    "inherits": inherits,
+                    "definitions": definitions,
+                    "boundaries": boundaries,
+                    "view": view,
+                }
+            )
+        )
         return subprocess.CompletedProcess(command, 0 if outcome == "TASK_COMPLETE" else 2, "", "")
 
     def approve(self, path):
@@ -489,16 +662,20 @@ class ProgramHarness(unittest.TestCase):
         pending = json.loads(output.getvalue())["agreement"]["pending"]
         if pending:
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(0, program.cli(["approve", str(path), "--workspace", str(self.project),
-                                                 "--token", pending["token"]]))
+                self.assertEqual(
+                    0,
+                    program.cli(["approve", str(path), "--workspace", str(self.project), "--token", pending["token"]]),
+                )
         return pending
 
     @contextlib.contextmanager
     def scripted_invocations(self, side_effect=None):
         """Script advancing and status calls together; callbacks keep Git real."""
         callback = self.fake_run if side_effect is None else side_effect
-        with patch.object(program.subprocess, "run", side_effect=callback), \
-                patch.object(taskrun, "run_captured", side_effect=callback):
+        with (
+            patch.object(program.subprocess, "run", side_effect=callback),
+            patch.object(taskrun, "run_captured", side_effect=callback),
+        ):
             yield
 
     def run_program(self, path, *extra, approve=True):
@@ -533,13 +710,16 @@ class ExecutionTests(ProgramHarness):
         self.assertIn("a/service.py", files)
         self.assertEqual("literal path", git(self.project, "show", f"{result['integration_branch']}: notes.txt"))
         self.assertFalse(any(path.startswith(".autocode/") for path in files))
+
     def test_waves_run_in_dependency_order_and_merge_onto_the_integration_branch(self):
         path = self.write_manifest(manifest())
         code, result = self.run_program(path)
         self.assertEqual(0, code, result)
         self.assertEqual("COMPLETE", result["status"])
-        self.assertEqual({"README.md", "contracts/spec.json", "a/service.py", "b/service.py", "tests/test_flow.py"},
-                         self.integration_files(result))
+        self.assertEqual(
+            {"README.md", "contracts/spec.json", "a/service.py", "b/service.py", "tests/test_flow.py"},
+            self.integration_files(result),
+        )
         order = [row["id"] for row in self.launches]
         self.assertEqual("contracts", order[0])
         self.assertEqual({"a", "b"}, set(order[1:3]))
@@ -548,7 +728,9 @@ class ExecutionTests(ProgramHarness):
         # Dependents start from the merged upstream result, not from project HEAD.
         self.assertIn("contracts/spec.json", by_id["a"]["files"])
         self.assertNotIn("b/service.py", by_id["a"]["files"])
-        self.assertEqual({"README.md", "a/service.py", "b/service.py", "contracts/spec.json"}, set(by_id["integration"]["files"]))
+        self.assertEqual(
+            {"README.md", "a/service.py", "b/service.py", "contracts/spec.json"}, set(by_id["integration"]["files"])
+        )
         self.assertEqual(result["integration_workspace"], by_id["integration"]["workspace"])
         self.assertTrue(all(row["in_place"] for row in self.launches))
         self.assertNotEqual(by_id["a"]["workspace"], by_id["b"]["workspace"])
@@ -583,7 +765,9 @@ class ExecutionTests(ProgramHarness):
         self.assertEqual("COMPLETE", result["status"])
         self.assertTrue(self.launches[1]["resume"])
         self.assertEqual(self.launches[0]["workspace"], self.launches[1]["workspace"])
-        self.assertEqual(5, len(git(self.project, "worktree", "list").splitlines()))  # main, integration, contracts, a, b
+        self.assertEqual(
+            5, len(git(self.project, "worktree", "list").splitlines())
+        )  # main, integration, contracts, a, b
 
     def test_merge_conflict_pauses_without_losing_either_branch_and_manual_resolution_resumes(self):
         path = self.write_manifest(manifest())
@@ -610,11 +794,29 @@ class ExecutionTests(ProgramHarness):
         self.assertEqual("", git(integration, "status", "--porcelain", "--untracked-files=no"))
         self.assertFalse((integration / ".git" / "MERGE_HEAD").exists())
         self.assertIn("Resolve", result["next"])
-        self.assertEqual(f"{conflicted} result\n", (Path(rows[conflicted]["workspace"]) / conflicted / "service.py").read_text())
+        self.assertEqual(
+            f"{conflicted} result\n", (Path(rows[conflicted]["workspace"]) / conflicted / "service.py").read_text()
+        )
         # A human resolves it on the integration worktree and commits.
-        merge = subprocess.run(["git", "-C", str(integration), "-c", "user.name=H", "-c", "user.email=h@example.test",
-                                "merge", "--no-ff", "-X", "theirs", "--no-edit", rows[conflicted]["branch"]],
-                               capture_output=True, text=True)
+        merge = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(integration),
+                "-c",
+                "user.name=H",
+                "-c",
+                "user.email=h@example.test",
+                "merge",
+                "--no-ff",
+                "-X",
+                "theirs",
+                "--no-edit",
+                rows[conflicted]["branch"],
+            ],
+            capture_output=True,
+            text=True,
+        )
         self.assertEqual(0, merge.returncode, merge.stdout + merge.stderr)
         code, result = self.run_program(path)
         self.assertEqual(0, code, result)
@@ -636,8 +838,10 @@ class ExecutionTests(ProgramHarness):
         with patch.object(program, "ready", side_effect=leftovers_before_the_final_check):
             code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_INTEGRATION_DIRTY"), (code, result["status"]))
-        self.assertIn(f"commit or discard (git restore) the uncommitted changes in {result['integration_workspace']}",
-                      result["next"])
+        self.assertIn(
+            f"commit or discard (git restore) the uncommitted changes in {result['integration_workspace']}",
+            result["next"],
+        )
         self.assertIn("retired integration run", result["next"])
         self.assertNotIn("integration", [row["id"] for row in self.launches])
 
@@ -646,7 +850,10 @@ class ExecutionTests(ProgramHarness):
         self.child_extra_files["integration"] = {"README.md": "# Repaired integration documentation\n"}
         code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]))
-        self.assertEqual("# Repaired integration documentation", git(self.project, "show", result["integration_branch"] + ":README.md"))
+        self.assertEqual(
+            "# Repaired integration documentation",
+            git(self.project, "show", result["integration_branch"] + ":README.md"),
+        )
 
     def test_unowned_edits_pause_before_commit_or_merge(self):
         path = self.write_manifest(manifest())
@@ -805,8 +1012,11 @@ class ExecutionTests(ProgramHarness):
     def test_failed_child_blocks_the_program(self):
         path = self.write_manifest(manifest())
         self.approve(path)
-        with self.scripted_invocations(lambda command, **kw: REAL_RUN(command, **kw)
-                                       if command[0] == "git" else subprocess.CompletedProcess(command, 1, "", "boom")):
+        with self.scripted_invocations(
+            lambda command, **kw: (
+                REAL_RUN(command, **kw) if command[0] == "git" else subprocess.CompletedProcess(command, 1, "", "boom")
+            )
+        ):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 code = program.cli(["run", str(path), "--workspace", str(self.project)])
@@ -906,7 +1116,9 @@ class ExecutionTests(ProgramHarness):
         self.assertEqual("BLOCKED", json.loads(output.getvalue())["status"])
         code, result = self.run_program(path)
         record = result["workstreams"][0]
-        self.assertEqual((2, "BLOCKED", "FAILED", None), (code, result["status"], record["status"], record["run_status"]))
+        self.assertEqual(
+            (2, "BLOCKED", "FAILED", None), (code, result["status"], record["status"], record["run_status"])
+        )
         self.assertIn("No such file or directory", record["error"])
         self.assertNotIn("needs", record)
         error = io.StringIO()
@@ -958,13 +1170,17 @@ class ExecutionTests(ProgramHarness):
                 a_run = next(self.project.glob(".autocode/worktrees/*/.autocode/runs/run-a-*"))
                 (a_run.parents[2] / "a").mkdir()
                 (a_run.parents[2] / "a/service.py").write_text("a by hand\n")
-                (a_run / "state.json").write_text(json.dumps({**json.loads((a_run / "state.json").read_text()),
-                                                              "status": "TASK_COMPLETE"}))
+                (a_run / "state.json").write_text(
+                    json.dumps({**json.loads((a_run / "state.json").read_text()), "status": "TASK_COMPLETE"})
+                )
             return self.fake_run(command, **kwargs)
 
         output = io.StringIO()
-        with patch.object(program, "ThreadPoolExecutor", Pool), \
-                self.scripted_invocations(run), contextlib.redirect_stdout(output):
+        with (
+            patch.object(program, "ThreadPoolExecutor", Pool),
+            self.scripted_invocations(run),
+            contextlib.redirect_stdout(output),
+        ):
             code = program.cli(["run", str(path), "--workspace", str(self.project), "--max-parallel", "2"])
         result = json.loads(output.getvalue())
         rows = {row["id"]: row for row in result["workstreams"]}
@@ -1003,8 +1219,10 @@ class ExecutionTests(ProgramHarness):
 
     def test_dry_run_and_status_never_create_worktrees(self):
         path = self.write_manifest(manifest())
-        for command in (["run", str(path), "--workspace", str(self.project), "--dry-run"],
-                        ["status", str(path), "--workspace", str(self.project)]):
+        for command in (
+            ["run", str(path), "--workspace", str(self.project), "--dry-run"],
+            ["status", str(path), "--workspace", str(self.project)],
+        ):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 self.assertEqual(0, program.cli(command))
@@ -1016,7 +1234,8 @@ class ExecutionTests(ProgramHarness):
         path = self.write_manifest(manifest())
         self.child_outcome["contracts"] = "AWAITING_GOAL_APPROVAL"
         self.run_program(path)
-        value = manifest(); value["workstreams"][1]["owns"] = ["a2/"]
+        value = manifest()
+        value["workstreams"][1]["owns"] = ["a2/"]
         path.write_text(json.dumps(value))
         error = io.StringIO()
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(error):
@@ -1051,12 +1270,18 @@ class ScenarioFakeBriefTests(unittest.TestCase):
 
     It is run here as the script the harness puts on PATH, on handoffs carrying a real workstream brief, so
     a rewording of the brief that the fake no longer reads fails here, not as a stalled scenario run."""
+
     FAKE = Path(__file__).resolve().parents[1] / "scenarios" / "harness" / "fake_codex.py"
-    FILES = {"contracts/shapes.json": "{}\n", "a/service.py": "A = 1\n", "b/service.py": "B = 1\n",
-             "tests/test_journey.py": "# journey\n"}
+    FILES = {
+        "contracts/shapes.json": "{}\n",
+        "a/service.py": "A = 1\n",
+        "b/service.py": "B = 1\n",
+        "tests/test_journey.py": "# journey\n",
+    }
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         reference = self.root / "reference"
         for name, text in self.FILES.items():
@@ -1065,22 +1290,47 @@ class ScenarioFakeBriefTests(unittest.TestCase):
         self.manifest = program.validate_manifest(with_requirements(manifest()))
         state = program.new_state(self.root / "program.json", self.manifest, self.root, "key")
         state["agreement"]["revision"] = 1
-        self.briefs = {row["id"]: program.compose_brief(self.manifest, row, state) for row in self.manifest["workstreams"]}
-        milestones = [{"id": row["id"], "depends_on": row["depends_on"], "objective": row["brief"], "verify": "true",
-                       "paths": [name for name in self.FILES if name.startswith(row["owns"][0] + "/")]}
-                      for row in self.manifest["workstreams"] if row["kind"] == "code"]
+        self.briefs = {
+            row["id"]: program.compose_brief(self.manifest, row, state) for row in self.manifest["workstreams"]
+        }
+        milestones = [
+            {
+                "id": row["id"],
+                "depends_on": row["depends_on"],
+                "objective": row["brief"],
+                "verify": "true",
+                "paths": [name for name in self.FILES if name.startswith(row["owns"][0] + "/")],
+            }
+            for row in self.manifest["workstreams"]
+            if row["kind"] == "code"
+        ]
         self.config = self.root / "fake-config.json"
-        self.config.write_text(json.dumps({"title": "Demo", "brief": self.manifest["brief"], "reference": str(reference),
-                                           "check": "true", "paths": sorted(self.FILES), "milestones": milestones}))
+        self.config.write_text(
+            json.dumps(
+                {
+                    "title": "Demo",
+                    "brief": self.manifest["brief"],
+                    "reference": str(reference),
+                    "check": "true",
+                    "paths": sorted(self.FILES),
+                    "milestones": milestones,
+                }
+            )
+        )
 
     def report(self, stage, wid, worktree):
         worktree.mkdir(exist_ok=True)
         data = {"stage": stage, "task": self.briefs[wid], "goal_contract": {"revision": 0, "hash": ""}}
         out = self.root / f"{stage}-{wid}.json"
-        result = subprocess.run([sys.executable, str(self.FAKE), "exec", "-o", str(out)],
-                                input="PROMPT\nCURRENT HANDOFF DATA\n" + json.dumps(data), capture_output=True,
-                                text=True, cwd=worktree, timeout=60,
-                                env={**os.environ, "SCENARIO_FAKE_CONFIG": str(self.config), "PYTHONDONTWRITEBYTECODE": "1"})
+        result = subprocess.run(
+            [sys.executable, str(self.FAKE), "exec", "-o", str(out)],
+            input="PROMPT\nCURRENT HANDOFF DATA\n" + json.dumps(data),
+            capture_output=True,
+            text=True,
+            cwd=worktree,
+            timeout=60,
+            env={**os.environ, "SCENARIO_FAKE_CONFIG": str(self.config), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
         self.assertEqual(0, result.returncode, result.stderr)
         return json.loads(out.read_text())
 
@@ -1092,15 +1342,19 @@ class ScenarioFakeBriefTests(unittest.TestCase):
                 self.assertEqual("build", self.report("recognize_workflow", wid, worktree)["workflow"])
                 plan = self.report("astra_finalize", wid, worktree)["contract"]
                 self.assertEqual([], program.agreement.dropped(self.manifest, wid, plan["acceptance_criteria"]))
-                self.assertEqual(program.agreement.inherited(self.manifest, wid),
-                                 [criterion["id"] for criterion in plan["acceptance_criteria"]])
+                self.assertEqual(
+                    program.agreement.inherited(self.manifest, wid),
+                    [criterion["id"] for criterion in plan["acceptance_criteria"]],
+                )
                 if row["kind"] == "code":
                     self.assertEqual([wid], [milestone["id"] for milestone in plan["milestones"]])
                     self.assertEqual([], plan["milestones"][0]["depends_on"])
                     paths = plan["initial_task"]["affected_paths"]
                     self.assertTrue(paths)
-                    self.assertTrue(all(any(path == own or path.startswith(own + "/") for own in row["owns"])
-                                        for path in paths), paths)
+                    self.assertTrue(
+                        all(any(path == own or path.startswith(own + "/") for own in row["owns"]) for path in paths),
+                        paths,
+                    )
                     self.assertEqual("implement", plan["initial_task"]["kind"])
 
     def test_a_re_check_whose_files_already_conform_plans_validation_only(self):
@@ -1112,18 +1366,38 @@ class ScenarioFakeBriefTests(unittest.TestCase):
 
 class CliFixtureTest(unittest.TestCase):
     def test_first_wave_starts_real_isolated_runs_and_stops_at_the_human_gate(self):
-        flow = test_subprocess.SubprocessFlow(); flow.setUp(); self.addCleanup(flow.doCleanups)
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
+        self.addCleanup(flow.doCleanups)
         path = flow.root / "program.json"
         path.write_text(json.dumps(manifest()))
         env = {**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"}
-        preview = subprocess.run([*flow.entry, "program", "run", str(path), "--workspace", str(flow.project), "--dry-run"],
-                                 cwd=flow.root, env=env, capture_output=True, text=True, timeout=30)
+        preview = subprocess.run(
+            [*flow.entry, "program", "run", str(path), "--workspace", str(flow.project), "--dry-run"],
+            cwd=flow.root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         token = json.loads(preview.stdout)["agreement"]["pending"]["token"]
-        approved = subprocess.run([*flow.entry, "program", "approve", str(path), "--workspace", str(flow.project),
-                                   "--token", token], cwd=flow.root, env=env, capture_output=True, text=True, timeout=30)
+        approved = subprocess.run(
+            [*flow.entry, "program", "approve", str(path), "--workspace", str(flow.project), "--token", token],
+            cwd=flow.root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         self.assertEqual(0, approved.returncode, approved.stdout + approved.stderr)
-        result = subprocess.run([*flow.entry, "program", "run", str(path), "--workspace", str(flow.project),
-                                 "--engine", "codex"], cwd=flow.root, env=env, capture_output=True, text=True, timeout=90)
+        result = subprocess.run(
+            [*flow.entry, "program", "run", str(path), "--workspace", str(flow.project), "--engine", "codex"],
+            cwd=flow.root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)
         value = json.loads(result.stdout)
         self.assertEqual("WAITING", value["status"])
@@ -1133,9 +1407,21 @@ class CliFixtureTest(unittest.TestCase):
         self.assertEqual("PENDING", rows["a"]["status"])
         self.assertIn(rows["contracts"]["needs"]["kind"], ("answer", "approve_plan"))
         # The child is read through its public status view, never its checkpoint file.
-        child = subprocess.run([*flow.entry, "--workspace", rows["contracts"]["workspace"], "--run-dir",
-                                rows["contracts"]["run_dir"], "--status"],
-                               cwd=flow.root, env=env, capture_output=True, text=True, timeout=30)
+        child = subprocess.run(
+            [
+                *flow.entry,
+                "--workspace",
+                rows["contracts"]["workspace"],
+                "--run-dir",
+                rows["contracts"]["run_dir"],
+                "--status",
+            ],
+            cwd=flow.root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         self.assertEqual(0, child.returncode, child.stdout + child.stderr)
         saved = json.loads(child.stdout)
         self.assertEqual(rows["contracts"]["workspace"], saved["workspace"])
@@ -1143,11 +1429,22 @@ class CliFixtureTest(unittest.TestCase):
         self.assertTrue(Path(rows["contracts"]["workspace"]).is_relative_to(flow.project / ".autocode/worktrees"))
         brief = Path(value["state_file"]).parent / "contracts" / "brief.md"
         self.assertIn("PROGRAM WORKSTREAM contracts", brief.read_text())
-        branches = [name for name in git(flow.project, "for-each-ref", "--format=%(refname:short)",
-                                          "refs/heads/autocode/").splitlines() if "/program-" in name]
+        branches = [
+            name
+            for name in git(
+                flow.project, "for-each-ref", "--format=%(refname:short)", "refs/heads/autocode/"
+            ).splitlines()
+            if "/program-" in name
+        ]
         self.assertEqual(2, len(branches), branches)
-        status = subprocess.run([*flow.entry, "program", "status", str(path), "--workspace", str(flow.project)],
-                                cwd=flow.root, env=env, capture_output=True, text=True, timeout=30)
+        status = subprocess.run(
+            [*flow.entry, "program", "status", str(path), "--workspace", str(flow.project)],
+            cwd=flow.root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         self.assertEqual("WAITING", json.loads(status.stdout)["status"])
 
 

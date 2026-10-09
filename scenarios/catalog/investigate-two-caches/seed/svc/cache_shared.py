@@ -1,5 +1,6 @@
 """A cache shared by every worker process on the host, backed by files under
 var/cache/. Entries have no expiry; callers delete what they no longer want."""
+
 import contextlib
 import json
 import os

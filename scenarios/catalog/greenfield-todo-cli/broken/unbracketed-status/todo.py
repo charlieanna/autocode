@@ -7,6 +7,7 @@
 Exit status: 0 on success, 1 for an unknown ID or an unreadable store, 2 for
 usage errors. A failing command never modifies todos.json.
 """
+
 import json
 import os
 import sys

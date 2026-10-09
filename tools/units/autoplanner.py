@@ -1,4 +1,5 @@
 """Autoplanner owns requirements, draft plans and independent plan review."""
+
 from __future__ import annotations
 
 import copy
@@ -103,7 +104,8 @@ they leave open. Cite the review in code_refs as exactly its report_path.
 # be proven and the run stalled on it (2026-09-29).
 # Tests must check behavior, not the repository's file listing: a live port-policy-go plan turned
 # "deliver these four files" into a test that failed once its checker built policy.bin (2026-09-29).
-EXAMPLE_CRITERIA_RULE = """
+EXAMPLE_CRITERIA_RULE = (
+    """
 TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one concrete example a person can
 check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
 then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Work each
@@ -146,7 +148,9 @@ affected_paths before approval. `python3 -m unittest discover -s tests -t .` nee
 assign that file explicitly (or tests/) when it does not exist. Never leave the Builder to expand scope.
 ERROR PATHS: inject failures after staged or transactional work begins; verify the public error contract,
 unchanged persistent state and complete cleanup across the relevant underlying failure modes.
-""" + test_cases.NAMED_PROOF_NOTE
+"""
+    + test_cases.NAMED_PROOF_NOTE
+)
 # Two live ladder runs (Claude models, 2026-09-30) approved an example that contradicted its own rule: "2024-02-28
 # to 2024-03-01 is 4 dates", and an entry with a TTL of 2**63 still present at time 1e300. Both plan reviews passed
 # it, the Builder bent its test to fit, and the run stopped for a person after the build.
@@ -198,7 +202,8 @@ affected_paths. The runner refuses a design plan that would let the Builder chan
 # Planning is otherwise never told how execution captures test evidence, so plans invented
 # scratch copies outside the workspace and reviewers blocked them for a "missing capture
 # command" (bugfix-cent-drift, 2026-09-28: three planning rounds).
-EVIDENCE_FACTS = """
+EVIDENCE_FACTS = (
+    """
 TEST EVIDENCE (how execution works; plan within it, do not re-derive it): the runner gives every Builder
 and Validator the capture_command shown in the handoff. It runs a command in the workspace and saves the
 full output as evidence in the run's own directory under .autocode/, which the runner owns: evidence is
@@ -208,7 +213,11 @@ capture it passing. Do not plan scratch copies outside the workspace, and do not
 missing prerequisite or ask the user to authorize it. Running the project's tests also creates files
 (__pycache__/, *.pyc, caches) and the runner keeps its own files under .autocode/: never cite these as
 evidence, and any check of which files changed must ignore them.
-""" + verification_plan.GIT_STATUS_RULE + "\n" + verification_plan.SHELL_SYNTAX_RULE + """
+"""
+    + verification_plan.GIT_STATUS_RULE
+    + "\n"
+    + verification_plan.SHELL_SYNTAX_RULE
+    + """
 CONTRACT DELTA: contract_changes describes only changes from the current goal_contract revision in this
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.
@@ -229,6 +238,7 @@ do not reopen answered questions or invent extra clarification cycles for report
 Keep existing test names and assertions. A planned case needs a separate new test if matching its id
 would otherwise require renaming an existing test; a guard must keep the original coverage as well.
 """
+)
 REVISION_CONFLICT_RULE = """
 PROTECTED REVISION CONFLICTS: outside the narrow allowed draft proof/example corrections, a
 reviewer's requested behavior change still needs a saved user answer or feedback event, even in
@@ -247,20 +257,26 @@ explain their relevance in response, and never invent citations or cite not-yet-
 # A live review-then-fix plan (2026-09-29) marked "the diff touches only the two fixes" for human
 # review although its own verification method was "Validator reads git diff"; the run then
 # stopped for an approval nobody needed.
-HUMAN_REVIEW_NOTE = ("true only when nothing the Validator can run or read settles the criterion: a visual, "
-                     "audible or subjective judgement that needs a person. A criterion checked from the diff, "
-                     "tests, command receipts or files is false. Every true criterion stops the run for the "
-                     "user's approval before it can complete.")
+HUMAN_REVIEW_NOTE = (
+    "true only when nothing the Validator can run or read settles the criterion: a visual, "
+    "audible or subjective judgement that needs a person. A criterion checked from the diff, "
+    "tests, command receipts or files is false. Every true criterion stops the run for the "
+    "user's approval before it can complete."
+)
 
 
-CONTRACT_FIELDS_RULE = """
+CONTRACT_FIELDS_RULE = (
+    """
 CONTRACT LISTS: when open_blocking_questions is empty, the runner refuses a contract whose deliverables,
 required_behaviors or permission_boundaries is an empty list, and the report is sent back for repair. Give each at
 least one entry: deliverables are the files or artifacts produced; required_behaviors is what the finished work must
 do; permission_boundaries is what it may and may not touch (for example "Edit only pager/ and tests/; no network; no
 writes outside the workspace"). important_failure_cases, scope_exclusions and constraints may be empty when there is
 nothing to say: do not invent entries. While open_blocking_questions is non-empty, empty lists are allowed.
-HUMAN REVIEW: an acceptance criterion's human_review is """ + HUMAN_REVIEW_NOTE + "\n"
+HUMAN REVIEW: an acceptance criterion's human_review is """
+    + HUMAN_REVIEW_NOTE
+    + "\n"
+)
 # Planner reports were sent back for repair with "Planner dropped requirements with no trace" in
 # several live runs (Claude models, 2026-09-29): the report's requirement_trace was [] although the
 # handoff listed R1..Rn, buried in requirements_handoff. The stages that must trace them get the
@@ -297,10 +313,11 @@ def trace_rows(state, stage):
         return []
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     # Feedback on a shown plan that no Requirements report has read yet is traced like a requirement.
-    return [{"requirement_id": row["id"], "requirement": row.get("text", ""),
-             "source_quote": row.get("source_quote", "")}
-            for row in (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
-            if isinstance(row, dict) and row.get("id")]
+    return [
+        {"requirement_id": row["id"], "requirement": row.get("text", ""), "source_quote": row.get("source_quote", "")}
+        for row in (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
+        if isinstance(row, dict) and row.get("id")
+    ]
 
 
 # A late question (the final review returned an unresolved concern to the user, usually permission to change
@@ -320,18 +337,33 @@ def previous_review(state):
     review checks the answers instead of reviewing the plan from scratch; None otherwise."""
     history = state.get("planning_history") or []
     reports = ((history[-1] if history else None) or {}).get("reports") or {}
-    last = next((reports[stage]["report"] for stage in ("astra_finalize", "glm_revise")
-                 if (reports.get(stage) or {}).get("report")), {})
+    last = next(
+        (
+            reports[stage]["report"]
+            for stage in ("astra_finalize", "glm_revise")
+            if (reports.get(stage) or {}).get("report")
+        ),
+        {},
+    )
     questions = (last.get("contract") or {}).get("open_blocking_questions") or []
     answers = state.get("answers") or {}
     if not questions or any(question.get("id") not in answers for question in questions):
         return None
     concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
-    return {"concerns": [{key: row.get(key) for key in ("id", "concern", "blocking")} for row in concerns],
-            "decisions": [{key: row.get(key) for key in ("concern_id", "decision", "resolved")}
-                          for row in last.get("decisions") or []],
-            "answered_questions": [{"id": question["id"], "question": question.get("question", ""),
-                                    "answer": answers[question["id"]].get("text", "")} for question in questions]}
+    return {
+        "concerns": [{key: row.get(key) for key in ("id", "concern", "blocking")} for row in concerns],
+        "decisions": [
+            {key: row.get(key) for key in ("concern_id", "decision", "resolved")} for row in last.get("decisions") or []
+        ],
+        "answered_questions": [
+            {
+                "id": question["id"],
+                "question": question.get("question", ""),
+                "answer": answers[question["id"]].get("text", ""),
+            }
+            for question in questions
+        ],
+    }
 
 
 def fill_trace_id(state, stage, value):
@@ -351,9 +383,12 @@ def fill_trace_id(state, stage, value):
         return {**value, "requirement_trace": [row for row in trace if "requirement_id" in row]}
     ids = [row["requirement_id"] for row in expected]
     assigned = [row["requirement_id"] for row in trace if "requirement_id" in row]
-    if (len(set(ids)) != len(ids) or len(trace) != len(ids)
-            or any(not isinstance(rid, str) or rid not in ids for rid in assigned)
-            or len(set(assigned)) != len(assigned)):
+    if (
+        len(set(ids)) != len(ids)
+        or len(trace) != len(ids)
+        or any(not isinstance(rid, str) or rid not in ids for rid in assigned)
+        or len(set(assigned)) != len(assigned)
+    ):
         return value
     untraced = [rid for rid in ids if rid not in assigned]
     if len(unnamed) != 1 or len(untraced) != 1:
@@ -375,80 +410,144 @@ V2_STAGE_ROLES = {
     "plan_finalize": "plan_reviewer",
 }
 S, SS, obj = goals.STRING, goals.STRINGS, goals.obj
-CONCERN = obj({"id": S, "concern": S, "evidence_refs": SS, "requested_change": S,
-               "acceptance_test": S, "blocking": {"type": "boolean"}})
-RESPONSE = obj({"concern_id": S, "response": S, "evidence_refs": SS,
-                "change": S, "acceptance_test": S})
-DECISION = obj({"concern_id": S, "decision": S, "rationale": S,
-                "acceptance_test": S, "resolved": {"type": "boolean"}})
+CONCERN = obj(
+    {
+        "id": S,
+        "concern": S,
+        "evidence_refs": SS,
+        "requested_change": S,
+        "acceptance_test": S,
+        "blocking": {"type": "boolean"},
+    }
+)
+RESPONSE = obj({"concern_id": S, "response": S, "evidence_refs": SS, "change": S, "acceptance_test": S})
+DECISION = obj({"concern_id": S, "decision": S, "rationale": S, "acceptance_test": S, "resolved": {"type": "boolean"}})
 REQUIREMENT = obj({"id": S, "text": S, "source_quote": S})
 CONFLICT = obj({"requirement_ids": SS, "description": S})
-CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
-    "basis": {"type": "string", "enum": ["user_answer", "user_feedback"]},
-    "answer_id": S, "source_quote": S, "resolution": S})
-CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
-              "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
-              "answer_id": S, "replacement": S})
+CONFLICT_RESOLUTION = obj(
+    {
+        "requirement_ids": SS,
+        "basis": {"type": "string", "enum": ["user_answer", "user_feedback"]},
+        "answer_id": S,
+        "source_quote": S,
+        "resolution": S,
+    }
+)
+CHANGE = obj(
+    {
+        "item": S,
+        "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
+        "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
+        "answer_id": S,
+        "replacement": S,
+    }
+)
 # Only a draft example correction carries a receipt. Generation schemas require every field, so a change
 # that is not one says null; as a plain object field GLM 5.3's null failed every report declaring a
 # contract change (2026-10-02). Readers treat anything but an object as no correction.
 CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type": ["object", "null"]}
-TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
-             "evidence": S})
+TRACE = obj(
+    {
+        "requirement_id": S,
+        "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
+        "evidence": S,
+    }
+)
 # New reports use the structured form; this is also the generation schema, so
 # the model needs a concrete item shape. A report produced before structured
 # assumptions (a plain string item) is still accepted by apply_planning, which
 # validates only the structured items; goals.normalize_assumption reads both.
-ASSUMPTION = obj({"id": S, "text": S, "kind": goals.QUESTION["properties"]["kind"],
-                  "category": goals.QUESTION["properties"]["category"],
-                  "convention_ref": S, "rationale": S, "supports": SS})
+ASSUMPTION = obj(
+    {
+        "id": S,
+        "text": S,
+        "kind": goals.QUESTION["properties"]["kind"],
+        "category": goals.QUESTION["properties"]["category"],
+        "convention_ref": S,
+        "rationale": S,
+        "supports": SS,
+    }
+)
 ASSUMPTIONS = {"type": "array", "items": ASSUMPTION}
-IGNORED_REQUIREMENT = obj({"requirement_id": S, "reason": S,
-    "basis": {"type": "string", "enum": ["user_answer", "user_feedback"]}, "event_id": S})
+IGNORED_REQUIREMENT = obj(
+    {
+        "requirement_id": S,
+        "reason": S,
+        "basis": {"type": "string", "enum": ["user_answer", "user_feedback"]},
+        "event_id": S,
+    }
+)
 SCHEMAS = {
-    "requirements_gather": obj({
-        "summary": S, "intended_outcome": S, "required_behaviors": SS,
-        "constraints": SS, "acceptance_tests": SS, "source_refs": SS,
-        "proposed_assumptions": ASSUMPTIONS,
-        "open_questions": {"type": "array", "maxItems": 3, "items": goals.QUESTION},
-        "requirements": {"type": "array", "items": REQUIREMENT},
-        "ignored_statements": SS,
-        "conflicts": {"type": "array", "items": CONFLICT},
-    }),
-    "astra_discovery": obj({"contract": goals.BODY_SCHEMA, "summary": S,
-                            "code_refs": SS, "alternatives": SS, "uncertainties": SS,
-                            "contract_changes": {"type": "array", "items": CHANGE},
-                            "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
-                            "requirement_trace": {"type": "array", "items": TRACE}}),
+    "requirements_gather": obj(
+        {
+            "summary": S,
+            "intended_outcome": S,
+            "required_behaviors": SS,
+            "constraints": SS,
+            "acceptance_tests": SS,
+            "source_refs": SS,
+            "proposed_assumptions": ASSUMPTIONS,
+            "open_questions": {"type": "array", "maxItems": 3, "items": goals.QUESTION},
+            "requirements": {"type": "array", "items": REQUIREMENT},
+            "ignored_statements": SS,
+            "conflicts": {"type": "array", "items": CONFLICT},
+        }
+    ),
+    "astra_discovery": obj(
+        {
+            "contract": goals.BODY_SCHEMA,
+            "summary": S,
+            "code_refs": SS,
+            "alternatives": SS,
+            "uncertainties": SS,
+            "contract_changes": {"type": "array", "items": CHANGE},
+            "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
+            "requirement_trace": {"type": "array", "items": TRACE},
+        }
+    ),
     "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
-    "glm_revise": obj({"contract": goals.BODY_SCHEMA, "summary": S, "code_refs": SS,
-                       "responses": {"type": "array", "items": RESPONSE},
-                       "contract_changes": {"type": "array", "items": CHANGE},
-                       "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
-                       "requirement_trace": {"type": "array", "items": TRACE}}),
-    "astra_finalize": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S,
-                           "decisions": {"type": "array", "items": DECISION},
-                           "contract_changes": {"type": "array", "items": CHANGE},
-                           "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
-                           "requirement_trace": {"type": "array", "items": TRACE}}),
+    "glm_revise": obj(
+        {
+            "contract": goals.BODY_SCHEMA,
+            "summary": S,
+            "code_refs": SS,
+            "responses": {"type": "array", "items": RESPONSE},
+            "contract_changes": {"type": "array", "items": CHANGE},
+            "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
+            "requirement_trace": {"type": "array", "items": TRACE},
+        }
+    ),
+    "astra_finalize": obj(
+        {
+            "contract": goals.PLANNING_BODY_SCHEMA,
+            "summary": S,
+            "decisions": {"type": "array", "items": DECISION},
+            "contract_changes": {"type": "array", "items": CHANGE},
+            "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
+            "requirement_trace": {"type": "array", "items": TRACE},
+        }
+    ),
 }
-SCHEMAS.update({
-    "requirements": obj({"requirements": goals.REQUIREMENTS_BODY_SCHEMA, "summary": S}),
-    "plan": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S}),
-    "plan_review": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
-    "plan_revise": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S,
-                         "responses": {"type": "array", "items": RESPONSE}}),
-    "plan_finalize": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S,
-                           "decisions": {"type": "array", "items": DECISION}}),
-})
+SCHEMAS.update(
+    {
+        "requirements": obj({"requirements": goals.REQUIREMENTS_BODY_SCHEMA, "summary": S}),
+        "plan": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S}),
+        "plan_review": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
+        "plan_revise": obj(
+            {"contract": goals.PLANNING_BODY_SCHEMA, "summary": S, "responses": {"type": "array", "items": RESPONSE}}
+        ),
+        "plan_finalize": obj(
+            {"contract": goals.PLANNING_BODY_SCHEMA, "summary": S, "decisions": {"type": "array", "items": DECISION}}
+        ),
+    }
+)
 # Only independent reviewers may propose executable observations; the runner seals their provenance.
 BRIEF_OBSERVATION_CHANGE = obj({"previous_hash": S, "declaration_id": S, "source_event_id": S})
 for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["brief_observations"] = brief_obligations.PROPOSALS_SCHEMA
     SCHEMAS[_stage]["properties"]["risk_observations"] = risk_obligations.PROPOSALS_SCHEMA
     SCHEMAS[_stage]["properties"]["risk_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
-    SCHEMAS[_stage]["properties"]["brief_observation_changes"] = {
-        "type": "array", "items": BRIEF_OBSERVATION_CHANGE}
+    SCHEMAS[_stage]["properties"]["brief_observation_changes"] = {"type": "array", "items": BRIEF_OBSERVATION_CHANGE}
 
 # Live planning reports were rejected, each costing a report repair, for a contract whose deliverables,
 # required_behaviors or permission_boundaries was an empty list (VALIDATION.md 2026-09-26; two Claude-model
@@ -459,8 +558,8 @@ CONTRACT_FIELD_NOTES = {
     "deliverables": "The files or artifacts the work produces. At least one unless open_blocking_questions is non-empty.",
     "required_behaviors": "What the finished work must do. At least one unless open_blocking_questions is non-empty.",
     "permission_boundaries": "What the work may and may not touch, for example: Edit only pager/ and tests/; no "
-                             "network; no writes outside the workspace. At least one unless open_blocking_questions "
-                             "is non-empty.",
+    "network; no writes outside the workspace. At least one unless open_blocking_questions "
+    "is non-empty.",
     "important_failure_cases": "Failure cases that matter. May be empty; do not invent entries.",
     "scope_exclusions": "Work that is explicitly out of scope. May be empty; do not invent entries.",
     "constraints": "Constraints the user or the project imposes. May be empty; do not invent entries.",
@@ -480,12 +579,13 @@ for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_
     SCHEMAS[_stage]["properties"]["contract"] = _described(SCHEMAS[_stage]["properties"]["contract"])
 # Optional for old saved reports; new prompts require this whenever intent must change.
 SCHEMAS["requirements_gather"]["properties"]["proposed_reframes"] = {
-    "type": "array", "items": obj({"requirement_id": S, "proposal": S, "question_id": S})}
+    "type": "array",
+    "items": obj({"requirement_id": S, "proposal": S, "question_id": S}),
+}
 SCHEMAS[RECOGNIZE] = workflows.SCHEMA
 # Optional; required only when a refreshed handoff drops a requirement the
 # previous handoff had (goals.check_requirement_handoff enforces the citation).
-SCHEMAS["requirements_gather"]["properties"]["ignored_requirements"] = {
-    "type": "array", "items": IGNORED_REQUIREMENT}
+SCHEMAS["requirements_gather"]["properties"]["ignored_requirements"] = {"type": "array", "items": IGNORED_REQUIREMENT}
 # A discoverable question is answered from the workspace, never by the user.
 # machine_resolutions are accepted only during the runner's one investigation
 # pass, bound to the report that raised the question (handoff_hash). An
@@ -500,10 +600,19 @@ for _stage in INVESTIGATION_STAGES:
 # A rejected assumption becomes a runner-owned obligation. The Planner proposes
 # how the requirements it supported are still met (remediation_records); only a
 # Plan Reviewer decision bound to that exact record's hash discharges it.
-REMEDIATION = obj({"obligation_id": S, "assumption_id": S, "approach": S, "evidence_refs": SS,
-                   "covered_requirements": SS, "episode_id": S})
-OBLIGATION_DECISION = obj({"obligation_id": S, "remediation_hash": S, "resolved": {"type": "boolean"},
-                           "rationale": S, "evidence_refs": SS})
+REMEDIATION = obj(
+    {
+        "obligation_id": S,
+        "assumption_id": S,
+        "approach": S,
+        "evidence_refs": SS,
+        "covered_requirements": SS,
+        "episode_id": S,
+    }
+)
+OBLIGATION_DECISION = obj(
+    {"obligation_id": S, "remediation_hash": S, "resolved": {"type": "boolean"}, "rationale": S, "evidence_refs": SS}
+)
 for _stage in ("astra_discovery", "glm_revise"):
     SCHEMAS[_stage]["properties"]["remediation_records"] = {"type": "array", "items": REMEDIATION}
 for _stage in ("astra_challenge", "astra_finalize"):
@@ -512,15 +621,35 @@ for _stage in ("astra_challenge", "astra_finalize"):
 # end-to-end slices. The runner validates it, generates the plan-card disclosure
 # from it and seals it at ordinary approval; a report without one keeps the
 # ordinary path. Old saved reports remain valid.
-PROGRESSIVE_CHECK = obj({"id": S, "method": S,
-                         "relation": {"type": "string", "enum": ["contributes_to", "fully_verify"]},
-                         "criterion_ids": SS})
-PROGRESSIVE_SLICE = obj({"id": S, "intended_result": S, "criterion_ids": SS, "paths": SS, "depends_on": SS,
-                         "checks": {"type": "array", "items": PROGRESSIVE_CHECK},
-                         "tentative": {"type": "boolean"}})
-PROGRESSIVE_PROPOSAL = obj({"version": {"type": "integer"}, "needed_because": S, "shared_decisions": SS,
-                            "outstanding_criteria": SS, "done_slices": SS,
-                            "slices": {"type": "array", "items": PROGRESSIVE_SLICE}})
+PROGRESSIVE_CHECK = obj(
+    {
+        "id": S,
+        "method": S,
+        "relation": {"type": "string", "enum": ["contributes_to", "fully_verify"]},
+        "criterion_ids": SS,
+    }
+)
+PROGRESSIVE_SLICE = obj(
+    {
+        "id": S,
+        "intended_result": S,
+        "criterion_ids": SS,
+        "paths": SS,
+        "depends_on": SS,
+        "checks": {"type": "array", "items": PROGRESSIVE_CHECK},
+        "tentative": {"type": "boolean"},
+    }
+)
+PROGRESSIVE_PROPOSAL = obj(
+    {
+        "version": {"type": "integer"},
+        "needed_because": S,
+        "shared_decisions": SS,
+        "outstanding_criteria": SS,
+        "done_slices": SS,
+        "slices": {"type": "array", "items": PROGRESSIVE_SLICE},
+    }
+)
 for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
     SCHEMAS[_stage]["properties"]["progressive_proposal"] = PROGRESSIVE_PROPOSAL
 
@@ -548,8 +677,12 @@ def entry_stage(state):
 def next_after(state, stage):
     if state.get("settings", {}).get("planning_flow") == "v2":
         return dict(zip(V2_STAGES, V2_STAGES[1:], strict=False)).get(stage)
-    return {"requirements_gather": "astra_discovery", "astra_discovery": "astra_challenge",
-            "astra_challenge": "glm_revise", "glm_revise": "astra_finalize"}.get(stage)
+    return {
+        "requirements_gather": "astra_discovery",
+        "astra_discovery": "astra_challenge",
+        "astra_challenge": "glm_revise",
+        "glm_revise": "astra_finalize",
+    }.get(stage)
 
 
 def role_for(state, stage):
@@ -567,8 +700,13 @@ def role_for(state, stage):
 # Workflow stages that run on a route of their own (their unit's prepare() creates it). run_role
 # derives engine, effort and session from route_for, so without this they silently ran on the
 # Plan Reviewer's route: its effort, and its saved session (context leaking between stages).
-JOB_ROUTES = {"investigate_bug": "investigator", "review_design": "architect", "check_design": "architect",
-              "answer_question": "analyst", "investigate_stuck": "stuck_investigator"}
+JOB_ROUTES = {
+    "investigate_bug": "investigator",
+    "review_design": "architect",
+    "check_design": "architect",
+    "answer_question": "analyst",
+    "investigate_stuck": "stuck_investigator",
+}
 
 
 def route_for(state, stage, role=None):
@@ -618,9 +756,9 @@ def start(state):
     if state.get("planning"):
         state.setdefault("planning_history", []).append(copy.deepcopy(state["planning"]))
     state["planning"] = {"astra_calls": 0, "reports": {}, "final_token": None}
-    saved_review_limit = state.get('settings', {}).get('planning_review_call_limit')
+    saved_review_limit = state.get("settings", {}).get("planning_review_call_limit")
     if type(saved_review_limit) is int and saved_review_limit == 0:
-        state['planning'].update(review_call_limit=0, review_call_limit_origin='user_explicit')
+        state["planning"].update(review_call_limit=0, review_call_limit_origin="user_explicit")
     state.pop(human.PRIVATE, None)
     state.pop(human.PUBLIC, None)
     state.pop("user_request", None)
@@ -629,8 +767,9 @@ def start(state):
 
 
 def review_call_limit(state):
-    limit = state.get("planning", {}).get("review_call_limit",
-                state.get("settings", {}).get("planning_review_call_limit", 2))
+    limit = state.get("planning", {}).get(
+        "review_call_limit", state.get("settings", {}).get("planning_review_call_limit", 2)
+    )
     if type(limit) is not int or (limit != 0 and limit < 2):
         raise ValueError("Planning review call limit must be 0 (unlimited) or an integer of at least 2")
     return limit
@@ -644,33 +783,57 @@ def set_review_call_limit(state, limit):
         import autocode_resolver_human as human
     published = human.current(state)
     issued_pause = None
-    if published and published['scope'] == 'operational_exhaustion':
-        issued_pause = state['resolver']['human_escalations'][published['request_id']]['identity']['proposal']['origin'].get('pause_status')
-    unlimited_checkpoint = (type(limit) is int and limit == 0
-                            and state.get('status') in ('PAUSED_STAGE_ABANDONED', 'PAUSED_REQUESTED'))
-    if (not enabled(state) or not state.get("planning")
-            or (not unlimited_checkpoint and (
+    if published and published["scope"] == "operational_exhaustion":
+        issued_pause = state["resolver"]["human_escalations"][published["request_id"]]["identity"]["proposal"][
+            "origin"
+        ].get("pause_status")
+    unlimited_checkpoint = (
+        type(limit) is int and limit == 0 and state.get("status") in ("PAUSED_STAGE_ABANDONED", "PAUSED_REQUESTED")
+    )
+    if (
+        not enabled(state)
+        or not state.get("planning")
+        or (
+            not unlimited_checkpoint
+            and (
                 (limit == 0 and state.get("status") != "PAUSED_PLANNING_BUDGET")
-                or (limit != 0 and (state.get("status") != "PAUSED_PLANNING_BUDGET"
-                                    and issued_pause != "PAUSED_PLANNING_BUDGET"))
-                or state.get("next_stage") not in ("astra_challenge", "astra_finalize")))
-            or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))):
+                or (
+                    limit != 0
+                    and (state.get("status") != "PAUSED_PLANNING_BUDGET" and issued_pause != "PAUSED_PLANNING_BUDGET")
+                )
+                or state.get("next_stage") not in ("astra_challenge", "astra_finalize")
+            )
+        )
+        or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))
+    ):
         raise ValueError("Planning allowance requires a reconciled PAUSED_PLANNING_BUDGET checkpoint")
     previous = review_call_limit(state)
-    if type(limit) is not int or (limit != 0 and (limit < 2 or limit < previous or limit < state["planning"]["astra_calls"])):
-        raise ValueError("Planning review call limit must be 0 (unlimited) or an integer no smaller than the current limit and usage")
-    if limit == previous and state['planning'].get('review_call_limit_origin') == 'user_explicit':
+    if type(limit) is not int or (
+        limit != 0 and (limit < 2 or limit < previous or limit < state["planning"]["astra_calls"])
+    ):
+        raise ValueError(
+            "Planning review call limit must be 0 (unlimited) or an integer no smaller than the current limit and usage"
+        )
+    if limit == previous and state["planning"].get("review_call_limit_origin") == "user_explicit":
         return
     state["planning"]["review_call_limit"] = limit
     progressive.set_explicit_limits(state, review_calls=limit)
-    state['planning']['review_call_limit_origin'] = 'user_explicit'
+    state["planning"]["review_call_limit_origin"] = "user_explicit"
     if limit == 0:
-        state['settings']['planning_review_call_limit'] = 0
-    human.supersede_operational(state, 'Operator explicitly selected the planning review allowance')
-    state.setdefault("user_events", []).append({
-        "kind": "planning_budget_change", "actor": "user_cli", "at": s.now(),
-        "previous_limit": previous, "limit": limit, "calls_used": state["planning"]["astra_calls"],
-        "stage": state["next_stage"], "contract_token": goals.token(state["goal_contract"])})
+        state["settings"]["planning_review_call_limit"] = 0
+    human.supersede_operational(state, "Operator explicitly selected the planning review allowance")
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "planning_budget_change",
+            "actor": "user_cli",
+            "at": s.now(),
+            "previous_limit": previous,
+            "limit": limit,
+            "calls_used": state["planning"]["astra_calls"],
+            "stage": state["next_stage"],
+            "contract_token": goals.token(state["goal_contract"]),
+        }
+    )
 
 
 def refund_unreported(state, planning):
@@ -684,8 +847,9 @@ def refund_unreported(state, planning):
     """
     charges = planning.get("review_charges") or []
     for row in state.get("stages", []):
-        if (row.get("planning_review_charge") in charges
-                and (row.get("timed_out") or (type(row.get("exit_code")) is int and row["exit_code"] != 0))):
+        if row.get("planning_review_charge") in charges and (
+            row.get("timed_out") or (type(row.get("exit_code")) is int and row["exit_code"] != 0)
+        ):
             charges.remove(row["planning_review_charge"])
             planning["astra_calls"] -= 1
             row["planning_review_refunded"] = True
@@ -700,27 +864,38 @@ def charge(state, stage, record=None, workspace=None):
     refund_unreported(state, planning)
     limit = review_call_limit(state)
     if limit and planning["astra_calls"] >= limit:
-        if planning.get('recovery_review_grants'):
+        if planning.get("recovery_review_grants"):
             try:
                 from .. import autocode_resolver_runtime as resolver
             except ImportError:
                 import autocode_resolver_runtime as resolver
             grant = resolver.validate_operational_grant(state, stage, workspace)
-            if (not record or not record.get('output') or record.get('stage') != stage
-                    or planning.get('recovery_review_calls_used', 0) >= resolver.MAX_PLANNING_RECOVERY_GRANTS
-                    or planning['astra_calls'] >= limit + resolver.MAX_PLANNING_RECOVERY_GRANTS):
-                raise s.Paused('PAUSED_RESOLVER_OPERATIONAL', 'Planning recovery admission is exhausted or unbound')
-            grant.update(consumed=True, consuming_output=record['output'],
-                         consuming_iteration=record.get('iteration'), consumed_at=s.now())
-            record['planning_recovery_grant'] = grant['id']
-            record['resolver_receipt_id'] = grant['id']
-            planning['recovery_review_calls_used'] = planning.get('recovery_review_calls_used', 0) + 1
-            planning['astra_calls'] += 1
+            if (
+                not record
+                or not record.get("output")
+                or record.get("stage") != stage
+                or planning.get("recovery_review_calls_used", 0) >= resolver.MAX_PLANNING_RECOVERY_GRANTS
+                or planning["astra_calls"] >= limit + resolver.MAX_PLANNING_RECOVERY_GRANTS
+            ):
+                raise s.Paused("PAUSED_RESOLVER_OPERATIONAL", "Planning recovery admission is exhausted or unbound")
+            grant.update(
+                consumed=True,
+                consuming_output=record["output"],
+                consuming_iteration=record.get("iteration"),
+                consumed_at=s.now(),
+            )
+            record["planning_recovery_grant"] = grant["id"]
+            record["resolver_receipt_id"] = grant["id"]
+            planning["recovery_review_calls_used"] = planning.get("recovery_review_calls_used", 0) + 1
+            planning["astra_calls"] += 1
             return
-        raise s.Paused("PAUSED_PLANNING_BUDGET", f"{planning['astra_calls']}/{limit} plan-review calls used. "
-                       "AutoResolver could not authorize another safe operational call. "
-                       "Retained requirements and review evidence are unchanged; no approval is implied. "
-                       "User feedback is needed only if the plan or requirements must change.")
+        raise s.Paused(
+            "PAUSED_PLANNING_BUDGET",
+            f"{planning['astra_calls']}/{limit} plan-review calls used. "
+            "AutoResolver could not authorize another safe operational call. "
+            "Retained requirements and review evidence are unchanged; no approval is implied. "
+            "User feedback is needed only if the plan or requirements must change.",
+        )
     planning["astra_calls"] += 1
     if record is not None:
         record["planning_review_charge"] = uuid.uuid4().hex
@@ -842,7 +1017,8 @@ If a concern exposes an unknown real integration or a proposed reduction to mock
 scope, ask a blocking question. Do not settle it by adding an agent_proposed assumption
 that the requested real behavior will remain unverified. Testing mocks is not implementing
 the real requirement. Preserve the user's outcome until they explicitly change it.
-""" + RESPONSE_EVIDENCE_RULE,
+"""
+    + RESPONSE_EVIDENCE_RULE,
     "astra_finalize": """You are the independent Plan Reviewer, making the final planning decision (final review stage).
 Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
 Confirm that milestone dependencies are complete and acyclic, and that [] is used only
@@ -857,25 +1033,27 @@ Unresolved decisions MUST appear in open_blocking_questions, never silently beco
 There is no further debate round. The user must approve this exact plan before implementation.
 """,
 }
-PROMPTS.update({
-    "requirements": """You are the independently configured Requirements Planner. Return only the strict
+PROMPTS.update(
+    {
+        "requirements": """You are the independently configured Requirements Planner. Return only the strict
 requirements artifact. Do not create a technical approach, milestones, dependency graph, or implementation.
 Blocking human questions are proposals for AutoResolver adjudication; never claim they were issued or answered.
 """,
-    "plan": """You are the independently configured Technical Planner. Read the exact verified requirements
+        "plan": """You are the independently configured Technical Planner. Read the exact verified requirements
 artifact and delta. Return a complete technical plan with declared dependencies and affected_paths. Do not implement.
 """,
-    "plan_review": """You are the independently configured Plan Reviewer. Read the exact verified plan artifact
+        "plan_review": """You are the independently configured Plan Reviewer. Read the exact verified plan artifact
 and delta. Return concise evidence-based concerns. Do not ask the human directly and do not implement.
 """,
-    "plan_revise": """You are the Technical Planner. Read the exact verified review artifact and delta, respond
+        "plan_revise": """You are the Technical Planner. Read the exact verified review artifact and delta, respond
 to every concern, and return the revised complete plan. Do not implement.
 """,
-    "plan_finalize": """You are the independent Plan Reviewer. Read the exact verified revision artifact and
+        "plan_finalize": """You are the independent Plan Reviewer. Read the exact verified revision artifact and
 delta, settle every concern, and return the final plan. Blocking questions remain private proposals for AutoResolver.
 Do not implement.
 """,
-})
+    }
+)
 
 
 QUESTION_POLICY = """
@@ -1013,9 +1191,11 @@ def repair_rules(stage, schema):
     fields = schema.get("properties", {})
     if stage not in (*TRACE_STAGES, "plan", "plan_revise", "plan_finalize") or "contract" not in fields:
         return ""
-    return (REVISION_CONFLICT_RULE
-            + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
-            + (PROGRESSIVE_POLICY if "progressive_proposal" in fields else ""))
+    return (
+        REVISION_CONFLICT_RULE
+        + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
+        + (PROGRESSIVE_POLICY if "progressive_proposal" in fields else "")
+    )
 
 
 def split_code_ref(root, ref):
@@ -1045,16 +1225,17 @@ def cited_file(root, path, field, ref):
     if not target.is_relative_to(root) or not target.is_file():
         raise ValueError(f"{field} entry {ref} is not a file in the workspace")
     if target.suffix == ".pyc" or any(part in RUNNER_OWNED_PARTS for part in target.relative_to(root).parts):
-        raise ValueError(f"{field} entry {ref} is a file the runner or a tool owns (.autocode/, .git/, "
-                         "__pycache__/ and caches): cite source files, which outlive the run")
+        raise ValueError(
+            f"{field} entry {ref} is a file the runner or a tool owns (.autocode/, .git/, "
+            "__pycache__/ and caches): cite source files, which outlive the run"
+        )
     return target
 
 
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
     """Bounded filesystem inventory; works in repositories and ordinary directories."""
     root = Path(workspace)
-    ignored = {".git", ".autocode", ".venv", "venv", "node_modules", "__pycache__",
-               ".next", "dist", "build", ".cache"}
+    ignored = {".git", ".autocode", ".venv", "venv", "node_modules", "__pycache__", ".next", "dist", "build", ".cache"}
     words = set(re.findall(r"[a-z]{3,}", task.lower()))
     candidates = []
     truncated = False
@@ -1073,15 +1254,18 @@ def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
         if truncated:
             break
     candidates.sort()
-    return {"files": [name for _, name in candidates[:limit]],
-            "truncated": truncated or len(candidates) > limit,
-            "instruction": "File names are navigation hints, not evidence of behavior. Read relevant files."}
+    return {
+        "files": [name for _, name in candidates[:limit]],
+        "truncated": truncated or len(candidates) > limit,
+        "instruction": "File names are navigation hints, not evidence of behavior. Read relevant files.",
+    }
 
 
 def capture_command():
     """The command execution stages are given (autocode_stage_context.context_packet), shown to planning too."""
     import shlex
     import sys
+
     return shlex.join([sys.executable, str(Path(s.__file__).with_name("autocode.py")), "capture"])
 
 
@@ -1138,24 +1322,37 @@ def context(state, stage, state_path):
                 report[key] = report[key][:5]
             elif isinstance(report.get(key), str) and len(report[key]) > 500:
                 report[key] = report[key][:500] + "…"
-    packet = {"task": state["task"], "workspace": state["workspace"], "state_file": str(state_path),
-              "joint_planning": True, "execution_engine": engine_for(state["settings"], route_for(state, stage)),
-              "stage": stage,
-              "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
-              "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
-              "requirements_history": None if stage == "requirements_gather" else [
-                  {"output": entry.get("output"),
-                   "requirements": [{"id": row["id"], "source_quote": row.get("source_quote", "")}
-                                    for row in (entry.get("report") or {}).get("requirements", [])],
-                   "conflicts": (entry.get("report") or {}).get("conflicts", [])}
-                  for entry in state.get("requirements_history", [])
-                  if (entry.get("report") or {}).get("conflicts")],
-              "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
-               "planning": exchange,
-               "budget": f"{review_call_limit(state) or 'Unlimited'} plan-review calls in this cycle, including failed attempts; "
-                         "only an explicit operator action can extend the allowance; "
-                         "separate one-use AutoResolver operational recovery grants do not reset this allowance",
-                "recovery_context": state.get('recovery_context')}
+    packet = {
+        "task": state["task"],
+        "workspace": state["workspace"],
+        "state_file": str(state_path),
+        "joint_planning": True,
+        "execution_engine": engine_for(state["settings"], route_for(state, stage)),
+        "stage": stage,
+        "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
+        "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
+        "requirements_history": None
+        if stage == "requirements_gather"
+        else [
+            {
+                "output": entry.get("output"),
+                "requirements": [
+                    {"id": row["id"], "source_quote": row.get("source_quote", "")}
+                    for row in (entry.get("report") or {}).get("requirements", [])
+                ],
+                "conflicts": (entry.get("report") or {}).get("conflicts", []),
+            }
+            for entry in state.get("requirements_history", [])
+            if (entry.get("report") or {}).get("conflicts")
+        ],
+        "saved_answers": state.get("answers", {}),
+        "brief_feedback": state.get("brief_feedback", []),
+        "planning": exchange,
+        "budget": f"{review_call_limit(state) or 'Unlimited'} plan-review calls in this cycle, including failed attempts; "
+        "only an explicit operator action can extend the allowance; "
+        "separate one-use AutoResolver operational recovery grants do not reset this allowance",
+        "recovery_context": state.get("recovery_context"),
+    }
     turn = requirement_cues.new_workflow_turn(state)
     if turn:
         packet["task"] = turn["say"]
@@ -1166,24 +1363,28 @@ def context(state, stage, state_path):
     if predecessor:
         packet["predecessor_artifact"] = predecessor["artifact"]["path"]
         packet["predecessor_delta"] = predecessor["delta"]["path"]
-    recovery_instruction = ''
-    grants = [grant for grant in exchange.get('recovery_review_grants', [])
-              if not grant.get('consumed') and grant.get('binding', {}).get('stage') == stage]
-    recovery = packet['recovery_context'] or {}
-    if grants or (stage in ('astra_challenge', 'astra_finalize') and recovery.get('stage') == stage):
+    recovery_instruction = ""
+    grants = [
+        grant
+        for grant in exchange.get("recovery_review_grants", [])
+        if not grant.get("consumed") and grant.get("binding", {}).get("stage") == stage
+    ]
+    recovery = packet["recovery_context"] or {}
+    if grants or (stage in ("astra_challenge", "astra_finalize") and recovery.get("stage") == stage):
         try:
             from ..autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
         except ImportError:
             from autocode_resolver_runtime import OPERATIONAL_INSTRUCTION
-        packet['resolver_remediation'] = {'receipt_id': grants[0]['id'] if grants else None,
-                                           'instruction': OPERATIONAL_INSTRUCTION}
-        recovery_instruction = '\n' + OPERATIONAL_INSTRUCTION + '\n'
-    if stage in ('astra_challenge', 'astra_finalize') and (grants or packet['recovery_context']):
-        packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'], limit=20)
+        packet["resolver_remediation"] = {
+            "receipt_id": grants[0]["id"] if grants else None,
+            "instruction": OPERATIONAL_INSTRUCTION,
+        }
+        recovery_instruction = "\n" + OPERATIONAL_INSTRUCTION + "\n"
+    if stage in ("astra_challenge", "astra_finalize") and (grants or packet["recovery_context"]):
+        packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"], limit=20)
     if stage == "requirements_gather":
         packet["requirement_coverage_checklist"] = [
-            sentence for source in goals.scan_texts(state)
-            for sentence in goals.cue_sentences(source)
+            sentence for source in goals.scan_texts(state) for sentence in goals.cue_sentences(source)
         ]
     rows = trace_rows(state, stage)
     if rows:
@@ -1193,26 +1394,26 @@ def context(state, stage, state_path):
         packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
-    packet['user_events'] = state.get('user_events', [])
+    packet["user_events"] = state.get("user_events", [])
     try:
         from ..autocode_component_runtime import architecture_contract
     except ImportError:
         from autocode_component_runtime import architecture_contract
-    runtime_contract = architecture_contract(state['task'])
+    runtime_contract = architecture_contract(state["task"])
     if runtime_contract:
-        packet['architecture_runtime_contract'] = runtime_contract
-    if state.get('design_constraint'):
-        packet['approved_design'] = state['design_constraint']
+        packet["architecture_runtime_contract"] = runtime_contract
+    if state.get("design_constraint"):
+        packet["approved_design"] = state["design_constraint"]
     diagnosis = bug_job.large_correction(state)
     if diagnosis:
-        packet['bug_diagnosis'] = diagnosis
+        packet["bug_diagnosis"] = diagnosis
     findings = follow_up.review_findings(state)
     if findings:
-        packet['review_findings'] = findings
+        packet["review_findings"] = findings
     if stage == "requirements_gather":
-        packet['previous_requirements_handoff'] = state.get('requirements_handoff')
+        packet["previous_requirements_handoff"] = state.get("requirements_handoff")
     if stage in ("requirements_gather", "astra_discovery"):
-        packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'])
+        packet["workspace_inventory"] = workspace_inventory(state["workspace"], state["task"])
     try:
         from .. import autocode_design_manifest as design_manifest
         from .. import autocode_figma as figma
@@ -1224,16 +1425,38 @@ def context(state, stage, state_path):
     if manifest_context:
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION
-    planning_policy = "" if stage == "requirements_gather" else (
-        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS + REVISION_CONFLICT_RULE
-        + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
-    progressive_policy = PROGRESSIVE_POLICY if stage in ("astra_discovery", "glm_revise", "astra_challenge",
-                                                         "astra_finalize", "plan", "plan_revise",
-                                                         "plan_finalize") else ""
+    planning_policy = (
+        ""
+        if stage == "requirements_gather"
+        else (
+            goals.DECISION_PROVENANCE
+            + goals.CONTRACT_REFERENCES
+            + examples.RULE
+            + s.MILESTONE_POLICY
+            + EVIDENCE_FACTS
+            + REVISION_CONFLICT_RULE
+            + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE)
+        )
+    )
+    progressive_policy = (
+        PROGRESSIVE_POLICY
+        if stage
+        in (
+            "astra_discovery",
+            "glm_revise",
+            "astra_challenge",
+            "astra_finalize",
+            "plan",
+            "plan_revise",
+            "plan_finalize",
+        )
+        else ""
+    )
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
     clarification_policy = ("" if stage == "astra_challenge" else QUESTION_POLICY) + (
-        ASSUMPTION_POLICY if stage == "requirements_gather" else "")
+        ASSUMPTION_POLICY if stage == "requirements_gather" else ""
+    )
     if stage != "requirements_gather":
         packet["deferred_obligations"] = state.get("deferred_obligations", [])
         packet["clarification_episode"] = state.get("clarification_episode")
@@ -1244,13 +1467,17 @@ def context(state, stage, state_path):
         # everything it needs explicitly.
         packet["investigation_request"] = request
         clarification_policy += INVESTIGATION_POLICY
-    design_rule = (APPROVED_DESIGN_RULE if state.get('design_constraint') else "") + (BUG_DIAGNOSIS_RULE if diagnosis else "")
+    design_rule = (APPROVED_DESIGN_RULE if state.get("design_constraint") else "") + (
+        BUG_DIAGNOSIS_RULE if diagnosis else ""
+    )
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     if turn:
-        design_rule += ("\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
-                        "Use its decisions and reports as context; do not reopen its output paths or no-code conditions as new requirements. "
-                        "Produce what this request asks for, following the repository's artifact conventions. "
-                        "The current contract and approved_design, when present, remain binding.\n")
+        design_rule += (
+            "\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
+            "Use its decisions and reports as context; do not reopen its output paths or no-code conditions as new requirements. "
+            "Produce what this request asks for, following the repository's artifact conventions. "
+            "The current contract and approved_design, when present, remain binding.\n"
+        )
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
@@ -1273,11 +1500,23 @@ def context(state, stage, state_path):
     if packet.get("risk_declaration_inventory"):
         design_rule += RISK_OBSERVATION_REVIEW_RULE
     design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
-    prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
-              + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
-              + json.dumps(packet, indent=2))
-    return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
-                    "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}
+    prompt = (
+        PROMPTS[stage]
+        + JOB_TYPE_POLICY
+        + design_rule
+        + recovery_instruction
+        + figma_instruction
+        + planning_policy
+        + clarification_policy
+        + progressive_policy
+        + s.COMMON
+        + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
+        + json.dumps(packet, indent=2)
+    )
+    return prompt, {
+        "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+        "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
+    }
 
 
 def _model_report_schema(schema, state):
@@ -1289,59 +1528,98 @@ def _model_report_schema(schema, state):
             body.get("properties", {}).pop(protected, None)
             if protected in body.get("required", []):
                 body["required"].remove(protected)
-    if not brief_obligations.inventory(state) and not (
-            (state.get('goal_contract') or {}).get('body') or {}).get(brief_obligations.KEY):
+    if not brief_obligations.inventory(state) and not ((state.get("goal_contract") or {}).get("body") or {}).get(
+        brief_obligations.KEY
+    ):
         # Strict model output schemas require every included property. Unrelated
         # tasks retain their existing report protocol; no empty feature fields.
-        for field in ('brief_observations', 'brief_observation_changes'):
-            result.get('properties', {}).pop(field, None)
-            if field in result.get('required', []):
-                result['required'].remove(field)
-    if not risk_obligations.inventory(state) and not (
-            (state.get('goal_contract') or {}).get('body') or {}).get(risk_obligations.KEY):
-        for field in ('risk_observations', 'risk_observation_changes'):
-            result.get('properties', {}).pop(field, None)
-            if field in result.get('required', []):
-                result['required'].remove(field)
+        for field in ("brief_observations", "brief_observation_changes"):
+            result.get("properties", {}).pop(field, None)
+            if field in result.get("required", []):
+                result["required"].remove(field)
+    if not risk_obligations.inventory(state) and not ((state.get("goal_contract") or {}).get("body") or {}).get(
+        risk_obligations.KEY
+    ):
+        for field in ("risk_observations", "risk_observation_changes"):
+            result.get("properties", {}).pop(field, None)
+            if field in result.get("required", []):
+                result["required"].remove(field)
     return result
 
 
 def prepare(state, stage, state_path, schema_dir):
     from .common import ModelRequest
+
     if progressive.revision_pending(state):
         transition = progressive.view(state)["transition"]
-        schema = (obj({"summary": S, "progressive_proposal": PROGRESSIVE_PROPOSAL,
-                       "initial_task": goals.PLANNING_BODY_SCHEMA["properties"]["initial_task"]})
-                  if transition["phase"] == "detail" else obj({"summary": S, "accepted": {"type": "boolean"},
-                      "product_changes": {"type": "boolean"}, "permission_changes": {"type": "boolean"},
-                      "unresolved_product_decisions": {"type": "boolean"}}))
-        packet = {"goal_contract": state["goal_contract"], "progressive": progressive.context(state),
-                  "progressive_revision": copy.deepcopy(transition), "previous_plan": progressive.view(state)["plan"],
-                  "stage": stage, "task": state["task"], "workspace": state["workspace"],
-                  "current_task": state.get("current_task"), "saved_answers": state.get("answers", {})}
-        prompt = ("Detail/review the next useful slice within the unchanged approved product contract. "
-                  "Do not implement or replace the contract. Retain done_slices and cumulative obligations. "
-                  "The Planner returns a concrete first slice plus its initial_task; the independent Reviewer "
-                  "must inspect the exact persisted candidate and accept only in-bounds technical changes. "
-                  "Product/permission changes or unresolved product decisions cannot be automatically activated.\nCURRENT HANDOFF DATA\n"
-                  + json.dumps(packet, indent=2))
+        schema = (
+            obj(
+                {
+                    "summary": S,
+                    "progressive_proposal": PROGRESSIVE_PROPOSAL,
+                    "initial_task": goals.PLANNING_BODY_SCHEMA["properties"]["initial_task"],
+                }
+            )
+            if transition["phase"] == "detail"
+            else obj(
+                {
+                    "summary": S,
+                    "accepted": {"type": "boolean"},
+                    "product_changes": {"type": "boolean"},
+                    "permission_changes": {"type": "boolean"},
+                    "unresolved_product_decisions": {"type": "boolean"},
+                }
+            )
+        )
+        packet = {
+            "goal_contract": state["goal_contract"],
+            "progressive": progressive.context(state),
+            "progressive_revision": copy.deepcopy(transition),
+            "previous_plan": progressive.view(state)["plan"],
+            "stage": stage,
+            "task": state["task"],
+            "workspace": state["workspace"],
+            "current_task": state.get("current_task"),
+            "saved_answers": state.get("answers", {}),
+        }
+        prompt = (
+            "Detail/review the next useful slice within the unchanged approved product contract. "
+            "Do not implement or replace the contract. Retain done_slices and cumulative obligations. "
+            "The Planner returns a concrete first slice plus its initial_task; the independent Reviewer "
+            "must inspect the exact persisted candidate and accept only in-bounds technical changes. "
+            "Product/permission changes or unresolved product decisions cannot be automatically activated.\nCURRENT HANDOFF DATA\n"
+            + json.dumps(packet, indent=2)
+        )
         role = role_for(state, stage)
-        return ModelRequest(role, route_for(state, stage, role), prompt,
-            {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
-             "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}, schema, False)
+        return ModelRequest(
+            role,
+            route_for(state, stage, role),
+            prompt,
+            {
+                "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+                "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
+            },
+            schema,
+            False,
+        )
     if stage == RECOGNIZE:
         state["phase"] = "DISCOVERING"
         role = role_for(state, stage)
-        prompt, metrics = workflows.prompt(state, workspace_inventory(state["workspace"], state["task"]),
-                                          state["settings"].get("context_soft_tokens", 10000),
-                                          engine_for(state["settings"], route_for(state, stage, role)))
+        prompt, metrics = workflows.prompt(
+            state,
+            workspace_inventory(state["workspace"], state["task"]),
+            state["settings"].get("context_soft_tokens", 10000),
+            engine_for(state["settings"], route_for(state, stage, role)),
+        )
         return ModelRequest(role, route_for(state, stage, role), prompt, metrics, schema_for(state, stage), False)
     if stage not in STAGES + V2_STAGES:
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
     state["phase"] = "PLANNING" if joint else "DISCOVERING"
     try:
-        prompt, metrics = context(state, stage, state_path) if joint else stage_context.context_packet(state, stage, state_path)
+        prompt, metrics = (
+            context(state, stage, state_path) if joint else stage_context.context_packet(state, stage, state_path)
+        )
     except ValueError as error:
         if stage in V2_STAGES:
             raise s.Paused("PAUSED_INVALID_PREDECESSOR", str(error)) from error
@@ -1350,18 +1628,24 @@ def prepare(state, stage, state_path, schema_dir):
         prompt = BRIEF_ACCEPTANCE_CARRY_RULE + prompt
         metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     role = role_for(state, stage)
-    schema = (schema_for(state, stage) if joint else design_plan.report_schema(
-        goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest")))
-    return ModelRequest(role, route_for(state, stage, role), prompt, metrics,
-                        _model_report_schema(schema, state), False)
+    schema = (
+        schema_for(state, stage)
+        if joint
+        else design_plan.report_schema(goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest"))
+    )
+    return ModelRequest(
+        role, route_for(state, stage, role), prompt, metrics, _model_report_schema(schema, state), False
+    )
 
 
 def schema_for(state, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
-    return design_plan.report_schema(adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA),
-                                     (state.get("settings") or {}).get("design_manifest"))
+    return design_plan.report_schema(
+        adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA),
+        (state.get("settings") or {}).get("design_manifest"),
+    )
 
 
 def after_challenge(state, value, record):
@@ -1374,11 +1658,16 @@ def after_challenge(state, value, record):
     if "adaptive" not in planning:
         planning["adaptive"] = {**adaptive.plan_size(contract["body"]), "approved_at": None, "challenges": 0}
         if planning.get("review_call_limit_origin") != "user_explicit":
-            planning["review_call_limit"] = adaptive.review_limit(planning["adaptive"]["size"], review_call_limit(state))
+            planning["review_call_limit"] = adaptive.review_limit(
+                planning["adaptive"]["size"], review_call_limit(state)
+            )
         planning["adaptive"]["review_limit"] = review_call_limit(state)
     planning["adaptive"]["challenges"] += 1
-    if (adaptive.blocking(value["concerns"]) or not adaptive.approvable(contract["body"])
-            or progressive.view(state).get("candidate")):
+    if (
+        adaptive.blocking(value["concerns"])
+        or not adaptive.approvable(contract["body"])
+        or progressive.view(state).get("candidate")
+    ):
         # A progressive delegation is authorized by an accepted revision and final
         # independent review. A challenge cannot supply that approval evidence.
         state["next_stage"] = "glm_revise"
@@ -1388,14 +1677,21 @@ def after_challenge(state, value, record):
     except ImportError:
         import autocode_goal_lifecycle as lifecycle
     # The same path a final review takes: install the approved body and queue the user's approval.
-    body = brief_obligations.reviewed_body(state, contract["body"],
-        value.get("brief_observations") or [], record, changes=value.get("brief_observation_changes") or [])
-    body = risk_obligations.reviewed_body(state, body, value.get("risk_observations") or [],
-        record, changes=value.get("risk_observation_changes") or [])
+    body = brief_obligations.reviewed_body(
+        state,
+        contract["body"],
+        value.get("brief_observations") or [],
+        record,
+        changes=value.get("brief_observation_changes") or [],
+    )
+    body = risk_obligations.reviewed_body(
+        state, body, value.get("risk_observations") or [], record, changes=value.get("risk_observation_changes") or []
+    )
     lifecycle.install_draft(state, body, origin="adaptive_review_approval", record=record)
     planning["final_token"] = goals.token(state["goal_contract"])
-    planning["adaptive"].update(approved_at=f"astra_challenge#{planning['adaptive']['challenges']}",
-                                final_stage="astra_challenge")
+    planning["adaptive"].update(
+        approved_at=f"astra_challenge#{planning['adaptive']['challenges']}", final_stage="astra_challenge"
+    )
 
 
 def rerun_requirements(state, value):
@@ -1404,8 +1700,12 @@ def rerun_requirements(state, value):
     runs next; the pipeline then continues in full, as it would without adaptive planning."""
     reason = adaptive.requirements_rerun(state, value)
     if reason:
-        state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
-                     discovery_summary="Planner: " + reason)
+        state.update(
+            status="RUNNING",
+            phase="DISCOVERING",
+            next_stage="requirements_gather",
+            discovery_summary="Planner: " + reason,
+        )
     return bool(reason)
 
 
@@ -1414,8 +1714,9 @@ def after_revise(state):
     if not adaptive.enabled(state) or progressive.view(state).get("candidate"):
         return "astra_finalize"
     planning = state["planning"]
-    return adaptive.after_revise(review_call_limit(state), planning["astra_calls"],
-                                 (planning.get("adaptive") or {}).get("challenges", 0))
+    return adaptive.after_revise(
+        review_call_limit(state), planning["astra_calls"], (planning.get("adaptive") or {}).get("challenges", 0)
+    )
 
 
 def recognize(state, value, record):

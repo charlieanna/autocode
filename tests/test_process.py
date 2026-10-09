@@ -1,4 +1,5 @@
 """Real POSIX process-tree regressions; no inference or network access."""
+
 import os
 import select
 import signal
@@ -34,7 +35,7 @@ class ProcessTests(unittest.TestCase):
         cleanup_fixture_worker(live)
         live.kill.assert_called_once_with()
         live.wait.assert_called_once_with(timeout=3)
-        for operation in ('status', 'kill', 'wait'):
+        for operation in ("status", "kill", "wait"):
             with self.subTest(disappears_during=operation):
                 worker = MagicMock()
                 worker.is_running.return_value = True
@@ -48,8 +49,7 @@ class ProcessTests(unittest.TestCase):
             cleanup_fixture_worker(denied)
 
     def test_process_id_enumeration_retries_transient_macos_sysctl_denial(self):
-        with patch.object(processes.psutil, 'pids',
-                          side_effect=[PermissionError('sysctl table refresh'), [101]]):
+        with patch.object(processes.psutil, "pids", side_effect=[PermissionError("sysctl table refresh"), [101]]):
             self.assertEqual([101], processes.process_ids())
 
     def test_stage_preflight_inspects_controller_not_unrelated_processes(self):
@@ -63,43 +63,62 @@ class ProcessTests(unittest.TestCase):
         controller.create_time.return_value = 1790019574.123
         controller._ident = (pid, 1790019574.123)
         controller.ppid.return_value = os.getppid()
-        controller.status.return_value = 'running'
-        controller._proc.name.return_value = 'fixture-controller'
+        controller.status.return_value = "running"
+        controller._proc.name.return_value = "fixture-controller"
 
         def inspect(selected):
-            self.assertEqual(pid, selected, 'Preflight must not inspect unrelated processes')
+            self.assertEqual(pid, selected, "Preflight must not inspect unrelated processes")
             return controller
 
-        with patch.object(processes.psutil, 'pids', return_value=[pid, *range(pid + 1, pid + 4097)]) as pids, \
-             patch.object(processes.psutil, 'Process', side_effect=inspect) as metadata, \
-             patch.object(processes.os, 'getpgid', return_value=pid), \
-             patch.object(runner.artifacts, 'reserve', side_effect=Prepared('preflight passed')):
-            with self.assertRaisesRegex(Prepared, 'preflight passed'):
-                runner.run_role(role='requirements', prompt='Fixture', sandbox='read-only',
-                    workspace=Path('.'), run_dir=Path('.'), schema=Path('unused.json'), model=None,
-                    state={'iteration': 1, 'next_stage': 'recognize_workflow',
-                           'settings': {'roles': {'requirements': {}}}},
-                    allow_write=False, dry_run=False)
+        with (
+            patch.object(processes.psutil, "pids", return_value=[pid, *range(pid + 1, pid + 4097)]) as pids,
+            patch.object(processes.psutil, "Process", side_effect=inspect) as metadata,
+            patch.object(processes.os, "getpgid", return_value=pid),
+            patch.object(runner.artifacts, "reserve", side_effect=Prepared("preflight passed")),
+        ):
+            with self.assertRaisesRegex(Prepared, "preflight passed"):
+                runner.run_role(
+                    role="requirements",
+                    prompt="Fixture",
+                    sandbox="read-only",
+                    workspace=Path("."),
+                    run_dir=Path("."),
+                    schema=Path("unused.json"),
+                    model=None,
+                    state={
+                        "iteration": 1,
+                        "next_stage": "recognize_workflow",
+                        "settings": {"roles": {"requirements": {}}},
+                    },
+                    allow_write=False,
+                    dry_run=False,
+                )
         pids.assert_called_once_with()
         metadata.assert_called_once_with(pid)
 
     def test_preflight_enumeration_failure_stops_before_metadata_inspection(self):
-        with patch.object(processes.psutil, 'pids', side_effect=PermissionError('enumeration denied')) as pids, \
-             patch.object(processes.time, 'sleep'), \
-             patch.object(processes.psutil, 'Process') as metadata:
-            with self.assertRaisesRegex(processes.ProcessError, 'Cannot enumerate'):
+        with (
+            patch.object(processes.psutil, "pids", side_effect=PermissionError("enumeration denied")) as pids,
+            patch.object(processes.time, "sleep"),
+            patch.object(processes.psutil, "Process") as metadata,
+        ):
+            with self.assertRaisesRegex(processes.ProcessError, "Cannot enumerate"):
                 processes.preflight()
         self.assertEqual(3, pids.call_count)
         metadata.assert_not_called()
 
     def test_preflight_requires_accessible_controller_identity(self):
         pid = os.getpid()
-        for error, message in ((processes.psutil.AccessDenied(pid), 'access denied'),
-                               (SystemError('identity unavailable'), 'SystemError'),
-                               (processes.psutil.NoSuchProcess(pid), 'controller')):
-            with self.subTest(error=type(error).__name__), \
-                 patch.object(processes.psutil, 'pids', return_value=[pid]) as pids, \
-                 patch.object(processes.psutil, 'Process', side_effect=error) as metadata:
+        for error, message in (
+            (processes.psutil.AccessDenied(pid), "access denied"),
+            (SystemError("identity unavailable"), "SystemError"),
+            (processes.psutil.NoSuchProcess(pid), "controller"),
+        ):
+            with (
+                self.subTest(error=type(error).__name__),
+                patch.object(processes.psutil, "pids", return_value=[pid]) as pids,
+                patch.object(processes.psutil, "Process", side_effect=error) as metadata,
+            ):
                 with self.assertRaisesRegex(processes.ProcessError, message):
                     processes.preflight()
                 pids.assert_called_once_with()
@@ -110,103 +129,118 @@ class ProcessTests(unittest.TestCase):
         process.create_time.return_value = 1790019574.123
         process._ident = (101, 1790019574.123)
         process.ppid.return_value = 90
-        process.status.return_value = 'sleeping'
-        process._proc.name.return_value = 'mcp-server-darw'
-        with patch.object(processes.psutil, 'Process', return_value=process), \
-             patch.object(processes.os, 'getpgid', return_value=101), \
-             patch.object(processes.psutil, 'pids', return_value=[101]):
+        process.status.return_value = "sleeping"
+        process._proc.name.return_value = "mcp-server-darw"
+        with (
+            patch.object(processes.psutil, "Process", return_value=process),
+            patch.object(processes.os, "getpgid", return_value=101),
+            patch.object(processes.psutil, "pids", return_value=[101]),
+        ):
             row = processes.process_table()[101]
-        self.assertEqual('mcp-server-darw', row['executable'])
+        self.assertEqual("mcp-server-darw", row["executable"])
         process.name.assert_not_called()
         process.cmdline.assert_not_called()
         self.assertTrue(ActivityMonitor._mcp_helper(row))
-        self.assertEqual(1790019574.123, processes.identity(row)['birth_time'])
+        self.assertEqual(1790019574.123, processes.identity(row)["birth_time"])
         self.assertTrue(processes.matches(processes.identity(row), row))
-        self.assertEqual(1790019574.123, processes.identity(row)['birth_identity'])
-        self.assertFalse(processes.matches({**processes.identity(row), 'birth_identity': 0}, row))
-        legacy = {key: value for key, value in processes.identity(row).items() if key != 'birth_identity'}
+        self.assertEqual(1790019574.123, processes.identity(row)["birth_identity"])
+        self.assertFalse(processes.matches({**processes.identity(row), "birth_identity": 0}, row))
+        legacy = {key: value for key, value in processes.identity(row).items() if key != "birth_identity"}
         self.assertTrue(processes.matches(legacy, row))
-        self.assertFalse(processes.matches({**legacy, 'birth_time': 0}, row))
-        legacy.pop('birth_time')
+        self.assertFalse(processes.matches({**legacy, "birth_time": 0}, row))
+        legacy.pop("birth_time")
         self.assertTrue(processes.matches(legacy, row))
 
     def test_stable_identity_ignores_display_time_but_never_falls_back_on_mismatch(self):
-        row = {'pid': 101, 'started': 'local display', 'group': 101,
-               'birth_time': 1790019574.123, 'birth_identity': 1790019574.123}
+        row = {
+            "pid": 101,
+            "started": "local display",
+            "group": 101,
+            "birth_time": 1790019574.123,
+            "birth_identity": 1790019574.123,
+        }
         saved = processes.identity(row)
-        shifted = {**row, 'started': 'different timezone', 'birth_time': row['birth_time'] + 2}
+        shifted = {**row, "started": "different timezone", "birth_time": row["birth_time"] + 2}
         self.assertTrue(processes.matches(saved, shifted))
-        for changed in ({'pid': 102}, {'birth_identity': row['birth_identity'] + .001},
-                        {'birth_identity': None}):
+        for changed in ({"pid": 102}, {"birth_identity": row["birth_identity"] + 0.001}, {"birth_identity": None}):
             with self.subTest(changed=changed):
                 self.assertFalse(processes.matches(saved, {**row, **changed}))
-        legacy = {key: value for key, value in saved.items() if key != 'birth_identity'}
+        legacy = {key: value for key, value in saved.items() if key != "birth_identity"}
         self.assertFalse(processes.matches(saved, legacy))
         self.assertFalse(processes.matches(legacy, shifted))
-        self.assertFalse(processes.matches({**saved, 'birth_identity': None},
-                                           {**row, 'birth_identity': None}))
+        self.assertFalse(processes.matches({**saved, "birth_identity": None}, {**row, "birth_identity": None}))
 
     def test_non_macos_identity_keeps_epoch_time_to_distinguish_reboots(self):
         process = MagicMock()
         process._ident = (101, 123.456)
         process.create_time.return_value = 1790019574.123
-        with patch.object(processes.psutil, 'OSX', False):
+        with patch.object(processes.psutil, "OSX", False):
             before = processes._birth_identity(process)
             process.create_time.return_value += 86400
             after = processes._birth_identity(process)
         self.assertEqual(1790019574.123, before)
         self.assertNotEqual(before, after)
-        row = {'pid': 101, 'birth_identity': before}
-        self.assertFalse(processes.matches(row, {**row, 'birth_identity': after}))
+        row = {"pid": 101, "birth_identity": before}
+        self.assertFalse(processes.matches(row, {**row, "birth_identity": after}))
 
     def test_signal_rechecks_stable_identity_before_killing(self):
-        pid = 2 ** 22 - 2
-        row = {'pid': pid, 'started': 'same display', 'birth_time': 1790019574.123,
-               'birth_identity': 1790019574.123}
+        pid = 2**22 - 2
+        row = {"pid": pid, "started": "same display", "birth_time": 1790019574.123, "birth_identity": 1790019574.123}
         tree = processes.ProcessTree(pid, lambda _rows: None)
-        with patch.object(processes, 'process_table', return_value={
-                pid: {**row, 'birth_identity': row['birth_identity'] + .001}}), \
-             patch.object(processes.os, 'kill') as kill:
+        with (
+            patch.object(
+                processes, "process_table", return_value={pid: {**row, "birth_identity": row["birth_identity"] + 0.001}}
+            ),
+            patch.object(processes.os, "kill") as kill,
+        ):
             tree.signal([row], signal.SIGTERM)
             kill.assert_not_called()
-        with patch.object(processes, 'process_table', return_value={
-                pid: {**row, 'started': 'changed display', 'birth_time': row['birth_time'] + 2}}), \
-             patch.object(processes.os, 'kill') as kill:
+        with (
+            patch.object(
+                processes,
+                "process_table",
+                return_value={pid: {**row, "started": "changed display", "birth_time": row["birth_time"] + 2}},
+            ),
+            patch.object(processes.os, "kill") as kill,
+        ):
             tree.signal([row], signal.SIGTERM)
             kill.assert_called_once_with(pid, signal.SIGTERM)
 
     def test_owned_access_denial_fails_closed_and_a_vanished_pid_is_safe(self):
-        with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.AccessDenied(101)):
-            with self.assertRaisesRegex(processes.ProcessError, '101.*access denied'):
+        with patch.object(processes.psutil, "Process", side_effect=processes.psutil.AccessDenied(101)):
+            with self.assertRaisesRegex(processes.ProcessError, "101.*access denied"):
                 processes.process_table({101})
-        with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.NoSuchProcess(101)):
+        with patch.object(processes.psutil, "Process", side_effect=processes.psutil.NoSuchProcess(101)):
             self.assertEqual({}, processes.process_table({101}))
 
     def test_a_pid_whose_proc_entry_vanishes_mid_read_is_gone_not_fatal(self):
         # A live program run's child was declared FAILED: "Cannot inspect process 30956: FileNotFoundError".
-        vanished = FileNotFoundError(2, 'No such file or directory', '/proc/101/stat')
-        with patch.object(processes.psutil, 'Process', side_effect=vanished):
+        vanished = FileNotFoundError(2, "No such file or directory", "/proc/101/stat")
+        with patch.object(processes.psutil, "Process", side_effect=vanished):
             self.assertEqual({}, processes.process_table({101}))
-            with patch.object(processes, 'process_ids', return_value={101}):
+            with patch.object(processes, "process_ids", return_value={101}):
                 self.assertEqual({}, processes.process_table())
-        with patch.object(processes.psutil, 'Process', side_effect=OSError(5, 'Input/output error')):
-            with self.assertRaisesRegex(processes.ProcessError, 'Cannot inspect process 101: OSError'):
+        with patch.object(processes.psutil, "Process", side_effect=OSError(5, "Input/output error")):
+            with self.assertRaisesRegex(processes.ProcessError, "Cannot inspect process 101: OSError"):
                 processes.process_table({101})
 
     def test_descendant_discovery_denial_fails_closed_without_another_scan(self):
-        row = {'pid': 101, 'parent': 90, 'group': 101, 'birth_identity': 123,
-               'state': 'running'}
+        row = {"pid": 101, "parent": 90, "group": 101, "birth_identity": 123, "state": "running"}
         parent = MagicMock(pid=101, _ident=(101, 123))
         parent.create_time.return_value = 123
-        for error in (PermissionError('discovery denied'), processes.psutil.AccessDenied(101)):
+        for error in (PermissionError("discovery denied"), processes.psutil.AccessDenied(101)):
             checkpoint = MagicMock()
             tree = processes.ProcessTree(101, checkpoint)
-            with self.subTest(error=type(error).__name__), \
-                    patch.object(processes, 'process_table', return_value={101: row}) as table, \
-                    patch.object(processes.psutil, 'Process', return_value=parent), \
-                    patch.object(processes.process_children, 'descendants', side_effect=error) as descendants, \
-                    patch.object(processes, 'process_ids') as scan:
-                with self.assertRaisesRegex(processes.ProcessError, 'Cannot inspect descendants of owned process 101') as raised:
+            with (
+                self.subTest(error=type(error).__name__),
+                patch.object(processes, "process_table", return_value={101: row}) as table,
+                patch.object(processes.psutil, "Process", return_value=parent),
+                patch.object(processes.process_children, "descendants", side_effect=error) as descendants,
+                patch.object(processes, "process_ids") as scan,
+            ):
+                with self.assertRaisesRegex(
+                    processes.ProcessError, "Cannot inspect descendants of owned process 101"
+                ) as raised:
                     tree.sample()
                 self.assertIs(error, raised.exception.__cause__)
                 descendants.assert_called_once_with(parent)
@@ -216,44 +250,48 @@ class ProcessTests(unittest.TestCase):
                 self.assertEqual({101: processes.identity(row)}, tree.known)
 
     def test_optional_native_name_failure_retains_owned_identity(self):
-        for error in (processes.psutil.AccessDenied(101), PermissionError('native name denied'),
-                      SystemError('proc_cmdline returned a result with an exception set')):
+        for error in (
+            processes.psutil.AccessDenied(101),
+            PermissionError("native name denied"),
+            SystemError("proc_cmdline returned a result with an exception set"),
+        ):
             with self.subTest(error=type(error).__name__):
                 process = MagicMock()
                 process.create_time.return_value = 1790019574.123
                 process._ident = (101, 1790019574.123)
                 process.ppid.return_value = 90
-                process.status.return_value = 'sleeping'
+                process.status.return_value = "sleeping"
                 process._proc.name.side_effect = error
-                with patch.object(processes.psutil, 'Process', return_value=process), \
-                     patch.object(processes.os, 'getpgid', return_value=101):
+                with (
+                    patch.object(processes.psutil, "Process", return_value=process),
+                    patch.object(processes.os, "getpgid", return_value=101),
+                ):
                     row = processes.process_table({101})[101]
-                self.assertIsNone(row['executable'])
+                self.assertIsNone(row["executable"])
                 self.assertFalse(ActivityMonitor._mcp_helper(row))
                 self.assertEqual([row], processes.live_processes([processes.identity(row)], {101: row}))
                 process.name.assert_not_called()
                 process.cmdline.assert_not_called()
 
     def test_native_identity_system_error_fails_closed(self):
-        for field in ('create_time', 'ppid', 'status'):
+        for field in ("create_time", "ppid", "status"):
             with self.subTest(field=field):
                 process = MagicMock()
-                getattr(process, field).side_effect = SystemError('native identity unavailable')
-                with patch.object(processes.psutil, 'Process', return_value=process):
-                    with self.assertRaisesRegex(processes.ProcessError, '101.*SystemError.*blocked'):
+                getattr(process, field).side_effect = SystemError("native identity unavailable")
+                with patch.object(processes.psutil, "Process", return_value=process):
+                    with self.assertRaisesRegex(processes.ProcessError, "101.*SystemError.*blocked"):
                         processes.process_table({101})
 
     def test_provider_finishes_when_optional_native_name_is_unavailable(self):
         backend = type(processes.psutil.Process()._proc)
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(.2)'],
-                                 start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(.2)"], start_new_session=True)
         owned = []
         try:
-            with patch.object(backend, 'name', side_effect=SystemError('native name unavailable')):
+            with patch.object(backend, "name", side_effect=SystemError("native name unavailable")):
                 code, expired = processes.wait_for_stage(child, 5, lambda rows: owned.extend(rows))
             self.assertEqual(0, code)
             self.assertFalse(expired)
-            self.assertIn(child.pid, [row['pid'] for row in owned])
+            self.assertIn(child.pid, [row["pid"] for row in owned])
         finally:
             if child.poll() is None:
                 child.kill()
@@ -268,13 +306,21 @@ class ProcessTests(unittest.TestCase):
             tool_limit = 0
 
             def poll(self, processes=None, root_pid=None):
-                return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
-                        'idle_limit_seconds': 0, 'tool_limit_seconds': 0}
+                return {
+                    "idle_seconds": 0,
+                    "tool_elapsed_seconds": None,
+                    "idle_limit_seconds": 0,
+                    "tool_limit_seconds": 0,
+                }
 
         # Hold the fixture until supervision starts, so native inspection does
         # not race an unrelated early exit under host load.
-        child = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read(1); raise SystemExit(7)'],
-                                 stdin=subprocess.PIPE, text=True, start_new_session=True)
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.read(1); raise SystemExit(7)"],
+            stdin=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
         owned = []
         reaped_before_return = []
         original_start = threading.Thread.start
@@ -282,22 +328,22 @@ class ProcessTests(unittest.TestCase):
         def reaping_start(thread):
             # Force observer polling before the owner can do its full sample.
             # The deadline watchdog may start earlier without ordinary polling.
-            if thread._target.__name__ == 'observe' and not reaped_before_return:
-                child.stdin.write('x')
+            if thread._target.__name__ == "observe" and not reaped_before_return:
+                child.stdin.write("x")
                 child.stdin.flush()
                 reaped_before_return.append(child.wait(timeout=5))
             return original_start(thread)
 
         try:
-            with patch.object(threading.Thread, 'start', reaping_start):
+            with patch.object(threading.Thread, "start", reaping_start):
                 code, expired = processes.wait_for_stage(
-                    child, None, lambda rows: owned.__setitem__(slice(None), rows),
-                    activity=QuietMonitor())
+                    child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=QuietMonitor()
+                )
             self.assertEqual(7, code)
             self.assertFalse(expired)
             self.assertEqual([7], reaped_before_return)
-            self.assertIn(child.pid, [row['pid'] for row in owned])
-            self.assertTrue(owned[0].get('birth_identity') is not None)
+            self.assertIn(child.pid, [row["pid"] for row in owned])
+            self.assertTrue(owned[0].get("birth_identity") is not None)
         finally:
             child.stdin.close()
             if child.poll() is None:
@@ -309,8 +355,8 @@ class ProcessTests(unittest.TestCase):
         # recoverable birth identity. Recovery must keep refusing an empty
         # receipt rather than inventing one.
         checkpointed = []
-        tree = processes.ProcessTree(2 ** 22 - 3, lambda rows: checkpointed.append(list(rows)))
-        with patch.object(processes, 'process_table', return_value={}):
+        tree = processes.ProcessTree(2**22 - 3, lambda rows: checkpointed.append(list(rows)))
+        with patch.object(processes, "process_table", return_value={}):
             self.assertIsNone(tree.capture_root())
         self.assertEqual({}, tree.known)
         self.assertEqual([], checkpointed)
@@ -324,85 +370,107 @@ class ProcessTests(unittest.TestCase):
             tool_limit = 0
 
             def poll(self, processes=None, root_pid=None):
-                return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
-                        'idle_limit_seconds': 0, 'tool_limit_seconds': 0}
+                return {
+                    "idle_seconds": 0,
+                    "tool_elapsed_seconds": None,
+                    "idle_limit_seconds": 0,
+                    "tool_limit_seconds": 0,
+                }
 
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
-                                 start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
         original_table = processes.process_table
 
         def denying_table(pids=None):
             if pids == {child.pid}:
-                raise processes.ProcessError('fixture: root inspection denied')
+                raise processes.ProcessError("fixture: root inspection denied")
             return original_table(pids)
 
         owned = []
         try:
-            with patch.object(processes, 'process_table', denying_table):
-                with self.assertRaisesRegex(processes.ProcessError, 'fixture: root inspection denied'):
-                    processes.wait_for_stage(child, None,
-                                             lambda rows: owned.__setitem__(slice(None), rows),
-                                             activity=QuietMonitor())
-            self.assertIsNotNone(child.poll(), 'A failed capture must still stop its child')
+            with patch.object(processes, "process_table", denying_table):
+                with self.assertRaisesRegex(processes.ProcessError, "fixture: root inspection denied"):
+                    processes.wait_for_stage(
+                        child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=QuietMonitor()
+                    )
+            self.assertIsNotNone(child.poll(), "A failed capture must still stop its child")
             self.assertEqual([], owned)
         finally:
             if child.poll() is None:
                 child.kill()
             child.wait(timeout=5)
 
-    def wait_ready(self, root, child, *, ready='ready', go='go'):
+    def wait_ready(self, root, child, *, ready="ready", go="go"):
         deadline = time.monotonic() + 15
         while not (root / ready).exists():
             if child.poll() is not None or time.monotonic() >= deadline:
-                self.fail(f'Provider fixture failed to initialize: {ready}')
-            time.sleep(.01)
+                self.fail(f"Provider fixture failed to initialize: {ready}")
+            time.sleep(0.01)
         if go:
             (root / go).touch()
 
-    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False,
-                       startup_grace=0, tool_ready=False):
+    def activity_child(
+        self,
+        body,
+        *,
+        idle=0.45,
+        tool=1.5,
+        total=None,
+        sample=None,
+        require_worker=False,
+        startup_grace=0,
+        tool_ready=False,
+    ):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            events = root / 'events.jsonl'
-            worker = root / 'provider.py'
-            worker.write_text('import json,os,subprocess,sys,time\nfrom pathlib import Path\n'
-                              'def emit(row): print(json.dumps(row), flush=True)\n'
-                              "Path('ready').touch()\nwhile not Path('go').exists(): time.sleep(.01)\n" + body)
+            events = root / "events.jsonl"
+            worker = root / "provider.py"
+            worker.write_text(
+                "import json,os,subprocess,sys,time\nfrom pathlib import Path\n"
+                "def emit(row): print(json.dumps(row), flush=True)\n"
+                "Path('ready').touch()\nwhile not Path('go').exists(): time.sleep(.01)\n" + body
+            )
             snapshots = []
             owned = []
 
             def checkpoint_activity(value):
                 snapshots.append(value.copy())
-                if tool_ready and value.get('active_tool_count', 0):
-                    (root / 'tool-observed').touch()
+                if tool_ready and value.get("active_tool_count", 0):
+                    (root / "tool-observed").touch()
 
-            with events.open('w') as stream:
-                child = subprocess.Popen([sys.executable, str(worker)], cwd=root, stdout=stream,
-                                         start_new_session=True)
+            with events.open("w") as stream:
+                child = subprocess.Popen([sys.executable, str(worker)], cwd=root, stdout=stream, start_new_session=True)
                 try:
                     self.wait_ready(root, child)
                     if tool_ready:
-                        self.wait_ready(root, child, ready='tool-started', go=None)
+                        self.wait_ready(root, child, ready="tool-started", go=None)
                     monitor = ActivityMonitor(events, idle_seconds=idle, tool_seconds=tool)
                     if sample is None:
-                        code, expired = processes.wait_for_stage(child, total,
-                            lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
+                        code, expired = processes.wait_for_stage(
+                            child,
+                            total,
+                            lambda rows: owned.__setitem__(slice(None), rows),
+                            activity=monitor,
                             activity_checkpoint=checkpoint_activity,
-                            startup_grace=startup_grace)
+                            startup_grace=startup_grace,
+                        )
                     else:
-                        with patch.object(processes.ProcessTree, 'sample', sample(child)):
-                            code, expired = processes.wait_for_stage(child, total,
-                                lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
+                        with patch.object(processes.ProcessTree, "sample", sample(child)):
+                            code, expired = processes.wait_for_stage(
+                                child,
+                                total,
+                                lambda rows: owned.__setitem__(slice(None), rows),
+                                activity=monitor,
                                 activity_checkpoint=checkpoint_activity,
-                                startup_grace=startup_grace)
+                                startup_grace=startup_grace,
+                            )
                     self.assertEqual([], processes.live_processes(owned))
-                    self.assertFalse((root / 'late-write').exists())
+                    self.assertFalse((root / "late-write").exists())
                     if require_worker:
-                        self.assertTrue((root / 'worker.pid').is_file(), 'The helper fixture must actually launch')
-                    worker_pid = int((root / 'worker.pid').read_text()) if (root / 'worker.pid').exists() else None
+                        self.assertTrue((root / "worker.pid").is_file(), "The helper fixture must actually launch")
+                    worker_pid = int((root / "worker.pid").read_text()) if (root / "worker.pid").exists() else None
                     if worker_pid is not None:
-                        self.assertIn(worker_pid, [row['pid'] for row in owned])
+                        self.assertIn(worker_pid, [row["pid"] for row in owned])
                     return code, expired, snapshots, monitor.expired()
                 finally:
                     if child.poll() is None:
@@ -429,7 +497,7 @@ emit({'type':'item.completed','item':{'id':'test','type':'command_execution','co
         code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5, tool_ready=True)
         self.assertEqual(0, code)
         self.assertFalse(expired)
-        self.assertTrue(any(row.get('active_tool_count', 0) for row in snapshots))
+        self.assertTrue(any(row.get("active_tool_count", 0) for row in snapshots))
 
     def test_repeated_events_and_output_noise_do_not_keep_provider_alive(self):
         body = """while True:
@@ -437,10 +505,10 @@ emit({'type':'item.completed','item':{'id':'test','type':'command_execution','co
     emit({'type':'item.completed','item':{'id':'one','type':'command_execution','command':'true','exit_code':0}})
     time.sleep(.06)
 """
-        code, expired, _, reason = self.activity_child(body, idle=.35)
+        code, expired, _, reason = self.activity_child(body, idle=0.35)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
-        self.assertEqual('idle', reason['kind'])
+        self.assertEqual("idle", reason["kind"])
 
     def test_explicit_stage_cap_still_wins_over_continuing_activity(self):
         body = """index = 0
@@ -449,7 +517,7 @@ while True:
     index += 1
     time.sleep(.06)
 """
-        code, expired, _, _ = self.activity_child(body, idle=1.5, total=.35)
+        code, expired, _, _ = self.activity_child(body, idle=1.5, total=0.35)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
 
@@ -458,8 +526,7 @@ while True:
             entered = threading.Event()
             release = threading.Event()
             observed_exit = []
-            child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
-                                     start_new_session=True)
+            child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
 
             class BlockedMonitor(ActivityMonitor):
                 def poll(self, *args, **kwargs):
@@ -468,13 +535,13 @@ while True:
                         release.wait(2)  # bounded even if the test assertion fails
                         return super().poll(*args, **kwargs)
 
-            monitor = BlockedMonitor(Path(temp) / 'events.jsonl', idle_seconds=idle)
+            monitor = BlockedMonitor(Path(temp) / "events.jsonl", idle_seconds=idle)
 
             def observe_before_release():
                 try:
                     if entered.wait(1):
                         try:
-                            observed_exit.append(child.wait(timeout=.8))
+                            observed_exit.append(child.wait(timeout=0.8))
                         except subprocess.TimeoutExpired:
                             observed_exit.append(None)
                 finally:
@@ -483,15 +550,14 @@ while True:
             observer = threading.Thread(target=observe_before_release)
             observer.start()
             try:
-                code, expired = processes.wait_for_stage(child, total, lambda _rows: None,
-                                                          activity=monitor)
+                code, expired = processes.wait_for_stage(child, total, lambda _rows: None, activity=monitor)
                 self.assertTrue(expired)
                 self.assertNotEqual(0, code)
                 self.assertTrue(entered.is_set())
                 observer.join(timeout=2)
                 self.assertFalse(observer.is_alive())
                 self.assertEqual([code], observed_exit)
-                return monitor.timeout['kind']
+                return monitor.timeout["kind"]
             finally:
                 release.set()
                 observer.join(timeout=2)
@@ -500,20 +566,20 @@ while True:
                     child.wait()
 
     def test_hard_cap_stops_worker_while_monitor_holds_its_lock(self):
-        self.assertEqual('stage', self.exercise_blocked_monitor(total=.15))
+        self.assertEqual("stage", self.exercise_blocked_monitor(total=0.15))
 
     def test_idle_limit_stops_worker_while_monitor_holds_its_lock(self):
-        self.assertEqual('idle', self.exercise_blocked_monitor(total=None, idle=.15))
+        self.assertEqual("idle", self.exercise_blocked_monitor(total=None, idle=0.15))
 
     def test_monitor_and_snapshot_errors_still_stop_and_clean_worker(self):
         class BrokenMonitor:
             def poll(self, *args, **kwargs):
-                raise RuntimeError('fixture event read failed')
-            def snapshot(self):
-                raise RuntimeError('fixture snapshot failed')
+                raise RuntimeError("fixture event read failed")
 
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
-                                 start_new_session=True)
+            def snapshot(self):
+                raise RuntimeError("fixture snapshot failed")
+
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
         rescued = threading.Event()
         owned = []
 
@@ -525,10 +591,11 @@ while True:
         safety_timer = threading.Timer(1.5, rescue_broken_test)
         safety_timer.start()
         try:
-            with self.assertRaisesRegex(processes.ProcessError, 'Activity supervision failed'):
-                processes.wait_for_stage(child, None, lambda rows: owned.__setitem__(slice(None), rows),
-                                         activity=BrokenMonitor())
-            self.assertFalse(rescued.is_set(), 'The monitor error failed to stop its worker')
+            with self.assertRaisesRegex(processes.ProcessError, "Activity supervision failed"):
+                processes.wait_for_stage(
+                    child, None, lambda rows: owned.__setitem__(slice(None), rows), activity=BrokenMonitor()
+                )
+            self.assertFalse(rescued.is_set(), "The monitor error failed to stop its worker")
             self.assertIsNotNone(child.poll())
             self.assertEqual([], processes.live_processes(owned))
         finally:
@@ -541,20 +608,24 @@ while True:
     def test_idle_watchdog_fires_while_process_sampling_is_stalled(self):
         original_sample = processes.ProcessTree.sample
         stopped_during_stall = []
+
         def factory(child):
             calls = 0
+
             def sample(tree, *args, **kwargs):
                 nonlocal calls
                 calls += 1
                 if calls == 1:
-                    time.sleep(.7)
+                    time.sleep(0.7)
                     stopped_during_stall.append(child.poll())
                 return original_sample(tree, *args, **kwargs)
+
             return sample
-        code, expired, _, reason = self.activity_child('time.sleep(30)\n', idle=.2, sample=factory)
+
+        code, expired, _, reason = self.activity_child("time.sleep(30)\n", idle=0.2, sample=factory)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
-        self.assertEqual('idle', reason['kind'])
+        self.assertEqual("idle", reason["kind"])
         self.assertIsNotNone(stopped_during_stall[0])
 
     def test_quiet_descendant_without_start_event_gets_bounded_tool_grace(self):
@@ -572,17 +643,17 @@ emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','st
     def test_startup_grace_allows_a_brief_unreported_launch(self):
         # The quiet interval must exceed idle, with enough grace for CI scheduling.
         # A near-boundary exit tests host load rather than startup-grace behavior.
-        code, expired, _, reason = self.activity_child('time.sleep(.5)\n', idle=.1, tool=2,
-                                                       startup_grace=3, total=10)
+        code, expired, _, reason = self.activity_child("time.sleep(.5)\n", idle=0.1, tool=2, startup_grace=3, total=10)
         self.assertEqual(0, code)
         self.assertFalse(expired, reason)
 
     def test_startup_grace_still_expires_for_a_silent_worker(self):
-        code, expired, _, reason = self.activity_child('time.sleep(30)\n', idle=.1, tool=2,
-                                                       startup_grace=.5, total=10)
+        code, expired, _, reason = self.activity_child(
+            "time.sleep(30)\n", idle=0.1, tool=2, startup_grace=0.5, total=10
+        )
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
-        self.assertEqual('idle', reason['kind'])
+        self.assertEqual("idle", reason["kind"])
 
     def test_idle_mcp_helper_does_not_delay_provider_inactivity_timeout(self):
         body = """helper = Path('mcp-server-fixture')
@@ -592,13 +663,13 @@ Path('worker.pid').write_text(str(worker.pid))
 time.sleep(30)
 """
         backend = type(processes.psutil.Process()._proc)
-        with patch.object(backend, 'name', return_value='mcp-server-fixture'):
+        with patch.object(backend, "name", return_value="mcp-server-fixture"):
             code, expired, snapshots, reason = self.activity_child(body, idle=3, tool=5, require_worker=True)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
-        self.assertEqual('idle', reason['kind'])
+        self.assertEqual("idle", reason["kind"])
         self.assertTrue(snapshots)
-        self.assertFalse(any(row.get('process_fallback') for row in snapshots))
+        self.assertFalse(any(row.get("process_fallback") for row in snapshots))
 
     def test_tool_deadline_stops_detached_writer_and_retains_identity(self):
         body = """emit({'type':'item.started','item':{'id':'test','type':'command_execution','command':'stuck tests','status':'in_progress'}})
@@ -609,17 +680,27 @@ time.sleep(30)
         code, expired, _, reason = self.activity_child(body, idle=2, tool=4)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
-        self.assertEqual('tool', reason['kind'])
+        self.assertEqual("tool", reason["kind"])
 
     def exercise_tree(self, *, expire):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            worker = root / 'worker.py'
-            worker.write_text("from pathlib import Path\nimport os,signal\nsignal.signal(signal.SIGUSR1,lambda *_:None)\nPath('worker.pid').write_text(str(os.getpid()))\nprint('worker-ready',flush=True)\nsignal.pause()\nPath('late-write').write_text('leaked')\n")
-            parent = root / 'parent.py'
-            parent.write_text("import subprocess,sys\nsubprocess.Popen([sys.executable,'worker.py'],start_new_session=True)\nsys.stdin.read(1)\n")
-            child = subprocess.Popen([sys.executable, str(parent)], cwd=root, start_new_session=True,
-                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            worker = root / "worker.py"
+            worker.write_text(
+                "from pathlib import Path\nimport os,signal\nsignal.signal(signal.SIGUSR1,lambda *_:None)\nPath('worker.pid').write_text(str(os.getpid()))\nprint('worker-ready',flush=True)\nsignal.pause()\nPath('late-write').write_text('leaked')\n"
+            )
+            parent = root / "parent.py"
+            parent.write_text(
+                "import subprocess,sys\nsubprocess.Popen([sys.executable,'worker.py'],start_new_session=True)\nsys.stdin.read(1)\n"
+            )
+            child = subprocess.Popen(
+                [sys.executable, str(parent)],
+                cwd=root,
+                start_new_session=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
             saved = []
             timers, workers = [], []
             original_timer = threading.Timer
@@ -632,14 +713,14 @@ time.sleep(30)
 
             def checkpoint(rows):
                 saved[:] = rows
-                worker_pid = root / 'worker.pid'
+                worker_pid = root / "worker.pid"
                 if workers or not worker_pid.exists():
                     return
                 value = worker_pid.read_text().strip()
                 if not value:
                     return
                 pid = int(value)
-                if pid not in [row['pid'] for row in rows]:
+                if pid not in [row["pid"] for row in rows]:
                     return
                 workers.append(processes.psutil.Process(pid))
                 # Release the provider only once its detached writer is owned.
@@ -648,7 +729,7 @@ time.sleep(30)
                 if expire:
                     timers[0].function(*timers[0].args)
                 else:
-                    child.stdin.write('x')
+                    child.stdin.write("x")
                     child.stdin.flush()
 
             stage_started = False
@@ -656,14 +737,13 @@ time.sleep(30)
                 # Ownership checkpoints publish membership changes, not fixture
                 # file readiness. Wait until the detached writer has published
                 # its pid before supervision can checkpoint that membership.
-                self.assertTrue(select.select([child.stdout], [], [], 15)[0],
-                                'fixture worker did not become ready')
-                self.assertEqual('worker-ready', child.stdout.readline().strip())
+                self.assertTrue(select.select([child.stdout], [], [], 15)[0], "fixture worker did not become ready")
+                self.assertEqual("worker-ready", child.stdout.readline().strip())
                 stage_started = True
-                with patch.object(threading, 'Timer', timer):
+                with patch.object(threading, "Timer", timer):
                     code, expired = processes.wait_for_stage(child, 30, checkpoint)
-                pid = int((root / 'worker.pid').read_text())
-                self.assertIn(pid, [p['pid'] for p in saved])
+                pid = int((root / "worker.pid").read_text())
+                self.assertIn(pid, [p["pid"] for p in saved])
                 self.assertEqual([], processes.live_processes(saved))
                 return code, expired
             finally:
@@ -687,7 +767,7 @@ time.sleep(30)
 
     def test_watchdog_enforces_timeout_when_process_sampling_stalls(self):
         """A stuck ps/sample call cannot silently turn a bounded stage unbounded."""
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
         original_sample = processes.ProcessTree.sample
         calls = 0
         exit_during_stall = []
@@ -702,8 +782,8 @@ time.sleep(30)
             return original_sample(tree, *args, **kwargs)
 
         try:
-            with patch.object(processes.ProcessTree, 'sample', stalled_sample):
-                code, expired = processes.wait_for_stage(child, .05, lambda _rows: None)
+            with patch.object(processes.ProcessTree, "sample", stalled_sample):
+                code, expired = processes.wait_for_stage(child, 0.05, lambda _rows: None)
             self.assertTrue(expired)
             self.assertNotEqual(0, code)
             # Verify the watchdog stopped the worker before sampling returned;
@@ -716,22 +796,23 @@ time.sleep(30)
 
     def test_hard_cap_escalates_when_provider_ignores_term(self):
         script = "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); time.sleep(30)"
-        child = subprocess.Popen([sys.executable, '-u', '-c', script], stdout=subprocess.PIPE,
-                                 text=True, start_new_session=True)
+        child = subprocess.Popen(
+            [sys.executable, "-u", "-c", script], stdout=subprocess.PIPE, text=True, start_new_session=True
+        )
         original = processes.ProcessTree.sample
         observed_exit = []
 
         def stalled(tree, *args, **kwargs):
-            if kwargs.get('initial'):
+            if kwargs.get("initial"):
                 time.sleep(3)
                 observed_exit.append(child.poll())
             return original(tree, *args, **kwargs)
 
         try:
             self.assertTrue(select.select([child.stdout], [], [], 15)[0])
-            self.assertEqual('ready', child.stdout.readline().strip())
-            with patch.object(processes.ProcessTree, 'sample', stalled):
-                code, expired = processes.wait_for_stage(child, .05, lambda _rows: None)
+            self.assertEqual("ready", child.stdout.readline().strip())
+            with patch.object(processes.ProcessTree, "sample", stalled):
+                code, expired = processes.wait_for_stage(child, 0.05, lambda _rows: None)
             self.assertTrue(expired)
             self.assertEqual(-signal.SIGKILL, code)
             self.assertEqual([code], observed_exit)
@@ -742,7 +823,7 @@ time.sleep(30)
             child.stdout.close()
 
     def test_cleanup_scan_failure_kills_previously_frozen_workers(self):
-        child = subprocess.Popen(['/bin/sleep', '30'], start_new_session=True)
+        child = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
         tree = processes.ProcessTree(child.pid, lambda _rows: None)
         try:
             tree.sample(initial=True)
@@ -753,11 +834,11 @@ time.sleep(30)
                 nonlocal calls
                 calls += 1
                 if calls == 2:
-                    raise processes.ProcessError('fixture ancestry failure')
+                    raise processes.ProcessError("fixture ancestry failure")
                 return original(**kwargs)
 
-            with patch.object(tree, 'sample', side_effect=fail_during_cleanup):
-                with self.assertRaisesRegex(processes.ProcessError, 'fixture ancestry failure'):
+            with patch.object(tree, "sample", side_effect=fail_during_cleanup):
+                with self.assertRaisesRegex(processes.ProcessError, "fixture ancestry failure"):
                     tree.stop(child)
             child.wait(timeout=3)
             self.assertEqual([], processes.live_processes(list(tree.known.values())))
@@ -772,24 +853,29 @@ time.sleep(30)
         self.assertEqual(0, code)
 
     def test_checkpoint_failure_still_cleans_up_child(self):
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+
         def checkpoint(rows):
-            raise OSError('fixture disk full')
-        with self.assertRaisesRegex(OSError, 'disk full'):
+            raise OSError("fixture disk full")
+
+        with self.assertRaisesRegex(OSError, "disk full"):
             processes.wait_for_stage(child, 5, checkpoint)
         self.assertIsNotNone(child.poll())
 
     def test_reused_pid_is_not_a_live_owned_process(self):
         row = processes.process_table()[os.getpid()]
-        self.assertEqual([], processes.live_processes([
-            {**processes.identity(row), 'birth_identity': row['birth_identity'] - 1}]))
-        legacy = {key: value for key, value in processes.identity(row).items() if key != 'birth_identity'}
-        self.assertEqual([], processes.live_processes([{**legacy, 'started': 'old process'}]))
+        self.assertEqual(
+            [], processes.live_processes([{**processes.identity(row), "birth_identity": row["birth_identity"] - 1}])
+        )
+        legacy = {key: value for key, value in processes.identity(row).items() if key != "birth_identity"}
+        self.assertEqual([], processes.live_processes([{**legacy, "started": "old process"}]))
 
     def test_sigterm_cleans_up_before_interrupt_propagates(self):
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+
         def checkpoint(rows):
             os.kill(os.getpid(), signal.SIGTERM)
+
         with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt):
             processes.wait_for_stage(child, 5, checkpoint)
         self.assertIsNotNone(child.poll())
@@ -799,23 +885,30 @@ time.sleep(30)
         # Ctrl-C again. Raising a second time while the first interrupt unwinds skipped this
         # cleanup, or left a lock held so the controller hung ignoring signals (#454).
         self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, signal.SIG_DFL))
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
         self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait()))
+
         def checkpoint(rows):
             os.kill(os.getpid(), signal.SIGHUP)
+
         install, landed = signal.signal, []
+
         def second_signal_lands_in_cleanup(sig, handler):
             # Where the real race landed: the second handler runs as cleanup takes the signals over.
             if not landed:
                 landed.append(sig)
                 signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
             return install(sig, handler)
-        with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt) as caught, \
-                patch.object(signal, 'signal', second_signal_lands_in_cleanup):
+
+        with (
+            processes.interruption_handler(),
+            self.assertRaises(KeyboardInterrupt) as caught,
+            patch.object(signal, "signal", second_signal_lands_in_cleanup),
+        ):
             processes.wait_for_stage(child, 5, checkpoint)
         self.assertTrue(landed)
-        self.assertIsNotNone(child.poll(), 'the provider is stopped before the interrupt propagates')
-        self.assertEqual('SIGHUP', str(caught.exception))
+        self.assertIsNotNone(child.poll(), "the provider is stopped before the interrupt propagates")
+        self.assertEqual("SIGHUP", str(caught.exception))
 
     def test_only_the_first_signal_interrupts(self):
         for sig in (signal.SIGTERM, signal.SIGHUP):
@@ -831,17 +924,19 @@ time.sleep(30)
                     signal.getsignal(sig)(sig, None)  # absorbed while the first interrupt is handled
                 except KeyboardInterrupt:
                     again.append(signal.Signals(sig).name)
-        self.assertEqual([], again, 'a second signal must not interrupt the first one\'s cleanup')
-        self.assertEqual('SIGINT', str(caught.exception))
-        self.assertIs(signal.default_int_handler, signal.getsignal(signal.SIGINT), 'nothing holds it past the scope')
+        self.assertEqual([], again, "a second signal must not interrupt the first one's cleanup")
+        self.assertEqual("SIGINT", str(caught.exception))
+        self.assertIs(signal.default_int_handler, signal.getsignal(signal.SIGINT), "nothing holds it past the scope")
 
     def test_an_interrupted_stage_absorbs_later_signals_until_its_invocation_ends(self):
         # The stage's scope closes before its caller saves the pause and the CLI exits. A second
         # signal there escaped as a bare KeyboardInterrupt or killed the controller, leaving the
         # run RUNNING (#454). A later stage of the same invocation can still be interrupted.
         reached = []
+
         def original(signum, frame):
             reached.append(signal.Signals(signum).name)
+
         for sig in (signal.SIGTERM, signal.SIGHUP):
             self.addCleanup(signal.signal, sig, signal.signal(sig, original))
         self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
@@ -852,42 +947,51 @@ time.sleep(30)
                 try:
                     signal.raise_signal(sig)  # while the pause is saved
                 except KeyboardInterrupt:
-                    reached.append('SIGINT')
+                    reached.append("SIGINT")
             self.assertEqual([], reached)
             with self.assertRaises(KeyboardInterrupt) as caught, processes.interruption_handler():
                 signal.raise_signal(signal.SIGINT)
-            self.assertEqual('SIGINT', str(caught.exception))
+            self.assertEqual("SIGINT", str(caught.exception))
         # A caller's own handlers hear of them once, afterwards; Ctrl-C's default was answered.
-        self.assertEqual(['SIGTERM', 'SIGHUP'], reached)
-        self.assertEqual([original, original, signal.default_int_handler],
-                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
+        self.assertEqual(["SIGTERM", "SIGHUP"], reached)
+        self.assertEqual(
+            [original, original, signal.default_int_handler],
+            [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)],
+        )
 
     def test_a_process_that_ends_with_the_invocation_goes_on_ignoring_them(self):
         # The CLI restored the defaults as main() returned, so a late Ctrl-C or hangup killed it
         # after its pause was saved: exit -2, -15 or -1 instead of 2 (#454).
         def own(signum, frame):
             pass
+
         self.addCleanup(signal.signal, signal.SIGTERM, signal.signal(signal.SIGTERM, signal.SIG_DFL))
         self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, own))
         self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
         with processes.interrupts_held(until_exit=True):
             pass
-        self.assertEqual([signal.SIG_DFL, own, signal.default_int_handler],
-                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)],
-                         'nothing changes without an interrupted stage')
+        self.assertEqual(
+            [signal.SIG_DFL, own, signal.default_int_handler],
+            [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)],
+            "nothing changes without an interrupted stage",
+        )
         with processes.interrupts_held(until_exit=True):
             with processes.interrupts_held():  # main() inside cli()
                 with self.assertRaises(KeyboardInterrupt), processes.interruption_handler():
                     signal.raise_signal(signal.SIGTERM)
-        self.assertEqual([signal.SIG_IGN, own, signal.SIG_IGN],
-                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
+        self.assertEqual(
+            [signal.SIG_IGN, own, signal.SIG_IGN],
+            [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)],
+        )
 
     def test_a_nested_scope_shares_the_stages_one_interrupt(self):
         # A scope inside a stage's (a captured command, say) recorded the stage's own handler as
         # the disposition to restore, so the stage's later signals were no longer absorbed.
         reached = []
+
         def original(signum, frame):
             reached.append(signal.Signals(signum).name)
+
         for sig in (signal.SIGTERM, signal.SIGHUP):
             self.addCleanup(signal.signal, sig, signal.signal(sig, original))
         self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
@@ -895,16 +999,17 @@ time.sleep(30)
             with self.assertRaises(KeyboardInterrupt) as caught, processes.interruption_handler():
                 with processes.interruption_handler():
                     signal.raise_signal(signal.SIGTERM)
-            self.assertEqual('SIGTERM', str(caught.exception))
+            self.assertEqual("SIGTERM", str(caught.exception))
             signal.raise_signal(signal.SIGHUP)  # while the pause is saved
             self.assertEqual([], reached)
-        self.assertEqual(['SIGHUP'], reached)
+        self.assertEqual(["SIGHUP"], reached)
         self.assertEqual([original, original], [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP)])
 
     def test_ignored_or_replaced_sigint_is_left_alone(self):
         # A background job inherits SIGINT ignored; a caller may install its own handler.
         def own(signum, frame):
             pass
+
         for handler in (signal.SIG_IGN, own):
             with self.subTest(handler=handler):
                 previous = signal.signal(signal.SIGINT, handler)
@@ -917,13 +1022,15 @@ time.sleep(30)
     def signal_during_cleanup(self, sig, joined):
         """Stop a provider that exited on its own while sig arrives as its process worker is joined."""
         join = processes.process_receipts.ReceiptWorker.join
-        child = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
+        child = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
         self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait()))
+
         def signalled_join(worker):
             os.kill(os.getpid(), sig)
             join(worker)
             joined.append(child.poll())
-        with patch.object(processes.process_receipts.ReceiptWorker, 'join', signalled_join):
+
+        with patch.object(processes.process_receipts.ReceiptWorker, "join", signalled_join):
             return processes.wait_for_stage(child, 5, lambda rows: None)
 
     def test_a_signal_during_cleanup_interrupts_once_the_cleanup_finished(self):
@@ -938,7 +1045,7 @@ time.sleep(30)
                 with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt) as caught:
                     self.signal_during_cleanup(sig, joined)
                 self.assertEqual(signal.Signals(sig).name, str(caught.exception))
-                self.assertEqual([0], joined, 'the provider is collected before the interrupt propagates')
+                self.assertEqual([0], joined, "the provider is collected before the interrupt propagates")
 
     def test_a_deferred_signal_keeps_the_callers_own_disposition(self):
         # Deferred, not turned into an interrupt: under nohup the hangup stays ignored.
@@ -949,5 +1056,5 @@ time.sleep(30)
         self.assertEqual([0], joined)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

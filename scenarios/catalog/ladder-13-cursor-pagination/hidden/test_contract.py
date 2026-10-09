@@ -45,15 +45,27 @@ class PaginationContract(unittest.TestCase):
                 paginate([], 2, cursor)
 
     def test_cursor_continues_in_a_fresh_process(self):
-        command = [sys.executable, "-c", "import json, sys; from app import paginate; request = json.load(sys.stdin); print(json.dumps(paginate(request['rows'], request['limit'], request.get('cursor'))))"]
+        command = [
+            sys.executable,
+            "-c",
+            "import json, sys; from app import paginate; request = json.load(sys.stdin); print(json.dumps(paginate(request['rows'], request['limit'], request.get('cursor'))))",
+        ]
         rows = [{"id": i, "created_at": 10} for i in (10, 20, 30, 40)]
-        first_run = subprocess.run(command, input=json.dumps({"rows": rows, "limit": 2}), capture_output=True, text=True, timeout=10)
+        first_run = subprocess.run(
+            command, input=json.dumps({"rows": rows, "limit": 2}), capture_output=True, text=True, timeout=10
+        )
         self.assertEqual(first_run.returncode, 0, first_run.stderr)
         first = json.loads(first_run.stdout)
         self.assertEqual(first["items"], rows[:2])
         self.assertIsInstance(first["next_cursor"], str)
         later_rows = [rows[2], {"id": 5, "created_at": 5}, {"id": 25, "created_at": 10}, rows[3]]
-        second_run = subprocess.run(command, input=json.dumps({"rows": later_rows, "limit": 100, "cursor": first["next_cursor"]}), capture_output=True, text=True, timeout=10)
+        second_run = subprocess.run(
+            command,
+            input=json.dumps({"rows": later_rows, "limit": 100, "cursor": first["next_cursor"]}),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         self.assertEqual(second_run.returncode, 0, second_run.stderr)
         second = json.loads(second_run.stdout)
         self.assertEqual([row["id"] for row in second["items"]], [25, 30, 40])

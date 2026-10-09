@@ -1,4 +1,5 @@
 """Bounded, non-migrating registry import tests using workspace-local fixtures."""
+
 import io
 import json
 import multiprocessing
@@ -35,8 +36,13 @@ class RegistryImportTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         run = workspace / ".autocode/runs/run"
         run.mkdir(parents=True)
-        checkpoint = state or {"version": 3, "workspace": str(workspace.resolve()), "task": "fixture",
-                               "status": "RUNNING", "task_id": task_id}
+        checkpoint = state or {
+            "version": 3,
+            "workspace": str(workspace.resolve()),
+            "task": "fixture",
+            "status": "RUNNING",
+            "task_id": task_id,
+        }
         (run / "state.json").write_text(json.dumps(checkpoint))
         return workspace.resolve(), run.resolve()
 
@@ -82,8 +88,17 @@ class RegistryImportTests(unittest.TestCase):
         for number in range(1, 5):
             run = runs_dir / f"run-{number}"
             run.mkdir()
-            (run / "state.json").write_text(json.dumps({"version": 3, "workspace": str(selected),
-                "task": f"fixture-{number}", "status": "RUNNING", "task_id": f"task-{number}"}))
+            (run / "state.json").write_text(
+                json.dumps(
+                    {
+                        "version": 3,
+                        "workspace": str(selected),
+                        "task": f"fixture-{number}",
+                        "status": "RUNNING",
+                        "task_id": f"task-{number}",
+                    }
+                )
+            )
             runs.append(run)
 
         limited = registry.registry_import(selected, max_depth=0, directory_budget=3)
@@ -127,16 +142,18 @@ class RegistryImportTests(unittest.TestCase):
         selected.mkdir()
         first_workspace, first_run = self.fixture("selected/first", task_id="shared")
         second_workspace, second_run = self.fixture("selected/second", task_id="shared")
-        legacy_workspace, legacy_run = self.fixture("selected/legacy", state={
-            "workspace": str((selected / "legacy").resolve()), "task": "legacy", "status": "PAUSED"})
+        legacy_workspace, legacy_run = self.fixture(
+            "selected/legacy",
+            state={"workspace": str((selected / "legacy").resolve()), "task": "legacy", "status": "PAUSED"},
+        )
         malformed_workspace, malformed_run = self.fixture("selected/malformed")
         (malformed_run / "state.json").write_text("not json")
-        before = {run: (run / "state.json").read_bytes() for run in
-                  (first_run, second_run, legacy_run, malformed_run)}
+        before = {run: (run / "state.json").read_bytes() for run in (first_run, second_run, legacy_run, malformed_run)}
         result = registry.registry_import(selected)
         self.assertEqual(3, len(result["imported"]))
-        self.assertEqual({str(first_run), str(second_run), str(legacy_run)},
-                         {item["run_dir"] for item in registry.listing()["runs"]})
+        self.assertEqual(
+            {str(first_run), str(second_run), str(legacy_run)}, {item["run_dir"] for item in registry.listing()["runs"]}
+        )
         self.assertIn("checkpoint_malformed", {item["code"] for item in result["diagnostics"]})
         self.assertEqual(before, {run: (run / "state.json").read_bytes() for run in before})
         self.assertEqual(2, sum(item["task_id"] == "shared" for item in registry.listing()["runs"]))
@@ -154,12 +171,15 @@ class RegistryImportTests(unittest.TestCase):
         target.write_bytes(state_path.read_bytes())
         state_path.unlink()
         state_path.symlink_to(target)
-        before = {mismatch_run: (mismatch_run / "state.json").read_bytes(),
-                  symlink_run: (symlink_run / "state.json").readlink()}
+        before = {
+            mismatch_run: (mismatch_run / "state.json").read_bytes(),
+            symlink_run: (symlink_run / "state.json").readlink(),
+        }
         result = registry.registry_import(selected)
         self.assertEqual([], result["imported"])
-        self.assertEqual({"checkpoint_malformed", "checkpoint_missing"},
-                         {item["code"] for item in result["diagnostics"]})
+        self.assertEqual(
+            {"checkpoint_malformed", "checkpoint_missing"}, {item["code"] for item in result["diagnostics"]}
+        )
         self.assertEqual(before[mismatch_run], (mismatch_run / "state.json").read_bytes())
         self.assertEqual(before[symlink_run], (symlink_run / "state.json").readlink())
 
@@ -178,8 +198,21 @@ class RegistryImportTests(unittest.TestCase):
 
     def test_cli_reports_invalid_bound_as_json_error(self):
         selected, _ = self.fixture("selected")
-        result = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "tools" / "autocode.py"), "registry", "import",
-                                 str(selected), "--max-depth", "-1", "--json"], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parents[1] / "tools" / "autocode.py"),
+                "registry",
+                "import",
+                str(selected),
+                "--max-depth",
+                "-1",
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         self.assertEqual(2, result.returncode)
         self.assertEqual("invalid_depth", json.loads(result.stdout)["error"]["code"])
 
@@ -194,8 +227,9 @@ class RegistryImportTests(unittest.TestCase):
         registry.register_run(registered_workspace, registered_run, state)
         worker.join(10)
         self.assertEqual(0, worker.exitcode)
-        self.assertEqual({str(imported_run), str(registered_run)},
-                         {item["run_dir"] for item in registry.listing()["runs"]})
+        self.assertEqual(
+            {str(imported_run), str(registered_run)}, {item["run_dir"] for item in registry.listing()["runs"]}
+        )
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ This is a report reader, not an oracle or permission to run models. Manifest
 metadata is supplied by the evaluator. Artifact hashes detect changes; they do
 not authenticate evidence against a writer who controls the manifest too.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,6 +58,7 @@ def document(data: bytes, label):
                 raise CampaignError(f"{label}: duplicate JSON key {key}")
             result[key] = value
         return result
+
     try:
         value = json.loads(data, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (ValueError, UnicodeError) as error:
@@ -71,9 +73,11 @@ def validate_manifest(manifest):
         raise CampaignError("manifest schema_version must be 1")
     for key in ("name", "profile"):
         nonempty(manifest.get(key), key)
-    for key, allowed in (("execution_kind", ("fixture", "live")),
-                         ("workload_kind", ("synthetic", "repository")),
-                         ("split", ("development", "held_out"))):
+    for key, allowed in (
+        ("execution_kind", ("fixture", "live")),
+        ("workload_kind", ("synthetic", "repository")),
+        ("split", ("development", "held_out")),
+    ):
         if manifest.get(key) not in allowed:
             raise CampaignError(f"{key} must be one of {allowed}")
     cases = manifest.get("cases")
@@ -93,9 +97,12 @@ def validate_manifest(manifest):
         ids.add(ident)
         identities.add(identity)
         checks = case.get("required_checks")
-        if (not isinstance(checks, list) or not checks
-                or any(not isinstance(c, str) or not c.strip() for c in checks)
-                or len(set(checks)) != len(checks)):
+        if (
+            not isinstance(checks, list)
+            or not checks
+            or any(not isinstance(c, str) or not c.strip() for c in checks)
+            or len(set(checks)) != len(checks)
+        ):
             raise CampaignError(f"{ident}.required_checks must contain unique nonempty names")
         if not isinstance(case.get("attempts"), list):
             raise CampaignError(f"{ident}.attempts must be an array (empty for unattempted cases)")
@@ -115,8 +122,12 @@ def evaluate_report(report, case, manifest):
     measurement = report.get("measurement")
     if not isinstance(measurement, dict):
         measurement = {}
-    if (type(report.get("report_version")) is not int or report["report_version"] != 2
-            or type(measurement.get("schema_version")) is not int or measurement["schema_version"] != 1):
+    if (
+        type(report.get("report_version")) is not int
+        or report["report_version"] != 2
+        or type(measurement.get("schema_version")) is not int
+        or measurement["schema_version"] != 1
+    ):
         errors.append("missing supported measurement report version")
     for key in ("scenario", "oracle_sha256"):
         if report.get(key) != case[key]:
@@ -142,8 +153,11 @@ def evaluate_report(report, case, manifest):
             errors.append("missing oracle checks")
         else:
             names = [c.get("name") for c in checks]
-            if (any(not isinstance(n, str) or not n for n in names)
-                    or len(set(names)) != len(names) or not set(case["required_checks"]).issubset(names)):
+            if (
+                any(not isinstance(n, str) or not n for n in names)
+                or len(set(names)) != len(names)
+                or not set(case["required_checks"]).issubset(names)
+            ):
                 errors.append("required oracle checks missing or duplicated")
             if any(c.get("ok") is not True for c in checks):
                 outcome = "FALSE_COMPLETE"
@@ -152,7 +166,11 @@ def evaluate_report(report, case, manifest):
             sha256(report.get("run_identity"), "run_identity")
         except CampaignError as error:
             errors.append(str(error))
-        if report.get("runner_status") not in ("TASK_COMPLETE", "COMPLETE") or report.get("blocker") or report.get("error"):
+        if (
+            report.get("runner_status") not in ("TASK_COMPLETE", "COMPLETE")
+            or report.get("blocker")
+            or report.get("error")
+        ):
             errors.append("pass lacks an unblocked runner completion")
     if errors:
         outcome = "UNVERIFIED"
@@ -178,11 +196,19 @@ def score_campaign(path: Path) -> dict:
                 raise CampaignError("duplicate report path or content; a repeated snapshot is not another attempt")
             seen_paths.add(report_path)
             seen_hashes.add(pinned)
-            row = {"case": case["id"], "report": str(report_path), "sha256": pinned,
-                   "outcome": "UNVERIFIED", "errors": [], "runner_status": None,
-                   "assistance": declaration.get("assistance", "unknown"),
-                   "human_seconds": declaration.get("human_seconds"), "elapsed_seconds": None,
-                   "estimated_usd": None, "known_estimated_usd": None}
+            row = {
+                "case": case["id"],
+                "report": str(report_path),
+                "sha256": pinned,
+                "outcome": "UNVERIFIED",
+                "errors": [],
+                "runner_status": None,
+                "assistance": declaration.get("assistance", "unknown"),
+                "human_seconds": declaration.get("human_seconds"),
+                "elapsed_seconds": None,
+                "estimated_usd": None,
+                "known_estimated_usd": None,
+            }
             try:
                 raw = report_path.read_bytes()
                 if digest(raw) != pinned:
@@ -219,64 +245,94 @@ def score_campaign(path: Path) -> dict:
                 row.update(estimated_usd=total, known_estimated_usd=known)
             except (OSError, CampaignError) as error:
                 if str(error) == "DUPLICATE_ATTEMPT":
-                    raise CampaignError("duplicate attempt/run identity; retain only its final cumulative report") from error
+                    raise CampaignError(
+                        "duplicate attempt/run identity; retain only its final cumulative report"
+                    ) from error
                 row.update(outcome="UNVERIFIED", estimated_usd=None, known_estimated_usd=None)
                 row["errors"].append(str(error))
             case_rows.append(row)
             rows.append(row)
         passes = [r for r in case_rows if r["outcome"] == "VERIFIED_PASS"]
-        cases.append({"id": case["id"], "attempts": len(case_rows), "verified": bool(passes),
-                      "unassisted_verified": any(r["assistance"] == "unassisted" for r in passes)})
+        cases.append(
+            {
+                "id": case["id"],
+                "attempts": len(case_rows),
+                "verified": bool(passes),
+                "unassisted_verified": any(r["assistance"] == "unassisted" for r in passes),
+            }
+        )
     verified = sum(c["verified"] for c in cases)
     comparable = len(bases) == 1
     total = known_sum(r["estimated_usd"] for r in rows) if comparable else None
     known = sum(r["known_estimated_usd"] for r in rows if r["known_estimated_usd"] is not None) if comparable else None
     outcomes = dict(Counter(r["outcome"] for r in rows))
-    return {"schema_version": 1, "name": manifest["name"], "manifest_sha256": digest(manifest_bytes),
-            **{k: manifest[k] for k in ("profile", "execution_kind", "workload_kind", "split")},
-            "summary": {"cases": len(cases), "attempts": len(rows), "verified_cases": verified,
-                        "unattempted_cases": sum(c["attempts"] == 0 for c in cases),
-                        "unassisted_verified_cases": sum(c["unassisted_verified"] for c in cases),
-                        "verified_case_rate": verified / len(cases), "attempt_outcomes": outcomes,
-                        "estimated_api_equivalent_usd": total, "known_estimated_api_equivalent_usd": known,
-                        "cost_per_verified_case_usd": total / verified if total is not None and verified else None,
-                        "unpriced_attempts": sum(r["estimated_usd"] is None for r in rows),
-                        "pricing_comparable": comparable,
-                        "human_seconds": known_sum(r["human_seconds"] for r in rows),
-                        "known_human_seconds": sum(r["human_seconds"] for r in rows if r["human_seconds"] is not None),
-                        "unknown_human_time_attempts": sum(r["human_seconds"] is None for r in rows),
-                        "elapsed_seconds": known_sum(r["elapsed_seconds"] for r in rows),
-                        "failure_states": dict(Counter(r["runner_status"] or "unavailable" for r in rows
-                                                       if r["outcome"] != "VERIFIED_PASS"))},
-            "pricing_basis": json.loads(next(iter(bases))) if comparable else None,
-            "cases": cases, "attempts": rows}
+    return {
+        "schema_version": 1,
+        "name": manifest["name"],
+        "manifest_sha256": digest(manifest_bytes),
+        **{k: manifest[k] for k in ("profile", "execution_kind", "workload_kind", "split")},
+        "summary": {
+            "cases": len(cases),
+            "attempts": len(rows),
+            "verified_cases": verified,
+            "unattempted_cases": sum(c["attempts"] == 0 for c in cases),
+            "unassisted_verified_cases": sum(c["unassisted_verified"] for c in cases),
+            "verified_case_rate": verified / len(cases),
+            "attempt_outcomes": outcomes,
+            "estimated_api_equivalent_usd": total,
+            "known_estimated_api_equivalent_usd": known,
+            "cost_per_verified_case_usd": total / verified if total is not None and verified else None,
+            "unpriced_attempts": sum(r["estimated_usd"] is None for r in rows),
+            "pricing_comparable": comparable,
+            "human_seconds": known_sum(r["human_seconds"] for r in rows),
+            "known_human_seconds": sum(r["human_seconds"] for r in rows if r["human_seconds"] is not None),
+            "unknown_human_time_attempts": sum(r["human_seconds"] is None for r in rows),
+            "elapsed_seconds": known_sum(r["elapsed_seconds"] for r in rows),
+            "failure_states": dict(
+                Counter(r["runner_status"] or "unavailable" for r in rows if r["outcome"] != "VERIFIED_PASS")
+            ),
+        },
+        "pricing_basis": json.loads(next(iter(bases))) if comparable else None,
+        "cases": cases,
+        "attempts": rows,
+    }
 
 
 def render(report):
     s = report["summary"]
-    lines = [f"# {report['name']}", "",
-             f"{report['execution_kind']} / {report['workload_kind']} / {report['split']} / {report['profile']}", "",
-             f"Verified cases: **{s['verified_cases']}/{s['cases']}** ({s['verified_case_rate']:.1%}); "
-             f"{s['attempts']} attempts; {s['unattempted_cases']} unattempted cases.",
-             f"Declared unassisted verified cases: {s['unassisted_verified_cases']}.", "",
-             f"Historical-rate total: {money(s['estimated_api_equivalent_usd'])}; "
-             f"known subtotal: {money(s['known_estimated_api_equivalent_usd'])}; "
-             f"{s['unpriced_attempts']} unpriced attempts.",
-             f"Cost per verified case (all attempts included): {money(s['cost_per_verified_case_usd'])}.",
-             f"Common pricing basis available: {s['pricing_comparable']}.",
-             f"Human time: {s['human_seconds'] if s['human_seconds'] is not None else 'unknown'} seconds; "
-             f"known subtotal {s['known_human_seconds']} seconds.", "",
-             "| Case | Attempts | Oracle verified | Declared unassisted pass |",
-             "| --- | ---: | --- | --- |"]
+    lines = [
+        f"# {report['name']}",
+        "",
+        f"{report['execution_kind']} / {report['workload_kind']} / {report['split']} / {report['profile']}",
+        "",
+        f"Verified cases: **{s['verified_cases']}/{s['cases']}** ({s['verified_case_rate']:.1%}); "
+        f"{s['attempts']} attempts; {s['unattempted_cases']} unattempted cases.",
+        f"Declared unassisted verified cases: {s['unassisted_verified_cases']}.",
+        "",
+        f"Historical-rate total: {money(s['estimated_api_equivalent_usd'])}; "
+        f"known subtotal: {money(s['known_estimated_api_equivalent_usd'])}; "
+        f"{s['unpriced_attempts']} unpriced attempts.",
+        f"Cost per verified case (all attempts included): {money(s['cost_per_verified_case_usd'])}.",
+        f"Common pricing basis available: {s['pricing_comparable']}.",
+        f"Human time: {s['human_seconds'] if s['human_seconds'] is not None else 'unknown'} seconds; "
+        f"known subtotal {s['known_human_seconds']} seconds.",
+        "",
+        "| Case | Attempts | Oracle verified | Declared unassisted pass |",
+        "| --- | ---: | --- | --- |",
+    ]
     for case in report["cases"]:
         lines.append(f"| {case['id']} | {case['attempts']} | {case['verified']} | {case['unassisted_verified']} |")
     lines += ["", "Attempt outcomes: " + json.dumps(s["attempt_outcomes"], sort_keys=True), ""]
     for attempt in report["attempts"]:
         if attempt["errors"]:
             lines.append(f"- {attempt['case']}: " + "; ".join(attempt["errors"]))
-    lines += ["", "Historical estimates are not invoices. Assistance and human time are evaluator declarations. "
-              "Fixture and synthetic results do not establish real-repository solving ability. "
-              "Oracle verification does not by itself establish maintainer acceptance or patch quality.", ""]
+    lines += [
+        "",
+        "Historical estimates are not invoices. Assistance and human time are evaluator declarations. "
+        "Fixture and synthetic results do not establish real-repository solving ability. "
+        "Oracle verification does not by itself establish maintainer acceptance or patch quality.",
+        "",
+    ]
     return "\n".join(lines)
 
 

@@ -1,4 +1,5 @@
 """Pending-only intervention submission tests with no competing state writer."""
+
 import json
 import multiprocessing
 import os
@@ -33,21 +34,58 @@ class InterventionTests(unittest.TestCase):
         self.run = self.workspace / ".autocode/runs/fixture"
         self.run.mkdir(parents=True)
         self.state_path = self.run / "state.json"
-        self.state_path.write_text(json.dumps({"version": 3, "workspace": str(self.workspace), "task": "fixture",
-            "status": "RUNNING", "goal_contract": {"revision": 2, "hash": "goal-hash"}}))
+        self.state_path.write_text(
+            json.dumps(
+                {
+                    "version": 3,
+                    "workspace": str(self.workspace),
+                    "task": "fixture",
+                    "status": "RUNNING",
+                    "goal_contract": {"revision": 2, "hash": "goal-hash"},
+                }
+            )
+        )
         self.entry = [sys.executable, str(Path(__file__).with_name("autocode.py"))]
 
     def cli(self, *args):
-        return subprocess.run([*self.entry, "intervention", *args], cwd=self.root, env=os.environ.copy(),
-                              capture_output=True, text=True, check=False)
+        return subprocess.run(
+            [*self.entry, "intervention", *args],
+            cwd=self.root,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     def test_busy_workspace_submission_via_cli_preserves_state(self):
         before = self.state_path.read_bytes()
         with support.workspace_lock(self.workspace):
-            feedback = self.cli("submit", "--workspace", str(self.workspace), "--run-dir", str(self.run),
-                                "--request-id", "feedback-1", "--kind", "feedback", "--text", "Keep the draft", "--json")
-            pause = self.cli("submit", "--workspace", str(self.workspace), "--run-dir", str(self.run),
-                             "--request-id", "pause-1", "--kind", "pause", "--json")
+            feedback = self.cli(
+                "submit",
+                "--workspace",
+                str(self.workspace),
+                "--run-dir",
+                str(self.run),
+                "--request-id",
+                "feedback-1",
+                "--kind",
+                "feedback",
+                "--text",
+                "Keep the draft",
+                "--json",
+            )
+            pause = self.cli(
+                "submit",
+                "--workspace",
+                str(self.workspace),
+                "--run-dir",
+                str(self.run),
+                "--request-id",
+                "pause-1",
+                "--kind",
+                "pause",
+                "--json",
+            )
         self.assertEqual(0, feedback.returncode, feedback.stdout + feedback.stderr)
         self.assertEqual(0, pause.returncode, pause.stdout + pause.stderr)
         receipt = json.loads(feedback.stdout)["receipt"]
@@ -79,7 +117,9 @@ class InterventionTests(unittest.TestCase):
             support.atomic_json(self.state_path, state)
 
         interventions.consume(self.run, state, write_state=write_state, apply_feedback=lambda *_: None)
-        repeated = interventions.submit(self.workspace, self.run, request_id="applied", kind="feedback", text="Original")
+        repeated = interventions.submit(
+            self.workspace, self.run, request_id="applied", kind="feedback", text="Original"
+        )
         self.assertTrue(repeated["idempotent"])
         self.assertEqual("already_applied", repeated["consumer"])
         self.assertEqual(first["receipt"], repeated["receipt"])
@@ -89,9 +129,18 @@ class InterventionTests(unittest.TestCase):
 
     def test_empty_inbox_recovery_clears_applied_acknowledgement_marker(self):
         state = json.loads(self.state_path.read_text())
-        state["applied_interventions"] = [{"id": "recovered", "kind": "pause", "text": "", "order": 1,
-                                            "submitted_at": "then", "observed_goal_token": None,
-                                            "boundary_pause_requested": True, "applied_at": "now"}]
+        state["applied_interventions"] = [
+            {
+                "id": "recovered",
+                "kind": "pause",
+                "text": "",
+                "order": 1,
+                "submitted_at": "then",
+                "observed_goal_token": None,
+                "boundary_pause_requested": True,
+                "applied_at": "now",
+            }
+        ]
         state["intervention_ack_pending"] = ["recovered"]
         writes = []
 
@@ -99,14 +148,20 @@ class InterventionTests(unittest.TestCase):
             writes.append(True)
             support.atomic_json(self.state_path, state)
 
-        self.assertEqual([], interventions.consume(self.run, state, write_state=write_state, apply_feedback=lambda *_: None))
+        self.assertEqual(
+            [], interventions.consume(self.run, state, write_state=write_state, apply_feedback=lambda *_: None)
+        )
         self.assertEqual([True], writes)
         self.assertNotIn("intervention_ack_pending", state)
         self.assertNotIn("intervention_ack_pending", json.loads(self.state_path.read_text()))
 
     def test_multiprocess_submissions_are_all_durable_and_ordered(self):
-        workers = [multiprocessing.Process(target=submit_in_process, args=(str(self.workspace), str(self.run), f"request-{index}"))
-                   for index in range(6)]
+        workers = [
+            multiprocessing.Process(
+                target=submit_in_process, args=(str(self.workspace), str(self.run), f"request-{index}")
+            )
+            for index in range(6)
+        ]
         for worker in workers:
             worker.start()
         for worker in workers:
@@ -151,16 +206,38 @@ class InterventionTests(unittest.TestCase):
             if operation & interventions.fcntl.LOCK_NB:
                 raise BlockingIOError()
 
-        with patch.object(interventions, "LOCK_TIMEOUT_SECONDS", 0), patch.object(interventions.fcntl, "flock", side_effect=blocked_lock):
+        with (
+            patch.object(interventions, "LOCK_TIMEOUT_SECONDS", 0),
+            patch.object(interventions.fcntl, "flock", side_effect=blocked_lock),
+        ):
             with self.assertRaisesRegex(interventions.InterventionError, "busy"):
                 interventions.submit(self.workspace, self.run, request_id="blocked", kind="pause", text="")
         self.assertFalse(inbox.exists())
 
     def test_malformed_optional_goal_contract_returns_a_receipt_without_a_token(self):
-        self.state_path.write_text(json.dumps({"version": 3, "workspace": str(self.workspace), "task": "fixture",
-            "status": "RUNNING", "goal_contract": {"unexpected": "shape"}}))
-        result = self.cli("submit", "--workspace", str(self.workspace), "--run-dir", str(self.run),
-                          "--request-id", "malformed-contract", "--kind", "pause", "--json")
+        self.state_path.write_text(
+            json.dumps(
+                {
+                    "version": 3,
+                    "workspace": str(self.workspace),
+                    "task": "fixture",
+                    "status": "RUNNING",
+                    "goal_contract": {"unexpected": "shape"},
+                }
+            )
+        )
+        result = self.cli(
+            "submit",
+            "--workspace",
+            str(self.workspace),
+            "--run-dir",
+            str(self.run),
+            "--request-id",
+            "malformed-contract",
+            "--kind",
+            "pause",
+            "--json",
+        )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIsNone(json.loads(result.stdout)["receipt"]["observed_goal_token"])
 

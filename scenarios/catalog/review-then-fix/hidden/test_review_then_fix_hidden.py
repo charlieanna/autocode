@@ -1,4 +1,5 @@
 """The PR's intended behavior lands, and neither planted regression survives."""
+
 import unittest
 
 from regclient.client import Command, RegistryClient
@@ -22,8 +23,11 @@ class HiddenTests(unittest.TestCase):
                 self.assertEqual(1, transport.calls)
 
     def test_de_gets_exactly_one_attempt(self):
-        for script, error in ((["error:SERVER_BUSY", "ok"], RegistryError), (["timeout", "ok"], Timeout),
-                              (["error:RATE_LIMITED", "ok"], RegistryError)):
+        for script, error in (
+            (["error:SERVER_BUSY", "ok"], RegistryError),
+            (["timeout", "ok"], Timeout),
+            (["error:RATE_LIMITED", "ok"], RegistryError),
+        ):
             with self.subTest(script=script[0]):
                 transport = ScriptedTransport(script)
                 with self.assertRaises(error):

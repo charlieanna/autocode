@@ -16,6 +16,7 @@ Pure functions over mappings, standard library only. This module imports
 nothing from AutoCode, so it cannot join the import cycle listed in
 tests/test_architecture.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -39,8 +40,7 @@ def child_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
     return snapshot_environment(env)
 
 
-def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None,
-                       allow_default_path=False) -> str | None:
+def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None, allow_default_path=False) -> str | None:
     """Find ``name`` on ``env``'s PATH, never the process PATH.
 
     Absolute executables do not require PATH. Bare names without a declared
@@ -49,17 +49,16 @@ def resolve_executable(name: str, env: Mapping[str, str], *, cwd=None,
     path = env.get("PATH")
     if path is None and allow_default_path:
         try:
-            path = os.confstr('CS_PATH')
+            path = os.confstr("CS_PATH")
         except (AttributeError, ValueError):
             path = os.defpath
     if os.path.dirname(name):
         target = os.path.abspath(os.path.join(cwd, name)) if cwd is not None else name
-        return shutil.which(target, path='')
+        return shutil.which(target, path="")
     if path is None:
         return None
     if cwd is not None:
-        path = os.pathsep.join(os.path.abspath(os.path.join(cwd, part))
-                               for part in path.split(os.pathsep))
+        path = os.pathsep.join(os.path.abspath(os.path.join(cwd, part)) for part in path.split(os.pathsep))
     # An explicitly empty PATH is one empty component: POSIX exec searches
     # the child's working directory. It is different from an absent PATH.
     return shutil.which(name, path=path or os.curdir)
@@ -73,8 +72,8 @@ def preflight_run(command, env: Mapping[str, str], *, require_executable=False, 
     ambient API retains its existing behavior. The caller owns timeouts and
     failure interpretation; no retry is added here.
     """
-    if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get('cwd')):
-        raise FileNotFoundError(f'{command[0]!r} cannot be found in the explicit environment')
+    if require_executable and not resolve_executable(command[0], env, cwd=kwargs.get("cwd")):
+        raise FileNotFoundError(f"{command[0]!r} cannot be found in the explicit environment")
     return subprocess.run(command, env=dict(env), **kwargs)
 
 

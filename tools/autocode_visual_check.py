@@ -5,6 +5,7 @@ fresh invocation, unchanged source/inputs and pixel results, NOT browser provena
 or an independent visual-review verdict. The complete report is emitted to stdout
 because the ordinary verification runner removes its scratch worktree afterward.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,16 +71,29 @@ def _capture_worker():
 
 
 def _capture(command, workspace, output, manifest, timeout):
-    env = {**os.environ, "AUTOCODE_VISUAL_OUTPUT": str(output / "captures"),
-           "AUTOCODE_VISUAL_MANIFEST": str(manifest), "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {
+        **os.environ,
+        "AUTOCODE_VISUAL_OUTPUT": str(output / "captures"),
+        "AUTOCODE_VISUAL_MANIFEST": str(manifest),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
     started = time.monotonic()
     with (output / "capture.log").open("xb") as log:
-        process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--capture-worker"],
-                                   cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=log,
-                                   stderr=subprocess.STDOUT, start_new_session=True, text=True)
+        process = subprocess.Popen(
+            [sys.executable, str(Path(__file__).resolve()), "--capture-worker"],
+            cwd=workspace,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            text=True,
+        )
         try:
-            process.stdin.write(json.dumps({"command": command, "timeout": timeout,
-                                            "result": str(output / "capture-result.json")}) + "\n")
+            process.stdin.write(
+                json.dumps({"command": command, "timeout": timeout, "result": str(output / "capture-result.json")})
+                + "\n"
+            )
             process.stdin.flush()
             process.wait(timeout=timeout + 10)
         except subprocess.TimeoutExpired as error:
@@ -102,8 +116,12 @@ def _capture(command, workspace, output, manifest, timeout):
         raise ValueError("Capture has no process exit code")
     if code:
         raise ValueError(f"Capture command exited {code}; inspect capture.log")
-    return {"command": command, "exit_code": code, "duration_seconds": time.monotonic() - started,
-            "result": {"path": "capture-result.json", "sha256": result_hash}}
+    return {
+        "command": command,
+        "exit_code": code,
+        "duration_seconds": time.monotonic() - started,
+        "result": {"path": "capture-result.json", "sha256": result_hash},
+    }
 
 
 def _captures(root, cases):
@@ -119,8 +137,11 @@ def _captures(root, cases):
         if not isinstance(key, str) or key not in cases or key in found:
             raise ValueError("Duplicate or unknown capture case")
         reference = cases[key]
-        if (item["state"] != reference["state"] or item["route"] != reference["route"]
-                or policy.viewport(item["viewport"]) != reference["viewport"]):
+        if (
+            item["state"] != reference["state"]
+            or item["route"] != reference["route"]
+            or policy.viewport(item["viewport"]) != reference["viewport"]
+        ):
             raise ValueError(f"Capture state/route/viewport differs from reference: {key}")
         candidate = policy.contained(root, item["path"])
         if candidate in paths:
@@ -134,18 +155,29 @@ def _captures(root, cases):
 
 def run(workspace, policy_path, policy_sha256, *, output=None):
     workspace = Path(workspace).resolve()
-    report = {"version": 1, "kind": "deterministic_visual_comparison", "status": "UNVERIFIED", "cases": [],
-              "independent_visual_review": "NOT_PERFORMED",
-              "capture_provenance": "project-owned fixture, not authenticated browser provenance",
-              "errors": []}
+    report = {
+        "version": 1,
+        "kind": "deterministic_visual_comparison",
+        "status": "UNVERIFIED",
+        "cases": [],
+        "independent_visual_review": "NOT_PERFORMED",
+        "capture_provenance": "project-owned fixture, not authenticated browser provenance",
+        "errors": [],
+    }
     destination = None
     try:
         loaded = policy.load(workspace, policy_path, policy_sha256)
-        report.update(policy_sha256=loaded["policy_sha256"], manifest_sha256=loaded["manifest_sha256"],
-                      required_cases=list(loaded["cases"]), input_hashes=loaded["pins"],
-                      engine={Path(__file__).name: util.file_hash(__file__),
-                              Path(policy.__file__).name: util.file_hash(policy.__file__),
-                              Path(visual_diff.__file__).name: util.file_hash(visual_diff.__file__)})
+        report.update(
+            policy_sha256=loaded["policy_sha256"],
+            manifest_sha256=loaded["manifest_sha256"],
+            required_cases=list(loaded["cases"]),
+            input_hashes=loaded["pins"],
+            engine={
+                Path(__file__).name: util.file_hash(__file__),
+                Path(policy.__file__).name: util.file_hash(policy.__file__),
+                Path(visual_diff.__file__).name: util.file_hash(visual_diff.__file__),
+            },
+        )
         for case in loaded["cases"].values():
             for scale in (case["export_scale"], case["viewport"]["device_scale_factor"]):
                 width, height = (round(case["viewport"][axis] * scale) for axis in ("width", "height"))
@@ -166,34 +198,62 @@ def run(workspace, policy_path, policy_sha256, *, output=None):
         (destination / "captures").mkdir()
         (destination / "comparisons").mkdir()
         report["output"] = str(destination.relative_to(workspace))
-        report["capture"] = _capture(loaded["policy"]["capture_command"], workspace, destination,
-                                     loaded["manifest_path"], loaded["policy"]["timeout_seconds"])
+        report["capture"] = _capture(
+            loaded["policy"]["capture_command"],
+            workspace,
+            destination,
+            loaded["manifest_path"],
+            loaded["policy"]["timeout_seconds"],
+        )
         captures = _captures(destination / "captures", loaded["cases"])
         capture_hashes = {str(path.relative_to(destination)): util.file_hash(path) for path in captures.values()}
         capture_hashes["captures/captures.json"] = util.file_hash(destination / "captures" / "captures.json")
         for key, case in loaded["cases"].items():
             reference = policy.contained(loaded["manifest_path"].parent, case["artifacts"]["screenshot"]["path"])
             check = loaded["checks"][key]
-            result = visual_diff.compare(reference, captures[key], destination / "comparisons" / key,
-                                         viewport=case["viewport"], export_scale=case["export_scale"],
-                                         channel_tolerance=check["channel_tolerance"],
-                                         max_changed_ratio=check["max_changed_ratio"], regions=check["regions"])
+            result = visual_diff.compare(
+                reference,
+                captures[key],
+                destination / "comparisons" / key,
+                viewport=case["viewport"],
+                export_scale=case["export_scale"],
+                channel_tolerance=check["channel_tolerance"],
+                max_changed_ratio=check["max_changed_ratio"],
+                regions=check["regions"],
+            )
             candidate_hash = capture_hashes[str(captures[key].relative_to(destination))]
-            for kind, expected in (("reference", case["artifacts"]["screenshot"]["sha256"]),
-                                   ("candidate", candidate_hash)):
+            for kind, expected in (
+                ("reference", case["artifacts"]["screenshot"]["sha256"]),
+                ("candidate", candidate_hash),
+            ):
                 if result[f"{kind}_sha256"] != expected:
                     raise ValueError(f"Compared {kind} bytes differ from pinned evidence: {key}")
             for artifact in result["artifacts"].values():
                 artifact["path"] = str(Path(artifact["path"]).relative_to(destination))
-            report["cases"].append({**result, "id": key, "file_key": case["file_key"], "node_id": case["node_id"],
-                                    "state": case["state"], "route": case["route"], "viewport": case["viewport"],
-                                    "export_scale": case["export_scale"], "implementation_paths": case["implementation_paths"],
-                                    "policy": check, "reference_sha256": case["artifacts"]["screenshot"]["sha256"],
-                                    "candidate": {"path": str(captures[key].relative_to(destination)),
-                                                  "sha256": capture_hashes[str(captures[key].relative_to(destination))]}})
+            report["cases"].append(
+                {
+                    **result,
+                    "id": key,
+                    "file_key": case["file_key"],
+                    "node_id": case["node_id"],
+                    "state": case["state"],
+                    "route": case["route"],
+                    "viewport": case["viewport"],
+                    "export_scale": case["export_scale"],
+                    "implementation_paths": case["implementation_paths"],
+                    "policy": check,
+                    "reference_sha256": case["artifacts"]["screenshot"]["sha256"],
+                    "candidate": {
+                        "path": str(captures[key].relative_to(destination)),
+                        "sha256": capture_hashes[str(captures[key].relative_to(destination))],
+                    },
+                }
+            )
         # Re-read pinned files even if their content is excluded from an unusual Git snapshot.
         policy.load(workspace, policy_path, policy_sha256)
-        if any(util.file_hash(policy.contained(destination, name)) != digest for name, digest in capture_hashes.items()):
+        if any(
+            util.file_hash(policy.contained(destination, name)) != digest for name, digest in capture_hashes.items()
+        ):
             raise ValueError("Capture artifacts changed during comparison")
         after = util.snapshot(workspace)
         report["source_revision_after"] = after["revision"]
@@ -208,9 +268,17 @@ def run(workspace, policy_path, policy_sha256, *, output=None):
         report["summary"] = report["errors"][0][:500]
     else:
         failed = [case for case in report["cases"] if case["status"] == "FAIL"]
-        report["summary"] = (f"{len(failed)} case(s) differ: " + "; ".join(
-            f"{case['id']}: {case['changed_pixels']}/{case['total_pixels']} pixels, bounds {case['bbox']}"
-            for case in failed[:4]))[:500] if failed else "All declared pixel comparisons passed; independent visual review not performed"
+        report["summary"] = (
+            (
+                f"{len(failed)} case(s) differ: "
+                + "; ".join(
+                    f"{case['id']}: {case['changed_pixels']}/{case['total_pixels']} pixels, bounds {case['bbox']}"
+                    for case in failed[:4]
+                )
+            )[:500]
+            if failed
+            else "All declared pixel comparisons passed; independent visual review not performed"
+        )
     if destination:
         try:
             log = destination / "capture.log"
@@ -229,7 +297,9 @@ def cli(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--policy", required=True, help="Source-owned policy path relative to workspace")
-    parser.add_argument("--policy-sha256", required=True, help="Policy digest pinned in the approved verification command")
+    parser.add_argument(
+        "--policy-sha256", required=True, help="Policy digest pinned in the approved verification command"
+    )
     parser.add_argument("--output", help="New relative directory under .autocode/visual-checks/")
     args = parser.parse_args(argv)
     report = run(args.workspace, args.policy, args.policy_sha256, output=args.output)

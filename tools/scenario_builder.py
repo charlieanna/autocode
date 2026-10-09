@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline Builder for bounded-assignment scenarios. Never a live model."""
+
 import json
 import os
 import sys
@@ -9,23 +10,36 @@ from pathlib import Path
 
 
 def request(kind):
-    return {"kind": kind, "discovered": "" if kind == "none" else "The assignment crosses a boundary",
-            "impact": "" if kind == "none" else "The approved paths do not cover the change",
-            "decision_needed": "" if kind == "none" else "Choose whether to replan or stop",
-            "options": [] if kind == "none" else ["Replan", "Stop"],
-            "proposed_delta": "" if kind == "none" else "Change the approved approach before more edits"}
+    return {
+        "kind": kind,
+        "discovered": "" if kind == "none" else "The assignment crosses a boundary",
+        "impact": "" if kind == "none" else "The approved paths do not cover the change",
+        "decision_needed": "" if kind == "none" else "Choose whether to replan or stop",
+        "options": [] if kind == "none" else ["Replan", "Stop"],
+        "proposed_delta": "" if kind == "none" else "Change the approved approach before more edits",
+    }
 
 
 def report(data, changed, summary, kind="none", *, drop_summary=False):
     task = data["current_task"]
     evidence = Path(data["state_file"]).parent / (task["id"] + "-evidence.txt")
     evidence.write_text(summary + "\n" + "\n".join(changed) + "\n")
-    value = {"summary": summary, "changed_files": changed, "commands_run": [], "results": ["recorded"],
-             "remaining_risks": [], "evidence_refs": [str(evidence)],
-             "contract_revision": data["goal_contract"]["revision"], "contract_hash": data["goal_contract"]["hash"],
-             "task_id": task["id"], "deferred_backlog": [], "user_request": request(kind),
-             "addressed_requirements": task.get("requirements", []), "untested_behavior": [],
-             "recommended_checks": task.get("validation_plan", [])}
+    value = {
+        "summary": summary,
+        "changed_files": changed,
+        "commands_run": [],
+        "results": ["recorded"],
+        "remaining_risks": [],
+        "evidence_refs": [str(evidence)],
+        "contract_revision": data["goal_contract"]["revision"],
+        "contract_hash": data["goal_contract"]["hash"],
+        "task_id": task["id"],
+        "deferred_backlog": [],
+        "user_request": request(kind),
+        "addressed_requirements": task.get("requirements", []),
+        "untested_behavior": [],
+        "recommended_checks": task.get("validation_plan", []),
+    }
     if drop_summary:
         value.pop("summary")
     return value
@@ -40,12 +54,19 @@ def write(path, text):
 def classify_unchanged_attempt(data):
     """Describe this fixture's no-edit report without inventing a retry cause."""
     failure = data["builder_failure"]
-    return {"diagnosis": "The assigned Builder completed without source changes; this offline fixture cannot establish a causal correction.",
-            "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "",
-            "evidence_refs": list(failure["evidence_refs"]),
-            "example": "The fixture's Builder reported No source changes for its assigned implementation.",
-            "probe": "", "untestable": "The unchanged report is evidence of no progress, not proof of a cause that would make a retry succeed.",
-            "failure_class": "unknown", "failure_id": failure["failure_id"]}
+    return {
+        "diagnosis": "The assigned Builder completed without source changes; this offline fixture cannot establish a causal correction.",
+        "cause": "other",
+        "guidance": "",
+        "recommendation": "pause",
+        "user_question": "",
+        "evidence_refs": list(failure["evidence_refs"]),
+        "example": "The fixture's Builder reported No source changes for its assigned implementation.",
+        "probe": "",
+        "untestable": "The unchanged report is evidence of no progress, not proof of a cause that would make a retry succeed.",
+        "failure_class": "unknown",
+        "failure_id": failure["failure_id"],
+    }
 
 
 def act(task):
@@ -59,7 +80,10 @@ def act(task):
         return ["src/greeting.py"], "Changed greeting to Welcome", "none", False
     if scenario == "escape_tests":
         write("src/greeting.py", 'GREETING = "Welcome"\n')
-        write("tests/test_greeting.py", "def test_greeting():\n    assert open('src/greeting.py').read().count('Welcome')\n")
+        write(
+            "tests/test_greeting.py",
+            "def test_greeting():\n    assert open('src/greeting.py').read().count('Welcome')\n",
+        )
         return ["src/greeting.py", "tests/test_greeting.py"], "Changed greeting and tests", "none", False
     if scenario == "escape_config":
         write("src/greeting.py", 'GREETING = "Welcome"\n')
@@ -68,7 +92,12 @@ def act(task):
     if scenario == "delete_unrelated":
         write("src/greeting.py", 'GREETING = "Welcome"\n')
         Path("notes/unrelated.txt").unlink()
-        return ["src/greeting.py", "notes/unrelated.txt"], "Changed greeting and deleted an unrelated file", "none", False
+        return (
+            ["src/greeting.py", "notes/unrelated.txt"],
+            "Changed greeting and deleted an unrelated file",
+            "none",
+            False,
+        )
     if scenario == "no_change":
         return [], "No source changes", "none", False
     if scenario == "new_file_escape":
@@ -120,7 +149,9 @@ def main():
         print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
         return
     changed, summary, kind, drop_summary = act(data["current_task"])
-    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report(data, changed, summary, kind, drop_summary=drop_summary)))
+    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(
+        json.dumps(report(data, changed, summary, kind, drop_summary=drop_summary))
+    )
     print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 10}}))
 
 

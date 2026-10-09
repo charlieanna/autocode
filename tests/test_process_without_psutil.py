@@ -7,6 +7,7 @@ runs with a directory first on PYTHONPATH whose psutil.py raises ImportError, bo
 as the script (tools/autocode.py) and as a package, as the installed
 ``autocode_cli.autocode`` entry point imports it.
 """
+
 import json
 import os
 import subprocess
@@ -20,8 +21,10 @@ import autocode_util as util
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # The installed entry point imports autocode_cli.autocode; ``tools`` is the same package.
-ENTRIES = {"script": [str(REPO_ROOT / "tools" / "autocode.py")],
-           "package": ["-c", "import tools.autocode as autocode; raise SystemExit(autocode.cli())"]}
+ENTRIES = {
+    "script": [str(REPO_ROOT / "tools" / "autocode.py")],
+    "package": ["-c", "import tools.autocode as autocode; raise SystemExit(autocode.cli())"],
+}
 
 
 class WithoutPsutilTests(unittest.TestCase):
@@ -36,8 +39,14 @@ class WithoutPsutilTests(unittest.TestCase):
         self.env.update(PYTHONPATH=str(self.root / "shim"), PATH=os.defpath, XDG_CONFIG_HOME=str(self.root))
 
     def autocode(self, entry, *args):
-        proc = subprocess.run([sys.executable, *ENTRIES[entry], *args], cwd=REPO_ROOT, env=self.env,
-                              capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(
+            [sys.executable, *ENTRIES[entry], *args],
+            cwd=REPO_ROOT,
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         self.assertNotIn("Traceback", proc.stderr)
         return proc
 

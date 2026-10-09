@@ -21,6 +21,7 @@ is not a counted recovery.
 
 This module imports nothing from AutoCode.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -49,8 +50,7 @@ def _archive(state, reason: str) -> None:
         return
     # recovery_context_archive: retained history of notes that must not stay current.
     # Written only here. No reader; prompts and stop_reason use recovery_context.
-    state.setdefault("recovery_context_archive", []).append(
-        {"reason": reason, "recovery_context": context})
+    state.setdefault("recovery_context_archive", []).append({"reason": reason, "recovery_context": context})
 
 
 def stage_saved(state, record) -> None:
@@ -91,8 +91,9 @@ def exhaustion_cause(state) -> str:
     ``stop_reason`` quotes this as ``Last cause``. An abandoned attempt's
     instruction is never returned.
     """
-    events = [event for event in state.get("user_events") or []
-              if isinstance(event, dict) and event.get("kind") in _COUNTED]
+    events = [
+        event for event in state.get("user_events") or [] if isinstance(event, dict) and event.get("kind") in _COUNTED
+    ]
     if events:
         last = events[-1]
         if last.get("kind") == _STARTUP_EVENT:

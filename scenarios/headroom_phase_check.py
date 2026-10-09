@@ -5,6 +5,7 @@ Each call creates fresh phase roots and retains its own source-bound receipts.
 The stats-only usage URL adapter points to a declared synthetic loopback server;
 compatibility uses the production default URL, refused before transport I/O.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,9 +19,14 @@ from pathlib import Path
 
 from harness.phase_env import GREEN, PhaseSequence
 
-ROOT_VARS = {'CLAUDE_CONFIG_DIR': 'credential_root', 'HEADROOM_CONFIG_DIR': 'config_root',
-             'HEADROOM_WORKSPACE_DIR': 'state_root', 'XDG_CONFIG_HOME': 'config_root',
-             'XDG_STATE_HOME': 'state_root', 'XDG_CACHE_HOME': 'cache_root'}
+ROOT_VARS = {
+    "CLAUDE_CONFIG_DIR": "credential_root",
+    "HEADROOM_CONFIG_DIR": "config_root",
+    "HEADROOM_WORKSPACE_DIR": "state_root",
+    "XDG_CONFIG_HOME": "config_root",
+    "XDG_STATE_HOME": "state_root",
+    "XDG_CACHE_HOME": "cache_root",
+}
 
 CHILD = r'''
 import asyncio, hashlib, json, os, sys, threading, time
@@ -138,133 +144,213 @@ def test_application_lifespan_stats(index):
 
 
 def source_inventory(source):
-    package = Path(source)/'headroom'
-    if package.is_symlink() or any(path.is_symlink() for path in package.rglob('*')):
-        raise ValueError('frozen application inputs must not follow symlinks')
-    files = {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
-             for path in sorted((Path(source)/'headroom').rglob('*'))
-             if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc'}
-    if not any(name.endswith(('.so','.pyd')) and '/_core' in name for name in files):
-        raise ValueError('a real Headroom Rust SDK must be declared in the frozen source copy')
+    package = Path(source) / "headroom"
+    if package.is_symlink() or any(path.is_symlink() for path in package.rglob("*")):
+        raise ValueError("frozen application inputs must not follow symlinks")
+    files = {
+        str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted((Path(source) / "headroom").rglob("*"))
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    }
+    if not any(name.endswith((".so", ".pyd")) and "/_core" in name for name in files):
+        raise ValueError("a real Headroom Rust SDK must be declared in the frozen source copy")
     return files
 
 
 def prepared_environment():
     # Acceptance account/config inputs must not inherit provider or developer
     # credentials. The model-provider process and its OAuth HOME are untouched.
-    env = {key: value for key, value in os.environ.items()
-           if not key.startswith(('HEADROOM_', 'ANTHROPIC_', 'CLAUDE_CODE_', 'GITHUB_', 'GITLAB_',
-                                  'OPENAI_', 'AZURE_OPENAI_', 'OTEL_', 'LANGFUSE_'))
-           and key.lower() not in ('http_proxy','https_proxy','all_proxy','no_proxy')}
-    env.update(PYTHONDONTWRITEBYTECODE='1', HEADROOM_OFFLINE='1', HEADROOM_BEACON='off',
-               HEADROOM_TELEMETRY='off', HEADROOM_REQUIRE_RUST_CORE='true', NO_PROXY='*',
-               LITELLM_LOCAL_MODEL_COST_MAP='True', HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1',
-               PYTEST_DISABLE_PLUGIN_AUTOLOAD='1')
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(
+            (
+                "HEADROOM_",
+                "ANTHROPIC_",
+                "CLAUDE_CODE_",
+                "GITHUB_",
+                "GITLAB_",
+                "OPENAI_",
+                "AZURE_OPENAI_",
+                "OTEL_",
+                "LANGFUSE_",
+            )
+        )
+        and key.lower() not in ("http_proxy", "https_proxy", "all_proxy", "no_proxy")
+    }
+    env.update(
+        PYTHONDONTWRITEBYTECODE="1",
+        HEADROOM_OFFLINE="1",
+        HEADROOM_BEACON="off",
+        HEADROOM_TELEMETRY="off",
+        HEADROOM_REQUIRE_RUST_CORE="true",
+        NO_PROXY="*",
+        LITELLM_LOCAL_MODEL_COST_MAP="True",
+        HF_HUB_OFFLINE="1",
+        TRANSFORMERS_OFFLINE="1",
+        PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
+    )
     return env
 
 
 def result_of(child):
-    lines = [line for line in child.stdout.splitlines() if line.startswith('PHASE_RESULT ')]
-    return json.loads(lines[-1].split(' ',1)[1]) if child.returncode == 0 and lines else None
+    lines = [line for line in child.stdout.splitlines() if line.startswith("PHASE_RESULT ")]
+    return json.loads(lines[-1].split(" ", 1)[1]) if child.returncode == 0 and lines else None
 
 
 def qualify(source, python, output, *, isolate=True, bind=True, inject=None):
     source, output = Path(source).resolve(), Path(output).resolve()
     if output.is_relative_to(source):
-        raise ValueError('proof output must stay outside immutable application inputs')
+        raise ValueError("proof output must stay outside immutable application inputs")
     before = source_inventory(source)
-    helper_files=(Path(__file__),Path(__file__).parent/'harness/phase_env.py',
-                  Path(__file__).parent/'harness/phase_httpx.py',Path(__file__).parent/'harness/phase_sockets.py')
-    helpers={path.name:hashlib.sha256(path.read_bytes()).hexdigest() for path in helper_files}
+    helper_files = (
+        Path(__file__),
+        Path(__file__).parent / "harness/phase_env.py",
+        Path(__file__).parent / "harness/phase_httpx.py",
+        Path(__file__).parent / "harness/phase_sockets.py",
+    )
+    helpers = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in helper_files}
     parent_environment = dict(os.environ)
     env = prepared_environment()
     # An owned synthetic ambient root reproduces the original undeclared input;
     # no developer credential file is read, even in deliberately broken controls.
-    env['CLAUDE_CONFIG_DIR'] = str(output / 'shared-application-credentials')
-    sequence = PhaseSequence('headroom-stats-compat', output, env=env)
-    Path(env['CLAUDE_CONFIG_DIR']).mkdir()
+    env["CLAUDE_CONFIG_DIR"] = str(output / "shared-application-credentials")
+    sequence = PhaseSequence("headroom-stats-compat", output, env=env)
+    Path(env["CLAUDE_CONFIG_DIR"]).mkdir()
     traffic = []
+
     class Usage(BaseHTTPRequestHandler):
         def do_GET(self):
-            synthetic = self.headers.get('Authorization') == 'Bearer synthetic-stats-only'
-            traffic.append({'path':self.path, 'synthetic_authorization':synthetic})
-            body = json.dumps({'five_hour':{'utilization':10,'resets_at':'2099-01-01T00:00:00Z'},
-                               'seven_day':{'utilization':20,'resets_at':'2099-01-01T00:00:00Z'}}).encode()
-            self.send_response(200 if synthetic and self.path=='/usage' else 403)
-            self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)))
-            self.end_headers();self.wfile.write(body)
-        def log_message(self,*args): pass
-    usage = ThreadingHTTPServer(('127.0.0.1',0), Usage)
-    usage_thread = threading.Thread(target=usage.serve_forever,daemon=True);usage_thread.start()
+            synthetic = self.headers.get("Authorization") == "Bearer synthetic-stats-only"
+            traffic.append({"path": self.path, "synthetic_authorization": synthetic})
+            body = json.dumps(
+                {
+                    "five_hour": {"utilization": 10, "resets_at": "2099-01-01T00:00:00Z"},
+                    "seven_day": {"utilization": 20, "resets_at": "2099-01-01T00:00:00Z"},
+                }
+            ).encode()
+            self.send_response(200 if synthetic and self.path == "/usage" else 403)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    usage = ThreadingHTTPServer(("127.0.0.1", 0), Usage)
+    usage_thread = threading.Thread(target=usage.serve_forever, daemon=True)
+    usage_thread.start()
     with socket.socket() as reservation:
-        reservation.bind(('127.0.0.1',0)); stats_port=reservation.getsockname()[1]
-    usage_port=usage.server_port
-    bindings=ROOT_VARS if bind else {key: value for key,value in ROOT_VARS.items() if key!='CLAUDE_CONFIG_DIR'}
-    stats=sequence.phase('stats',root_vars=bindings,
-                         allowed_endpoints=(f'127.0.0.1:{stats_port}',f'127.0.0.1:{usage_port}'))
-    compat=sequence.phase('compat',root_vars=bindings,share_credential_root_with=None if isolate else stats)
-    extra={'FROZEN_HEADROOM_SOURCE':str(source),'STATS_PORT':str(stats_port),
-           'SYNTHETIC_USAGE_URL':f'http://127.0.0.1:{usage_port}/usage',
-           'INJECT_SWALLOWED_STEP':inject or ''}
+        reservation.bind(("127.0.0.1", 0))
+        stats_port = reservation.getsockname()[1]
+    usage_port = usage.server_port
+    bindings = ROOT_VARS if bind else {key: value for key, value in ROOT_VARS.items() if key != "CLAUDE_CONFIG_DIR"}
+    stats = sequence.phase(
+        "stats", root_vars=bindings, allowed_endpoints=(f"127.0.0.1:{stats_port}", f"127.0.0.1:{usage_port}")
+    )
+    compat = sequence.phase("compat", root_vars=bindings, share_credential_root_with=None if isolate else stats)
+    extra = {
+        "FROZEN_HEADROOM_SOURCE": str(source),
+        "STATS_PORT": str(stats_port),
+        "SYNTHETIC_USAGE_URL": f"http://127.0.0.1:{usage_port}/usage",
+        "INJECT_SWALLOWED_STEP": inject or "",
+    }
     try:
-        children=[phase.run([str(python),'-B','-c',CHILD,mode],cwd=output,timeout=90,env=extra)
-                  for phase,mode in ((stats,'stats'),(compat,'compat'))]
+        children = [
+            phase.run([str(python), "-B", "-c", CHILD, mode], cwd=output, timeout=90, env=extra)
+            for phase, mode in ((stats, "stats"), (compat, "compat"))
+        ]
     finally:
-        usage.shutdown();usage_thread.join(timeout=5);usage.server_close()
-    results=[result_of(child) for child in children]
-    for phase,child in zip(('stats','compat'),children, strict=False):
-        (output/(phase+'-stdout.log')).write_text(child.stdout)
-        (output/(phase+'-stderr.log')).write_text(child.stderr)
-    record=sequence.finish()
-    record.update(source_files=before, source_unchanged=source_inventory(source)==before,
-                  parent_environment_unchanged=dict(os.environ)==parent_environment,
-                  app_results=results, synthetic_usage_requests=traffic,
-                  stats_url_adapter={'phase':'stats','reason':'synthetic-only usage fixture',
-                                     'target':extra['SYNTHETIC_USAGE_URL'], 'compatibility':'production default URL unchanged'},
-                  helper_hashes=helpers,
-                  helpers_unchanged=helpers=={path.name:hashlib.sha256(path.read_bytes()).hexdigest()
-                                             for path in helper_files})
-    stats_result,compat_result=results
-    record['passed']=bool(record['outcome']==GREEN and record['source_unchanged']
-                          and record['parent_environment_unchanged'] and record['helpers_unchanged'] and traffic
-                          and all(row['synthetic_authorization'] for row in traffic)
-                          and stats_result and stats_result.get('started') and stats_result.get('stopped')
-                          and all(result and result.get('loaded_inputs')
-                                  and all(before.get(name)==sha for name,sha in result['loaded_inputs'].items())
-                                  for result in results)
-                          and compat_result and compat_result.get('lifespans')==2
-                          and not compat_result['credentials_before'] and not compat_result['credentials_after'])
-    (output/'qualified-result.json').write_text(json.dumps(record,indent=2)+'\n')
+        usage.shutdown()
+        usage_thread.join(timeout=5)
+        usage.server_close()
+    results = [result_of(child) for child in children]
+    for phase, child in zip(("stats", "compat"), children, strict=False):
+        (output / (phase + "-stdout.log")).write_text(child.stdout)
+        (output / (phase + "-stderr.log")).write_text(child.stderr)
+    record = sequence.finish()
+    record.update(
+        source_files=before,
+        source_unchanged=source_inventory(source) == before,
+        parent_environment_unchanged=dict(os.environ) == parent_environment,
+        app_results=results,
+        synthetic_usage_requests=traffic,
+        stats_url_adapter={
+            "phase": "stats",
+            "reason": "synthetic-only usage fixture",
+            "target": extra["SYNTHETIC_USAGE_URL"],
+            "compatibility": "production default URL unchanged",
+        },
+        helper_hashes=helpers,
+        helpers_unchanged=helpers
+        == {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in helper_files},
+    )
+    stats_result, compat_result = results
+    record["passed"] = bool(
+        record["outcome"] == GREEN
+        and record["source_unchanged"]
+        and record["parent_environment_unchanged"]
+        and record["helpers_unchanged"]
+        and traffic
+        and all(row["synthetic_authorization"] for row in traffic)
+        and stats_result
+        and stats_result.get("started")
+        and stats_result.get("stopped")
+        and all(
+            result
+            and result.get("loaded_inputs")
+            and all(before.get(name) == sha for name, sha in result["loaded_inputs"].items())
+            for result in results
+        )
+        and compat_result
+        and compat_result.get("lifespans") == 2
+        and not compat_result["credentials_before"]
+        and not compat_result["credentials_after"]
+    )
+    (output / "qualified-result.json").write_text(json.dumps(record, indent=2) + "\n")
     return record
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source',type=Path,required=True)
-    parser.add_argument('--python',required=True)
-    parser.add_argument('--out',type=Path,required=True)
-    parser.add_argument('--share-credentials',action='store_true')
-    parser.add_argument('--omit-application-binding',action='store_true')
-    parser.add_argument('--inject-swallowed-step',choices=('setup','collection','call','teardown'))
-    parser.add_argument('--policy',type=Path,help='Owned candidate JSON with boolean isolate and bind fields')
-    args=parser.parse_args()
-    policy={'isolate':not args.share_credentials,'bind':not args.omit_application_binding}
-    policy_bytes=args.policy.read_bytes() if args.policy else None
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--python", required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--share-credentials", action="store_true")
+    parser.add_argument("--omit-application-binding", action="store_true")
+    parser.add_argument("--inject-swallowed-step", choices=("setup", "collection", "call", "teardown"))
+    parser.add_argument("--policy", type=Path, help="Owned candidate JSON with boolean isolate and bind fields")
+    args = parser.parse_args()
+    policy = {"isolate": not args.share_credentials, "bind": not args.omit_application_binding}
+    policy_bytes = args.policy.read_bytes() if args.policy else None
     if args.policy:
-        policy=json.loads(policy_bytes)
-        if (set(policy)!={'isolate','bind'} or any(type(value) is not bool for value in policy.values())
-                or args.share_credentials or args.omit_application_binding):
-            parser.error('policy must contain exactly boolean isolate/bind, without conflicting control flags')
-    result=qualify(args.source,args.python,args.out,inject=args.inject_swallowed_step,**policy)
+        policy = json.loads(policy_bytes)
+        if (
+            set(policy) != {"isolate", "bind"}
+            or any(type(value) is not bool for value in policy.values())
+            or args.share_credentials
+            or args.omit_application_binding
+        ):
+            parser.error("policy must contain exactly boolean isolate/bind, without conflicting control flags")
+    result = qualify(args.source, args.python, args.out, inject=args.inject_swallowed_step, **policy)
     if args.policy:
-        result['candidate_policy_sha256']=hashlib.sha256(policy_bytes).hexdigest()
-        result['candidate_policy_unchanged']=args.policy.read_bytes()==policy_bytes
-        if not result['candidate_policy_unchanged']:
-            result.update(passed=False,outcome='ERROR',reason='candidate policy changed during qualification')
-        (args.out/'qualified-result.json').write_text(json.dumps(result,indent=2)+'\n')
-    print(json.dumps({key:result[key] for key in ('passed','outcome','app_results','source_unchanged',
-                                                'parent_environment_unchanged')},indent=2))
-    return 0 if result['passed'] else 1
+        result["candidate_policy_sha256"] = hashlib.sha256(policy_bytes).hexdigest()
+        result["candidate_policy_unchanged"] = args.policy.read_bytes() == policy_bytes
+        if not result["candidate_policy_unchanged"]:
+            result.update(passed=False, outcome="ERROR", reason="candidate policy changed during qualification")
+        (args.out / "qualified-result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(
+        json.dumps(
+            {
+                key: result[key]
+                for key in ("passed", "outcome", "app_results", "source_unchanged", "parent_environment_unchanged")
+            },
+            indent=2,
+        )
+    )
+    return 0 if result["passed"] else 1
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     raise SystemExit(main())

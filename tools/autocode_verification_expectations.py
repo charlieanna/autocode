@@ -13,6 +13,7 @@ commands that must fail gets their status too, so its check fails on correct cod
 with the Validator.
 Imports only the standard library and writes no run state.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,7 +25,8 @@ DECLARED = (
     r"(?:exact\s+(?:stdout/stderr|stdout\s+and\s+stderr)\s+bytes\s+and\s+)?"
     r"(?:exit\s+(?:codes?|statuses?)|(?:it\s+)?exits?)\s*"
     r"(?:of\s+|are\s+|[:=]\s*)?"
-    r"(?P<codes>[+-]?\d+(?:\s*[/,]\s*[+-]?\d+)*)")
+    r"(?P<codes>[+-]?\d+(?:\s*[/,]\s*[+-]?\d+)*)"
+)
 DECLARATION = re.compile(DECLARED + r"\s*[.)]*\s*", re.IGNORECASE)
 # Live program-notes-cli S4 (Claude models, 2026-10-06): "(also: after one `add x`, run `python3 -m notes add`
 # and `python3 -m notes frobnicate` and assert exit 2, empty stdout and byte-identical notes file content)".
@@ -44,16 +46,22 @@ NOT_PLAIN = re.compile(
     r"otherwise|unless|except|but|only|first|second|third|last|initial|former|latter|respectively|other|"
     r"nonzero|or|if|when|whenever|instead|else|excluding|exclude|excludes|aside|save|besides|exception|alone|"
     r"just|final|preceding|previous|earlier|provided|given|assuming|until|while|depending|alternatively|either|"
-    r"possibly|skip|skips|skipping)\b", re.IGNORECASE)
+    r"possibly|skip|skips|skipping)\b",
+    re.IGNORECASE,
+)
 # ... and must be a plain expectation about output or files.
-PLAIN = re.compile(r"\b(?:stdout|stderr|outputs?|files?|contents?|messages?|lines?|usage|errors?|notes)\b",
-                   re.IGNORECASE)
+PLAIN = re.compile(
+    r"\b(?:stdout|stderr|outputs?|files?|contents?|messages?|lines?|usage|errors?|notes)\b", re.IGNORECASE
+)
 
 
 def wrapped(commands: list[str], codes: list[int]) -> list[str]:
-    return [command if code == 0 else "sh -c " + shlex.quote(
-        f'({command}); autocode_plan_exit=$?; test "$autocode_plan_exit" -eq {code}')
-        for command, code in zip(commands, codes, strict=False)]
+    return [
+        command
+        if code == 0
+        else "sh -c " + shlex.quote(f'({command}); autocode_plan_exit=$?; test "$autocode_plan_exit" -eq {code}')
+        for command, code in zip(commands, codes, strict=False)
+    ]
 
 
 def assertion_commands(method: str, commands: list[str]) -> list[str]:
@@ -63,14 +71,16 @@ def assertion_commands(method: str, commands: list[str]) -> list[str]:
     snippets = list(re.finditer(r"`([^`]+)`", method))
     if not snippets:
         return commands
-    declaration = DECLARATION.fullmatch(method[snippets[-1].end():])
+    declaration = DECLARATION.fullmatch(method[snippets[-1].end() :])
     if not declaration:
         return run_list_commands(method, snippets, commands)
     codes = [int(value.strip()) for value in re.split(r"[/,]", declaration["codes"])]
     quoted = [snippet.group(1).strip() for snippet in snippets]
     if quoted != commands or len(codes) != len(commands) or any(not 0 <= code <= 255 for code in codes):
-        raise ValueError("Planned exit codes need one status (0–255) per executable command; "
-                         "use an explicit zero-exit assertion check for more complex expectations")
+        raise ValueError(
+            "Planned exit codes need one status (0–255) per executable command; "
+            "use an explicit zero-exit assertion check for more complex expectations"
+        )
     return wrapped(commands, codes)
 
 
@@ -91,12 +101,14 @@ def run_list_commands(method: str, snippets: list, commands: list[str]) -> list[
 
 def is_run_list(method: str, snippets: list, commands: list[str]) -> bool:
     """The commands are the last quoted snippets, the first after run/execute/invoke, joined by and/,."""
-    trailing = snippets[len(snippets) - len(commands):]
+    trailing = snippets[len(snippets) - len(commands) :]
     if [snippet.group(1).strip() for snippet in trailing] != commands:
         return False
     start = snippets[-len(commands) - 1].end() if len(snippets) > len(commands) else 0
-    return bool(RUN_VERB.search(method[start:trailing[0].start()])) and all(
-        method[left.end():right.start()].strip().lower() in RUN_LIST for left, right in zip(trailing, trailing[1:], strict=False))
+    return bool(RUN_VERB.search(method[start : trailing[0].start()])) and all(
+        method[left.end() : right.start()].strip().lower() in RUN_LIST
+        for left, right in zip(trailing, trailing[1:], strict=False)
+    )
 
 
 def plain_clauses(method: str, start: int) -> bool:

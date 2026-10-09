@@ -2,6 +2,7 @@
 
 Fixture completion is evidence for the runtime, not proof of live model recovery.
 """
+
 import contextlib
 import copy
 import io
@@ -37,13 +38,22 @@ class StageRepairProviderTests(unittest.TestCase):
                 "    'pid': os.getpid(), 'prompt': sys.stdin.read(), 'args': sys.argv[1:]}))\n"
                 "print(json.dumps({'type': 'turn.completed'}))\n"
                 "print('delegate diagnostic', file=sys.stderr)\n"
-                + ("raise RuntimeError('delegate crashed')\n" if crash else f"raise SystemExit({exit_code!r})\n"))
+                + ("raise RuntimeError('delegate crashed')\n" if crash else f"raise SystemExit({exit_code!r})\n")
+            )
             args = ["codex", "exec", "-o", str(report)]
             stdin, stdout, stderr = io.StringIO(prompt), io.StringIO(), io.StringIO()
-            with patch.dict(os.environ, STAGE_REPAIR_DELEGATE=str(delegate),
-                            STAGE_REPAIR_TRACE=str(trace), STAGE_REPAIR_CASE="finalizer"), \
-                 patch.object(sys, "argv", args), patch.object(sys, "stdin", stdin), \
-                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            with (
+                patch.dict(
+                    os.environ,
+                    STAGE_REPAIR_DELEGATE=str(delegate),
+                    STAGE_REPAIR_TRACE=str(trace),
+                    STAGE_REPAIR_CASE="finalizer",
+                ),
+                patch.object(sys, "argv", args),
+                patch.object(sys, "stdin", stdin),
+                contextlib.redirect_stdout(stdout),
+                contextlib.redirect_stderr(stderr),
+            ):
                 code = provider.main()
                 self.assertIs(sys.stdin, stdin)
                 self.assertEqual("codex", sys.argv[0])
@@ -65,8 +75,9 @@ class StageRepairProviderTests(unittest.TestCase):
             with self.subTest(exit_code=exit_code):
                 code, _, stderr = self.invoke(exit_code)
                 self.assertEqual(expected, code)
-                self.assertEqual("delegate diagnostic\n" + ("fixture failed\n" if expected == 1 else "")
-                                 if expected else "", stderr)
+                self.assertEqual(
+                    "delegate diagnostic\n" + ("fixture failed\n" if expected == 1 else "") if expected else "", stderr
+                )
 
     def test_delegate_exception_keeps_transport_output_and_traceback(self):
         code, _, stderr = self.invoke(None, crash=True)
@@ -88,11 +99,19 @@ class StageRepairPromptContracts(unittest.TestCase):
             saved.write_text(json.dumps(source))
             value = provider.investigator_report(saved)
             fixture.state["stuck_investigation"] = {
-                "identity": "astra_finalize:PAUSED_INVALID_OUTPUT", "stage": "astra_finalize",
-                "status": "PAUSED_INVALID_OUTPUT", "reason": "Missing concern decisions",
+                "identity": "astra_finalize:PAUSED_INVALID_OUTPUT",
+                "stage": "astra_finalize",
+                "status": "PAUSED_INVALID_OUTPUT",
+                "reason": "Missing concern decisions",
             }
-            fixture.state["stages"].append({"stage": "astra_finalize", "output": str(saved),
-                                             "rejected": True, "rejection_reason": "Missing concern decisions"})
+            fixture.state["stages"].append(
+                {
+                    "stage": "astra_finalize",
+                    "output": str(saved),
+                    "rejected": True,
+                    "rejection_reason": "Missing concern decisions",
+                }
+            )
         fixture.queue(stage=stage, role="astra", report=json.dumps(value))
         request = fixture.repair_request()
         data = json.loads(request["prompt"].split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -123,16 +142,18 @@ class StageRepairPromptContracts(unittest.TestCase):
         original = data["rejected_report"]["content"]
         self.assertEqual(1, len(original["evidence_refs"]))
         initial_files = stuck.cited_files(original, fixture.root, fixture.run)
-        initial = verify.scratch_run(fixture.root, fixture.run / "initial-diagnosis-probe",
-                                     command=original["probe"], files=initial_files)
+        initial = verify.scratch_run(
+            fixture.root, fixture.run / "initial-diagnosis-probe", command=original["probe"], files=initial_files
+        )
         self.assertNotEqual(0, initial["exit_code"], "The observed archive-prefixed name must fail in scratch")
         repaired = provider.repair_investigator(request["prompt"], data, original)
         support.validate_schema(repaired, stuck.SCHEMA)
         copied = stuck.cited_files(repaired, fixture.root, fixture.run)
         self.assertEqual(["run/plan-finalize-01.json"], list(copied))
         self.assertNotIn(str(fixture.run), repaired["probe"], "A probe must use the supplied scratch path")
-        shown = verify.scratch_run(fixture.root, fixture.run / "repaired-diagnosis-probe",
-                                   command=repaired["probe"], files=copied)
+        shown = verify.scratch_run(
+            fixture.root, fixture.run / "repaired-diagnosis-probe", command=repaired["probe"], files=copied
+        )
         self.assertEqual(0, shown["exit_code"], shown)
         self.assertIn("diagnosed missing concern decisions", shown["tail"])
 
@@ -148,15 +169,31 @@ class StageRepairCLI(unittest.TestCase):
         executable.rename(delegate)
         executable.write_text(source.read_text().replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1))
         executable.chmod(0o755)
-        fixture.env.update(STAGE_REPAIR_CASE=case, STAGE_REPAIR_DELEGATE=str(delegate),
-                           STAGE_REPAIR_TRACE=str(fixture.root / "stage-repair-trace.jsonl"),
-                           AUTOCODE_FIXTURE_MODE="no-human")
+        fixture.env.update(
+            STAGE_REPAIR_CASE=case,
+            STAGE_REPAIR_DELEGATE=str(delegate),
+            STAGE_REPAIR_TRACE=str(fixture.root / "stage-repair-trace.jsonl"),
+            AUTOCODE_FIXTURE_MODE="no-human",
+        )
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG_CONTENT"):
             fixture.env.pop(key, None)
-        fixture.new_run_engine_args = ("--engine", "codex", "--joint-planning",
-            "--astra-model", "gpt-5.6-sol", "--terra-model", "gpt-5.6-terra",
-            "--sol-model", "gpt-5.6-sol", "--completion-model", "gpt-5.6-sol",
-            "--plan-reviewer-model", "gpt-6-astra", "--plan-reviewer-reasoning-effort", "high")
+        fixture.new_run_engine_args = (
+            "--engine",
+            "codex",
+            "--joint-planning",
+            "--astra-model",
+            "gpt-5.6-sol",
+            "--terra-model",
+            "gpt-5.6-terra",
+            "--sol-model",
+            "gpt-5.6-sol",
+            "--completion-model",
+            "gpt-5.6-sol",
+            "--plan-reviewer-model",
+            "gpt-6-astra",
+            "--plan-reviewer-reasoning-effort",
+            "high",
+        )
         return fixture
 
     def plan(self, fixture):
@@ -175,19 +212,42 @@ class StageRepairCLI(unittest.TestCase):
             retained = []
             for row in state["stages"]:
                 if row["stage"].startswith(("astra_finalize", "investigate_stuck")):
-                    record = {key: row.get(key) for key in ("stage", "original_stage", "iteration", "output",
-                              "events", "rejected", "rejection_reason", "applied_original_events")}
+                    record = {
+                        key: row.get(key)
+                        for key in (
+                            "stage",
+                            "original_stage",
+                            "iteration",
+                            "output",
+                            "events",
+                            "rejected",
+                            "rejection_reason",
+                            "applied_original_events",
+                        )
+                    }
                     record["report"] = json.loads(Path(row["output"]).read_text())
-                    record["command_events"] = [json.loads(line) for line in Path(row["events"]).read_text().splitlines()
-                                                if line.strip() and json.loads(line).get("type") == "item.completed"]
+                    record["command_events"] = [
+                        json.loads(line)
+                        for line in Path(row["events"]).read_text().splitlines()
+                        if line.strip() and json.loads(line).get("type") == "item.completed"
+                    ]
                     retained.append(record)
-            (destination / (fixture.env["STAGE_REPAIR_CASE"] + ".json")).write_text(json.dumps({
-                "offline_fixture_only": True, "view": view, "trace": trace, "stages": retained,
-                "investigations": state.get("stuck_investigations", []),
-                "review_calls_used": state["planning"]["astra_calls"],
-                "review_call_limit": autoplanner.review_call_limit(state),
-                "report_repair_history": state.get("report_repair_history", []),
-            }, indent=2) + "\n")
+            (destination / (fixture.env["STAGE_REPAIR_CASE"] + ".json")).write_text(
+                json.dumps(
+                    {
+                        "offline_fixture_only": True,
+                        "view": view,
+                        "trace": trace,
+                        "stages": retained,
+                        "investigations": state.get("stuck_investigations", []),
+                        "review_calls_used": state["planning"]["astra_calls"],
+                        "review_call_limit": autoplanner.review_call_limit(state),
+                        "report_repair_history": state.get("report_repair_history", []),
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
         return run, state, view, trace
 
     def assert_approval_boundary(self, fixture, state, view, trace):
@@ -216,7 +276,9 @@ class StageRepairCLI(unittest.TestCase):
         finalizer_calls = [row for row in trace if row["stage"] == "astra_finalize"]
         self.assertEqual([False, True], [row["repair"] for row in finalizer_calls])
         self.assertEqual(["missing", "contract.initial_task"], [row["initial_task_path"] for row in finalizer_calls])
-        accepted = [row for row in state["report_repair_history"] if row["repair"]["original_stage"] == "astra_finalize"]
+        accepted = [
+            row for row in state["report_repair_history"] if row["repair"]["original_stage"] == "astra_finalize"
+        ]
         self.assertEqual(1, len(accepted))
         self.assertEqual(original["events"], accepted[0]["repair"]["applied_original_events"])
 
@@ -238,8 +300,9 @@ class StageRepairCLI(unittest.TestCase):
         # and AutoResolver asks for the operator's decision.
         fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         run, state = fixture.saved()
-        self.assertEqual(("WAITING_FOR_USER", "astra_finalize"), (state["status"], state["next_stage"]),
-                         state.get("stop_reason"))
+        self.assertEqual(
+            ("WAITING_FOR_USER", "astra_finalize"), (state["status"], state["next_stage"]), state.get("stop_reason")
+        )
         self.assertIn("2/2 plan-review calls used", state["stop_reason"])
         trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
         self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
@@ -281,8 +344,11 @@ class StageRepairCLI(unittest.TestCase):
             self.assertFalse(any(ref.startswith("event:") for ref in rejected["evidence_refs"]))
         investigation_calls = [row for row in trace if row["stage"] == "investigate_stuck"]
         self.assertEqual([False, True, False, True], [row["repair"] for row in investigation_calls], observed)
-        self.assertEqual([identities[0], identities[0], identities[1], identities[1]],
-                         [row["stuck_identity"] for row in investigation_calls], observed)
+        self.assertEqual(
+            [identities[0], identities[0], identities[1], identities[1]],
+            [row["stuck_identity"] for row in investigation_calls],
+            observed,
+        )
         repairs = [row for row in investigation_calls if row["repair"]]
         for repair, diagnosis in zip(repairs, diagnoses, strict=False):
             self.assertTrue(repair["has_scratch_map"])

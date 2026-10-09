@@ -32,6 +32,7 @@ replace them. Prose methods remain independent Validator work, not guessed comma
 This reader never writes state, accepts a model authentication flag, or replaces
 the ordinary criteria, findings, full-flow, independent-review or human gates.
 """
+
 from __future__ import annotations
 
 import json
@@ -58,9 +59,13 @@ def _pins(pins, *, current=True):
     if type(pins) is not dict or not pins:
         raise ValueError("missing replay evidence")
     for path, digest in pins.items():
-        if (type(path) is not str or not path or type(digest) is not str
-                or not re.fullmatch(r"[0-9a-f]{64}", digest)
-                or (current and (not Path(path).is_file() or util.file_hash(path) != digest))):
+        if (
+            type(path) is not str
+            or not path
+            or type(digest) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or (current and (not Path(path).is_file() or util.file_hash(path) != digest))
+        ):
             raise ValueError("missing or changed replay evidence")
 
 
@@ -86,24 +91,30 @@ def _receipt(receipt, check, token, source, *, current):
     if type(executions) is not list or len(executions) != len(commands):
         raise ValueError("incomplete command replay")
     for command, execution in zip(commands, executions, strict=False):
-        if (type(execution) is not dict or execution.get("command") != command
-                or execution.get("status") != "PASS" or type(execution.get("exit_code")) is not int
-                or execution["exit_code"] != 0):
+        if (
+            type(execution) is not dict
+            or execution.get("command") != command
+            or execution.get("status") != "PASS"
+            or type(execution.get("exit_code")) is not int
+            or execution["exit_code"] != 0
+        ):
             raise ValueError("unsuccessful command replay")
         _pins(execution.get("evidence_hashes"), current=current)
-        if any(receipt["evidence_hashes"].get(path) != digest
-               for path, digest in execution["evidence_hashes"].items()):
+        if any(receipt["evidence_hashes"].get(path) != digest for path, digest in execution["evidence_hashes"].items()):
             raise ValueError("execution evidence absent from receipt")
 
 
 def _checkpoint(state, identity):
     envelope = artifacts.verify(state.get("run_dir"), identity)
     proof = envelope["report"]
-    if (envelope["kind"] != "checkpoint" or type(proof.get("version")) is not int
-            or proof["version"] != 1):
+    if envelope["kind"] != "checkpoint" or type(proof.get("version")) is not int or proof["version"] != 1:
         raise ValueError("missing versioned checkpoint proof")
-    for field, binding in (("contract_token", "contract_token"), ("plan_hash", "plan_identity"),
-                           ("source_revision", "source_snapshot_identity"), ("plan_hash", "candidate_identity")):
+    for field, binding in (
+        ("contract_token", "contract_token"),
+        ("plan_hash", "plan_identity"),
+        ("source_revision", "source_snapshot_identity"),
+        ("plan_hash", "candidate_identity"),
+    ):
         if proof.get(field) != envelope[binding]:
             raise ValueError("checkpoint binding differs from its stored report")
     return envelope, proof
@@ -120,11 +131,15 @@ def _approved_contract(state, token):
     if type(history) is not list:
         return None
     for contract in history:
-        if (type(contract) is dict and type(contract.get("revision")) is int
-                and 0 < contract["revision"] < current["revision"]
-                and contract.get("task_id") == current["task_id"]
-                and contract.get("hash") and contracts.token(contract) == token
-                and contracts.approved({"goal_contract": contract, "user_events": state.get("user_events", [])})):
+        if (
+            type(contract) is dict
+            and type(contract.get("revision")) is int
+            and 0 < contract["revision"] < current["revision"]
+            and contract.get("task_id") == current["task_id"]
+            and contract.get("hash")
+            and contracts.token(contract) == token
+            and contracts.approved({"goal_contract": contract, "user_events": state.get("user_events", [])})
+        ):
             return contract
     return None
 
@@ -134,16 +149,21 @@ def _retirement_contract(state, grant):
     if type(grant) is not dict or set(grant) != fields or grant["kind"] != "product_change":
         raise ValueError("retirement requires an exact approval-bound product-change grant")
     payload = {key: grant[key] for key in ("check_id", "check_hash", "removes")}
-    if (any(type(value) is not str or not value.strip() or "\x00" in value for value in payload.values())
-            or not re.fullmatch(r"[0-9a-f]{64}", grant["check_hash"])):
+    if any(
+        type(value) is not str or not value.strip() or "\x00" in value for value in payload.values()
+    ) or not re.fullmatch(r"[0-9a-f]{64}", grant["check_hash"]):
         raise ValueError("retirement does not name an exact check and visible removal")
     line = "Progressive check retirement: " + json.dumps(payload, sort_keys=True, separators=(",", ":"))
     contract = _approved_contract(state, grant["contract_token"])
-    if (contract is None or contract["approval_event"].get("actor") != "user_cli"
-            or grant["visible_removal"] != line or type(contract["body"].get("scope_exclusions")) is not list
-            or line not in contract["body"]["scope_exclusions"]
-            or type(contract["body"].get("constraints")) is not list
-            or line not in contract["body"]["constraints"]):
+    if (
+        contract is None
+        or contract["approval_event"].get("actor") != "user_cli"
+        or grant["visible_removal"] != line
+        or type(contract["body"].get("scope_exclusions")) is not list
+        or line not in contract["body"]["scope_exclusions"]
+        or type(contract["body"].get("constraints")) is not list
+        or line not in contract["body"]["constraints"]
+    ):
         raise ValueError("retirement is absent from an authenticated user-approved contract")
     return contract
 
@@ -158,20 +178,28 @@ def _retirements(state, record, identities, obligations):
         envelope = artifacts.verify(state.get("run_dir"), grant["artifact"])
         report = envelope["report"]
         predecessor = _approved_contract(state, report.get("predecessor_contract_token"))
-        if (envelope["kind"] not in ("proposal", "revision")
-                or envelope["contract_token"] != grant["contract_token"]
-                or report.get("contract_body") != contract["body"]
-                or predecessor is None or predecessor["revision"] >= contract["revision"]
-                or envelope["candidate_identity"] != envelope["plan_identity"]
-                or plan.plan_identity(report["proposal"]) != envelope["plan_identity"]):
+        if (
+            envelope["kind"] not in ("proposal", "revision")
+            or envelope["contract_token"] != grant["contract_token"]
+            or report.get("contract_body") != contract["body"]
+            or predecessor is None
+            or predecessor["revision"] >= contract["revision"]
+            or envelope["candidate_identity"] != envelope["plan_identity"]
+            or plan.plan_identity(report["proposal"]) != envelope["plan_identity"]
+        ):
             raise ValueError("retirement artifact does not bind the actual revised approved contract")
         old_checks = report.get("retired_checks")
         _checks(old_checks)
         pair = (grant["check_id"], grant["check_hash"])
-        if (pair in retired or grant["check_id"] in identities
-                or not any((check["id"], plan.check_identity(check)) == pair for check in old_checks)
-                or not any((check["id"], plan.check_identity(check)) == pair
-                           and old["revision"] <= predecessor["revision"] for check, old in obligations)):
+        if (
+            pair in retired
+            or grant["check_id"] in identities
+            or not any((check["id"], plan.check_identity(check)) == pair for check in old_checks)
+            or not any(
+                (check["id"], plan.check_identity(check)) == pair and old["revision"] <= predecessor["revision"]
+                for check, old in obligations
+            )
+        ):
             raise ValueError("retirement is unknown, kept, duplicated or mismatches the old definition")
         retired[pair] = contract["revision"]
     return retired
@@ -182,16 +210,22 @@ def ready(state, current):
     try:
         body = (state.get("goal_contract") or {}).get("body") or {}
         prefixes = (plan.DISCLOSURE_DELEGATION, plan.DISCLOSURE_SLICE, plan.DISCLOSURE_OUTSTANDING)
-        disclosed = any(isinstance(line, str) and line.startswith(prefixes)
-                        for field in ("constraints", "technical_approach")
-                        for line in body.get(field, []))
+        disclosed = any(
+            isinstance(line, str) and line.startswith(prefixes)
+            for field in ("constraints", "technical_approach")
+            for line in body.get(field, [])
+        )
         record = ledger.view(state)
         if not disclosed and not record and "progressive" not in state:
             return True
         # A candidate-only ordinary planning record is not execution authority.
-        if (not disclosed and type(record) is dict and type(record.get("version")) is int
-                and record["version"] == 1
-                and set(record) <= {"version", "candidate"}):
+        if (
+            not disclosed
+            and type(record) is dict
+            and type(record.get("version")) is int
+            and record["version"] == 1
+            and set(record) <= {"version", "candidate"}
+        ):
             return True
         if type(record) is not dict or type(record.get("version")) is not int or record["version"] != 1:
             return False
@@ -199,10 +233,14 @@ def ready(state, current):
         candidate = artifacts.verify(state.get("run_dir"), active["artifact"])
         review = artifacts.verify(state.get("run_dir"), active["review"])
         proposal = candidate["report"]["proposal"]
-        if (candidate["kind"] not in ("proposal", "revision")
-                or review["predecessor_identity"] != candidate["predecessor_identity"]
-                or record.get("future") != [] or record.get("outstanding_criteria") != []
-                or proposal.get("outstanding_criteria") != [] or len(proposal["slices"]) != 1):
+        if (
+            candidate["kind"] not in ("proposal", "revision")
+            or review["predecessor_identity"] != candidate["predecessor_identity"]
+            or record.get("future") != []
+            or record.get("outstanding_criteria") != []
+            or proposal.get("outstanding_criteria") != []
+            or len(proposal["slices"]) != 1
+        ):
             return False
         proof = record.get("completion_proof")
         if type(proof) is not dict:
@@ -212,10 +250,15 @@ def ready(state, current):
             return False
         token = contracts.token(state["goal_contract"])
         source = current["revision"]
-        if (type(source) is not str or not source or proof.get("contract_token") != token
-                or proof.get("plan_hash") != active["plan_hash"] or proof.get("source_revision") != source
-                or proof.get("slice_id") != active["definition"]["id"]
-                or envelope["predecessor_identity"] != active["artifact"]["sha256"]):
+        if (
+            type(source) is not str
+            or not source
+            or proof.get("contract_token") != token
+            or proof.get("plan_hash") != active["plan_hash"]
+            or proof.get("source_revision") != source
+            or proof.get("slice_id") != active["definition"]["id"]
+            or envelope["predecessor_identity"] != active["artifact"]["sha256"]
+        ):
             return False
         required = record.get("required_checks")
         identities = _checks(required)
@@ -228,14 +271,18 @@ def ready(state, current):
         if type(history) is not list or not history or history[-1].get("artifact") != proof["artifact"]:
             return False
         slices = []
-        obligations = [(check, state["goal_contract"])
-                       for check in record["initial_plan"]["proposal"]["slices"][0]["checks"]]
+        obligations = [
+            (check, state["goal_contract"]) for check in record["initial_plan"]["proposal"]["slices"][0]["checks"]
+        ]
         for entry in history:
             _, past = _checkpoint(state, entry["artifact"])
             past_token = past.get("contract_token")
-            if (entry.get("slice_id") != past.get("slice_id") or entry.get("plan_hash") != past.get("plan_hash")
-                    or entry.get("required_checks") != past.get("required_checks")
-                    or not _approved_contract(state, past_token)):
+            if (
+                entry.get("slice_id") != past.get("slice_id")
+                or entry.get("plan_hash") != past.get("plan_hash")
+                or entry.get("required_checks") != past.get("required_checks")
+                or not _approved_contract(state, past_token)
+            ):
                 return False
             _checks(entry["required_checks"])
             slices.append(entry["slice_id"])
@@ -252,11 +299,17 @@ def ready(state, current):
                 old = _approved_contract(state, previous["contract_token"])
                 if old is None:
                     return False
-                archived_state = {"run_dir": state.get("run_dir"), "goal_contract": old,
-                                  "user_events": state.get("user_events", []),
-                                  "progressive": {"version": 1, "active": saved,
-                                                  "initial_plan": archive["initial_plan"],
-                                                  "delegation": archive["delegation"]}}
+                archived_state = {
+                    "run_dir": state.get("run_dir"),
+                    "goal_contract": old,
+                    "user_events": state.get("user_events", []),
+                    "progressive": {
+                        "version": 1,
+                        "active": saved,
+                        "initial_plan": archive["initial_plan"],
+                        "delegation": archive["delegation"],
+                    },
+                }
                 verified = ledger.require_active(archived_state)
                 checks = verified["definition"]["checks"]
                 obligations.extend((check, old) for check in checks)
@@ -269,11 +322,17 @@ def ready(state, current):
                     return False
                 continue
             replacement = next((row for row in required if row["id"] == check["id"]), None)
-            if (replacement is None or replacement["relation"] != check["relation"]
-                    or set(replacement["criterion_ids"]) != set(check["criterion_ids"])):
+            if (
+                replacement is None
+                or replacement["relation"] != check["relation"]
+                or set(replacement["criterion_ids"]) != set(check["criterion_ids"])
+            ):
                 return False
-        if (len(slices) != len(set(slices)) or proof.get("verified_slices") != slices
-                or set(slices) != set(proposal["done_slices"]) | {active["definition"]["id"]}):
+        if (
+            len(slices) != len(set(slices))
+            or proof.get("verified_slices") != slices
+            or set(slices) != set(proposal["done_slices"]) | {active["definition"]["id"]}
+        ):
             return False
         results = proof.get("results")
         if type(results) is not dict or set(results) != set(identities):
@@ -283,9 +342,15 @@ def ready(state, current):
         criteria = [row["id"] for row in body["acceptance_criteria"]]
         plan.validate_proposal(proposal, criteria, verified_done=slices[:-1], verified_criteria=criteria)
         claimed = proof.get("criterion_ids")
-        proven = plan.criterion_proof(required, results, contract_token=token, source_revision=source,
-                                      receipts_authenticated=True)
-        return (type(claimed) is list and len(claimed) == len(set(claimed))
-                and set(claimed) == set(criteria) and set(proven) == set(criteria) and all(proven.values()))
+        proven = plan.criterion_proof(
+            required, results, contract_token=token, source_revision=source, receipts_authenticated=True
+        )
+        return (
+            type(claimed) is list
+            and len(claimed) == len(set(claimed))
+            and set(claimed) == set(criteria)
+            and set(proven) == set(criteria)
+            and all(proven.values())
+        )
     except (ValueError, TypeError, KeyError, AttributeError, OSError):
         return False

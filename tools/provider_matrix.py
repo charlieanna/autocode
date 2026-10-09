@@ -8,6 +8,7 @@ is 'untested' — never guess.
     python tools/provider_matrix.py --write     # rewrite the table in docs/providers.md
     python tools/provider_matrix.py             # print the table
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,8 +21,7 @@ PROVIDERS = REPO / "docs" / "providers.md"
 BEGIN = "<!-- BEGIN provider conformance matrix -->"
 END = "<!-- END provider conformance matrix -->"
 
-COLUMNS = ("engine", "version", "transport", "containment", "visual_profile",
-           "result", "date", "commit", "note")
+COLUMNS = ("engine", "version", "transport", "containment", "visual_profile", "result", "date", "commit", "note")
 
 
 def load_rows(path=MATRIX):
@@ -52,10 +52,19 @@ def markdown(rows) -> str:
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
-        lines.append("| {} | {} | {} | {} | {} | {} | {} | `{}` | {} |".format(
-            row["engine"], row["version"], row["transport"], row["containment"],
-            row["visual_profile"], row["result"], row["date"], row["commit"],
-            row["note"]))
+        lines.append(
+            "| {} | {} | {} | {} | {} | {} | {} | `{}` | {} |".format(
+                row["engine"],
+                row["version"],
+                row["transport"],
+                row["containment"],
+                row["visual_profile"],
+                row["result"],
+                row["date"],
+                row["commit"],
+                row["note"],
+            )
+        )
     lines.append("")
     lines.append(END)
     return "\n".join(lines)
@@ -85,8 +94,7 @@ def status_for(engine: str, version: str, rows=None) -> dict | None:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--write", action="store_true",
-                        help="rewrite the table in docs/providers.md")
+    parser.add_argument("--write", action="store_true", help="rewrite the table in docs/providers.md")
     args = parser.parse_args(argv)
     if args.write:
         write_table()

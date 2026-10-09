@@ -1,4 +1,5 @@
 """Source-controlled miniature projects for public visual-check tests."""
+
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +20,7 @@ except ImportError:
     Image = None
 
 
-APP_SOURCE = '''from PIL import Image, ImageDraw
+APP_SOURCE = """from PIL import Image, ImageDraw
 
 def functional_value():
     return 42
@@ -33,9 +34,9 @@ def render(size, variant="match"):
     if variant != "missing-control":
         draw.rectangle((size[0] - 20, size[1] - 16, size[0] - 11, size[1] - 9), fill="#cc4422")
     return image
-'''
+"""
 
-CAPTURE_SOURCE = '''import json
+CAPTURE_SOURCE = """import json
 import os
 from pathlib import Path
 import sys
@@ -126,9 +127,9 @@ if mode == "context-change":
         stream.write(" ")
 if mode == "ignored-source-change":
     (root / "web/generated.css").write_text("body { display: none; }\\n")
-'''
+"""
 
-BROWSER_HTML = '''<!doctype html>
+BROWSER_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><style>
 * { box-sizing: border-box; animation: none !important; transition: none !important; }
 html, body { margin: 0; background: #fff; color: #182538; font: 14px Arial, sans-serif; }
@@ -141,9 +142,9 @@ button { border: 0; padding: 5px 8px; background: #2864a0; color: white; font: i
 </style></head><body><header>Offline workspace</header><aside>Home<br>Reports</aside>
 <main><h1>Current task</h1><button id="action" onclick="document.querySelector('#count').textContent = '1'">Run</button>
 <output id="count">0</output></main><button id="extra" aria-label="More options"></button></body></html>
-'''
+"""
 
-BROWSER_CAPTURE_SOURCE = '''import json
+BROWSER_CAPTURE_SOURCE = """import json
 import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -181,7 +182,7 @@ with sync_playwright() as playwright:
         browser.close()
 (output / "captures.json").write_text(json.dumps({"version": 1, "cases": rows}))
 print("Browser click assertion passed")
-'''
+"""
 
 
 def sha256(path):
@@ -210,16 +211,21 @@ def offline_provider_environment(project, command):
         "    return contract\n"
         "goal_fixtures.body = visual_contract\n"
         f"runpy.run_path({str(ROOT / 'tools/fake_codex.py')!r}, run_name='__main__')\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     wrapper.chmod(0o755)
     config = project.root.parent / "config"
     config.mkdir()
     codex_home = project.root.parent / "codex-home"
     codex_home.mkdir()
-    return {"PATH": str(bindir) + os.pathsep + str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
-            "XDG_CONFIG_HOME": str(config), "CODEX_HOME": str(codex_home),
-            "AUTOCODE_HOME": str(project.root.parent / "registry"), "AUTOCODE_FIXTURE_MODE": "no-human",
-            "PYTHONDONTWRITEBYTECODE": "1"}
+    return {
+        "PATH": str(bindir) + os.pathsep + str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
+        "XDG_CONFIG_HOME": str(config),
+        "CODEX_HOME": str(codex_home),
+        "AUTOCODE_HOME": str(project.root.parent / "registry"),
+        "AUTOCODE_FIXTURE_MODE": "no-human",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
 
 
 class VisualProject:
@@ -235,8 +241,14 @@ class VisualProject:
         self.write("capture.py", CAPTURE_SOURCE)
         self.write("design/context.json", '{"component": "offline test fixture"}\n')
         self.configure()
-        cases = cases or [{"id": "desktop", "state": "ready", "route": "/",
-                           "viewport": {"width": 100, "height": 80, "device_scale_factor": 1}}]
+        cases = cases or [
+            {
+                "id": "desktop",
+                "state": "ready",
+                "route": "/",
+                "viewport": {"width": 100, "height": 80, "device_scale_factor": 1},
+            }
+        ]
         namespace = {}
         exec(APP_SOURCE, namespace)
         rows = []
@@ -244,22 +256,48 @@ class VisualProject:
             viewport = case["viewport"]
             screenshot = self.root / "design" / (case["id"] + ".png")
             namespace["render"]((viewport["width"], viewport["height"])).save(screenshot)
-            rows.append({**case, "file_key": "Abc", "node_id": f"1:{index + 2}",
-                         "implementation_paths": ["app.py"], "export_scale": 1,
-                         "artifacts": {"screenshot": {"path": screenshot.name, "sha256": sha256(screenshot)},
-                                       "design_context": {"path": "context.json",
-                                                          "sha256": sha256(self.root / "design/context.json")}}})
-        self.manifest = {"version": 1, "files": [{"key": "Abc", "nodes": [row["node_id"] for row in rows]}],
-                         "cases": rows}
-        self.policy = {"version": 1, "manifest": {"path": "design/manifest.json", "sha256": ""},
-                       "capture_command": [sys.executable, "capture.py"], "timeout_seconds": 30,
-                       "cases": [{"id": row["id"], "channel_tolerance": 0, "max_changed_ratio": 0.0,
-                                  "regions": []} for row in rows]}
+            rows.append(
+                {
+                    **case,
+                    "file_key": "Abc",
+                    "node_id": f"1:{index + 2}",
+                    "implementation_paths": ["app.py"],
+                    "export_scale": 1,
+                    "artifacts": {
+                        "screenshot": {"path": screenshot.name, "sha256": sha256(screenshot)},
+                        "design_context": {"path": "context.json", "sha256": sha256(self.root / "design/context.json")},
+                    },
+                }
+            )
+        self.manifest = {
+            "version": 1,
+            "files": [{"key": "Abc", "nodes": [row["node_id"] for row in rows]}],
+            "cases": rows,
+        }
+        self.policy = {
+            "version": 1,
+            "manifest": {"path": "design/manifest.json", "sha256": ""},
+            "capture_command": [sys.executable, "capture.py"],
+            "timeout_seconds": 30,
+            "cases": [
+                {"id": row["id"], "channel_tolerance": 0, "max_changed_ratio": 0.0, "regions": []} for row in rows
+            ],
+        }
         self.pin_manifest()
         git(self.root, "init", "-q")
         git(self.root, "add", ".")
-        git(self.root, "-c", "user.name=Visual Test", "-c", "user.email=visual@example.test",
-            "-c", "commit.gpgsign=false", "commit", "-qm", "visual fixture")
+        git(
+            self.root,
+            "-c",
+            "user.name=Visual Test",
+            "-c",
+            "user.email=visual@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "visual fixture",
+        )
 
     def close(self):
         self.temp.cleanup()
@@ -283,8 +321,14 @@ class VisualProject:
         return sha256(self.policy_path)
 
     def invoke(self, *, output=None, digest=None, policy="visual-policy.json", entry="cli", bootstrap=None):
-        args = ["--workspace", str(self.root), "--policy", str(policy), "--policy-sha256",
-                digest if digest is not None else sha256(self.policy_path)]
+        args = [
+            "--workspace",
+            str(self.root),
+            "--policy",
+            str(policy),
+            "--policy-sha256",
+            digest if digest is not None else sha256(self.policy_path),
+        ]
         if output is not None:
             args += ["--output", str(output)]
         if bootstrap is not None:
@@ -295,10 +339,22 @@ class VisualProject:
             command = [sys.executable, str(MODULE), *args]
         else:
             command = [sys.executable, str(CLI), "visual-check", *args]
-        return subprocess.run(command, cwd=self.root, capture_output=True, text=True, timeout=30,
-                              env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        return subprocess.run(
+            command,
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
 
     def inputs(self):
-        return {str(path.relative_to(self.root)): path.read_bytes()
-                for path in [self.policy_path, self.manifest_path, *sorted((self.root / "design").glob("*.png")),
-                             self.root / "design/context.json"]}
+        return {
+            str(path.relative_to(self.root)): path.read_bytes()
+            for path in [
+                self.policy_path,
+                self.manifest_path,
+                *sorted((self.root / "design").glob("*.png")),
+                self.root / "design/context.json",
+            ]
+        }

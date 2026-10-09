@@ -4,6 +4,7 @@ Candidate PIDs never establish ownership: each child and parent is checked
 again through psutil, and the supervisor subsequently checks birth identities.
 macOS API: Apple xnu/libsyscall/wrappers/libproc/libproc.h and libproc.c.
 """
+
 import sys
 from functools import lru_cache
 
@@ -22,7 +23,7 @@ except ImportError as missing:  # autocode.py loads this module for --version an
 def _library():
     import ctypes
 
-    library = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+    library = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
     function = library.proc_listchildpids
     function.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
     function.restype = ctypes.c_int
@@ -41,17 +42,17 @@ def _child_pids(pid):
         count = _library().proc_listchildpids(pid, buffer, ctypes.sizeof(buffer))
         error = ctypes.get_errno()
         if count < 0 or (count == 0 and error):
-            raise OSError(error or 5, 'Cannot enumerate owned process children')
+            raise OSError(error or 5, "Cannot enumerate owned process children")
         if count > size:
-            raise OSError('Invalid child-process count')
+            raise OSError("Invalid child-process count")
         if count < size:
             return [pid for pid in buffer[:count] if pid > 0]
         size *= 2
-    raise OSError('Child-process enumeration remained truncated')
+    raise OSError("Child-process enumeration remained truncated")
 
 
 def descendants(parent):
-    if sys.platform != 'darwin':
+    if sys.platform != "darwin":
         return parent.children(recursive=True)
     try:
         import ctypes
@@ -65,8 +66,9 @@ def descendants(parent):
             if not node.is_running():
                 continue
             children = []
-            candidates = (_child_pids(node.pid) if ctypes is not None else
-                          [child.pid for child in node.children(recursive=False)])
+            candidates = (
+                _child_pids(node.pid) if ctypes is not None else [child.pid for child in node.children(recursive=False)]
+            )
             for pid in candidates:
                 if pid in seen:
                     continue

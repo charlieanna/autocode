@@ -4,6 +4,7 @@ Runs are created through the CLI; no checkpoint is fabricated or changed. The
 provider's retained handoffs and the public status/answer interface are the
 oracles. The only tampering test changes a retained normal report artifact.
 """
+
 import json
 import os
 import shutil
@@ -15,7 +16,7 @@ from pathlib import Path
 from autocode_taskrun import TaskRun, TaskRunError
 
 QUESTIONS = ["Which application version failed?", "Which input caused the failure?"]
-PROVIDER = r'''#!/usr/bin/env python3
+PROVIDER = r"""#!/usr/bin/env python3
 import json,os,sys,subprocess,uuid
 from pathlib import Path
 if sys.argv[1:3]==['sandbox','--help']:
@@ -47,7 +48,7 @@ Path(sys.argv[sys.argv.index('-o')+1]).write_text(json.dumps(report))
 session=sys.argv[sys.argv.index('resume')+1] if 'resume' in sys.argv else str(uuid.uuid4())
 print(json.dumps({'type':'thread.started','thread_id':session}),flush=True)
 print(json.dumps({'type':'turn.completed','usage':{'input_tokens':10,'output_tokens':10}}),flush=True)
-'''
+"""
 
 
 class InvestigatorQuestionTaskRunTests(unittest.TestCase):
@@ -58,11 +59,28 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         cls.seed.mkdir()
         (cls.seed / ".gitignore").write_text(".autocode/\n__pycache__/\n")
         (cls.seed / "calc.py").write_text("def double(value):\n    return value * 2\n")
-        for command in (["init", "-q"], ["config", "maintenance.auto", "false"],
-                        ["config", "gc.auto", "0"], ["add", "-A"], ["commit", "-qm", "seed"]):
-            subprocess.run(["git", "-C", str(cls.seed), "-c", "user.name=Fixture",
-                            "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *command],
-                           check=True)
+        for command in (
+            ["init", "-q"],
+            ["config", "maintenance.auto", "false"],
+            ["config", "gc.auto", "0"],
+            ["add", "-A"],
+            ["commit", "-qm", "seed"],
+        ):
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(cls.seed),
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    *command,
+                ],
+                check=True,
+            )
 
     @classmethod
     def tearDownClass(cls):
@@ -81,23 +99,34 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         provider.write_text(PROVIDER)
         provider.chmod(0o755)
         self.calls = private / "investigation-calls.jsonl"
-        self.env = {"PATH": str(bindir) + os.pathsep + os.environ["PATH"],
-                    "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1",
-                    "INVESTIGATION_CALLS": str(self.calls)}
+        self.env = {
+            "PATH": str(bindir) + os.pathsep + os.environ["PATH"],
+            "AUTOCODE_HOME": str(root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "INVESTIGATION_CALLS": str(self.calls),
+        }
         self.options = ("--engine", "codex", "--astra-model", "gpt-6-sol", "--sol-model", "gpt-6-sol")
 
     def start(self):
-        return TaskRun.start(self.workspace, "Investigate the reported incorrect result from calc.double.",
-                             options=self.options, start_options=("--workflow", "bugfix"),
-                             env=self.env, timeout=120)
+        return TaskRun.start(
+            self.workspace,
+            "Investigate the reported incorrect result from calc.double.",
+            options=self.options,
+            start_options=("--workflow", "bugfix"),
+            env=self.env,
+            timeout=120,
+        )
 
     def handoffs(self):
         return [json.loads(line) for line in self.calls.read_text().splitlines()]
 
     def waiting(self, run, count=2):
         view = run.status()
-        self.assertEqual(("WAITING_FOR_USER", "INVESTIGATING", "investigate_bug"),
-                         (view["status"], view["phase"], view["next_stage"]), view)
+        self.assertEqual(
+            ("WAITING_FOR_USER", "INVESTIGATING", "investigate_bug"),
+            (view["status"], view["phase"], view["next_stage"]),
+            view,
+        )
         self.assertFalse(view["done"])
         self.assertEqual("bugfix", view["workflow"])
         self.assertEqual("answer", view["needs"]["kind"])
@@ -113,9 +142,21 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         self.assertEqual(1, len(self.handoffs()))
         first = view["needs"]
         question = first["questions"][0]
-        missing_token = subprocess.run([*run.command, "--workspace", str(self.workspace),
-            "--run-dir", str(run.run_dir), "--answer", question["id"] + "=Version 1.2"],
-            env={**os.environ, **self.env}, capture_output=True, text=True, timeout=120)
+        missing_token = subprocess.run(
+            [
+                *run.command,
+                "--workspace",
+                str(self.workspace),
+                "--run-dir",
+                str(run.run_dir),
+                "--answer",
+                question["id"] + "=Version 1.2",
+            ],
+            env={**os.environ, **self.env},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
         self.assertNotEqual(0, missing_token.returncode)
         self.assertIn("token", missing_token.stdout + missing_token.stderr)
         with self.assertRaisesRegex(TaskRunError, "exact current AutoResolver request and token"):
@@ -126,21 +167,22 @@ class InvestigatorQuestionTaskRunTests(unittest.TestCase):
         self.assertNotEqual(first["resolver_token"], remaining["resolver_token"])
         with self.assertRaisesRegex(TaskRunError, "exact current AutoResolver request and token|out of date"):
             run.answer(remaining["questions"][0]["id"], "double(4)", resolver_token=first["resolver_token"])
-        view = run.answer(remaining["questions"][0]["id"], "double(4)",
-                          resolver_token=remaining["resolver_token"])
-        self.assertEqual(("RUNNING", "INVESTIGATING", "investigate_bug"),
-                         (view["status"], view["phase"], view["next_stage"]))
+        view = run.answer(remaining["questions"][0]["id"], "double(4)", resolver_token=remaining["resolver_token"])
+        self.assertEqual(
+            ("RUNNING", "INVESTIGATING", "investigate_bug"), (view["status"], view["phase"], view["next_stage"])
+        )
         self.assertEqual("continue", view["needs"]["kind"])
         self.assertFalse(view["done"])
         self.assertEqual(1, len(self.handoffs()))
         final = run.advance_until_input()
-        self.assertTrue(final["done"], {key: final.get(key) for key in ("status", "phase", "next_stage", "stop_reason")})
+        self.assertTrue(
+            final["done"], {key: final.get(key) for key in ("status", "phase", "next_stage", "stop_reason")}
+        )
         self.assertIsNone(final["needs"])
         handoffs = self.handoffs()
         self.assertEqual(["investigate_bug", "investigate_bug"], [row["stage"] for row in handoffs])
         resumed = handoffs[-1]
-        self.assertEqual({"Version 1.2", "double(4)"},
-                         {answer["text"] for answer in resumed["saved_answers"].values()})
+        self.assertEqual({"Version 1.2", "double(4)"}, {answer["text"] for answer in resumed["saved_answers"].values()})
         self.assertTrue(all(answer["actor"] == "user_cli" for answer in resumed["saved_answers"].values()))
         self.assertEqual("not_reproduced", resumed["prior_investigation"]["outcome"])
         self.assertEqual(QUESTIONS, resumed["prior_investigation"]["questions"])
