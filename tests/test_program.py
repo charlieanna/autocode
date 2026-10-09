@@ -75,6 +75,26 @@ def with_requirements(value):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_inherited_review_guidance_respects_false_true_and_omitted_flags(self):
+        for flag in (False, True, None):
+            value = with_requirements(manifest())
+            if flag is not None:
+                value["requirements"][0]["human_review"] = flag
+            value = program.validate_manifest(value)
+            for wid in ("contracts", "integration"):
+                with self.subTest(flag=flag, workstream=wid):
+                    row = next(item for item in value["workstreams"] if item["id"] == wid)
+                    definitions = program.agreement.definitions(value, wid)
+                    self.assertNotIn("human_review", definitions["J1"])
+                    text = program.compose_brief(value, row, {"workstreams": {}})
+                    criterion = next(line for line in text.splitlines() if line.startswith("- C1:"))
+                    if flag is None:
+                        self.assertNotIn("human_review:", criterion)
+                    else:
+                        self.assertIn("human_review: " + str(flag).lower(), criterion)
+                    self.assertIn(definitions["J1"]["criterion"], text)
+                    self.assertNotIn("and preserve human_review: true.", text)
+
     def test_valid_manifest_and_scenario_manifest_load(self):
         program.validate_manifest(manifest(deploy=True))
         program.validate_manifest(copy.deepcopy(task_scenarios.PROGRAM_MANIFEST))
