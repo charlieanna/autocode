@@ -24,7 +24,10 @@ except ImportError:
 
 def render(runner, state, args, workspace, run_dir):
     if getattr(args, "explain", False):
-        from autocode_stop_explanations import explain
+        try:
+            from .autocode_stop_explanations import explain
+        except ImportError:
+            from autocode_stop_explanations import explain
         text = explain(state.get("status") or "", stop_reason=state.get("stop_reason") or "")
         print(text["what_happened"])
         print()

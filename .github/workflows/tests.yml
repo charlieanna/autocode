@@ -169,6 +169,14 @@ jobs:
           assert all(checks[name] == "ok" for name in ("python", "psutil", "git")), checks
           assert checks["workspace"] == "missing" and report["ok"] is False, report
           PYTHON
+      - name: Check installed provider-matrix rows outside the checkout
+        run: |
+          cd "$(mktemp -d)"
+          "$RUNNER_TEMP/smoke/bin/python" -I "$GITHUB_WORKSPACE/tests/installed_provider_matrix.py" -v
+      - name: Explain saved runs with the installed CLI without provider dispatch
+        run: |
+          cd "$(mktemp -d)"
+          "$RUNNER_TEMP/smoke/bin/python" -I "$GITHUB_WORKSPACE/tests/installed_cli_explain.py" -v
 
   visual-comparison:
     runs-on: ubuntu-latest

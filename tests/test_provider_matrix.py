@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -30,7 +32,8 @@ class ProviderMatrixTests(unittest.TestCase):
         self.assertIn(provider_matrix.BEGIN, text)
         self.assertIn(provider_matrix.END, text)
         self.assertIn("1.18.33", text)
-        self.assertIn("do not edit by hand", text.lower().replace("Do not edit by hand", "do not edit by hand"))
+        self.assertIn("do not edit by hand", text.lower())
+        self.assertIn(provider_matrix.markdown(provider_matrix.load_rows()), text)
 
     def test_status_for_reports_untested_honestly(self):
         self.assertIsNotNone(provider_matrix.status_for("opencode", "1.18.33"))
@@ -38,8 +41,27 @@ class ProviderMatrixTests(unittest.TestCase):
                           "an untested version must not be reported as known-good")
 
     def test_regenerating_the_table_is_stable(self):
-        block = provider_matrix.write_table()
-        self.assertEqual(block, provider_matrix.write_table())
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "providers.md"
+            path.write_text((TOOLS.parent / "docs" / "providers.md").read_text())
+            block = provider_matrix.write_table(path)
+            generated = path.read_bytes()
+            self.assertEqual(block, provider_matrix.write_table(path))
+            self.assertEqual(generated, path.read_bytes())
+
+    def test_explicit_matrix_path_controls_the_generated_rows(self):
+        row = dict(provider_matrix.load_rows()[0], engine="fixture", version="custom")
+        with tempfile.TemporaryDirectory() as temporary:
+            matrix = Path(temporary) / "custom.json"
+            matrix.write_text(json.dumps({"schema_version": 1, "rows": [row]}))
+            self.assertEqual([row], provider_matrix.load_rows(matrix))
+            document = Path(temporary) / "providers.md"
+            document.write_text("# Fixture providers\n")
+            block = provider_matrix.write_table(document, matrix)
+            self.assertIn("| fixture | custom |", block)
+            self.assertNotIn("| opencode | 1.18.33 |", block)
+            self.assertTrue(document.read_text().startswith("# Fixture providers\n"))
+            self.assertIn(block, document.read_text())
 
 
 if __name__ == "__main__":

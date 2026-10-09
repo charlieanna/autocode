@@ -96,7 +96,7 @@ def conformance_check(engine: str, version: str) -> Check:
     if row is None:
         return Check(f"conformance:{engine}", WARN,
                      f"{engine} {version} is untested against the offline conformance suite",
-                     "run tools/provider_conformance.py --fake and add a row to docs/provider-matrix.json")
+                      "run tools/provider_conformance.py --fake and add a row to tools/provider-matrix.json")
     return Check(f"conformance:{engine}", OK if row["result"] == "known-good" else WARN,
                  f"{engine} {version}: {row['result']} (containment {row['containment']}, "
                  f"visual {row['visual_profile']}, {row['date']})",

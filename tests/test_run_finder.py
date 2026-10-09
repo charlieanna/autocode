@@ -32,13 +32,13 @@ def git(root, *args):
 
 
 def tree_snapshot(root: Path) -> dict:
-    """Every path under root with its kind and, for files, bytes and mtime."""
+    """Every path under root with its kind and, for files, bytes, mode and mtime."""
     found = {}
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             found[str(path)] = ("link", os.readlink(path))
         elif path.is_file():
-            found[str(path)] = ("file", path.read_bytes(), path.stat().st_mtime_ns)
+            found[str(path)] = ("file", path.read_bytes(), path.stat().st_mode & 0o777, path.stat().st_mtime_ns)
         else:
             found[str(path)] = ("dir",)
     return found
@@ -766,6 +766,88 @@ class InProcessCli(Fixture):
             except SystemExit as exit_:
                 code = exit_.code
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def explain_read(self, *argv, cwd=None):
+        # A read must finish before the services that can configure or start work.
+        with patch.object(autocode.autocode_providers, "select", side_effect=AssertionError("No provider may be selected")), \
+             patch.object(autocode.autocode_providers, "resolve", side_effect=AssertionError("No provider may be resolved")), \
+             patch.object(autocode.support, "run_lock", side_effect=AssertionError("No run lock may be acquired")), \
+             patch.object(w, "create", side_effect=AssertionError("No task worktree may be created")), \
+             patch.object(w, "bootstrap", side_effect=AssertionError("No task project may be created")):
+            return self.main(*argv, cwd=cwd)
+
+    def test_explain_spellings_read_the_saved_stop_without_provider_or_writes(self):
+        run = self.run_in(self.project, status="PAUSED_BUDGET", stop_reason="retained budget marker",
+                          settings={"engine": "codex", "provider": "unavailable-provider"})
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        before = tree_snapshot(self.root)
+        for argv, cwd in ((["--explain"], self.project), (["explain"], self.project),
+                          (["--no-chat", "explain"], self.project),
+                          (["--run-dir", str(run), "--explain"], elsewhere)):
+            with self.subTest(argv=argv):
+                code, out, err = self.explain_read(*argv, cwd=cwd)
+                self.assertEqual(0, code, err)
+                self.assertIn("PAUSED_BUDGET", out)
+                self.assertIn("retained budget marker", out)
+                self.assertIn("--resume-paused", out)
+                self.assertEqual(before, tree_snapshot(self.root))
+
+    def test_explain_uses_the_latest_finished_run_without_migrating_it(self):
+        self.run_in(self.project, status="TASK_COMPLETE", version=2,
+                    completed_at="2026-10-04T20:00:00+00:00", stop_reason="older completion")
+        latest = self.run_in(self.project, status="TASK_COMPLETE", version=2,
+                             completed_at="2026-10-04T21:00:00+00:00", stop_reason="latest completion")
+        before = tree_snapshot(self.root)
+        code, out, err = self.explain_read("explain")
+        self.assertEqual(0, code, err)
+        self.assertIn("latest completion", out)
+        self.assertNotIn("older completion", out)
+        self.assertIn(str(latest), err)
+        self.assertIn("the latest finished run", err)
+        self.assertEqual(before, tree_snapshot(self.root))
+
+    def test_explain_refuses_missing_runs_and_new_run_inputs_without_writes(self):
+        before = tree_snapshot(self.root)
+        for argv in (["explain"], ["--explain"]):
+            with self.subTest(argv=argv):
+                code, out, err = self.explain_read(*argv)
+                self.assertEqual(2, code)
+                self.assertEqual("", out)
+                self.assertIn("No AutoCode run found", err)
+                self.assertEqual(before, tree_snapshot(self.root))
+        self.run_in(self.project, status="PAUSED_BUDGET")
+        before = tree_snapshot(self.root)
+        for argv in (["new task", "--explain"], ["--explain", "--in-place"],
+                     ["--explain", "--figma-file", "https://www.figma.com/design/KEY/Name"]):
+            with self.subTest(argv=argv):
+                code, out, err = self.explain_read(*argv)
+                self.assertEqual(2, code)
+                self.assertEqual("", out)
+                self.assertIn("reads a saved run", err)
+                self.assertEqual(before, tree_snapshot(self.root))
+        args, _ = self.parse("--", "explain")
+        self.assertEqual("explain", args.task)
+        self.assertFalse(args.explain, "text after -- stays a new task")
+
+    def test_explain_preserves_ambiguity_and_action_exclusivity(self):
+        self.run_in(self.project, status="PAUSED_BUDGET")
+        self.run_in(self.project, status="WAITING_FOR_USER")
+        before = tree_snapshot(self.root)
+        code, out, err = self.explain_read("--explain")
+        self.assertEqual(2, code)
+        self.assertEqual("", out)
+        self.assertIn("2 unfinished AutoCode runs", err)
+        run = next((self.project / ".autocode" / "runs").iterdir())
+        for flags, message in ((["--status"], "Choose one action"),
+                               (["--approve-goal", "r1:never-approved"], "Choose one action"),
+                               (["--allow-uncontained-tools"], "cannot be combined")):
+            with self.subTest(flags=flags):
+                code, out, err = self.explain_read("--run-dir", str(run), "--explain", *flags)
+                self.assertEqual(2, code)
+                self.assertEqual("", out)
+                self.assertIn(message, err)
+        self.assertEqual(before, tree_snapshot(self.root))
 
     def test_status_from_the_project_root_shows_the_worktree_run_without_changing_it(self):
         tree, run = self.worktree_run()
