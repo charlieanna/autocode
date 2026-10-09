@@ -342,7 +342,7 @@ class OpenCodeTests(unittest.TestCase):
             config=custom/"opencode.json"; config.write_text('{"permission":{"bash":"deny"}}')
             with patch.dict(os.environ,{"OPENCODE_CONFIG_DIR":str(custom)}), \
                  patch.object(oc.subprocess,"run",return_value=subprocess.CompletedProcess([],0,stdout="1.18.31\n")), \
-                 patch.object(oc.shutil,"which",return_value="/bin/opencode"):
+                 patch.object(shutil,"which",return_value="/bin/opencode"):
                 first=oc.local_settings(root)
                 config.write_text('{"permission":{"bash":"allow"}}')
                 second=oc.local_settings(root)
@@ -378,7 +378,7 @@ class OpenCodeTests(unittest.TestCase):
                 self.assertEqual(5,state["active_seconds"])
 
     def test_metadata_timeouts_are_reported_without_launching_an_agent(self):
-        with patch.object(oc.shutil, "which", return_value="/bin/opencode"), \
+        with patch.object(shutil, "which", return_value="/bin/opencode"), \
              patch.object(oc.subprocess, "run", side_effect=subprocess.TimeoutExpired("opencode", 15)):
             with self.assertRaisesRegex(RuntimeError, "no agent was launched"):
                 oc.local_settings(Path("/tmp"))
@@ -466,7 +466,7 @@ class OpenCodeTests(unittest.TestCase):
             def observed(path):
                 calls.append(path.name)
                 return original(path)
-            with patch.object(oc.shutil, "which", return_value="/bin/opencode"), \
+            with patch.object(shutil, "which", return_value="/bin/opencode"), \
                  patch.object(oc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="1.18.31\n")), \
                  patch.object(Path, "read_bytes", observed), patch.dict(os.environ, {"XDG_CONFIG_HOME": str(root / "config")}):
                 first = oc.local_settings(root)
