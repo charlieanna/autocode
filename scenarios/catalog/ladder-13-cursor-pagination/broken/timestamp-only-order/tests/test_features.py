@@ -1,5 +1,7 @@
 import unittest
+
 from app import paginate
+
 
 class PaginationTests(unittest.TestCase):
     def test_two_pages(self):

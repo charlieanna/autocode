@@ -17,9 +17,9 @@ import time
 from pathlib import Path
 
 try:
-    from .token_cost import estimate_cost, recorded_model, known_sum, token_count, money, count_text
+    from .token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
 except ImportError:
-    from token_cost import estimate_cost, recorded_model, known_sum, token_count, money, count_text
+    from token_cost import count_text, estimate_cost, known_sum, money, recorded_model, token_count
 
 
 def event_records(state: dict, run_dir: Path) -> dict:

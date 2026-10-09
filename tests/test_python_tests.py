@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import autocode_verify as verify
 import autocode_test_environment as test_environment
+import autocode_verify as verify
 from autocode_python_tests import parse, verbose_unittest
 from autocode_verification_schedule import collection_kind
 

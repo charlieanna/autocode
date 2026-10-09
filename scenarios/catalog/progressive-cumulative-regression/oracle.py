@@ -1,6 +1,7 @@
 import sys
 
-from harness.oracle import Check, run as command, run_checks, scratch_copy, tail
+from harness.oracle import Check, run_checks, scratch_copy, tail
+from harness.oracle import run as command
 
 
 def check(project, scenario, run=None):

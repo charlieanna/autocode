@@ -1,5 +1,7 @@
 import unittest
+
 from intervalset import coalesce
+
 
 class IntervalTests(unittest.TestCase):
     def test_overlaps(self):

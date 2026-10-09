@@ -2,17 +2,16 @@
 import copy
 import json
 import os
-from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-import autocode_task_preflight as preflight
 import autocode_run_view as run_view
+import autocode_task_preflight as preflight
 import autocode_taskrun as taskrun
 import autocode_util as util
 

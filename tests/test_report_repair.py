@@ -3,12 +3,14 @@ import copy
 import json
 import shutil
 import sys
+import unittest
 from pathlib import Path
 from unittest.mock import patch
-import unittest
+
+from goal_fixtures import body
+
 from . import test_autocode as base
 from . import test_subprocess
-from goal_fixtures import body
 from .test_opencode import event, terminal
 
 runner, support = base.runner, base.s

@@ -1,6 +1,5 @@
 """A repair assignment must send unchanged retained work through fresh validation."""
 import json
-from pathlib import Path
 import unittest
 
 from tests import test_subprocess as flow

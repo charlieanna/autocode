@@ -4,9 +4,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 import autocode_brief_obligations as brief
 import autocode_check_replay as replay
@@ -15,8 +15,9 @@ import autocode_risk_obligations as risk
 import autocode_run_view as run_view
 import autocode_verification_plan as verification_plan
 from goal_fixtures import body
-from tests.test_risk_obligations import RiskFixture
 from units import autoplanner
+
+from tests.test_risk_obligations import RiskFixture
 
 
 class RiskRuntimeTests(RiskFixture, unittest.TestCase):

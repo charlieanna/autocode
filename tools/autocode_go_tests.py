@@ -1,8 +1,8 @@
 """Recognize literal Go test invocations without interpreting shell programs."""
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import shlex
+from dataclasses import dataclass
+from pathlib import Path
 
 
 def _words(command):

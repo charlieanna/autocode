@@ -36,40 +36,48 @@ import re
 import shlex
 import shutil
 import subprocess
-import tempfile
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 
 try:
-    from . import autocode_util as util, autocode_agent_env as agent_env
-    from . import autocode_test_environment as test_env
-    from . import autocode_python_tests as python_tests, autocode_go_tests as go_tests
+    from . import autocode_agent_env as agent_env
+    from . import autocode_command_receipt as command_receipt
+    from . import autocode_command_supervision as command_supervision
+    from . import autocode_first_suite as first_suite
+    from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
-    from . import autocode_verification_schedule as schedule
-    from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
-    from . import autocode_vitest_tests as vitest_tests
+    from . import autocode_node_tests as node_tests
+    from . import autocode_proof_seam as proof_seam
+    from . import autocode_python_tests as python_tests
     from . import autocode_scratch_overlay as scratch_overlay
+    from . import autocode_test_environment as test_env
+    from . import autocode_test_root as test_roots
     from . import autocode_test_setup as test_setup
-    from . import autocode_first_suite as first_suite, autocode_test_root as test_roots
-    from . import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
+    from . import autocode_util as util
     from . import autocode_verification_preparation as preparation
+    from . import autocode_verification_schedule as schedule
+    from . import autocode_vitest_tests as vitest_tests
 except ImportError:
-    import autocode_util as util, autocode_agent_env as agent_env
-    import autocode_test_environment as test_env
-    import autocode_python_tests as python_tests
+    import autocode_agent_env as agent_env
+    import autocode_command_receipt as command_receipt
+    import autocode_command_supervision as command_supervision
+    import autocode_first_suite as first_suite
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
-    import autocode_verification_schedule as schedule
     import autocode_node_tests as node_tests
-    import autocode_vitest_tests as vitest_tests
-    import autocode_scratch_overlay as scratch_overlay
     import autocode_proof_seam as proof_seam
+    import autocode_python_tests as python_tests
+    import autocode_scratch_overlay as scratch_overlay
+    import autocode_test_environment as test_env
+    import autocode_test_root as test_roots
     import autocode_test_setup as test_setup
-    import autocode_first_suite as first_suite, autocode_test_root as test_roots
-    import autocode_command_supervision as command_supervision, autocode_command_receipt as command_receipt
+    import autocode_util as util
     import autocode_verification_preparation as preparation
+    import autocode_verification_schedule as schedule
+    import autocode_vitest_tests as vitest_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:

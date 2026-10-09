@@ -3,9 +3,9 @@
 Each test drives feature-stock-refusals end to end with the scripted model, so this module is in
 tests/suite_slow.json; the pure rules are in test_retained_work and test_recovery_novelty.
 """
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 
 class RejectedRepairRetryCLI(unittest.TestCase):
@@ -19,7 +19,7 @@ class RejectedRepairRetryCLI(unittest.TestCase):
     SCENARIO_FAKE_SCOPE_SLIP scripts that Builder (docs/bugs/2026-10-06-rejected-repair-retry.md).
     """
     def setUp(self):
-        from scenarios import run  # Establish the scenario harness import root.
+        from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
         from harness import catalog
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)

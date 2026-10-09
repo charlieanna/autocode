@@ -1,15 +1,14 @@
 """One ledger of reviewer findings: identity, fix task, explicit dispositions, batch limits."""
 import copy
-import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autocode_findings as findings
 import autocode_finding_scope as finding_scope
+import autocode_findings as findings
 import autocode_goals as goals
 import autocode_support as support
 

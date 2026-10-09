@@ -16,13 +16,13 @@ their test_ac<id>_ names.
 import ast
 import copy
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -33,11 +33,13 @@ import autocode_planning as planning
 import autocode_providers
 import autocode_support as support
 import autopilot
+
 try:
     import autocode_configure
 except ImportError:  # pre-extraction base: each case below fails, not collection
     autocode_configure = None
 from . import test_architecture
+
 try:
     from . import test_planning
 except ImportError:  # the migrated fixture module imports autocode_configure too

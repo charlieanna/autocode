@@ -1,11 +1,11 @@
 """Public-CLI startup recovery with scripted native and configured adapters."""
 import json
-from pathlib import Path
 import shutil
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scenarios"))
-from harness.adversarial import AdversarialCase, REPO
+from harness.adversarial import REPO, AdversarialCase
 from harness.project import git
 
 

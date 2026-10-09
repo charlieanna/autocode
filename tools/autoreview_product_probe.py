@@ -3,13 +3,13 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 try:
     from . import autocode_process as processes

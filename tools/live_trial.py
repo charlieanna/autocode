@@ -29,15 +29,13 @@ import tempfile
 import time
 from pathlib import Path
 
-import psutil
-
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-import live_profiles as profiles  # noqa: E402
-import live_scenarios as scenarios  # noqa: E402
 import autocode_process as processes  # noqa: E402
 import autocode_util as util  # noqa: E402
+import live_profiles as profiles  # noqa: E402
+import live_scenarios as scenarios  # noqa: E402
 from autopilot_testkit import Bundle, source_revision  # noqa: E402
 from score_autocode_run import usage_summary  # noqa: E402
 

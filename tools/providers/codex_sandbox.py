@@ -4,12 +4,12 @@ This opt-in adapter owns only argv construction and run-owned artifact paths.
 It does not change global configuration, authentication, source-write policy,
 report verification, or the provider's selected models.
 """
-from pathlib import Path
 import json
 import os
 import re
 import stat
 import tomllib
+from pathlib import Path
 
 ADAPTER = 'codex_artifacts'
 TOKEN = '{sandbox_args}'

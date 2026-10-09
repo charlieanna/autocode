@@ -1,10 +1,9 @@
 """Exercise the repository's checkout policy with real Git."""
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ATTRIBUTES = Path(__file__).resolve().parents[1] / ".gitattributes"
 TEXT = b"alpha\nbeta\n"

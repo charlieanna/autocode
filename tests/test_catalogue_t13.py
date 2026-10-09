@@ -8,7 +8,6 @@ a clean temporary installation instead of the user's installed entry point.
 """
 import json
 import os
-from pathlib import Path
 import platform
 import subprocess
 import sys
@@ -17,18 +16,18 @@ import time
 import tomllib
 import unittest
 import venv
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autopilot_testkit as kit
 import autocode as runner
-import autocode_stage_context as stage_context
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_stage_context as stage_context
 import autocode_support as support
+import autopilot_testkit as kit
 from autocode_stop_explanations import explain
+
 from . import test_catalogue_t01 as t01
-from goal_fixtures import approve_fixture, body
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLED = Path.home() / ".local" / "bin" / "autocode"
@@ -92,7 +91,8 @@ class CompatScenarios(CompatCase):
         self.state["version"] = 99
         support.atomic_json(self.run / "state.json", self.state)
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run)]
-        import contextlib, io
+        import contextlib
+        import io
         launched = []
         def record(**kwargs):
             launched.append((kwargs.get("state") or {}).get("next_stage") or kwargs)

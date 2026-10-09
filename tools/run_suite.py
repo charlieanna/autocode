@@ -63,15 +63,15 @@ from __future__ import annotations
 
 import argparse
 import ast
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent

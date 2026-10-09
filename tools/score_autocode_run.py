@@ -25,12 +25,26 @@ from pathlib import Path
 
 try:
     from .autocode_usage import REFERENCE_PRICES
-    from .token_cost import (count_text, estimate_cost, known_sum, money, normalized_tokens,  # noqa: F401
-                             recorded_model, token_count)
+    from .token_cost import (  # noqa: F401
+        count_text,
+        estimate_cost,
+        known_sum,
+        money,
+        normalized_tokens,
+        recorded_model,
+        token_count,
+    )
 except ImportError:
     from autocode_usage import REFERENCE_PRICES
-    from token_cost import (count_text, estimate_cost, known_sum, money, normalized_tokens,  # noqa: F401
-                            recorded_model, token_count)
+    from token_cost import (  # noqa: F401
+        count_text,
+        estimate_cost,
+        known_sum,
+        money,
+        normalized_tokens,
+        recorded_model,
+        token_count,
+    )
 
 # docs/models.md ladder entry points + user independence rule (2026-09-26):
 # verifier never equals producer. OpenAI GPT checks GLM work and GLM checks GPT work.

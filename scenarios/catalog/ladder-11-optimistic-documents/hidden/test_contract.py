@@ -1,9 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
 from app import ConflictError, DocumentStore
+
 
 class DocumentContract(unittest.TestCase):
     def setUp(self):

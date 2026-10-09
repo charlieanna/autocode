@@ -7,112 +7,111 @@ The Builder is the only designated writer; review roles are checked for source d
 
 from __future__ import annotations
 
-import argparse
-import datetime as dt
+import copy
 import json
 import os
-import re
-import shlex
 import subprocess
 import sys
 import time
-from pathlib import Path
-from typing import Any
-import copy
 import uuid
 from contextlib import ExitStack
+from pathlib import Path
+from typing import Any
+
+# isort: off
+# fmt: off
 try:
-    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_launch_inputs as launch_inputs
-    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
-    from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
-    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
+    from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs  # noqa: F401 - compatibility API
+    from . import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
+    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
+    from . import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
+    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
 except ImportError:
-    import autocode_launch_inputs as launch_inputs
-    import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot
-    import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
-    import autocode_regression as regression, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
-    import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
-    import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
-    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output
-    import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
-    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
+    import autocode_launch_inputs as launch_inputs  # noqa: F401 - compatibility API
+    import autocode_source_scope as source_scope, autocode_source_diff as source_diff, autocode_source_snapshot as source_snapshot  # noqa: F401 - compatibility API
+    import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context  # noqa: F401 - compatibility API
+    import autocode_regression as regression, autocode_format_correction as format_correction, autocode_cmd_only_report as cmd_only, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log  # noqa: F401 - compatibility API
+    import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock  # noqa: F401 - compatibility API
+    import autocode_providers, autocode_opencode as opencode, autocode_qwen as qwen, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight  # noqa: F401 - compatibility API
+    import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events  # noqa: F401 - compatibility API
+    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery, autocode_result_application as result_application, autocode_repaired_result as repaired_result, autocode_detached_output as detached_output  # noqa: F401 - compatibility API
+    import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy  # noqa: F401 - compatibility API
+    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile  # noqa: F401 - compatibility API
 
 try:
-    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
-    from . import autocode_workspaces as task_workspaces, autocode_figma as figma
-    from . import autopilot
-    from . import autocode_workflow as workflow
-    from . import autocode_milestones as milestones
-    from . import autocode_dispatch as dispatch
-    from . import autocode_resolver_runtime as resolver_runtime
-    from . import autocode_resolver_human as resolver_human
-    from . import autocode_reviewer_fallback as reviewer_fallback
-    from . import autocode_planning_artifacts as planning_artifacts
-    from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
-    from . import autocode_recovery_accounting as recovery_accounting
-    from . import autocode_recovery_context as recovery_context
-    from . import autocode_progressive_state as progressive_state
-    from . import autocode_findings as findings_ledger
-    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
-    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
+    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    from . import autocode_workspaces as task_workspaces, autocode_figma as figma  # noqa: F401 - compatibility API
+    from . import autopilot  # noqa: F401 - compatibility API
+    from . import autocode_workflow as workflow  # noqa: F401 - compatibility API
+    from . import autocode_milestones as milestones  # noqa: F401 - compatibility API
+    from . import autocode_dispatch as dispatch  # noqa: F401 - compatibility API
+    from . import autocode_resolver_runtime as resolver_runtime  # noqa: F401 - compatibility API
+    from . import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
+    from . import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
+    from . import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
+    from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
+    from . import autocode_recovery_accounting as recovery_accounting  # noqa: F401 - compatibility API
+    from . import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
+    from . import autocode_progressive_state as progressive_state  # noqa: F401 - compatibility API
+    from . import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
+    from . import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
+    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
+    from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
-        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
-        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
-    from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
-    from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
+        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
+    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
+    from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
+    from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)
-    from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
-    from . import autocode_idle_policy as idle_policy
+        recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
+    from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
+    from . import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
 except ImportError:
-    import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
-    import autocode_workspaces as task_workspaces
-    import autocode_figma as figma
-    import autopilot
-    import autocode_workflow as workflow
-    import autocode_milestones as milestones
-    import autocode_dispatch as dispatch
-    import autocode_resolver_runtime as resolver_runtime
-    import autocode_resolver_human as resolver_human
-    import autocode_reviewer_fallback as reviewer_fallback
-    import autocode_planning_artifacts as planning_artifacts
-    import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
-    import autocode_recovery_accounting as recovery_accounting
-    import autocode_recovery_context as recovery_context
-    import autocode_progressive_state as progressive_state
-    import autocode_findings as findings_ledger
-    import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    import autocode_output_policy as output_policy, autocode_output_cap as output_cap
-    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
+    import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal  # noqa: F401 - compatibility API
+    import autocode_workspaces as task_workspaces  # noqa: F401 - compatibility API
+    import autocode_figma as figma  # noqa: F401 - compatibility API
+    import autopilot  # noqa: F401 - compatibility API
+    import autocode_workflow as workflow  # noqa: F401 - compatibility API
+    import autocode_milestones as milestones  # noqa: F401 - compatibility API
+    import autocode_dispatch as dispatch  # noqa: F401 - compatibility API
+    import autocode_resolver_runtime as resolver_runtime  # noqa: F401 - compatibility API
+    import autocode_resolver_human as resolver_human  # noqa: F401 - compatibility API
+    import autocode_reviewer_fallback as reviewer_fallback  # noqa: F401 - compatibility API
+    import autocode_planning_artifacts as planning_artifacts  # noqa: F401 - compatibility API
+    import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants  # noqa: F401 - compatibility API
+    import autocode_recovery_accounting as recovery_accounting  # noqa: F401 - compatibility API
+    import autocode_recovery_context as recovery_context  # noqa: F401 - compatibility API
+    import autocode_progressive_state as progressive_state  # noqa: F401 - compatibility API
+    import autocode_findings as findings_ledger  # noqa: F401 - compatibility API
+    import autocode_configure, autocode_joint_transport as joint_transport, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup  # noqa: F401 - compatibility API
+    import autocode_output_policy as output_policy, autocode_output_cap as output_cap  # noqa: F401 - compatibility API
+    from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,  # noqa: F401 - compatibility API
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
-        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
-        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
-    from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
-    from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
+        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)  # noqa: F401 - compatibility API
+    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,  # noqa: F401 - compatibility API
+        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)  # noqa: F401 - compatibility API
+    from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions  # noqa: F401 - compatibility API
+    from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,  # noqa: F401 - compatibility API
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair, retry_format_failed_report)
-    from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
-    import autocode_idle_policy as idle_policy
-
-
+        recover_legacy_report_repair, retry_format_failed_report)  # noqa: F401 - compatibility API
+    from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT  # noqa: F401 - compatibility API
+    import autocode_idle_policy as idle_policy  # noqa: F401 - compatibility API
+# fmt: on
+# isort: on
 write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
 # Compatibility for integrations that imported the previous controller attribute.
 orchestrator = autopilot

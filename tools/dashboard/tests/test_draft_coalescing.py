@@ -4,19 +4,19 @@ Offline only: a deterministic worker queue and a fake dispatch-aware Planner
 transport. Human turns arrive from inside the fake Planner call, i.e. exactly
 while that draft is in flight and holds its delivery lease.
 """
-from concurrent.futures import Future
-from datetime import datetime, timedelta, timezone
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from concurrent.futures import Future
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parents[2])]
-import dashboard_continuous as continuous
-import conversation_draft_cadence as cadence
 import autocode_conversation as protocol
+import conversation_draft_cadence as cadence
+import dashboard_continuous as continuous
 from conversation_transport import ConversationProviderError
 
 
@@ -316,7 +316,7 @@ class DraftCoalescingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'starts automatically'):
                 self.store.refresh_draft(doc['id'], requirements_revision=6,
                                          logical_turn_id=update['logical_turn_id'], request_id='too-soon')
-            later = datetime.now(timezone.utc) + timedelta(seconds=cadence.STALLED_AFTER_SECONDS + 1)
+            later = datetime.now(UTC) + timedelta(seconds=cadence.STALLED_AFTER_SECONDS + 1)
             with patch.object(cadence, '_clock', return_value=later):
                 seen['stalled'] = update = self.store.get(doc['id'])['draft_update']
                 with self.assertRaisesRegex(ValueError, 'Use Update draft in chat'):
@@ -402,7 +402,7 @@ class CoalescingPolicyTests(unittest.TestCase):
         self.assertIsNone(cadence.release(released, set()), 'Released once')
 
     def test_only_a_stalled_draft_in_flight_lets_an_explicit_update_dispatch(self):
-        now = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
         recent = (now - timedelta(seconds=cadence.STALLED_AFTER_SECONDS - 1)).isoformat()
         old = (now - timedelta(seconds=cadence.STALLED_AFTER_SECONDS)).isoformat()
         behind = {'cadence_hold': True, 'cadence_reason': cadence.COALESCED}
@@ -414,7 +414,7 @@ class CoalescingPolicyTests(unittest.TestCase):
         self.assertFalse(cadence.stalled({'updated_at': 'not a time'}, now), 'Unreadable progress never counts as stalled')
 
     def test_public_offers_an_update_only_when_nothing_live_runs_ahead_of_a_coalesced_one(self):
-        now = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
         behind = {'cadence_hold': True, 'cadence_reason': cadence.COALESCED}
         def view(running, **fields):
             return cadence.public({**self.doc(running, behind), 'status': 'ready', **fields}, now)

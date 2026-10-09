@@ -4,15 +4,14 @@ The provider, deadline callbacks, ownership receipts and recovery CLI are real.
 Only time advancement and the two cleanup threads are controlled by the test.
 This module is copied into a temporary root; production files are never edited.
 """
-import json
 import os
-from pathlib import Path
 import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 
 def prepare(root, tools):

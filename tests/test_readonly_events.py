@@ -1,10 +1,10 @@
 """A reviewer cannot hide a repository write by restoring it before returning."""
-import json
 import importlib
-from pathlib import Path
-import tempfile
+import json
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import autocode as runner

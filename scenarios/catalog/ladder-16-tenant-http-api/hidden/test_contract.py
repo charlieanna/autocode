@@ -2,7 +2,9 @@ import http.client
 import json
 import threading
 import unittest
+
 from app import make_server
+
 
 class HTTPContract(unittest.TestCase):
     def start_server(self):

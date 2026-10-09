@@ -2,9 +2,10 @@
 import json
 import unittest
 
-from . import test_subprocess
 import autocode_checkout_lock as checkout_lock
 import autocode_workflows as workflows
+
+from . import test_subprocess
 
 
 class WorkflowPinCli(unittest.TestCase):

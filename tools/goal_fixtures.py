@@ -1,5 +1,4 @@
 """Offline contract fixtures used by regression and subprocess smoke tests."""
-import copy
 from pathlib import Path
 
 

@@ -1,16 +1,17 @@
 """Task worktrees deliver to their branch and can be cleaned up; Builder checkouts retire."""
+import contextlib
 import io
 import json
-import contextlib
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
-from . import test_subprocess
 import autocode_workspaces as w
 import autocode_worktrees as worktrees
+
+from . import test_subprocess
 
 
 def git(root, *args):

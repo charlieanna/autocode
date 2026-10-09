@@ -4,11 +4,12 @@ This standalone entry point avoids tests/__init__.py's source-path imports.
 The existing CI wheel-smoke job builds and installs the package before running it.
 No engines, credentials, network requests or model calls are needed.
 """
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
-from autocode_cli import autocode_doctor as doctor, provider_matrix
+from autocode_cli import autocode_doctor as doctor
+from autocode_cli import provider_matrix
 
 
 class InstalledProviderMatrixTests(unittest.TestCase):

@@ -1,7 +1,6 @@
 """A missing test prerequisite is repaired before approval or stops before a writer."""
 import json
 import shutil
-from pathlib import Path
 
 from .harness.adversarial import AdversarialCase
 

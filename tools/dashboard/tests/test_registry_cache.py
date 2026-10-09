@@ -1,13 +1,13 @@
 """Registry polling stays bounded when refresh or discovery outlasts the TTL."""
 import copy
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

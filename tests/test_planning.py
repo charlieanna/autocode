@@ -2,25 +2,26 @@
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autocode as runner
 import autocode_configure
-import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
+import autocode_goals as goals
 import autocode_milestones as milestones
 import autocode_opencode as oc
 import autocode_planning as planning
-import autopilot
 import autocode_support as support
+import autopilot
 from goal_fixtures import assert_operational_wait, body
+
 from . import test_subprocess
 
 
@@ -272,8 +273,8 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(ids, [row['id'] for row in report['concerns']])
 
     def test_plan_review_receives_source_quotes_and_the_same_domain_policy_as_validation(self):
-        import autocode_check_replay as check_replay
         import autocode_acceptance_policy as acceptance_policy
+        import autocode_check_replay as check_replay
         state = self.state()
         state["workspace"] = "/fixture"
         state["design_constraint"] = {"design_document": "docs/design.md", "constraints": ["Floats for tokens"]}

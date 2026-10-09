@@ -12,7 +12,8 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_brief_acceptance as acceptance, autocode_conversation as conversation
+    from . import autocode_brief_acceptance as acceptance
+    from . import autocode_conversation as conversation
     from . import autocode_util as util
 except ImportError:
     import autocode_brief_acceptance as acceptance

@@ -8,39 +8,40 @@ runner.opencode is the provider selected for this invocation. It never imports a
 """
 from __future__ import annotations
 
-
 try:
-    from . import autocode_job_failure as job_failure
-    from . import autopilot
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
     from . import autocode_interventions as interventions
+    from . import autocode_job_failure as job_failure
+    from . import autocode_launch_inputs as launch_inputs
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
     from . import autocode_progressive_state as progressive
-    from . import autocode_regression as regression, autocode_provider_recovery as provider_recovery
-    from . import autocode_launch_inputs as launch_inputs
+    from . import autocode_provider_recovery as provider_recovery
+    from . import autocode_regression as regression
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
-    from .units import common
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
+    from . import autopilot
+    from .units import common
 except ImportError:
-    import autocode_job_failure as job_failure
-    import autopilot
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
     import autocode_interventions as interventions
+    import autocode_job_failure as job_failure
+    import autocode_launch_inputs as launch_inputs
     import autocode_milestones as milestones
     import autocode_planning as planning
     import autocode_progressive_state as progressive
-    import autocode_regression as regression, autocode_provider_recovery as provider_recovery
-    import autocode_launch_inputs as launch_inputs
+    import autocode_provider_recovery as provider_recovery
+    import autocode_regression as regression
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
-    from units import common
     import autocode_workflow as workflow
     import autocode_workflows as workflows
+    import autopilot
+    from units import common
 
 
 def run(runner, args, state, state_path, run_dir, workspace):

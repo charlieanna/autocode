@@ -1,22 +1,28 @@
 """Typed model request shared by units; transport and persistence belong to the runner."""
 import copy
 from dataclasses import dataclass
+
 try:
-    from .. import autocode_goals as goals, autocode_support as support, autocode_workflow as workflow
+    from .. import autocode_assignment as assignment
+    from .. import autocode_bug_job as bug_job
+    from .. import autocode_check_replay as check_replay
+    from .. import autocode_goals as goals
+    from .. import autocode_stage_access as stage_access
     from .. import autocode_stage_context as stage_context
-    from .. import autocode_test_examples as test_examples, autocode_test_cases as test_cases
-    from .. import autocode_assignment as assignment, autocode_check_replay as check_replay
-    from .. import autocode_bug_job as bug_job, autocode_stage_access as stage_access
+    from .. import autocode_support as support
+    from .. import autocode_test_cases as test_cases
+    from .. import autocode_test_examples as test_examples
+    from .. import autocode_workflow as workflow
 except ImportError:
-    import autocode_bug_job as bug_job
-    import autocode_stage_access as stage_access
     import autocode_assignment as assignment
+    import autocode_bug_job as bug_job
     import autocode_check_replay as check_replay
-    import autocode_test_examples as test_examples
-    import autocode_test_cases as test_cases
     import autocode_goals as goals
-    import autocode_support as support
+    import autocode_stage_access as stage_access
     import autocode_stage_context as stage_context
+    import autocode_support as support
+    import autocode_test_cases as test_cases
+    import autocode_test_examples as test_examples
     import autocode_workflow as workflow
 from . import autoplanner
 

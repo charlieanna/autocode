@@ -1,21 +1,21 @@
 """Conversation continuity and approval boundaries through public dashboard APIs."""
 import copy
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from agent_console import Console, CODEX_DEFAULT_MODELS
-from autocode_planner_routes import MANDATED_ROUTES
 import autocode_conversation as protocol
-import autocode_support as support
 import autocode_goals as goals
+import autocode_support as support
+from agent_console import CODEX_DEFAULT_MODELS, Console
+from autocode_planner_routes import MANDATED_ROUTES
+from dashboard_conversation_journal import append_feedback, project_conversation
 from goal_fixtures import body
 from units import autoplanner
-from dashboard_conversation_journal import append_feedback, project_conversation
 
 
 class InlinePool:

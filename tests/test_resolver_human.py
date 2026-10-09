@@ -7,8 +7,9 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import autocode_resolver_human as human, autocode_support as support
+import autocode_resolver_human as human
 import autocode_resolver_runtime as runtime
+import autocode_support as support
 
 
 class ResolverHumanTests(unittest.TestCase):

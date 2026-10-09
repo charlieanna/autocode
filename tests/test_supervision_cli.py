@@ -1,7 +1,6 @@
 """Public CLI supervisor-loss controls using an explicitly offline provider."""
 import json
 import os
-from pathlib import Path
 import pty
 import shutil
 import signal
@@ -11,10 +10,11 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-import autocode_supervision_cli as bridge
 import autocode_process as processes
+import autocode_supervision_cli as bridge
 
 TOOLS = Path(__file__).resolve().parents[1] / 'tools'
 

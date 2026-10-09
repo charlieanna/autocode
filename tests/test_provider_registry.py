@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
-import autocode, autocode_configure, autocode_providers
-import autocode_milestones as milestones, autocode_planning as planning
+import autocode
+import autocode_configure
+import autocode_milestones as milestones
+import autocode_planning as planning
+import autocode_providers
 import autopilot
 from providers import command
 

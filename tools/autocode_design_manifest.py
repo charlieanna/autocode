@@ -4,17 +4,21 @@ Configuration, native intake and audited reference revisions retain settings.des
 coverage gates read it; this module never reads a run's private state file.
 """
 from __future__ import annotations
+
 import copy
 import math
-from pathlib import Path, PurePosixPath
 import re
 import shutil
 import struct
 import tempfile
+from pathlib import Path, PurePosixPath
+
 try:
-    from . import autocode_util as util, autocode_design_inventory as inventory
+    from . import autocode_design_inventory as inventory
+    from . import autocode_util as util
 except ImportError:
-    import autocode_util as util, autocode_design_inventory as inventory
+    import autocode_design_inventory as inventory
+    import autocode_util as util
 
 
 def obj(properties):

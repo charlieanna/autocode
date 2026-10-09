@@ -6,17 +6,15 @@ Checkpoints mirror the pause classes reported live: exhausted automatic
 timeout recovery, an explicit user time cap, and exhausted AutoResolver
 operational-recovery attempts.
 """
-import json
-import subprocess
 import re
-from pathlib import Path
+import subprocess
 import unittest
 
-from . import test_subprocess
 import autocode as runner
 import autocode_resolver_human as human
 import autocode_support as support
 
+from . import test_subprocess
 
 ADVERTISED_FLAGS = re.compile(r"(--[a-z][a-z0-9-]*)")
 

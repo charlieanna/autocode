@@ -34,22 +34,22 @@ the ordinary criteria, findings, full-flow, independent-review or human gates.
 """
 from __future__ import annotations
 
-from pathlib import Path
 import json
 import re
+from pathlib import Path
 
 try:
-    from . import autocode_progressive_state as ledger
+    from . import autocode_contract_identity as contracts
     from . import autocode_progressive_artifacts as artifacts
     from . import autocode_progressive_plan as plan
-    from . import autocode_contract_identity as contracts
+    from . import autocode_progressive_state as ledger
     from . import autocode_util as util
     from . import autocode_verification_plan as verification_plan
 except ImportError:
-    import autocode_progressive_state as ledger
+    import autocode_contract_identity as contracts
     import autocode_progressive_artifacts as artifacts
     import autocode_progressive_plan as plan
-    import autocode_contract_identity as contracts
+    import autocode_progressive_state as ledger
     import autocode_util as util
     import autocode_verification_plan as verification_plan
 

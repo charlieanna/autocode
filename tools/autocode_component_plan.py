@@ -87,9 +87,7 @@ def _literal(clause):
         except ValueError:
             continue
         if operation == 'Docker build' and not (len(arguments) == 1
-                or any(re.match(r"--?[A-Za-z]", arg) for arg in arguments)):
-            continue
-        elif operation == 'container run' and not arguments:
+                or any(re.match(r"--?[A-Za-z]", arg) for arg in arguments)) or operation == 'container run' and not arguments:
             continue
         return operation, end
     return None

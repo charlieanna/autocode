@@ -1,19 +1,18 @@
 """Real Go collection and public investigation replay, using scripted answers."""
-import json
 import hashlib
+import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode_verify as verify
 from autocode_taskrun import TaskRun, TaskRunError
-
 
 GO = shutil.which('go')
 SOURCE = 'package pager\n\nfunc PageCount(total, size int) int { return total / size }\n'

@@ -7,16 +7,18 @@ This module does not read or write run state; runner_check binds CHECKPOINT.
 """
 from __future__ import annotations
 
-from contextvars import ContextVar
 import hashlib
-from pathlib import Path
 import subprocess
 import time
 import uuid
+from contextvars import ContextVar
+from pathlib import Path
 
 try:
-    from . import autocode_command_receipt as receipts, autocode_process as processes
-    from . import autocode_supervision as supervision, autocode_util as util
+    from . import autocode_command_receipt as receipts
+    from . import autocode_process as processes
+    from . import autocode_supervision as supervision
+    from . import autocode_util as util
 except ImportError:
     import autocode_command_receipt as receipts
     import autocode_process as processes

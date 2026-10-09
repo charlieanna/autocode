@@ -1,6 +1,6 @@
 """The literals a brief states survive into the goal contract (tools/autocode_brief_literals.py)."""
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import autocode_brief_literals as literals
 import autocode_goals as goals

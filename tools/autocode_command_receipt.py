@@ -6,14 +6,15 @@ Legacy command receipts without supervision retain their existing behavior.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 import json
-from pathlib import Path
 import re
+from copy import deepcopy
+from pathlib import Path
 
 try:
-    from . import autocode_liveness as liveness, autocode_util as util
+    from . import autocode_liveness as liveness
+    from . import autocode_util as util
 except ImportError:
     import autocode_liveness as liveness
     import autocode_util as util
