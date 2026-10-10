@@ -62,6 +62,9 @@ _LABEL_WORDS = {
 _HEADING = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(.+?)\s*$")
 # Unlike the brief-literal FENCE, an inline ``` or an unclosed fence would otherwise hide every obligation after it.
 _FENCE = re.compile(r"^[ \t]{0,3}```.*?^[ \t]{0,3}```[^\n]*$", re.M | re.S)
+# A paragraph or new list item cannot complete the preceding item's sentence.
+# Horizontal whitespace after a marker distinguishes lists from -I and 3.14.
+_BLOCK_BOUNDARY = re.compile(r"\r?\n[ \t]*\r?\n|(?<=\n)(?=[ \t]*(?:[-*+]|\d+[.)])[ \t]+)")
 
 
 def _without_label_headings(text):
@@ -95,7 +98,8 @@ def cue_sentences(text):
     parts = [
         part
         for piece in _outside_fences(str(text or ""))
-        for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(piece).strip())
+        for block in _BLOCK_BOUNDARY.split(piece)
+        for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(block).strip())
     ]
     return [part.strip() for part in parts if part.strip() and CUE.search(part)]
 
