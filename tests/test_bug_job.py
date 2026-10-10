@@ -1,4 +1,5 @@
 """The bug-fix workflow's Investigator: diagnose before fixing and retain questions."""
+
 import json
 import os
 import shlex
@@ -19,32 +20,70 @@ from units import autoresolver
 
 
 def state_for(workspace="/nowhere", task="Occasionally we renew the same domain twice after a timeout. Fix it."):
-    return {"version": 3, "task": task, "workspace": workspace, "status": "RUNNING", "stages": [],
-            "workflow": {"kind": "bugfix", "then": "requirements_gather"},
-            "settings": {"joint_planning": True, "roles": {
-                "requirements": {"model": "r"}, "glm": {"model": "g"}, "plan_reviewer": {"model": "p"},
-                "astra": {"model": "a", "engine": "codex"}, "terra": {"model": "t"}, "sol": {"model": "s"}}}}
+    return {
+        "version": 3,
+        "task": task,
+        "workspace": workspace,
+        "status": "RUNNING",
+        "stages": [],
+        "workflow": {"kind": "bugfix", "then": "requirements_gather"},
+        "settings": {
+            "joint_planning": True,
+            "roles": {
+                "requirements": {"model": "r"},
+                "glm": {"model": "g"},
+                "plan_reviewer": {"model": "p"},
+                "astra": {"model": "a", "engine": "codex"},
+                "terra": {"model": "t"},
+                "sol": {"model": "s"},
+            },
+        },
+    }
 
 
-CASE = {"id": "T1", "given": "the registry times out once after applying a renew",
-        "when": "renew('example.com') runs", "then": "the registry records exactly 1 renew mutation"}
+CASE = {
+    "id": "T1",
+    "given": "the registry times out once after applying a renew",
+    "when": "renew('example.com') runs",
+    "then": "the registry records exactly 1 renew mutation",
+}
 
 
 def diagnosis(outcome="reproduced", **overrides):
-    value = {"outcome": outcome, "note_path": "docs/bugs/duplicate-renew.json",
-             "observed": "Renewed twice after a timeout", "reproduction": "fail_next('timeout-after'); renew() -> 2 mutations",
-             "root_cause": "retries after an uncertain timeout with a fresh cl_trid",
-             "affected_paths": ["epp/client.py"], "test_paths": ["tests/test_client.py"],
-             "invariant": "one logical renew, at most one mutation",
-             "test_cases": [CASE], "probe": "", "untestable": "The fixture has no registry to replay against",
-             "conclusion": "Reconcile before resending.", "fix_size": "small",
-             "fix_plan": ["keep one cl_trid", "poll before resending"], "questions": [], "tests_run": ["python3 -m unittest"],
-             "plan_approval_requested": False}
+    value = {
+        "outcome": outcome,
+        "note_path": "docs/bugs/duplicate-renew.json",
+        "observed": "Renewed twice after a timeout",
+        "reproduction": "fail_next('timeout-after'); renew() -> 2 mutations",
+        "root_cause": "retries after an uncertain timeout with a fresh cl_trid",
+        "affected_paths": ["epp/client.py"],
+        "test_paths": ["tests/test_client.py"],
+        "invariant": "one logical renew, at most one mutation",
+        "test_cases": [CASE],
+        "probe": "",
+        "untestable": "The fixture has no registry to replay against",
+        "conclusion": "Reconcile before resending.",
+        "fix_size": "small",
+        "fix_plan": ["keep one cl_trid", "poll before resending"],
+        "questions": [],
+        "tests_run": ["python3 -m unittest"],
+        "plan_approval_requested": False,
+    }
     if outcome == "not_reproduced":
-        value.update(root_cause="", affected_paths=[], test_paths=[], invariant="", fix_size="none", fix_plan=[],
-                     test_cases=[], probe="", untestable="",
-                     note_path="docs/bugs/none-cells.json", conclusion="export() already writes None as empty.",
-                     questions=["Which version is the reporter running?"])
+        value.update(
+            root_cause="",
+            affected_paths=[],
+            test_paths=[],
+            invariant="",
+            fix_size="none",
+            fix_plan=[],
+            test_cases=[],
+            probe="",
+            untestable="",
+            note_path="docs/bugs/none-cells.json",
+            conclusion="export() already writes None as empty.",
+            questions=["Which version is the reporter running?"],
+        )
     value.update(overrides)
     return value
 
@@ -62,82 +101,94 @@ class RoutingTests(unittest.TestCase):
 
 class InvestigationPromptBoundaryTests(unittest.TestCase):
     def test_opencode_investigation_uses_workspace_scratch_and_foreground_checks(self):
-        text, _ = bug_job.prompt(state_for('/repo'), engine='opencode')
-        self.assertIn('.autocode/investigation/', text)
-        self.assertIn('Do not create scratch copies outside the workspace', text)
-        self.assertIn('foreground', text)
-        self.assertNotIn('scratch copy OUTSIDE the workspace', text)
+        text, _ = bug_job.prompt(state_for("/repo"), engine="opencode")
+        self.assertIn(".autocode/investigation/", text)
+        self.assertIn("Do not create scratch copies outside the workspace", text)
+        self.assertIn("foreground", text)
+        self.assertNotIn("scratch copy OUTSIDE the workspace", text)
 
     def test_scratch_copy_excludes_runner_state_and_preserves_application_source(self):
-        text, _ = bug_job.prompt(state_for('/repo'), engine='opencode')
-        self.assertIn('Exclude .autocode/ and .git/', text)
-        self.assertIn('Do not edit application source in the original workspace', text)
-        self.assertIn('never modify existing runner state or evidence', text)
+        text, _ = bug_job.prompt(state_for("/repo"), engine="opencode")
+        self.assertIn("Exclude .autocode/ and .git/", text)
+        self.assertIn("Do not edit application source in the original workspace", text)
+        self.assertIn("never modify existing runner state or evidence", text)
+
     def test_prepared_scratch_handoff_requires_using_complete_copy_without_rebuilding(self):
-        scratch = '/repo/.autocode/investigation/bug-example'
-        text, _ = bug_job.prompt(state_for('/repo'), engine='opencode', scratch_workspace=scratch)
-        data = json.loads(text.split('CURRENT HANDOFF DATA\n', 1)[1])
-        self.assertEqual(scratch, data['investigation_workspace'])
-        self.assertIn('Use the runner-prepared investigation_workspace', text)
-        self.assertIn('Do not rebuild the copy', text)
-        self.assertNotIn('Try to reproduce it in a fresh scratch copy', text)
-        self.assertIn('original workspace', text)
+        scratch = "/repo/.autocode/investigation/bug-example"
+        text, _ = bug_job.prompt(state_for("/repo"), engine="opencode", scratch_workspace=scratch)
+        data = json.loads(text.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(scratch, data["investigation_workspace"])
+        self.assertIn("Use the runner-prepared investigation_workspace", text)
+        self.assertIn("Do not rebuild the copy", text)
+        self.assertNotIn("Try to reproduce it in a fresh scratch copy", text)
+        self.assertIn("original workspace", text)
 
 
 class PrepareTests(unittest.TestCase):
     def test_investigation_prefers_the_declared_external_test_environment(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            workspace = root / 'project'
+            workspace = root / "project"
             workspace.mkdir()
-            environment = root / 'external environment'
-            subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(environment)],
-                           check=True, capture_output=True)
-            python = environment / 'bin/python'
+            environment = root / "external environment"
+            subprocess.run(
+                [sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, capture_output=True
+            )
+            python = environment / "bin/python"
             state = state_for(str(workspace))
-            command = shlex.join(['env', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1',
-                                 str(python), '-m', 'pytest', 'tests'])
-            state['settings']['regression'] = {'test_command': command}
-            request = autoresolver.prepare(state, bug_job.STAGE, '/run/state.json', None)
-            data = json.loads(request.prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
-            self.assertEqual(str(python), data['investigation_python'])
-            self.assertEqual(command, data['test_command'])
+            command = shlex.join(["env", "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1", str(python), "-m", "pytest", "tests"])
+            state["settings"]["regression"] = {"test_command": command}
+            request = autoresolver.prepare(state, bug_job.STAGE, "/run/state.json", None)
+            data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            self.assertEqual(str(python), data["investigation_python"])
+            self.assertEqual(command, data["test_command"])
 
     def test_investigation_uses_virtualenv_dependencies_with_the_scratch_source(self):
-        for name in ('.venv', 'venv'):
+        for name in (".venv", "venv"):
             with self.subTest(environment=name), tempfile.TemporaryDirectory() as workspace:
                 root = Path(workspace).resolve()
                 environment = root / name
-                subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(environment)],
-                               check=True, capture_output=True)
-                python = environment / 'bin/python'
-                site = Path(subprocess.check_output(
-                    [str(python), '-c', "import sysconfig; print(sysconfig.get_path('purelib'))"],
-                    text=True).strip())
-                (site / 'offline_dependency.py').write_text('value = 42\n')
-                (root / 'app.py').write_text('value = 1\n')
-                request = autoresolver.prepare(state_for(str(root)), bug_job.STAGE, '/run/state.json', None)
-                data = json.loads(request.prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
-                scratch = Path(data['investigation_workspace'])
-                self.assertEqual(str(python), data['investigation_python'])
+                subprocess.run(
+                    [sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, capture_output=True
+                )
+                python = environment / "bin/python"
+                site = Path(
+                    subprocess.check_output(
+                        [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True
+                    ).strip()
+                )
+                (site / "offline_dependency.py").write_text("value = 42\n")
+                (root / "app.py").write_text("value = 1\n")
+                request = autoresolver.prepare(state_for(str(root)), bug_job.STAGE, "/run/state.json", None)
+                data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                scratch = Path(data["investigation_workspace"])
+                self.assertEqual(str(python), data["investigation_python"])
                 self.assertFalse((scratch / name).exists())
-                (scratch / 'app.py').write_text('value = 2\n')
-                result = subprocess.run([data['investigation_python'], '-B', '-c',
-                    'import app, offline_dependency; assert app.value == 2; assert offline_dependency.value == 42'],
-                    cwd=scratch, capture_output=True, text=True)
+                (scratch / "app.py").write_text("value = 2\n")
+                result = subprocess.run(
+                    [
+                        data["investigation_python"],
+                        "-B",
+                        "-c",
+                        "import app, offline_dependency; assert app.value == 2; assert offline_dependency.value == 42",
+                    ],
+                    cwd=scratch,
+                    capture_output=True,
+                    text=True,
+                )
                 self.assertEqual(0, result.returncode, result.stderr)
-                self.assertEqual('value = 1\n', (root / 'app.py').read_text())
+                self.assertEqual("value = 1\n", (root / "app.py").read_text())
 
     def test_investigation_request_contains_complete_scratch_before_model_launch(self):
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)
-            (root / 'rule').mkdir()
-            (root / 'rule/rule.go').write_text('package rule')
-            request = autoresolver.prepare(state_for(workspace), bug_job.STAGE, '/run/state.json', None)
-            data = json.loads(request.prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
-            scratch = Path(data['investigation_workspace'])
-            self.assertEqual('package rule', (scratch / 'rule/rule.go').read_text())
-            self.assertEqual(root.resolve() / '.autocode/investigation', scratch.parent)
+            (root / "rule").mkdir()
+            (root / "rule/rule.go").write_text("package rule")
+            request = autoresolver.prepare(state_for(workspace), bug_job.STAGE, "/run/state.json", None)
+            data = json.loads(request.prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+            scratch = Path(data["investigation_workspace"])
+            self.assertEqual("package rule", (scratch / "rule/rule.go").read_text())
+            self.assertEqual(root.resolve() / ".autocode/investigation", scratch.parent)
 
     def test_investigator_gets_its_own_route_and_a_scratch_copy_but_no_plan(self):
         with tempfile.TemporaryDirectory() as workspace:
@@ -183,33 +234,33 @@ class RunnerDiagnosisArtifactTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.workspace = Path(temporary.name)
-        self.output = self.workspace / '.autocode' / 'bug-investigation-01.json'
+        self.output = self.workspace / ".autocode" / "bug-investigation-01.json"
         self.output.parent.mkdir()
         self.report = diagnosis()
         self.output.write_text(json.dumps(self.report))
         self.state = state_for(str(self.workspace))
-        bug_job.apply(self.state, self.report,
-                      {'changed_files': [], 'output': str(self.output)}, self.workspace)
-        self.note = self.workspace / self.report['note_path']
+        bug_job.apply(self.state, self.report, {"changed_files": [], "output": str(self.output)}, self.workspace)
+        self.note = self.workspace / self.report["note_path"]
 
     def test_only_the_exact_runner_note_is_identified_without_expanding_task_scope(self):
         from autocode_util import file_hash
-        self.state['current_task'] = {'affected_paths': self.report['affected_paths'] + self.report['test_paths']}
-        other = self.note.with_name('unrelated.json')
+
+        self.state["current_task"] = {"affected_paths": self.report["affected_paths"] + self.report["test_paths"]}
+        other = self.note.with_name("unrelated.json")
         other.write_bytes(self.note.read_bytes())
         artifact = bug_job.diagnosis_artifact(self.state, self.workspace)
-        self.assertEqual(self.report['note_path'], artifact['path'])
-        self.assertEqual(file_hash(self.note), artifact['sha256'])
-        self.assertEqual('runner_written_diagnosis', artifact['kind'])
-        self.assertNotIn(artifact['path'], self.state['current_task']['affected_paths'])
-        self.assertNotEqual(str(other.relative_to(self.workspace)), artifact['path'])
+        self.assertEqual(self.report["note_path"], artifact["path"])
+        self.assertEqual(file_hash(self.note), artifact["sha256"])
+        self.assertEqual("runner_written_diagnosis", artifact["kind"])
+        self.assertNotIn(artifact["path"], self.state["current_task"]["affected_paths"])
+        self.assertNotEqual(str(other.relative_to(self.workspace)), artifact["path"])
 
     def test_modified_or_deleted_note_is_not_classified_as_runner_evidence(self):
         rewritten = json.loads(self.note.read_text())
-        rewritten['conclusion'] = 'quietly replaced conclusion'
-        self.note.write_text(json.dumps(rewritten, indent=2) + '\n')
+        rewritten["conclusion"] = "quietly replaced conclusion"
+        self.note.write_text(json.dumps(rewritten, indent=2) + "\n")
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
-        self.note.write_text(self.note.read_text()[:-2] + 'garbage')
+        self.note.write_text(self.note.read_text()[:-2] + "garbage")
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
         self.note.unlink()
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
@@ -219,20 +270,20 @@ class RunnerDiagnosisArtifactTests(unittest.TestCase):
         # normalized note (and a reloaded state.json sorts its keys), so the note is
         # matched by content, never by byte order.
         from autocode_util import file_hash
+
         original = json.loads(self.note.read_text())
         reordered = {key: original[key] for key in sorted(original, reverse=True)}
-        reordered['test_cases'] = [{k: case[k] for k in sorted(case, reverse=True)}
-                                   for case in original['test_cases']]
-        self.note.write_text(json.dumps(reordered, indent=2) + '\n')
+        reordered["test_cases"] = [{k: case[k] for k in sorted(case, reverse=True)} for case in original["test_cases"]]
+        self.note.write_text(json.dumps(reordered, indent=2) + "\n")
         artifact = bug_job.diagnosis_artifact(self.state, self.workspace)
-        self.assertEqual(self.report['note_path'], artifact['path'])
-        self.assertEqual(file_hash(self.note), artifact['sha256'])
+        self.assertEqual(self.report["note_path"], artifact["path"])
+        self.assertEqual(file_hash(self.note), artifact["sha256"])
 
     def test_report_tampering_or_missing_provenance_cannot_exempt_a_note(self):
-        self.output.write_text(json.dumps({**self.report, 'root_cause': 'replacement diagnosis'}))
+        self.output.write_text(json.dumps({**self.report, "root_cause": "replacement diagnosis"}))
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
         self.output.write_text(json.dumps(self.report))
-        self.state['investigation'].pop('output_hash')
+        self.state["investigation"].pop("output_hash")
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
 
     def test_executable_note_is_not_classified_as_unchanged_runner_evidence(self):
@@ -240,14 +291,14 @@ class RunnerDiagnosisArtifactTests(unittest.TestCase):
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
 
     def test_symlinked_note_or_parent_is_not_classified_as_runner_evidence(self):
-        duplicate = self.workspace / 'copy.json'
+        duplicate = self.workspace / "copy.json"
         duplicate.write_bytes(self.note.read_bytes())
         self.note.unlink()
         self.note.symlink_to(duplicate)
         self.assertIsNone(bug_job.diagnosis_artifact(self.state, self.workspace))
         self.note.unlink()
         self.note.parent.rmdir()
-        alternative = self.workspace / 'other-notes'
+        alternative = self.workspace / "other-notes"
         alternative.mkdir()
         (alternative / self.note.name).write_bytes(duplicate.read_bytes())
         self.note.parent.symlink_to(alternative, target_is_directory=True)
@@ -255,27 +306,35 @@ class RunnerDiagnosisArtifactTests(unittest.TestCase):
 
     def test_review_handoff_distinguishes_note_but_preserves_all_actual_changes(self):
         import autocode_stage_context as stage_context
-        paths = ['epp/client.py', self.report['note_path'], 'docs/bugs/unrelated.json']
-        self.state.update(changed_files=paths, current_task={'affected_paths': ['epp/client.py']},
-                          implementation={'changed_files': paths})
-        for stage in ('sol', 'astra_checkpoint', 'astra_review'):
-            with self.subTest(stage=stage), mock.patch.object(
-                    stage_context.support, 'snapshot', return_value={'revision': 'r1', 'head': 'h1'}):
-                prompt, _ = stage_context.context_packet(self.state, stage, self.output.parent / 'state.json')
-                data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
-                self.assertEqual([self.report['note_path']], [r['path'] for r in data['runner_artifacts']])
-                self.assertEqual(paths, data['implementation']['changed_files'])
-                if stage != 'astra_review':
-                    self.assertEqual(paths, data['actual_changes'])
-                self.assertIn('not an out-of-scope Builder edit', prompt)
-                self.assertIn('grants no write permission', prompt)
+
+        paths = ["epp/client.py", self.report["note_path"], "docs/bugs/unrelated.json"]
+        self.state.update(
+            changed_files=paths,
+            current_task={"affected_paths": ["epp/client.py"]},
+            implementation={"changed_files": paths},
+        )
+        for stage in ("sol", "astra_checkpoint", "astra_review"):
+            with (
+                self.subTest(stage=stage),
+                mock.patch.object(stage_context.support, "snapshot", return_value={"revision": "r1", "head": "h1"}),
+            ):
+                prompt, _ = stage_context.context_packet(self.state, stage, self.output.parent / "state.json")
+                data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual([self.report["note_path"]], [r["path"] for r in data["runner_artifacts"]])
+                self.assertEqual(paths, data["implementation"]["changed_files"])
+                if stage != "astra_review":
+                    self.assertEqual(paths, data["actual_changes"])
+                self.assertIn("not an out-of-scope Builder edit", prompt)
+                self.assertIn("grants no write permission", prompt)
 
 
 class ApplyTests(unittest.TestCase):
     def apply(self, value, changed=()):
         workspace = tempfile.mkdtemp()
         state = state_for(workspace)
-        bug_job.apply(state, value, {"changed_files": list(changed), "output": "/run/investigate_bug-01.json"}, workspace)
+        bug_job.apply(
+            state, value, {"changed_files": list(changed), "output": "/run/investigate_bug-01.json"}, workspace
+        )
         return state, Path(workspace)
 
     def test_a_large_reproduced_bug_writes_the_diagnosis_and_goes_to_the_planner(self):
@@ -295,8 +354,9 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(["Which version is the reporter running?"], note["questions"])
         view = run_view.view(state)
         self.assertFalse(view["done"])
-        self.assertEqual(("WAITING_FOR_USER", "INVESTIGATING", bug_job.STAGE),
-                         (state["status"], state["phase"], view["next_stage"]))
+        self.assertEqual(
+            ("WAITING_FOR_USER", "INVESTIGATING", bug_job.STAGE), (state["status"], state["phase"], view["next_stage"])
+        )
         self.assertEqual("bugfix", view["workflow"])
         self.assertIsNone(jobs.ended_in(state))
 
@@ -312,14 +372,19 @@ class ApplyTests(unittest.TestCase):
 
     def test_an_authenticated_reporter_answer_is_not_requested_again(self):
         import autocode_bug_questions as questions
+
         state, workspace = self.apply(diagnosis("not_reproduced"))
         question = questions.questions(state)[0]
         answer = {"actor": "user_cli", "question": question, "text": "Version 1.2"}
         state.update(answers={question["id"]: answer}, user_events=[answer])
         retained = (workspace / "docs/bugs/none-cells.json").read_bytes()
         with self.assertRaisesRegex(ValueError, "already.*answer|answer.*already|repeat"):
-            bug_job.apply(state, diagnosis("not_reproduced"),
-                          {"changed_files": [], "output": "/run/investigate_bug-02.json"}, str(workspace))
+            bug_job.apply(
+                state,
+                diagnosis("not_reproduced"),
+                {"changed_files": [], "output": "/run/investigate_bug-02.json"},
+                str(workspace),
+            )
         self.assertEqual(retained, (workspace / "docs/bugs/none-cells.json").read_bytes())
         self.assertFalse(run_view.view(state)["done"])
         self.assertEqual(bug_job.STAGE, state["next_stage"])
@@ -385,35 +450,53 @@ class SmallCorrectionTests(unittest.TestCase):
         (workspace / "epp").mkdir()
         (workspace / "epp" / "client.py").write_text("x = 1\n")
         for command in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "seed"]):
-            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *command],
-                           cwd=workspace, check=True)
-        state = {**state_for(str(workspace)), "task_id": "task-under-test", "iteration": 1, "answers": {},
-                 "user_events": [], "history": [], "sessions": {}}
-        autoresolver.apply_job(bug_job.STAGE, state, diagnosis(**overrides), {"changed_files": [], "output": "o"},
-                               str(workspace))
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *command], cwd=workspace, check=True
+            )
+        state = {
+            **state_for(str(workspace)),
+            "task_id": "task-under-test",
+            "iteration": 1,
+            "answers": {},
+            "user_events": [],
+            "history": [],
+            "sessions": {},
+        }
+        autoresolver.apply_job(
+            bug_job.STAGE, state, diagnosis(**overrides), {"changed_files": [], "output": "o"}, str(workspace)
+        )
         return state
 
     def test_the_diagnosis_becomes_an_approved_one_task_contract(self):
         import autocode_goals as goals
+
         state = self.start()
         contract = state["goal_contract"]
         self.assertEqual(bug_job.ORIGIN, contract["origin"])
         self.assertTrue(goals.approved(state))
-        self.assertEqual(("workflow_policy", bug_job.SMALL_FIX_POLICY),
-                         (contract["approval_event"]["actor"], contract["approval_event"]["policy"]))
+        self.assertEqual(
+            ("workflow_policy", bug_job.SMALL_FIX_POLICY),
+            (contract["approval_event"]["actor"], contract["approval_event"]["policy"]),
+        )
         criterion, case = contract["body"]["acceptance_criteria"]
         self.assertEqual("one logical renew, at most one mutation", criterion["criterion"])
         self.assertEqual(bug_job.case_text(CASE), case["criterion"])
         task = state["current_task"]
-        self.assertEqual(["epp/client.py", "tests/test_client.py", "docs/bugs/duplicate-renew.json"],
-                         task["affected_paths"])
+        self.assertEqual(
+            ["epp/client.py", "tests/test_client.py", "docs/bugs/duplicate-renew.json"], task["affected_paths"]
+        )
         self.assertIn("fails on the original code", " ".join(task["requirements"]))
         self.assertIn(state["next_stage"], ("terra", "orchestrator"))
         self.assertEqual("RUNNING", state["status"])
 
     def test_each_english_test_becomes_a_criterion_and_a_named_test(self):
-        second = {"id": "T2", "given": "no timeout", "when": "renew('example.com') runs", "then": "1 mutation",
-                  "kind": "preserve"}
+        second = {
+            "id": "T2",
+            "given": "no timeout",
+            "when": "renew('example.com') runs",
+            "then": "1 mutation",
+            "kind": "preserve",
+        }
         state = self.start(test_cases=[CASE, second])
         criteria = state["goal_contract"]["body"]["acceptance_criteria"]
         self.assertEqual(["C1", "C2", "C3"], [row["id"] for row in criteria])
@@ -432,7 +515,9 @@ class SmallCorrectionTests(unittest.TestCase):
         self.assertNotEqual(bug_job.ORIGIN, (state.get("goal_contract") or {}).get("origin"))
         # Planned from the diagnosis: no requirements gathering, but plan review and the user's approval.
         self.assertEqual("astra_discovery", state["next_stage"])
-        self.assertIsNone(bug_job.large_correction({**state, "investigation": {**state["investigation"], "fix_size": "small"}}))
+        self.assertIsNone(
+            bug_job.large_correction({**state, "investigation": {**state["investigation"], "fix_size": "small"}})
+        )
 
     def test_a_small_fix_the_user_asked_to_approve_is_planned_and_put_to_the_user(self):
         state = self.start(fix_size="small", plan_approval_requested=True)
@@ -447,18 +532,23 @@ class SmallCorrectionTests(unittest.TestCase):
 
     def test_the_planner_plans_a_large_fix_from_the_diagnosis(self):
         from units import autoplanner
+
         state = self.start(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         prompt, _ = autoplanner.context(state, "astra_discovery", Path(state["workspace"]) / "state.json")
         self.assertIn(autoplanner.BUG_DIAGNOSIS_RULE, prompt)
         self.assertIn('"bug_diagnosis"', prompt)
         self.assertIn(json.dumps(state["investigation"]["invariant"]), prompt)
-        small, _ = autoplanner.context({**state, "investigation": {**state["investigation"], "fix_size": "small"}},
-                                       "astra_discovery", Path(state["workspace"]) / "state.json")
+        small, _ = autoplanner.context(
+            {**state, "investigation": {**state["investigation"], "fix_size": "small"}},
+            "astra_discovery",
+            Path(state["workspace"]) / "state.json",
+        )
         self.assertNotIn(autoplanner.BUG_DIAGNOSIS_RULE, small)
 
     def test_planning_keeps_restore_and_preserve_cases_provable(self):
         from units import autoplanner
+
         preserve = {**CASE, "id": "T2", "given": "no timeout", "kind": "preserve"}
         state = self.start(fix_size="large", test_cases=[CASE, preserve])
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
@@ -474,7 +564,8 @@ class SmallCorrectionTests(unittest.TestCase):
     def test_investigation_and_planning_keep_regression_tests_off_the_fixs_seams(self):
         # Issue #299: tests that spied on a variable the fix added could not build on the unfixed code.
         from units import autoplanner
-        investigation = " ".join(bug_job.prompt(state_for('/repo'))[0].split())
+
+        investigation = " ".join(bug_job.prompt(state_for("/repo"))[0].split())
         self.assertIn("never a hook, variable or helper the fix would add", investigation)
         self.assertIn("never only a log line or message", investigation)
         state = self.start(fix_size="large")
@@ -486,6 +577,7 @@ class SmallCorrectionTests(unittest.TestCase):
 
     def test_planning_is_told_how_execution_captures_evidence(self):
         from units import autoplanner
+
         state = self.start(fix_size="large")
         state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
         state_path = Path(state["workspace"]) / "state.json"
@@ -499,6 +591,7 @@ class SmallCorrectionTests(unittest.TestCase):
 
     def test_the_policy_actor_cannot_approve_an_ordinary_contract(self):
         import autocode_goals as goals
+
         state = self.start()
         state["goal_contract"]["origin"] = "glm_draft"
         self.assertFalse(goals.approved(state))
@@ -528,10 +621,15 @@ class InvariantTests(unittest.TestCase):
 
     def test_the_validator_prompt_carries_it(self):
         from units import common
+
         with mock.patch.object(bug_job, "SMALL_CORRECTION_ENABLED", True):  # an approved one-task contract
             state = SmallCorrectionTests.start(self, fix_size="small")
-        request = common.execution_request(state, "sol", Path(state["workspace"]) / "state.json",
-                                           Path(bug_job.__file__).resolve().parent / "autocode-schemas")
+        request = common.execution_request(
+            state,
+            "sol",
+            Path(state["workspace"]) / "state.json",
+            Path(bug_job.__file__).resolve().parent / "autocode-schemas",
+        )
         self.assertIn("BUG INVARIANT", request.prompt)
         self.assertIn(state["investigation"]["invariant"], request.prompt)
 
@@ -542,8 +640,13 @@ class DiagnosisNoteTests(unittest.TestCase):
 
     def builder_prompt(self, state):
         from units import common
-        return common.execution_request(state, "terra", Path(state["workspace"]) / "state.json",
-                                        Path(bug_job.__file__).resolve().parent / "autocode-schemas").prompt
+
+        return common.execution_request(
+            state,
+            "terra",
+            Path(state["workspace"]) / "state.json",
+            Path(bug_job.__file__).resolve().parent / "autocode-schemas",
+        ).prompt
 
     def test_a_builder_that_does_not_own_the_note_is_told_it_is_written(self):
         state = approved_small_fix()
@@ -575,16 +678,30 @@ class CaseMatchTests(unittest.TestCase):
 
     def test_ids_match_whole_words_in_any_runners_test_id(self):
         cases = [{"id": "T1"}, {"id": "T2"}, {"id": "reported_row"}]
-        tests = ["tests.test_client.RenewTests.test_t1_one_mutation", "tests/test_x.py::test_t12_other",
-                 "TestT2RenewsOnce", "tests/test_x.py::test_reported_row[a-b]"]
-        self.assertEqual({"T1": ["tests.test_client.RenewTests.test_t1_one_mutation"], "T2": ["TestT2RenewsOnce"],
-                          "reported_row": ["tests/test_x.py::test_reported_row[a-b]"]},
-                         bug_job.match_cases(cases, tests))
+        tests = [
+            "tests.test_client.RenewTests.test_t1_one_mutation",
+            "tests/test_x.py::test_t12_other",
+            "TestT2RenewsOnce",
+            "tests/test_x.py::test_reported_row[a-b]",
+        ]
+        self.assertEqual(
+            {
+                "T1": ["tests.test_client.RenewTests.test_t1_one_mutation"],
+                "T2": ["TestT2RenewsOnce"],
+                "reported_row": ["tests/test_x.py::test_reported_row[a-b]"],
+            },
+            bug_job.match_cases(cases, tests),
+        )
 
     def test_the_proof_fails_a_case_with_no_test_of_its_own(self):
         import autocode_regression as regression
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"]}
+
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"],
+        }
         second = {"id": "T2", "given": "no timeout", "when": "renew() runs", "then": "1 mutation"}
         regression.check_cases(proof, [CASE, second])
         self.assertEqual("FAIL", proof["verdict"])
@@ -595,41 +712,73 @@ class CaseMatchTests(unittest.TestCase):
 
     def test_the_proof_passes_when_every_case_has_its_test(self):
         import autocode_regression as regression
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"]}
+
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"],
+        }
         regression.check_cases(proof, [CASE])
         self.assertEqual(("PASS", []), (proof["verdict"], proof["failures"]))
 
     def test_without_per_test_results_the_cases_are_unverified_not_passed(self):
         import autocode_regression as regression
+
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": None}
         regression.check_cases(proof, [CASE])
         self.assertEqual(("UNVERIFIED", {"T1": []}), (proof["verdict"], proof["case_tests"]))
 
     def test_a_proof_that_already_failed_gets_no_misleading_note(self):
         import autocode_regression as regression
-        proof = {"verdict": "FAIL", "failures": ["The regression tests fail on the candidate: x"], "unverified": [],
-                 "fail_to_pass": None}
+
+        proof = {
+            "verdict": "FAIL",
+            "failures": ["The regression tests fail on the candidate: x"],
+            "unverified": [],
+            "fail_to_pass": None,
+        }
         regression.check_cases(proof, [CASE])
         self.assertEqual(("FAIL", [], {"T1": []}), (proof["verdict"], proof["unverified"], proof["case_tests"]))
 
     def test_a_preserve_case_passes_with_a_test_that_passes_before_and_after(self):
         import autocode_regression as regression
-        preserve = {"id": "T4", "given": "11 items, page size 5", "when": "page_count(11, 5)",
-                    "then": "returns 2", "kind": "preserve"}
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": ["tests.test_pager.PagerTests.test_t1_off_by_one"],
-                 "pass_to_pass": ["tests.test_pager.PagerTests.test_t4_exact_multiple"]}
+
+        preserve = {
+            "id": "T4",
+            "given": "11 items, page size 5",
+            "when": "page_count(11, 5)",
+            "then": "returns 2",
+            "kind": "preserve",
+        }
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": ["tests.test_pager.PagerTests.test_t1_off_by_one"],
+            "pass_to_pass": ["tests.test_pager.PagerTests.test_t4_exact_multiple"],
+        }
         regression.check_cases(proof, [CASE, preserve])
         self.assertEqual(("PASS", []), (proof["verdict"], proof["failures"]))
         self.assertEqual(["tests.test_pager.PagerTests.test_t4_exact_multiple"], proof["case_tests"]["T4"])
 
     def test_a_preserve_case_without_a_test_fails(self):
         import autocode_regression as regression
-        preserve = {"id": "T4", "given": "11 items, page size 5", "when": "page_count(11, 5)",
-                    "then": "returns 2", "kind": "preserve"}
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": ["tests.test_pager.PagerTests.test_t1_off_by_one"], "pass_to_pass": []}
+
+        preserve = {
+            "id": "T4",
+            "given": "11 items, page size 5",
+            "when": "page_count(11, 5)",
+            "then": "returns 2",
+            "kind": "preserve",
+        }
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": ["tests.test_pager.PagerTests.test_t1_off_by_one"],
+            "pass_to_pass": [],
+        }
         regression.check_cases(proof, [preserve])
         self.assertEqual("FAIL", proof["verdict"])
         [failure] = proof["failures"]
@@ -638,10 +787,21 @@ class CaseMatchTests(unittest.TestCase):
 
     def test_a_mistagged_preserve_case_fails_with_a_say_so_message(self):
         import autocode_regression as regression
-        preserve = {"id": "T4", "given": "11 items, page size 5", "when": "page_count(11, 5)",
-                    "then": "returns 2", "kind": "preserve"}
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": ["tests.test_pager.PagerTests.test_t4_exact_multiple"], "pass_to_pass": []}
+
+        preserve = {
+            "id": "T4",
+            "given": "11 items, page size 5",
+            "when": "page_count(11, 5)",
+            "then": "returns 2",
+            "kind": "preserve",
+        }
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": ["tests.test_pager.PagerTests.test_t4_exact_multiple"],
+            "pass_to_pass": [],
+        }
         regression.check_cases(proof, [preserve])
         self.assertEqual("FAIL", proof["verdict"])
         [failure] = proof["failures"]
@@ -650,8 +810,14 @@ class CaseMatchTests(unittest.TestCase):
 
     def test_a_restore_case_whose_test_already_passed_on_the_original_still_fails(self):
         import autocode_regression as regression
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": [], "pass_to_pass": ["tests.test_pager.PagerTests.test_t1_off_by_one"]}
+
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": [],
+            "pass_to_pass": ["tests.test_pager.PagerTests.test_t1_off_by_one"],
+        }
         regression.check_cases(proof, [CASE])
         self.assertEqual("FAIL", proof["verdict"])
         [failure] = proof["failures"]
@@ -659,9 +825,14 @@ class CaseMatchTests(unittest.TestCase):
 
     def test_a_case_without_a_kind_is_a_restore_case(self):
         import autocode_regression as regression
-        proof = {"verdict": "PASS", "failures": [], "unverified": [],
-                 "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"],
-                 "pass_to_pass": ["tests.test_client.RenewTests.test_t2_never_retries_twice"]}
+
+        proof = {
+            "verdict": "PASS",
+            "failures": [],
+            "unverified": [],
+            "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"],
+            "pass_to_pass": ["tests.test_client.RenewTests.test_t2_never_retries_twice"],
+        }
         plain = {"id": "T2", "given": "no timeout", "when": "renew() runs", "then": "1 mutation"}
         regression.check_cases(proof, [CASE, plain])
         self.assertEqual("FAIL", proof["verdict"])
@@ -675,6 +846,7 @@ class CaseMatchTests(unittest.TestCase):
 
     def test_runs_without_english_tests_are_unchanged(self):
         import autocode_regression as regression
+
         proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": ["x.test_a"]}
         regression.check_cases(proof, [])
         self.assertEqual({"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": ["x.test_a"]}, proof)
@@ -692,13 +864,20 @@ class ReproductionProbeTests(unittest.TestCase):
         (root / "pager").mkdir()
         (root / "pager" / "__init__.py").write_text(self.BUGGY)
         for command in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "seed"]):
-            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *command],
-                           cwd=root, check=True)
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *command], cwd=root, check=True
+            )
         state = state_for(str(root))
-        value = diagnosis(fix_size="large", affected_paths=["pager/__init__.py"], test_paths=["tests/test_pager.py"],
-                          note_path="docs/bugs/page-count.json", **overrides)
-        autoresolver.apply_job(bug_job.STAGE, state, value, {"changed_files": [], "output": str(root / "o.json")},
-                               str(root))
+        value = diagnosis(
+            fix_size="large",
+            affected_paths=["pager/__init__.py"],
+            test_paths=["tests/test_pager.py"],
+            note_path="docs/bugs/page-count.json",
+            **overrides,
+        )
+        autoresolver.apply_job(
+            bug_job.STAGE, state, value, {"changed_files": [], "output": str(root / "o.json")}, str(root)
+        )
         return state, root
 
     def test_a_probe_that_shows_the_bug_is_recorded_in_the_state_and_the_note(self):
@@ -726,36 +905,64 @@ class ReproductionProbeTests(unittest.TestCase):
     def test_a_report_that_did_not_reproduce_carries_no_probe(self):
         root = Path(tempfile.mkdtemp())
         with self.assertRaisesRegex(ValueError, "must not propose a fix"):
-            bug_job.apply(state_for(str(root)), diagnosis("not_reproduced", untestable="x"),
-                          {"changed_files": []}, str(root))
+            bug_job.apply(
+                state_for(str(root)), diagnosis("not_reproduced", untestable="x"), {"changed_files": []}, str(root)
+            )
 
 
 class DeclaredInterpreterWorkflowTests(unittest.TestCase):
     def test_external_dependencies_reach_the_investigator_and_real_clean_replay(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
-            workspace = root / 'project'
+            workspace = root / "project"
             workspace.mkdir()
-            (workspace / 'pager.py').write_text(ReproductionProbeTests.BUGGY)
-            (workspace / '.gitignore').write_text('.autocode/\n')
-            for args in (['init', '-q'], ['add', '-A'], ['commit', '-qm', 'buggy pager']):
-                subprocess.run(['git', '-c', 'user.name=t', '-c', 'user.email=t@example.test', *args],
-                               cwd=workspace, check=True, capture_output=True)
-            environment = root / 'external environment'
-            subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(environment)],
-                           check=True, capture_output=True)
-            python = environment / 'bin/python'
-            site = Path(subprocess.check_output([str(python), '-c',
-                "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True).strip())
-            (site / 'offline_dependency.py').write_text('value = 42\n')
-            report = root / 'report.json'
-            report.write_text(json.dumps(diagnosis(fix_size='large', affected_paths=['pager.py'],
-                test_paths=['test_pager.py'], note_path='docs/bugs/pager.json',
-                observed='page_count(5, 2) returns 2', reproduction='page_count(5, 2) == 2',
-                invariant='round partial pages up', root_cause='integer division truncates',
-                probe='', untestable='', test_cases=[{'id':'T1', 'given':'total=5, size=2',
-                    'when':'page_count(5, 2)', 'then':'returns 3', 'kind':'restore'}])))
-            provider = root / 'provider.py'
+            (workspace / "pager.py").write_text(ReproductionProbeTests.BUGGY)
+            (workspace / ".gitignore").write_text(".autocode/\n")
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "buggy pager"]):
+                subprocess.run(
+                    ["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *args],
+                    cwd=workspace,
+                    check=True,
+                    capture_output=True,
+                )
+            environment = root / "external environment"
+            subprocess.run(
+                [sys.executable, "-m", "venv", "--without-pip", str(environment)], check=True, capture_output=True
+            )
+            python = environment / "bin/python"
+            site = Path(
+                subprocess.check_output(
+                    [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True
+                ).strip()
+            )
+            (site / "offline_dependency.py").write_text("value = 42\n")
+            report = root / "report.json"
+            report.write_text(
+                json.dumps(
+                    diagnosis(
+                        fix_size="large",
+                        affected_paths=["pager.py"],
+                        test_paths=["test_pager.py"],
+                        note_path="docs/bugs/pager.json",
+                        observed="page_count(5, 2) returns 2",
+                        reproduction="page_count(5, 2) == 2",
+                        invariant="round partial pages up",
+                        root_cause="integer division truncates",
+                        probe="",
+                        untestable="",
+                        test_cases=[
+                            {
+                                "id": "T1",
+                                "given": "total=5, size=2",
+                                "when": "page_count(5, 2)",
+                                "then": "returns 3",
+                                "kind": "restore",
+                            }
+                        ],
+                    )
+                )
+            )
+            provider = root / "provider.py"
             provider.write_text("""import json,subprocess,sys,shlex
 from pathlib import Path
 schema=json.loads(Path(sys.argv[2]).read_text())
@@ -777,36 +984,77 @@ value['tests_run']=[value['probe']+' exited 0 in the prepared source copy']
 Path(sys.argv[1]).write_text(json.dumps(value))
 print(json.dumps({'type':'turn.completed','usage':{'input_tokens':1,'output_tokens':1}}))
 """)
-            config_root = root / 'config'
-            config = config_root / 'autocode/providers/offline.toml'
+            config_root = root / "config"
+            config = config_root / "autocode/providers/offline.toml"
             config.parent.mkdir(parents=True)
-            config.write_text('name = "offline"\nprompt = "stdin"\noutput = "report_file"\ncommand = '
-                + json.dumps([sys.executable, str(provider), '{report}', '{schema}', str(report)])
+            config.write_text(
+                'name = "offline"\nprompt = "stdin"\noutput = "report_file"\ncommand = '
+                + json.dumps([sys.executable, str(provider), "{report}", "{schema}", str(report)])
                 + '\nmodels = ["producer", "verifier", "planner", "reviewer"]\n[roles]\n'
-                + '\n'.join(f'{role} = {{ model = "{model}", effort = "medium" }}' for role, model in (
-                    ('astra','reviewer'),('terra','producer'),('sol','verifier'),('completion','verifier'),
-                    ('glm','planner'),('plan_reviewer','reviewer'))) + '\n')
-            command = shlex.join(['env', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1', str(python),
-                                  '-m', 'pytest', 'test_pager.py'])
-            env = {**os.environ, 'AUTOCODE_HOME':str(root/'registry'),
-                   'XDG_CONFIG_HOME':str(config_root), 'PYTHONDONTWRITEBYTECODE':'1'}
-            options = ('--provider','offline','--workflow','bugfix','--joint-planning',
-                       '--test-command',command,'--max-stage-seconds','30','--max-seconds','60',
-                       '--max-idle-seconds','0','--max-tool-seconds','0')
+                + "\n".join(
+                    f'{role} = {{ model = "{model}", effort = "medium" }}'
+                    for role, model in (
+                        ("astra", "reviewer"),
+                        ("terra", "producer"),
+                        ("sol", "verifier"),
+                        ("completion", "verifier"),
+                        ("glm", "planner"),
+                        ("plan_reviewer", "reviewer"),
+                    )
+                )
+                + "\n"
+            )
+            command = shlex.join(
+                ["env", "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1", str(python), "-m", "pytest", "test_pager.py"]
+            )
+            env = {
+                **os.environ,
+                "AUTOCODE_HOME": str(root / "registry"),
+                "XDG_CONFIG_HOME": str(config_root),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            }
+            options = (
+                "--provider",
+                "offline",
+                "--workflow",
+                "bugfix",
+                "--joint-planning",
+                "--test-command",
+                command,
+                "--max-stage-seconds",
+                "30",
+                "--max-seconds",
+                "60",
+                "--max-idle-seconds",
+                "0",
+                "--max-tool-seconds",
+                "0",
+            )
             try:
-                run = TaskRun.start(workspace, 'Fix page_count(5, 2) returning 2 instead of 3.',
-                                    options=options, env=env, timeout=60)
+                run = TaskRun.start(
+                    workspace, "Fix page_count(5, 2) returning 2 instead of 3.", options=options, env=env, timeout=60
+                )
             except TaskRunError as error:
                 self.assertIsNotNone(error.run_dir, str(error))
                 run = TaskRun(workspace, error.run_dir, options=options, env=env, timeout=30)
             view = run.status()
-            note = workspace / 'docs/bugs/pager.json'
-            probe_receipt = report.with_suffix('.probe.json')
-            self.assertTrue(note.is_file(), json.dumps({'status':view['status'],
-                'stop_reason':view['stop_reason'],
-                'native_fixture_probe':json.loads(probe_receipt.read_text()) if probe_receipt.exists() else None}, indent=2))
+            note = workspace / "docs/bugs/pager.json"
+            probe_receipt = report.with_suffix(".probe.json")
+            self.assertTrue(
+                note.is_file(),
+                json.dumps(
+                    {
+                        "status": view["status"],
+                        "stop_reason": view["stop_reason"],
+                        "native_fixture_probe": json.loads(probe_receipt.read_text())
+                        if probe_receipt.exists()
+                        else None,
+                    },
+                    indent=2,
+                ),
+            )
             accepted = json.loads(note.read_text())
-            self.assertIn(shlex.quote(str(python)), accepted['proven_by'])
-            self.assertIn('offline_dependency', accepted['proven_by'])
-            self.assertFalse((workspace/'replay_fixture.py').exists())
-            self.assertEqual(ReproductionProbeTests.BUGGY, (workspace/'pager.py').read_text())
+            self.assertIn(shlex.quote(str(python)), accepted["proven_by"])
+            self.assertIn("offline_dependency", accepted["proven_by"])
+            self.assertFalse((workspace / "replay_fixture.py").exists())
+            self.assertEqual(ReproductionProbeTests.BUGGY, (workspace / "pager.py").read_text())

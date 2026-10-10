@@ -6,12 +6,15 @@
 A saved run records the version, so resume does not silently change major versions.
 Strict tool containment stays qualified only for the pinned 1.x release.
 """
+
 from __future__ import annotations
 
 import copy
 import hashlib
 import json
+import os  # noqa: F401  (star-exported to autocode_opencode; tests patch oc.os)
 import re
+import shutil  # noqa: F401  (star-exported to autocode_opencode; tests patch oc.shutil)
 import subprocess
 import sys
 import time
@@ -38,9 +41,7 @@ except ImportError:
 
 
 # 1.x prints ``1.18.33``. 2.x prints ``opencode v2.0.20``. Other majors are refused.
-_VERSION_TEXT = re.compile(
-    r"(?:opencode\s+v|v)?(\d+)\.(\d+)\.(\d+)([-+][0-9A-Za-z.-]+)?\Z",
-    re.IGNORECASE)
+_VERSION_TEXT = re.compile(r"(?:opencode\s+v|v)?(\d+)\.(\d+)\.(\d+)([-+][0-9A-Za-z.-]+)?\Z", re.IGNORECASE)
 
 
 def parse_opencode_version(text):
@@ -126,7 +127,9 @@ def _configuration_sources(workspace, *, env=None):
     effective = env_prep.snapshot_environment(env)
     root = Path(workspace).resolve()
     home = Path(effective["HOME"]) if effective.get("HOME") else Path.home()
-    global_root = (Path(effective["XDG_CONFIG_HOME"]) if effective.get("XDG_CONFIG_HOME") else home / ".config") / "opencode"
+    global_root = (
+        Path(effective["XDG_CONFIG_HOME"]) if effective.get("XDG_CONFIG_HOME") else home / ".config"
+    ) / "opencode"
     directories = {global_root, home / ".opencode"}
     paths = {Path(__file__).with_name("opencode_activity.mjs").resolve()}
     definitions = set()
@@ -140,8 +143,11 @@ def _configuration_sources(workspace, *, env=None):
     if effective.get("OPENCODE_CONFIG"):
         paths.add(_configuration_path(effective["OPENCODE_CONFIG"], home))
     managed = effective.get("OPENCODE_TEST_MANAGED_CONFIG_DIR")
-    directories.add(Path(managed) if managed else Path(
-        "/Library/Application Support/opencode" if sys.platform == "darwin" else "/etc/opencode"))
+    directories.add(
+        Path(managed)
+        if managed
+        else Path("/Library/Application Support/opencode" if sys.platform == "darwin" else "/etc/opencode")
+    )
     for directory in directories:
         # Resolve relative environment paths exactly as `opencode --dir` does.
         directory = directory if directory.is_absolute() else root / directory
@@ -149,9 +155,13 @@ def _configuration_sources(workspace, *, env=None):
         for name in ("agent", "agents", "mode", "modes", "command", "commands", "plugin", "plugins", "tool", "tools"):
             folder = directory / name
             if folder.is_dir():
-                definitions.update(p for p in folder.rglob("*") if p.is_file()
-                              and p.suffix in (".md", ".json", ".jsonc", ".js", ".ts", ".mjs", ".cjs")
-                              and "node_modules" not in p.relative_to(folder).parts)
+                definitions.update(
+                    p
+                    for p in folder.rglob("*")
+                    if p.is_file()
+                    and p.suffix in (".md", ".json", ".jsonc", ".js", ".ts", ".mjs", ".cjs")
+                    and "node_modules" not in p.relative_to(folder).parts
+                )
     normalize = lambda values: {(p if p.is_absolute() else root / p).absolute() for p in values}
     return normalize(paths) - normalize(definitions), normalize(definitions)
 
@@ -172,7 +182,12 @@ def _configuration_hash(path, *, primary):
     if not path.is_file():
         return None
     raw = path.read_bytes()
-    if primary and not path.is_symlink() and path.name in ("config.json", "opencode.json", "opencode.jsonc") and _inert_native_config(raw):
+    if (
+        primary
+        and not path.is_symlink()
+        and path.name in ("config.json", "opencode.json", "opencode.jsonc")
+        and _inert_native_config(raw)
+    ):
         return None
     return hashlib.sha256(raw).hexdigest()
 
@@ -180,13 +195,13 @@ def _configuration_hash(path, *, primary):
 def _probe_version(workspace, *, env=None):
     effective = env_prep.snapshot_environment(env)
     cwd = workspace if env is not None else None
-    executable = env_prep.resolve_executable("opencode", effective, cwd=cwd,
-                                             allow_default_path=env is None)
+    executable = env_prep.resolve_executable("opencode", effective, cwd=cwd, allow_default_path=env is None)
     if not executable:
         raise RuntimeError("OpenCode is not on PATH; no provider request was launched")
     try:
-        result = env_prep.preflight_run([executable, "--version"], effective, cwd=cwd,
-                                        capture_output=True, text=True, timeout=15)
+        result = env_prep.preflight_run(
+            [executable, "--version"], effective, cwd=cwd, capture_output=True, text=True, timeout=15
+        )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("OpenCode version check timed out; no agent was launched") from error
     except OSError as error:
@@ -203,26 +218,45 @@ def local_settings(workspace, *, env=None):
     # Fingerprint configuration, never credentials. OAuth token refreshes must not
     # invalidate a run, and the runner never opens OpenCode's auth.json.
     primary, definitions = _configuration_sources(workspace, env=effective)
-    fingerprints = {str(p): _configuration_hash(p, primary=p in primary)
-                    for p in sorted(primary | definitions, key=str)}
-    inline = {key: hashlib.sha256(effective[key].encode()).hexdigest() if key in effective else None
-              for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR",
-                          "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_TEST_MANAGED_CONFIG_DIR")}
-    return {"engine": "opencode", "identity_version": 2, "executable": executable, "version": version,
-            "config_hashes": fingerprints, "environment_config_hashes": inline}
+    fingerprints = {
+        str(p): _configuration_hash(p, primary=p in primary) for p in sorted(primary | definitions, key=str)
+    }
+    inline = {
+        key: hashlib.sha256(effective[key].encode()).hexdigest() if key in effective else None
+        for key in (
+            "OPENCODE_CONFIG_CONTENT",
+            "OPENCODE_PERMISSION",
+            "OPENCODE_CONFIG_DIR",
+            "OPENCODE_DISABLE_PROJECT_CONFIG",
+            "OPENCODE_PURE",
+            "OPENCODE_TEST_MANAGED_CONFIG_DIR",
+        )
+    }
+    return {
+        "engine": "opencode",
+        "identity_version": 2,
+        "executable": executable,
+        "version": version,
+        "config_hashes": fingerprints,
+        "environment_config_hashes": inline,
+    }
 
 
 def transport_drift(current, checkpoint):
     checkpoint = copy.deepcopy(checkpoint)
-    for name, previous in checkpoint.get('config_hashes', {}).items():
+    for name, previous in checkpoint.get("config_hashes", {}).items():
         # A shipped checkpoint may contain the old raw hash of the native
         # schema-only bootstrap. Confirm the exact bytes before normalizing it.
-        if previous and name in current.get('config_hashes', {}) and current['config_hashes'][name] is None:
+        if previous and name in current.get("config_hashes", {}) and current["config_hashes"][name] is None:
             path = Path(name)
-            if path.name in ('config.json', 'opencode.json', 'opencode.jsonc') and path.is_file() and not path.is_symlink():
+            if (
+                path.name in ("config.json", "opencode.json", "opencode.jsonc")
+                and path.is_file()
+                and not path.is_symlink()
+            ):
                 raw = path.read_bytes()
                 if hashlib.sha256(raw).hexdigest() == previous and _inert_native_config(raw):
-                    checkpoint['config_hashes'][name] = None
+                    checkpoint["config_hashes"][name] = None
     if checkpoint.get("identity_version", 1) >= 2:
         return current != checkpoint
     # Old checkpoints did not record every config source. Check every identity
@@ -230,9 +264,11 @@ def transport_drift(current, checkpoint):
     for key in ("engine", "executable", "version"):
         if current.get(key) != checkpoint.get(key):
             return True
-    return any(current.get(section, {}).get(key) != value
-               for section in ("config_hashes", "environment_config_hashes")
-               for key, value in checkpoint.get(section, {}).items())
+    return any(
+        current.get(section, {}).get(key) != value
+        for section in ("config_hashes", "environment_config_hashes")
+        for key, value in checkpoint.get(section, {}).items()
+    )
 
 
 def available_models(workspace=None, *, env=None):
@@ -246,8 +282,9 @@ def available_models(workspace=None, *, env=None):
         # The explicit environment cannot find the provider: nothing was started.
         raise RuntimeError("OpenCode is not on PATH; no agent was launched")
     try:
-        result = env_prep.preflight_run(["opencode", "models"], effective, cwd=workspace,
-                                        capture_output=True, text=True, timeout=180)
+        result = env_prep.preflight_run(
+            ["opencode", "models"], effective, cwd=workspace, capture_output=True, text=True, timeout=180
+        )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("OpenCode model listing timed out; no agent was launched") from error
     except OSError as error:
@@ -255,8 +292,9 @@ def available_models(workspace=None, *, env=None):
         # class): report it as the honest prelaunch state, never FileNotFoundError.
         raise RuntimeError("OpenCode is not on PATH; no agent was launched") from error
     if result.returncode:
-        raise RuntimeError("Cannot list OpenCode models; check opencode models and opencode auth list; "
-                           "no agent was launched")
+        raise RuntimeError(
+            "Cannot list OpenCode models; check opencode models and opencode auth list; no agent was launched"
+        )
     return set(result.stdout.splitlines())
 
 
@@ -264,8 +302,11 @@ def check_models(roles, workspace=None, *, env=None):
     available = available_models(workspace, env=env)
     missing = [entry["model"] for entry in roles.values() if entry["model"] not in available]
     if missing:
-        raise RuntimeError("Models unavailable in OpenCode: " + ", ".join(sorted(set(missing)))
-                           + "; `autocode models` lists what your plans offer")
+        raise RuntimeError(
+            "Models unavailable in OpenCode: "
+            + ", ".join(sorted(set(missing)))
+            + "; `autocode models` lists what your plans offer"
+        )
 
 
 def check_subscription_routes(roles, workspace=None, *, env=None):
@@ -277,16 +318,17 @@ def check_subscription_routes(roles, workspace=None, *, env=None):
     """
     if not any(config.get("model", "").startswith("openai/") for config in roles.values()):
         return
-    if any(key in env_prep.combined_environment(env)
-           for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
+    if any(key in env_prep.combined_environment(env) for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
         return
     try:
         failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise RuntimeError("Cannot verify OpenCode's OpenAI connection; no provider request was launched") from error
     if failed or modes not in (["oauth"], ["api"]):
-        raise RuntimeError("OpenCode OpenAI models require a configured OAuth or API connection; "
-                           "use OpenCode /connect. No provider request was launched")
+        raise RuntimeError(
+            "OpenCode OpenAI models require a configured OAuth or API connection; "
+            "use OpenCode /connect. No provider request was launched"
+        )
 
 
 def openai_auth(workspace=None, *, env=None):
@@ -313,9 +355,15 @@ def _openai_auth_modes(workspace, env=None):
         if remaining <= 0:
             raise subprocess.TimeoutExpired(["opencode", "auth", "list"], 45)
         try:
-            result = env_prep.preflight_run(["opencode", "auth", "list"], effective, cwd=workspace,
-                                            require_executable=env is not None,
-                                            capture_output=True, text=True, timeout=remaining)
+            result = env_prep.preflight_run(
+                ["opencode", "auth", "list"],
+                effective,
+                cwd=workspace,
+                require_executable=env is not None,
+                capture_output=True,
+                text=True,
+                timeout=remaining,
+            )
             break
         except (OSError, subprocess.TimeoutExpired):
             if attempt == 2:
@@ -324,9 +372,24 @@ def _openai_auth_modes(workspace, env=None):
     return result.returncode, re.findall(r"^\s*[●•]\s+OpenAI\s+(\S+)\s*$", summary, re.MULTILINE)
 
 
-def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False,
-           report=None, schema=None, prompt_file=None, sandbox=None, env=None, containment=None,
-           opencode_version=None):
+def launch(
+    role,
+    workspace,
+    run_dir,
+    session,
+    model,
+    effort,
+    allow_write,
+    *,
+    planning=False,
+    report=None,
+    schema=None,
+    prompt_file=None,
+    sandbox=None,
+    env=None,
+    containment=None,
+    opencode_version=None,
+):
     if not model or "/" not in model or "#" in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     if opencode_version is None:
@@ -348,13 +411,26 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     if planning:
         # An explicit read-tools-only planning agent: no shell, delegation, MCP,
         # plugins' tools or edit escape hatch. The runner persists its report.
-        permissions = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
-                       "edit": "deny", "bash": "deny", "task": "deny", "question": "deny", "external_directory": "deny"}
+        permissions = {
+            "*": "deny",
+            "read": "allow",
+            "glob": "allow",
+            "grep": "allow",
+            "list": "allow",
+            "edit": "deny",
+            "bash": "deny",
+            "task": "deny",
+            "question": "deny",
+            "external_directory": "deny",
+        }
     activity_plugin = Path(__file__).with_name("opencode_activity.mjs").resolve().as_uri()
-    overrides = {"$schema": "https://opencode.ai/config.json", "share": "disabled", "autoupdate": False,
-                 "plugin": [activity_plugin],
-                 "agent": {agent: {"description": f"Autocode {role} role", "mode": "primary",
-                                    "permission": permissions}}}
+    overrides = {
+        "$schema": "https://opencode.ai/config.json",
+        "share": "disabled",
+        "autoupdate": False,
+        "plugin": [activity_plugin],
+        "agent": {agent: {"description": f"Autocode {role} role", "mode": "primary", "permission": permissions}},
+    }
     child = env_prep.child_environment(env)
     # OpenCode's own default (32000, reasoning included) truncates large planning reports.
     output_cap.apply(child)
@@ -376,35 +452,64 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     plugins = inherited.get("plugin", [])
     if not isinstance(plugins, list):
         raise ValueError("OpenCode inline plugin configuration must be an array")
-    combined = {**inherited, **overrides, "agent": {**agents, agent: definition},
-                "plugin": [p for p in plugins if p != activity_plugin] + [activity_plugin]}
+    combined = {
+        **inherited,
+        **overrides,
+        "agent": {**agents, agent: definition},
+        "plugin": [p for p in plugins if p != activity_plugin] + [activity_plugin],
+    }
     child["OPENCODE_CONFIG_CONTENT"] = json.dumps(combined)
     # 2.x has no --dir or --variant. The runner already starts the process in the
     # workspace, and --standalone keeps that process's private server inside the
     # supervised tree instead of a shared background service.
     if major == 2:
         selected = f"{model}#{effort}" if effort else model
-        command = ["opencode", "run", "--standalone", "--format", "json", "--agent", agent,
-                   "--model", selected, "--title", f"Autocode {role}: {run_dir}"]
+        command = [
+            "opencode",
+            "run",
+            "--standalone",
+            "--format",
+            "json",
+            "--agent",
+            agent,
+            "--model",
+            selected,
+            "--title",
+            f"Autocode {role}: {run_dir}",
+        ]
     else:
-        command = ["opencode", "run", "--dir", str(workspace), "--format", "json", "--agent", agent,
-                   "--model", model, "--title", f"Autocode {role}: {run_dir}"]
+        command = [
+            "opencode",
+            "run",
+            "--dir",
+            str(workspace),
+            "--format",
+            "json",
+            "--agent",
+            agent,
+            "--model",
+            model,
+            "--title",
+            f"Autocode {role}: {run_dir}",
+        ]
     if session:
         command += ["--session", session]
     if major == 1 and effort:
         command += ["--variant", effort]
     if containment is not None:
-        child, boundary = tool_containment.configure(command, child, workspace,
-                                                     allow_write=allow_write, request=containment)
-        actual = json.loads(child['OPENCODE_CONFIG_CONTENT'])
-        overrides['shell'] = boundary['shell']
-        overrides['agent'][agent] = actual['agent'][agent]
+        child, boundary = tool_containment.configure(
+            command, child, workspace, allow_write=allow_write, request=containment
+        )
+        actual = json.loads(child["OPENCODE_CONFIG_CONTENT"])
+        overrides["shell"] = boundary["shell"]
+        overrides["agent"][agent] = actual["agent"][agent]
     return command, child, overrides
 
 
 def prompt_for_schema(prompt, schema, events):
     prompt = tool_handoff.with_capture_command(prompt)
-    instructions = ("\nOPENCODE OUTPUT CONTRACT\n"
+    instructions = (
+        "\nOPENCODE OUTPUT CONTRACT\n"
         "Return your final report as exactly one JSON object matching the following schema. "
         "Do not wrap it in explanation. OpenCode's --format json emits transport events; "
         "it does not validate your report. The runner validates every required field.\n"
@@ -446,8 +551,8 @@ def prompt_for_schema(prompt, schema, events):
         "are the exact read-only workspace cache records in CURRENT HANDOFF DATA under "
         "private_source_exceptions. Use their workspacePath only, preserve their canonicalPath, "
         "sourceId, and SHA-256 identity, and do not treat this as permission to access the "
-        "external canonical location or any other external file.\n"
-        + json.dumps(schema, separators=(",", ":")) + "\n")
+        "external canonical location or any other external file.\n" + json.dumps(schema, separators=(",", ":")) + "\n"
+    )
     return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
 
@@ -507,14 +612,32 @@ def normalized_events(rows):
             command = state.get("input", {}).get("command")
             code = _command_exit(state)
             if state.get("status") == "completed" and isinstance(command, str) and type(code) is int:
-                normalized.append({"type": "item.completed", "item": {
-                    "type": "command_execution", "id": part["id"], "command": command,
-                    "exit_code": code, "aggregated_output": state.get("output", "")}})
-            elif (state.get("status") == "completed"
-                  and isinstance(command, str) and isinstance(state.get("output"), str)):
-                normalized.append({"type": "item.completed", "item": {
-                    "type": "tool_output", "id": part["id"], "command": command,
-                    "aggregated_output": state["output"]}})
+                normalized.append(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "id": part["id"],
+                            "command": command,
+                            "exit_code": code,
+                            "aggregated_output": state.get("output", ""),
+                        },
+                    }
+                )
+            elif (
+                state.get("status") == "completed" and isinstance(command, str) and isinstance(state.get("output"), str)
+            ):
+                normalized.append(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "tool_output",
+                            "id": part["id"],
+                            "command": command,
+                            "aggregated_output": state["output"],
+                        },
+                    }
+                )
         elif row.get("type") == "step_finish":
             steps.append(part)
     normalized += errors
@@ -523,9 +646,11 @@ def normalized_events(rows):
     # Replayed finishes cannot close newer steps, even when the newer ID is missing.
     phase_types = ("step_start", "step_finish")
     phases = [row for row in parts.values() if row.get("type") in phase_types]
-    terminal = (not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
-                and phases[-1].get("type") == "step_finish"
-                and steps[-1].get("reason") in ("stop", "length", "tool-calls", "content-filter"))
+    terminal = (
+        not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
+        and phases[-1].get("type") == "step_finish"
+        and steps[-1].get("reason") in ("stop", "length", "tool-calls", "content-filter")
+    )
     partial = not terminal or bool(errors and steps[-1].get("reason") == "stop")
 
     def total(field, subfield=None):
@@ -539,10 +664,12 @@ def normalized_events(rows):
     # OpenCode input excludes cache reads/writes; output excludes reasoning.
     input_parts = [total("input"), total("cache", "read"), total("cache", "write")]
     output_parts = [total("output"), total("reasoning")]
-    usage = {"input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
-             "cached_input_tokens": total("cache", "read"),
-             "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
-             "reasoning_output_tokens": total("reasoning")}
+    usage = {
+        "input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
+        "cached_input_tokens": total("cache", "read"),
+        "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
+        "reasoning_output_tokens": total("reasoning"),
+    }
     usage = {k: v for k, v in usage.items() if v is not None}
     if not terminal:
         # Completed-step consumption survives interruption, but is not terminal proof.
@@ -558,18 +685,37 @@ def normalized_events(rows):
     # (autocode_provider_refusal). Only the final step counts, as for tool-calls.
     if steps[-1].get("reason") == "length":
         # A successful process exit can still be an incomplete model turn.
-        normalized.append({"type": "turn.failed", "usage": usage, "error": {
-            "code": "output_token_limit", "message": output_cap.length_stop(steps[-1].get("tokens"))}})
+        normalized.append(
+            {
+                "type": "turn.failed",
+                "usage": usage,
+                "error": {"code": "output_token_limit", "message": output_cap.length_stop(steps[-1].get("tokens"))},
+            }
+        )
     elif steps[-1].get("reason") == "tool-calls":
-        normalized.append({"type": "turn.failed", "usage": usage, "error": {
-            "code": "incomplete_turn",
-            "message": "OpenCode stopped after a step that requested tool calls, before the model "
-                       "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
-                       "review saved work before recovery."}})
+        normalized.append(
+            {
+                "type": "turn.failed",
+                "usage": usage,
+                "error": {
+                    "code": "incomplete_turn",
+                    "message": "OpenCode stopped after a step that requested tool calls, before the model "
+                    "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
+                    "review saved work before recovery.",
+                },
+            }
+        )
     elif steps[-1].get("reason") == "content-filter":
-        normalized.append({"type": "turn.failed", "usage": usage, "error": {
-            "code": "content_filter",
-            "message": "OpenCode's last step finished with reason content-filter"}})
+        normalized.append(
+            {
+                "type": "turn.failed",
+                "usage": usage,
+                "error": {
+                    "code": "content_filter",
+                    "message": "OpenCode's last step finished with reason content-filter",
+                },
+            }
+        )
     elif not errors:
         normalized.append({"type": "turn.completed", "usage": usage})
     else:
@@ -669,26 +815,30 @@ def incomplete_response(path):
     already emitted before the provider reached its output limit.
     """
     rows = raw_events(path)
-    terminal = [row for row in rows if row.get('type') == 'step_finish'
-                and row.get('part', {}).get('reason') == 'length']
+    terminal = [
+        row for row in rows if row.get("type") == "step_finish" and row.get("part", {}).get("reason") == "length"
+    ]
     if not terminal:
         return None
     finish = terminal[-1]
-    part = finish.get('part') or {}
-    message_id = part.get('messageID')
-    session_id = part.get('sessionID') or finish.get('sessionID')
+    part = finish.get("part") or {}
+    message_id = part.get("messageID")
+    session_id = part.get("sessionID") or finish.get("sessionID")
     if not message_id:
         return None
     texts = {}
     for row in rows:
-        body = row.get('part') or {}
-        if (row.get('type') == 'text' and body.get('messageID') == message_id
-                and (not session_id or (body.get('sessionID') or row.get('sessionID')) == session_id)
-                and isinstance(body.get('text'), str)):
-            part_id = body.get('id')
+        body = row.get("part") or {}
+        if (
+            row.get("type") == "text"
+            and body.get("messageID") == message_id
+            and (not session_id or (body.get("sessionID") or row.get("sessionID")) == session_id)
+            and isinstance(body.get("text"), str)
+        ):
+            part_id = body.get("id")
             key = str(part_id) if part_id is not None else str(len(texts))
-            if key in texts and texts[key] != body['text']:
+            if key in texts and texts[key] != body["text"]:
                 return None
-            texts[key] = body['text']
-    text = '\n'.join(texts.values()).strip()
-    return text if text and len(text.encode('utf-8')) <= 128 * 1024 else None
+            texts[key] = body["text"]
+    text = "\n".join(texts.values()).strip()
+    return text if text and len(text.encode("utf-8")) <= 128 * 1024 else None

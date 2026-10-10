@@ -13,6 +13,7 @@ freshness error evidence.  Records without those extension fields normalize to
 exactly the snapshot shape, so snapshot-shaped documents and fixtures still
 validate unchanged.
 """
+
 from __future__ import annotations
 
 import fcntl
@@ -150,8 +151,7 @@ def _route(value):
         effort = route.get("reasoning_effort")
         if effort is not None:
             _text(effort, "Configured reasoning effort", limit=80)
-        result[name] = {"engine": engine, "provider": provider, "model": model,
-                        "reasoning_effort": effort}
+        result[name] = {"engine": engine, "provider": provider, "model": model, "reasoning_effort": effort}
     if "requirements_gatherer" not in result:
         raise ConversationProtocolError("The configured Requirements Gatherer route is required.")
     return result
@@ -285,17 +285,23 @@ def _plan_drafts(value):
             raise ConversationProtocolError("Plan draft status is invalid.")
         current += status == "current"
         freshness = row.get("freshness")
-        if (not isinstance(freshness, dict)
-                or freshness.get("state") not in PLAN_DRAFT_FRESHNESS_STATES
-                or not isinstance(freshness.get("updated_at"), str) or len(freshness.get("updated_at", "")) > 80):
+        if (
+            not isinstance(freshness, dict)
+            or freshness.get("state") not in PLAN_DRAFT_FRESHNESS_STATES
+            or not isinstance(freshness.get("updated_at"), str)
+            or len(freshness.get("updated_at", "")) > 80
+        ):
             raise ConversationProtocolError("Plan draft freshness is invalid.")
         if status in ("pending", "failed") and freshness["state"] != status:
             raise ConversationProtocolError("Plan draft status and freshness disagree.")
         if status in ("current", "superseded") and freshness["state"] in ("pending", "failed"):
             raise ConversationProtocolError("Plan draft status and freshness disagree.")
         error = freshness.get("error") if isinstance(freshness, dict) else None
-        if error is not None and (not isinstance(error, (str, dict)) or isinstance(error, bool)
-                                  or (isinstance(error, str) and len(error) > 8000)):
+        if error is not None and (
+            not isinstance(error, (str, dict))
+            or isinstance(error, bool)
+            or (isinstance(error, str) and len(error) > 8000)
+        ):
             raise ConversationProtocolError("Plan draft freshness error evidence is invalid.")
         if isinstance(error, dict) and len(canonical_json(error)) > 8000:
             raise ConversationProtocolError("Plan draft freshness error evidence is too large.")
@@ -310,14 +316,14 @@ def _plan_drafts(value):
             "requirements": _bounded_rows(row.get("requirements", []), "Plan draft requirements", 200),
             "milestones": _bounded_rows(row.get("milestones", []), "Plan draft milestones", 60),
             "parallelism": _bounded_rows(row.get("parallelism", []), "Plan draft parallelism", 60),
-            "outstanding_questions": _bounded_rows(row.get("outstanding_questions", []),
-                                                   "Plan draft outstanding questions", 60),
-            "reply_preview": _text(row.get("reply_preview") or "", "Plan draft preview",
-                                  allow_empty=True, limit=4000) or None,
+            "outstanding_questions": _bounded_rows(
+                row.get("outstanding_questions", []), "Plan draft outstanding questions", 60
+            ),
+            "reply_preview": _text(row.get("reply_preview") or "", "Plan draft preview", allow_empty=True, limit=4000)
+            or None,
             "freshness": deepcopy(freshness),
         }
-        if (status in ("pending", "failed") or "requirements_revision" in row
-                or "logical_turn_id" in row):
+        if status in ("pending", "failed") or "requirements_revision" in row or "logical_turn_id" in row:
             binding_revision = row.get("requirements_revision")
             if type(binding_revision) is not int or binding_revision < 1:
                 raise ConversationProtocolError("Plan draft requirements revision binding is invalid.")
@@ -357,13 +363,18 @@ def _dispatch_records(records, *, turns, planner=False):
         _identifier(row.get("client_request_id"), "Dispatch request id", optional=True)
         _route({"requirements_gatherer": row.get("route")})
         history = row.get("history")
-        if (not isinstance(history, list) or not history
-                or any(not isinstance(item, dict) or item.get("state") not in DISPATCH_STATES for item in history)
-                or history[-1]["state"] != row["state"]):
+        if (
+            not isinstance(history, list)
+            or not history
+            or any(not isinstance(item, dict) or item.get("state") not in DISPATCH_STATES for item in history)
+            or history[-1]["state"] != row["state"]
+        ):
             raise ConversationProtocolError("Dispatch history does not match its current state.")
-        if planner and (row.get("role") != "planner"
-                        or type(row.get("requirements_revision")) is not int
-                        or row["requirements_revision"] < 1):
+        if planner and (
+            row.get("role") != "planner"
+            or type(row.get("requirements_revision")) is not int
+            or row["requirements_revision"] < 1
+        ):
             raise ConversationProtocolError("Planner dispatch needs its exact requirements revision and role.")
     canonical_json(result)
     return result
@@ -402,14 +413,17 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
     conversation_id = value.get("id")
     _identifier(conversation_id, "Conversation id", conversation=True)
     requests = value.get("_requests") if isinstance(value.get("_requests"), dict) else {}
-    request_by_message = {message_id: request_id for request_id, message_id in requests.items()
-                          if isinstance(request_id, str) and isinstance(message_id, str)}
+    request_by_message = {
+        message_id: request_id
+        for request_id, message_id in requests.items()
+        if isinstance(request_id, str) and isinstance(message_id, str)
+    }
     messages = value.get("messages")
     if not isinstance(messages, list):
         raise ConversationProtocolError("Conversation messages are invalid.")
     normalized_messages = []
     last_user_turn = None
-    for index, row in enumerate(messages):
+    for _, row in enumerate(messages):
         if not isinstance(row, dict):
             raise ConversationProtocolError("Conversation message is invalid.")
         item = deepcopy(row)
@@ -444,7 +458,9 @@ def normalize_document(document: dict, *, persist_legacy=False) -> dict:
             raise ConversationProtocolError("Conversation has no configured Requirements Gatherer model.")
         value["configured_routes"] = {
             "requirements_gatherer": {
-                "engine": "opencode", "provider": "opencode", "model": model,
+                "engine": "opencode",
+                "provider": "opencode",
+                "model": model,
                 "reasoning_effort": models.get("requirements_reasoning_effort") or models.get("glm_reasoning_effort"),
             }
         }
@@ -489,16 +505,22 @@ def handoff_from_document(document: dict) -> dict:
         "requirements": _requirements(source.get("requirements")),
         "configured_routes": _route(source.get("configured_routes")),
         "request_logical_turns": [
-            {"client_request_id": row["client_request_id"], "logical_turn_id": row["logical_turn_id"],
-             "message_id": row["id"]}
-            for row in messages if row["role"] == "user"
+            {
+                "client_request_id": row["client_request_id"],
+                "logical_turn_id": row["logical_turn_id"],
+                "message_id": row["id"],
+            }
+            for row in messages
+            if row["role"] == "user"
         ],
         "provider_capabilities": capabilities(),
     }
     if source.get("plan_drafts"):
         payload["plan_drafts"] = deepcopy(source["plan_drafts"])
-    for field, saved, planner in (("dispatches", "_dispatches", False),
-                                  ("planner_dispatches", "_planner_dispatches", True)):
+    for field, saved, planner in (
+        ("dispatches", "_dispatches", False),
+        ("planner_dispatches", "_planner_dispatches", True),
+    ):
         records = source.get(saved, source.get(field, {}))
         if records:
             payload[field] = _dispatch_records(records, turns=human_turns, planner=planner)
@@ -507,7 +529,11 @@ def handoff_from_document(document: dict) -> dict:
 
 
 def validate_handoff(value) -> dict:
-    if not isinstance(value, dict) or value.get("schema_version") != HANDOFF_VERSION or value.get("kind") != HANDOFF_KIND:
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != HANDOFF_VERSION
+        or value.get("kind") != HANDOFF_KIND
+    ):
         raise ConversationProtocolError("Unsupported Requirements Conversation handoff schema.")
     payload = deepcopy(value)
     received = payload.get("digest")
@@ -521,14 +547,21 @@ def validate_handoff(value) -> dict:
     messages = payload.get("messages")
     if not isinstance(messages, list):
         raise ConversationProtocolError("Conversation handoff messages are invalid.")
-    rebuilt = handoff_from_document({
-        "id": payload["conversation_id"], "title": payload["title"], "created_at": payload["created_at"],
-        "messages": messages, "drafts": payload.get("drafts", []),
-        "requirements": payload.get("requirements"), "configured_routes": payload.get("configured_routes"),
-        "plan_drafts": payload.get("plan_drafts", []), "models": {},
-        "_dispatches": payload.get("dispatches", {}),
-        "_planner_dispatches": payload.get("planner_dispatches", {}),
-    })
+    rebuilt = handoff_from_document(
+        {
+            "id": payload["conversation_id"],
+            "title": payload["title"],
+            "created_at": payload["created_at"],
+            "messages": messages,
+            "drafts": payload.get("drafts", []),
+            "requirements": payload.get("requirements"),
+            "configured_routes": payload.get("configured_routes"),
+            "plan_drafts": payload.get("plan_drafts", []),
+            "models": {},
+            "_dispatches": payload.get("dispatches", {}),
+            "_planner_dispatches": payload.get("planner_dispatches", {}),
+        }
+    )
     # Rebuilding intentionally computes a new digest from exactly the required
     # transport fields.  Check all caller supplied linkage records separately.
     if rebuilt["digest"] != received:
@@ -544,7 +577,6 @@ def validate_handoff(value) -> dict:
     return payload
 
 
-
 _TASK_KIND = "autocode.conversation-task"
 _TASK_INSTRUCTIONS = (
     "Use this saved discussion as context, including corrections. Inspect this repository, "
@@ -557,8 +589,11 @@ _TASK_INSTRUCTIONS = (
 
 def task_text(handoff):
     """Preserve the complete validated conversation, including role provenance."""
-    return json.dumps({"kind": _TASK_KIND, "instructions": _TASK_INSTRUCTIONS,
-                       "handoff": validate_handoff(handoff)}, ensure_ascii=False, indent=2)
+    return json.dumps(
+        {"kind": _TASK_KIND, "instructions": _TASK_INSTRUCTIONS, "handoff": validate_handoff(handoff)},
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 def task_handoff(task):
@@ -584,6 +619,7 @@ def task_user_texts(task):
     handoff = task_handoff(task)
     return None if handoff is None else [row["text"] for row in handoff["messages"] if row["role"] == "user"]
 
+
 def _safe_file(root: Path, candidate: Path) -> Path:
     root = root.resolve()
     try:
@@ -601,8 +637,9 @@ def _atomic_json(path: Path, value) -> None:
     payload = canonical_json(value) + "\n"
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix="." + path.name + ".", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix="." + path.name + ".", delete=False
+        ) as handle:
             temporary = Path(handle.name)
             os.chmod(temporary, 0o600)
             handle.write(payload)
@@ -679,9 +716,14 @@ def _journal_from_handoff(handoff: dict, source_path: Path | None) -> dict:
         "source": source,
         "linked_at": now(),
         "conversation": {
-            "id": handoff["conversation_id"], "title": handoff["title"], "created_at": handoff["created_at"],
-            "status": "ready", "error": None, "messages": deepcopy(handoff["messages"]),
-            "drafts": deepcopy(handoff["drafts"]), "requirements": deepcopy(handoff["requirements"]),
+            "id": handoff["conversation_id"],
+            "title": handoff["title"],
+            "created_at": handoff["created_at"],
+            "status": "ready",
+            "error": None,
+            "messages": deepcopy(handoff["messages"]),
+            "drafts": deepcopy(handoff["drafts"]),
+            "requirements": deepcopy(handoff["requirements"]),
             "plan_drafts": deepcopy(handoff.get("plan_drafts", [])),
             "configured_routes": deepcopy(handoff["configured_routes"]),
             "request_logical_turns": deepcopy(handoff["request_logical_turns"]),
@@ -693,7 +735,11 @@ def _journal_from_handoff(handoff: dict, source_path: Path | None) -> dict:
 
 
 def validate_journal(value) -> dict:
-    if not isinstance(value, dict) or value.get("schema_version") != HANDOFF_VERSION or value.get("kind") != JOURNAL_KIND:
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != HANDOFF_VERSION
+        or value.get("kind") != JOURNAL_KIND
+    ):
         raise ConversationProtocolError("Unsupported Requirements Conversation journal schema.")
     if value.get("authority") != "runner":
         raise ConversationProtocolError("Requirements Conversation journal authority is invalid.")
@@ -702,16 +748,25 @@ def validate_journal(value) -> dict:
     if not isinstance(handoff_digest, str) or not re.fullmatch(r"[a-f0-9]{64}", handoff_digest):
         raise ConversationProtocolError("Journal handoff digest is invalid.")
     source = value.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "producer_handoff" or source.get("digest") != handoff_digest:
+    if (
+        not isinstance(source, dict)
+        or source.get("kind") != "producer_handoff"
+        or source.get("digest") != handoff_digest
+    ):
         raise ConversationProtocolError("Journal source pointer is invalid.")
     conversation = value.get("conversation")
     if not isinstance(conversation, dict) or conversation.get("id") != value["conversation_id"]:
         raise ConversationProtocolError("Journal conversation is invalid.")
     candidate = {
-        "id": conversation["id"], "title": conversation.get("title"), "created_at": conversation.get("created_at"),
-        "messages": conversation.get("messages"), "drafts": conversation.get("drafts", []),
-        "requirements": conversation.get("requirements"), "configured_routes": conversation.get("configured_routes"),
-        "plan_drafts": conversation.get("plan_drafts", []), "models": {},
+        "id": conversation["id"],
+        "title": conversation.get("title"),
+        "created_at": conversation.get("created_at"),
+        "messages": conversation.get("messages"),
+        "drafts": conversation.get("drafts", []),
+        "requirements": conversation.get("requirements"),
+        "configured_routes": conversation.get("configured_routes"),
+        "plan_drafts": conversation.get("plan_drafts", []),
+        "models": {},
     }
     # Validate the mutable runner conversation without requiring it to retain
     # the original handoff digest after attached turns are appended.
@@ -737,8 +792,10 @@ def ingest_handoff(run_dir: Path, handoff: dict, *, source_path: Path | None = N
                 existing = validate_journal(json.loads(path.read_text(encoding="utf-8")))
             except (OSError, ValueError, json.JSONDecodeError) as error:
                 raise ConversationProtocolError("Existing runner conversation journal is unreadable.") from error
-            if (existing["conversation_id"] != validated["conversation_id"]
-                    or existing["handoff_digest"] != validated["digest"]):
+            if (
+                existing["conversation_id"] != validated["conversation_id"]
+                or existing["handoff_digest"] != validated["digest"]
+            ):
                 raise ConversationProtocolError("A different conversation already owns this runner journal.")
             return existing
         journal = _journal_from_handoff(validated, source_path)
@@ -819,8 +876,9 @@ def transition(dispatch: dict, state: str, **fields) -> dict:
     updated["updated_at"] = now()
     history = list(updated.get("history", []))
     if not history or history[-1].get("state") != state or fields:
-        history.append({"state": state, "at": updated["updated_at"],
-                        **({"details": deepcopy(fields)} if fields else {})})
+        history.append(
+            {"state": state, "at": updated["updated_at"], **({"details": deepcopy(fields)} if fields else {})}
+        )
     updated["history"] = history
     return updated
 
@@ -831,9 +889,17 @@ def public_delivery(dispatch: dict | None) -> dict | None:
     state = dispatch.get("state")
     if state not in DISPATCH_STATES:
         return None
-    status = ("uncertain" if state == "UNCERTAIN" else "active" if state == "ACTIVE" else
-              "ready" if state == "REPLY_COMMITTED" else "retryable" if state == "SAFE_NOT_DISPATCHED" else
-              "pending")
+    status = (
+        "uncertain"
+        if state == "UNCERTAIN"
+        else "active"
+        if state == "ACTIVE"
+        else "ready"
+        if state == "REPLY_COMMITTED"
+        else "retryable"
+        if state == "SAFE_NOT_DISPATCHED"
+        else "pending"
+    )
     return {
         "status": status,
         "state": state,

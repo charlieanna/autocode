@@ -7,6 +7,7 @@ and wgmlq3o7 and pt6xzqan paused at PAUSED_INVALID_OUTPUT. A refusal raises Valu
 report, which the runner sends back to that stage as a report repair. A plan approved before the rule is not
 checked again.
 """
+
 import copy
 import json
 import os
@@ -80,8 +81,9 @@ class RuleTests(unittest.TestCase):
         for row in LIVE:
             with self.subTest(row=row):
                 with self.assertRaises(ValueError) as refused:
-                    plan.refuse_new_plan([("AC1's verification_method", "python3 -m unittest"),
-                                            ("AC5's verification_method", row)])
+                    plan.refuse_new_plan(
+                        [("AC1's verification_method", "python3 -m unittest"), ("AC5's verification_method", row)]
+                    )
                 message = str(refused.exception)
                 self.assertTrue(message.startswith("AC5's verification_method `"), message)
                 self.assertTrue(message.endswith("names git status. " + RULE), message)
@@ -90,11 +92,19 @@ class RuleTests(unittest.TestCase):
     def test_every_row_that_names_it_is_refused_at_once(self):
         # wgmlq3o7's draft named it in a criterion and in the initial task: one repair must see both.
         with self.assertRaises(ValueError) as refused:
-            plan.refuse_new_plan([("AC5's verification_method", LIVE[1]), ("step", "python3 -m unittest"),
-                                    ("initial_task.validation_plan", STEP)])
-        self.assertTrue(str(refused.exception).startswith(
-            f"AC5's verification_method `{LIVE[1]}`; initial_task.validation_plan `{STEP}` name git status. "),
-            str(refused.exception))
+            plan.refuse_new_plan(
+                [
+                    ("AC5's verification_method", LIVE[1]),
+                    ("step", "python3 -m unittest"),
+                    ("initial_task.validation_plan", STEP),
+                ]
+            )
+        self.assertTrue(
+            str(refused.exception).startswith(
+                f"AC5's verification_method `{LIVE[1]}`; initial_task.validation_plan `{STEP}` name git status. "
+            ),
+            str(refused.exception),
+        )
 
     def test_global_options_are_read_once(self):
         self.assertTrue(plan.GIT_STATUS.search("git -c core.quotepath=off -C app --no-pager status"))
@@ -111,30 +121,43 @@ class RuleTests(unittest.TestCase):
 
     def test_the_rule_says_what_the_runner_enforces_instead(self):
         # assert_within_assignment over current_task.affected_paths; stage_access.stray for workflow jobs.
-        self.assertIn("pauses a Builder that changes a file outside its task's affected_paths (when the task "
-                      "names them)", RULE)
+        self.assertIn(
+            "pauses a Builder that changes a file outside its task's affected_paths (when the task names them)", RULE
+        )
         self.assertIn("rejects a workflow job's change outside the paths that job may write", RULE)
         self.assertIn("not even to forbid it", RULE)
 
 
 class ContractTests(unittest.TestCase):
-    def draft(self, method="python3 -m unittest -v", step="python3 -m unittest -v", requirement="Deliver CLI",
-              human_review=False):
+    def draft(
+        self,
+        method="python3 -m unittest -v",
+        step="python3 -m unittest -v",
+        requirement="Deliver CLI",
+        human_review=False,
+    ):
         value = body()
         value["acceptance_criteria"][0].update(verification_method=method, human_review=human_review)
-        value["initial_task"] = {"objective": "Deliver greeting", "affected_paths": ["greet.py"], "kind": "implement",
-                                 "milestone_id": "M1", "requirements": [requirement], "acceptance_criteria": ["C1"],
-                                 "validation_plan": [step]}
+        value["initial_task"] = {
+            "objective": "Deliver greeting",
+            "affected_paths": ["greet.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": [requirement],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": [step],
+        }
         return value
 
     def test_a_draft_that_names_git_status_is_not_installed(self):
         state = {"task_id": "t", "answers": {}, "user_events": []}
-        for value, where in ((self.draft(method=LIVE[1]), "Acceptance criterion C1's verification_method"),
-                             # autocode_dispatch.task_for puts a human-review method in other milestones' plans.
-                             (self.draft(method=LIVE[1], human_review=True),
-                              "Acceptance criterion C1's verification_method"),
-                             (self.draft(step=LIVE[-1]), "initial_task.validation_plan"),
-                             (self.draft(requirement=REQUIREMENT), "initial_task.requirements")):
+        for value, where in (
+            (self.draft(method=LIVE[1]), "Acceptance criterion C1's verification_method"),
+            # autocode_dispatch.task_for puts a human-review method in other milestones' plans.
+            (self.draft(method=LIVE[1], human_review=True), "Acceptance criterion C1's verification_method"),
+            (self.draft(step=LIVE[-1]), "initial_task.validation_plan"),
+            (self.draft(requirement=REQUIREMENT), "initial_task.requirements"),
+        ):
             with self.subTest(where=where):
                 with self.assertRaises(ValueError) as refused:
                     lifecycle.install_draft(state, value, origin="plan")
@@ -151,17 +174,32 @@ class ContractTests(unittest.TestCase):
             with self.subTest(origin=origin):
                 state = {"task_id": "t", "answers": {}, "user_events": []}
                 lifecycle.install_draft(state, self.draft(method=LIVE[1]), origin=origin)
-                self.assertEqual(LIVE[1], state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"])
+                self.assertEqual(
+                    LIVE[1], state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"]
+                )
 
     def test_a_draft_saved_before_the_rule_is_still_approved_and_replayed(self):
         # Approval validates the saved draft again and assigns its initial task; neither refuses it.
-        state = {"task_id": "t", "task": "Greet", "answers": {}, "user_events": [], "acceptance_criteria": [],
-                 "status": "RUNNING"}
+        state = {
+            "task_id": "t",
+            "task": "Greet",
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "status": "RUNNING",
+        }
         lifecycle.migrate(state)
         with patch.object(plan, "refuse_new_plan"):
-            lifecycle.install_draft(state, body() | {"acceptance_criteria": [
-                {"id": "C1", "criterion": "Contract holds", "verification_method": STEP, "human_review": False}]},
-                origin="fixture")
+            lifecycle.install_draft(
+                state,
+                body()
+                | {
+                    "acceptance_criteria": [
+                        {"id": "C1", "criterion": "Contract holds", "verification_method": STEP, "human_review": False}
+                    ]
+                },
+                origin="fixture",
+            )
         human.evaluate(state)
         lifecycle.present(state)
         lifecycle.approve(state, goals.token(state["goal_contract"]))
@@ -171,12 +209,27 @@ class ContractTests(unittest.TestCase):
     def test_the_planners_report_is_refused_until_it_drops_git_status(self):
         root = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(shutil.rmtree, root, True)
-        state = {"task_id": "task", "task": "Task", "workspace": str(root), "answers": {}, "user_events": [],
-                 "acceptance_criteria": [], "settings": {"joint_planning": True, "planning_flow": "v2", "roles": {
-                     "requirements": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                     "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
-                     "plan_reviewer": {"engine": "opencode", "model": planning.PINNED_REVIEWER_MODEL,
-                                       "model_pinned": True}}}}
+        state = {
+            "task_id": "task",
+            "task": "Task",
+            "workspace": str(root),
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "settings": {
+                "joint_planning": True,
+                "planning_flow": "v2",
+                "roles": {
+                    "requirements": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "glm": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
+                    "plan_reviewer": {
+                        "engine": "opencode",
+                        "model": planning.PINNED_REVIEWER_MODEL,
+                        "model_pinned": True,
+                    },
+                },
+            },
+        }
 
         def apply(stage, value):
             autopilot.apply_planning(state, stage, value, {"output": f"{stage}.json"}, run_dir=root)
@@ -206,37 +259,87 @@ class TaskAuthorTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         self.run = self.root / ".autocode/runs/fixture"
         self.run.mkdir(parents=True)
         seed_greeting_workspace(self.root)
-        self.state = {"version": 2, "workspace": str(self.root), "task": "Greet", "status": "RUNNING",
-                      "iteration": 1, "stages": [], "history": [], "acceptance_criteria": [],
-                      "settings": {"roles": {r: {"model": f"model-{r}"} for r in ("astra", "terra", "sol")},
-                                   "context_soft_tokens": 1000, "headroom": {"enabled": False}}}
+        self.state = {
+            "version": 2,
+            "workspace": str(self.root),
+            "task": "Greet",
+            "status": "RUNNING",
+            "iteration": 1,
+            "stages": [],
+            "history": [],
+            "acceptance_criteria": [],
+            "settings": {
+                "roles": {r: {"model": f"model-{r}"} for r in ("astra", "terra", "sol")},
+                "context_soft_tokens": 1000,
+                "headroom": {"enabled": False},
+            },
+        }
         approve_fixture(self.state, runner.goals)
-        runner.lifecycle.assign_task(self.state, self.decision("CONTINUE", "Run both cases"),
-                                     support.snapshot(self.root))
+        runner.lifecycle.assign_task(
+            self.state, self.decision("CONTINUE", "Run both cases"), support.snapshot(self.root)
+        )
 
     def decision(self, status, step, output=None, requirement="Greet names"):
         if output:
             (self.run / output).write_text(json.dumps({"status": status}))
         contract = self.state["goal_contract"]
-        return {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
-                "task_id": self.state.get("current_task", {}).get("id", ""), "deferred_backlog": [],
-                "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
-                                 "options": [], "proposed_delta": ""},
-                "status": status, "next_objective": "Restore the greeting",
-                "acceptance_criteria": [{**row, "status": "unverified", "evidence": "event:check"}
-                                        for row in self.state["acceptance_criteria"]],
-                "next_task": {"kind": "implement", "milestone_id": "M1", "requirements": [requirement],
-                              "acceptance_criteria": ["C1"], "validation_plan": ["Run both cases", step],
-                              "findings": []},
-                "findings": [{"severity": "high", "finding": "Empty names are accepted", "evidence": "event:check",
-                              "blocking": True}] if status == "REWORK" else [],
-                "finding_dispositions": [], "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
-                "plan": ["Fix", "Recheck"], "affected_paths": ["greet.py"]}
+        return {
+            "contract_revision": contract["revision"],
+            "contract_hash": contract["hash"],
+            "task_id": self.state.get("current_task", {}).get("id", ""),
+            "deferred_backlog": [],
+            "user_request": {
+                "kind": "none",
+                "discovered": "",
+                "impact": "",
+                "decision_needed": "",
+                "options": [],
+                "proposed_delta": "",
+            },
+            "status": status,
+            "next_objective": "Restore the greeting",
+            "acceptance_criteria": [
+                {**row, "status": "unverified", "evidence": "event:check"} for row in self.state["acceptance_criteria"]
+            ],
+            "next_task": {
+                "kind": "implement",
+                "milestone_id": "M1",
+                "requirements": [requirement],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["Run both cases", step],
+                "findings": [],
+            },
+            "findings": [
+                {"severity": "high", "finding": "Empty names are accepted", "evidence": "event:check", "blocking": True}
+            ]
+            if status == "REWORK"
+            else [],
+            "finding_dispositions": [],
+            "agreed_limitations": [],
+            "evidence": ["event:check"],
+            "blocker": "",
+            "plan": ["Fix", "Recheck"],
+            "affected_paths": ["greet.py"],
+        }
 
     def apply(self, stage, value, output):
         record = {"output": str(self.run / output), "source_revision": support.snapshot(self.root)["revision"]}
@@ -253,26 +356,35 @@ class TaskAuthorTests(unittest.TestCase):
 
     def test_the_completion_reviewers_continue_is_refused(self):
         self.assert_refused("astra_review", self.decision("CONTINUE", STEP, "review-01.json"), "review-01.json")
-        self.assert_refused("astra_review", self.decision("CONTINUE", "python3 -m unittest -v", "review-01.json",
-                                                          requirement=REQUIREMENT),
-                            "review-01.json", where="next_task.requirements `Give AC6")
-        self.apply("astra_review", self.decision("CONTINUE", "python3 -m unittest -v", "review-02.json"),
-                   "review-02.json")
+        self.assert_refused(
+            "astra_review",
+            self.decision("CONTINUE", "python3 -m unittest -v", "review-01.json", requirement=REQUIREMENT),
+            "review-01.json",
+            where="next_task.requirements `Give AC6",
+        )
+        self.apply(
+            "astra_review", self.decision("CONTINUE", "python3 -m unittest -v", "review-02.json"), "review-02.json"
+        )
         self.assertIn("python3 -m unittest -v", self.state["current_task"]["validation_plan"])
 
     def test_the_completion_reviewers_rework_is_refused_not_handed_to_the_resolver(self):
         # A refused direct assignment would otherwise send the task on to the Resolver (rework_policy.route).
         self.assert_refused("astra_review", self.decision("REWORK", STEP, "review-01.json"), "review-01.json")
         self.assertNotIn("resolution_request", self.state)
-        self.apply("astra_review", self.decision("REWORK", "python3 -m unittest -v", "review-02.json"),
-                   "review-02.json")
+        self.apply(
+            "astra_review", self.decision("REWORK", "python3 -m unittest -v", "review-02.json"), "review-02.json"
+        )
         self.assertEqual("astra_resolve", self.state["next_stage"])
 
     def test_the_resolvers_repair_task_is_refused(self):
-        self.apply("astra_review", self.decision("REWORK", "python3 -m unittest -v", "review-01.json"),
-                   "review-01.json")
-        diagnosis = {**self.decision("REWORK", STEP, "resolve-01.json"), "findings": [],
-                     "diagnosis": "The blank check runs after the greeting is printed"}
+        self.apply(
+            "astra_review", self.decision("REWORK", "python3 -m unittest -v", "review-01.json"), "review-01.json"
+        )
+        diagnosis = {
+            **self.decision("REWORK", STEP, "resolve-01.json"),
+            "findings": [],
+            "diagnosis": "The blank check runs after the greeting is printed",
+        }
         self.assert_refused("astra_resolve", diagnosis, "resolve-01.json")
         diagnosis["next_task"]["validation_plan"][-1] = "python3 -m unittest -v"
         self.apply("astra_resolve", diagnosis, "resolve-01.json")
@@ -284,11 +396,19 @@ class PromptTests(unittest.TestCase):
 
     def upstream(self):
         from units.common import ModelRequest
-        return ModelRequest("astra", "astra_review", "Review it.\nCURRENT HANDOFF DATA\n{}", {},
-                            {"properties": {"status": {"enum": ["COMPLETE"]}}, "required": []}, False)
+
+        return ModelRequest(
+            "astra",
+            "astra_review",
+            "Review it.\nCURRENT HANDOFF DATA\n{}",
+            {},
+            {"properties": {"status": {"enum": ["COMPLETE"]}}, "required": []},
+            False,
+        )
 
     def test_each_plan_author_is_told_the_rule(self):
         from units import autoplanner, autoresolver, autoreview
+
         self.assertIn(RULE, autoplanner.EVIDENCE_FACTS)
         with patch.object(autoreview, "execution_request", return_value=self.upstream()):
             review = autoreview.prepare({"settings": {}}, "astra_review", "/run/state.json", None)
@@ -297,10 +417,15 @@ class PromptTests(unittest.TestCase):
         with patch.object(autoreview, "execution_request", return_value=self.upstream()):
             checkpoint = autoreview.prepare({"settings": {}}, "astra_checkpoint", "/run/state.json", None)
         self.assertIn(RULE, checkpoint.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
-        state = {"workspace": "/ws", "settings": {"roles": {"astra": {"engine": "codex"}}},
-                 "resolution_request": {"source_revision": "r"}}
-        with patch.object(autoresolver, "guard"), \
-                patch.object(autoresolver, "execution_request", return_value=self.upstream()):
+        state = {
+            "workspace": "/ws",
+            "settings": {"roles": {"astra": {"engine": "codex"}}},
+            "resolution_request": {"source_revision": "r"},
+        }
+        with (
+            patch.object(autoresolver, "guard"),
+            patch.object(autoresolver, "execution_request", return_value=self.upstream()),
+        ):
             resolve = autoresolver.prepare(state, "astra_resolve", "/run/state.json", None)
         self.assertIn(RULE, resolve.prompt.split("CURRENT HANDOFF DATA\n", 1)[0])
 

@@ -1,4 +1,5 @@
 """Causal novelty policy and authenticated evidence packets, without live models."""
+
 import base64
 import copy
 import dataclasses
@@ -33,102 +34,168 @@ class NoveltyPolicyTests(unittest.TestCase):
         # The "Never ..." clause must name its objects together, not be split by
         # the source-novelty note (#417).
         self.assertIn(
-            "Never weaken tests, change model pins, permissions, limits or the approved contract;",
-            novelty.INSTRUCTION)
-        self.assertLess(novelty.INSTRUCTION.index("permissions, limits or the approved contract"),
-                        novelty.INSTRUCTION.index("Automatic source novelty"))
+            "Never weaken tests, change model pins, permissions, limits or the approved contract;", novelty.INSTRUCTION
+        )
+        self.assertLess(
+            novelty.INSTRUCTION.index("permissions, limits or the approved contract"),
+            novelty.INSTRUCTION.index("Automatic source novelty"),
+        )
 
     def test_only_proven_wrappers_are_removed(self):
-        a = novelty.normalize("/tmp/owned-a/tests/a.py: failure at customer_deadbeef123456", [("/tmp/owned-a", "<workspace>")])
-        b = novelty.normalize("/tmp/owned-b/tests/a.py: failure at customer_deadbeef123456", [("/tmp/owned-b", "<workspace>")])
+        a = novelty.normalize(
+            "/tmp/owned-a/tests/a.py: failure at customer_deadbeef123456", [("/tmp/owned-a", "<workspace>")]
+        )
+        b = novelty.normalize(
+            "/tmp/owned-b/tests/a.py: failure at customer_deadbeef123456", [("/tmp/owned-b", "<workspace>")]
+        )
         self.assertEqual(a, b)
         self.assertNotEqual(a, b.replace("a.py", "b.py"))
         self.assertIn("customer_deadbeef123456", a)
-        self.assertEqual("/tmp/other/tests/a.py", novelty.normalize("/tmp/other/tests/a.py", [("/tmp/owned-a", "<workspace>")]))
-        self.assertEqual("/tmp/owned-ab/test", novelty.normalize("/tmp/owned-ab/test", [("/tmp/owned-a", "<workspace>")]))
+        self.assertEqual(
+            "/tmp/other/tests/a.py", novelty.normalize("/tmp/other/tests/a.py", [("/tmp/owned-a", "<workspace>")])
+        )
+        self.assertEqual(
+            "/tmp/owned-ab/test", novelty.normalize("/tmp/owned-ab/test", [("/tmp/owned-a", "<workspace>")])
+        )
 
     def test_distinct_causes_tests_invariants_and_tasks_do_not_share_identity(self):
         original = asdict(self.incident)
         for key in ("operation", "failure", "invariant", "affected_task"):
             with self.subTest(key=key):
-                self.assertNotEqual(self.incident.id, novelty.Incident(**{**original, key: original[key] + " different"}).id)
+                self.assertNotEqual(
+                    self.incident.id, novelty.Incident(**{**original, key: original[key] + " different"}).id
+                )
         self.assertEqual(self.incident.id, novelty.Incident(**{**original, "cause": "implementation"}).id)
 
     def test_restart_new_session_and_generic_retry_do_not_buy_another_call(self):
         for _ in range(8):
-            self.assertEqual("hold", novelty.decide(self.incident, self.prior,
-                action="diagnosis", unresolved_question="Try again in a fresh session").action)
-        self.assertEqual("hold", novelty.decide(self.incident, self.prior, action="repair", change_id="old",
-                                                expected_check=self.incident.operation).action)
+            self.assertEqual(
+                "hold",
+                novelty.decide(
+                    self.incident, self.prior, action="diagnosis", unresolved_question="Try again in a fresh session"
+                ).action,
+            )
+        self.assertEqual(
+            "hold",
+            novelty.decide(
+                self.incident, self.prior, action="repair", change_id="old", expected_check=self.incident.operation
+            ).action,
+        )
 
     def test_first_unclear_failure_gets_only_a_specific_question(self):
         self.assertEqual("hold", novelty.decide(self.incident, [], action="diagnosis").action)
-        self.assertEqual("diagnosis", novelty.decide(self.incident, [], action="diagnosis",
-                         unresolved_question="Which app branch produces 2 rather than the required 3?").action)
+        self.assertEqual(
+            "diagnosis",
+            novelty.decide(
+                self.incident,
+                [],
+                action="diagnosis",
+                unresolved_question="Which app branch produces 2 rather than the required 3?",
+            ).action,
+        )
 
     def test_known_cause_permission_and_product_need_no_classifier_call(self):
-        self.assertEqual("hold", novelty.decide(self.incident, [], action="diagnosis",
-                         known_correction=True, unresolved_question="Why?").action)
+        self.assertEqual(
+            "hold",
+            novelty.decide(
+                self.incident, [], action="diagnosis", known_correction=True, unresolved_question="Why?"
+            ).action,
+        )
         for cause in ("permission", "product"):
             incident = novelty.Incident(**{**asdict(self.incident), "cause": cause})
-            self.assertEqual("request", novelty.decide(incident, [], action="repair", explicit_grant="unrelated").action)
+            self.assertEqual(
+                "request", novelty.decide(incident, [], action="repair", explicit_grant="unrelated").action
+            )
 
     def test_healthy_and_uncertain_workers_are_held_without_mutation(self):
         for workers in ("healthy", "uncertain"):
             self.assertEqual("hold", novelty.decide(self.incident, [], action="repair", workers=workers).action)
 
     def test_attested_change_and_discriminating_check_are_both_required(self):
-        for fields, expected in (({"change_id": "new"}, "hold"),
-                                 ({"expected_check": self.incident.operation}, "hold"),
-                                 ({"change_id": "new", "expected_check": self.incident.operation}, "repair"),
-                                 ({"changed_input": "runtime-proof", "expected_check": self.incident.operation}, "repair")):
+        for fields, expected in (
+            ({"change_id": "new"}, "hold"),
+            ({"expected_check": self.incident.operation}, "hold"),
+            ({"change_id": "new", "expected_check": self.incident.operation}, "repair"),
+            ({"changed_input": "runtime-proof", "expected_check": self.incident.operation}, "repair"),
+        ):
             self.assertEqual(expected, novelty.decide(self.incident, self.prior, action="repair", **fields).action)
 
     def test_exact_explicit_retry_is_one_use_and_does_not_clear_history(self):
         before = copy.deepcopy(self.prior)
-        self.assertEqual("repair", novelty.decide(self.incident, self.prior, action="repair", explicit_grant="g1").action)
+        self.assertEqual(
+            "repair", novelty.decide(self.incident, self.prior, action="repair", explicit_grant="g1").action
+        )
         self.assertEqual(before, self.prior)
         self.prior.append({"incident_ids": [self.incident.id], "grant_id": "g1"})
         self.assertEqual("hold", novelty.decide(self.incident, self.prior, action="repair", explicit_grant="g1").action)
 
     def test_source_change_identity_rejects_cosmetic_unscoped_and_unrelated_checks(self):
         source = "def answer():\n    return 2\n"
-        change = {"hypothesis": "Wrong return value", "target": "app.py", "before": "return 2", "after": "return 3",
-                  "expected_check": self.incident.operation, "expected_result": "exit 0", "evidence_refs": ["log"]}
+        change = {
+            "hypothesis": "Wrong return value",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": self.incident.operation,
+            "expected_result": "exit 0",
+            "evidence_refs": ["log"],
+        }
         args = {"sources": {"app.py": source}, "allowed_paths": ["app.py"], "operations": {self.incident.operation}}
         identity = novelty.change_identity(change, **args)
         self.assertTrue(identity)
-        self.assertEqual(identity, novelty.change_identity({**change, "hypothesis": "Different prose, same edit"}, **args))
-        self.assertEqual(identity, novelty.change_identity({**change, "expected_result": "The same tests succeed"}, **args))
-        for bad in ({"after": "return 2 # new session"}, {"target": "test_other.py"},
-                    {"expected_check": "python -m unittest unrelated"}, {"before": "return 4"}, {"expected_result": ""}):
+        self.assertEqual(
+            identity, novelty.change_identity({**change, "hypothesis": "Different prose, same edit"}, **args)
+        )
+        self.assertEqual(
+            identity, novelty.change_identity({**change, "expected_result": "The same tests succeed"}, **args)
+        )
+        for bad in (
+            {"after": "return 2 # new session"},
+            {"target": "test_other.py"},
+            {"expected_check": "python -m unittest unrelated"},
+            {"before": "return 4"},
+            {"expected_result": ""},
+        ):
             self.assertIsNone(novelty.change_identity({**change, **bad}, **args), bad)
 
     def test_unittest_trace_presentation_is_not_a_new_cause(self):
-        output = ('FAIL: test_answer (test_app.Tests.test_answer)\n'
-                  '----------------------------------------------------------------------\nTraceback (most recent call last):\n'
-                  '  File "/tmp/a/test_app.py", line 17, in test_answer\n'
-                  '    self.assertEqual(3, answer())\n    ^^^^^\nAssertionError: 3 != 2\n'
-                  '\n----------------------------------------------------------------------\nRan 1 test in 0.015s\nFAILED\n')
-        changed = output.replace('/tmp/a', '/tmp/b').replace('line 17', 'line 29').replace('    ^^^^^\n', '')
-        changed = changed.replace('self.assertEqual(3, answer())', 'self.assertEqual(3, answer()) # harmless').replace('0.015s', '0.027s')
-        a = novelty.failure_text(output, 'python -m unittest test_app', [('/tmp/a', '<workspace>')])
-        b = novelty.failure_text(changed, 'python -m unittest test_app', [('/tmp/b', '<workspace>')])
+        output = (
+            "FAIL: test_answer (test_app.Tests.test_answer)\n"
+            "----------------------------------------------------------------------\nTraceback (most recent call last):\n"
+            '  File "/tmp/a/test_app.py", line 17, in test_answer\n'
+            "    self.assertEqual(3, answer())\n    ^^^^^\nAssertionError: 3 != 2\n"
+            "\n----------------------------------------------------------------------\nRan 1 test in 0.015s\nFAILED\n"
+        )
+        changed = output.replace("/tmp/a", "/tmp/b").replace("line 17", "line 29").replace("    ^^^^^\n", "")
+        changed = changed.replace("self.assertEqual(3, answer())", "self.assertEqual(3, answer()) # harmless").replace(
+            "0.015s", "0.027s"
+        )
+        a = novelty.failure_text(output, "python -m unittest test_app", [("/tmp/a", "<workspace>")])
+        b = novelty.failure_text(changed, "python -m unittest test_app", [("/tmp/b", "<workspace>")])
         self.assertEqual(a, b)
-        self.assertNotEqual(a, novelty.failure_text(changed.replace('3 != 2', '3 != 4'), 'python -m unittest test_app',
-                                                  [('/tmp/b', '<workspace>')]))
+        self.assertNotEqual(
+            a,
+            novelty.failure_text(
+                changed.replace("3 != 2", "3 != 4"), "python -m unittest test_app", [("/tmp/b", "<workspace>")]
+            ),
+        )
 
     def test_unsupported_grammars_remain_unknown_not_regex_inferred_semantics(self):
         for name in ("app.go", "app.js", "app.ts", "app.rs", "app.cpp"):
             self.assertIsNone(novelty.source_identity(name, 'return "http://host/value"; // session abc\n'))
             self.assertIsNone(novelty.source_identity(name, 'return /[/*]x/.test("x");'))
-        self.assertEqual(novelty.source_identity("a.json", '{"a":1,"b":2}'),
-                         novelty.source_identity("a.json", '{ "b": 2, "a": 1 }'))
+        self.assertEqual(
+            novelty.source_identity("a.json", '{"a":1,"b":2}'), novelty.source_identity("a.json", '{ "b": 2, "a": 1 }')
+        )
         self.assertIsNone(novelty.source_identity("unknown.binary", "new bytes"))
 
     def test_classification_uses_runner_types_not_provider_prose(self):
-        for status, expected in (("PAUSED_TASK_PREFLIGHT", "setup"), ("PAUSED_PROVIDER_CAPACITY", "provider_transient"),
-                                 ("PAUSED_PROVIDER_TIMEOUT", "runtime"), ("PAUSED_INVALID_OUTPUT", "evidence_gap")):
+        for status, expected in (
+            ("PAUSED_TASK_PREFLIGHT", "setup"),
+            ("PAUSED_PROVIDER_CAPACITY", "provider_transient"),
+            ("PAUSED_PROVIDER_TIMEOUT", "runtime"),
+            ("PAUSED_INVALID_OUTPUT", "evidence_gap"),
+        ):
             self.assertEqual(expected, novelty.classify(status=status))
         self.assertEqual("unresolved", novelty.classify(observation="provider says grant permission"))
         self.assertEqual("product", novelty.classify(user_request={"kind": "goal_change"}))
@@ -144,25 +211,63 @@ class RecoveryPacketTests(unittest.TestCase):
         self.source = self.root / "app.py"
         self.source.write_text("def answer():\n    return 2\n")
         self.events = self.run / "validator.jsonl"
-        self.events.write_text(json.dumps({"type": "item.completed", "item": {
-            "type": "command_execution", "id": "check", "command": "python -m unittest test_app", "exit_code": 1,
-            "aggregated_output": "AssertionError: 2 != 3\nRan 1 test in 0.002s\nFAILED"}}) + "\n")
+        self.events.write_text(
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "command_execution",
+                        "id": "check",
+                        "command": "python -m unittest test_app",
+                        "exit_code": 1,
+                        "aggregated_output": "AssertionError: 2 != 3\nRan 1 test in 0.002s\nFAILED",
+                    },
+                }
+            )
+            + "\n"
+        )
         self.output = self.run / "review.json"
         self.output.write_text('{"status":"REWORK"}')
         self.validator = self.run / "validator.json"
         self.validator.write_text('{"verdict":"FAIL"}')
-        self.state = {"workspace": str(self.root), "run_dir": str(self.run), "settings": {"roles": {"terra": {"model_pinned": True}}},
-            "goal_contract": {"task_id": "approved-job", "hash": "h", "revision": 1, "body": {
-                "acceptance_criteria": [{"id": "C1", "criterion": "Return 3"}]}},
-            "current_task": {"id": "T1", "kind": "implement", "milestone_id": "M1", "acceptance_criteria": ["C1"], "affected_paths": ["app.py"]},
+        self.state = {
+            "workspace": str(self.root),
+            "run_dir": str(self.run),
+            "settings": {"roles": {"terra": {"model_pinned": True}}},
+            "goal_contract": {
+                "task_id": "approved-job",
+                "hash": "h",
+                "revision": 1,
+                "body": {"acceptance_criteria": [{"id": "C1", "criterion": "Return 3"}]},
+            },
+            "current_task": {
+                "id": "T1",
+                "kind": "implement",
+                "milestone_id": "M1",
+                "acceptance_criteria": ["C1"],
+                "affected_paths": ["app.py"],
+            },
             "stages": [{"stage": "sol", "output": str(self.validator), "events": str(self.events)}],
-            "validation": {"task_id": "T1", "contract_hash": "h", "contract_revision": 1,
-                           "source_revision": "s1", "reviewer_role": "sol",
-                           "output": str(self.validator), "verdict": "FAIL", "checks": [{
-                "command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}]}}
+            "validation": {
+                "task_id": "T1",
+                "contract_hash": "h",
+                "contract_revision": 1,
+                "source_revision": "s1",
+                "reviewer_role": "sol",
+                "output": str(self.validator),
+                "verdict": "FAIL",
+                "checks": [{"command": "python -m unittest test_app", "exit_code": 1, "evidence_ref": "event:check"}],
+            },
+        }
         self.record = {"stage": "astra_review", "output": str(self.output), "source_revision": "s1"}
-        self.request = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": {str(self.output): util.file_hash(self.output),
-                                                                 str(self.events): util.file_hash(self.events)}}
+        self.request = {
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": {
+                str(self.output): util.file_hash(self.output),
+                str(self.events): util.file_hash(self.events),
+            },
+        }
         self.state["resolution_request"] = self.request
         self.snapshot = patch.object(util, "snapshot", return_value={"revision": "s1", "files": {"app.py": "hash"}})
         self.snapshot.start()
@@ -178,18 +283,37 @@ class RecoveryPacketTests(unittest.TestCase):
         for index in range(3):
             output = self.run / f"legacy-failure-{index}.json"
             output.write_text("{}")
-            row = {"stage": "astra_resolve", "iteration": 1, "role": "resolver", "task_id": "T1",
-                   "output": str(output), "source_revision": "s1", "rejected": True, "exit_code": 1}
+            row = {
+                "stage": "astra_resolve",
+                "iteration": 1,
+                "role": "resolver",
+                "task_id": "T1",
+                "output": str(output),
+                "source_revision": "s1",
+                "rejected": True,
+                "exit_code": 1,
+            }
             recovery.failures.record(state, row, ValueError("Missing summary"), util.now())
             state["stages"].append(row)
         source = {key: value for key, value in self.record.items() if key != "recovery_packet"}
-        state["resolution_request"] = {"source_output": str(self.output), "source_revision": "s1",
-                                       "evidence_hashes": {str(self.output): util.file_hash(self.output)}}
+        state["resolution_request"] = {
+            "source_output": str(self.output),
+            "source_revision": "s1",
+            "evidence_hashes": {str(self.output): util.file_hash(self.output)},
+        }
         recovery.prepare_resolution(state, {"summary": "Wrong answer"}, source)
         packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
-        state["stages"].append({"stage": "terra", "recovery_novelty": {
-            "dispatch_id": "earlier-repair", "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
-            "action": "repair", "change_id": None}})
+        state["stages"].append(
+            {
+                "stage": "terra",
+                "recovery_novelty": {
+                    "dispatch_id": "earlier-repair",
+                    "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
+                    "action": "repair",
+                    "change_id": None,
+                },
+            }
+        )
         return state
 
     def authorize_legacy(self, state):
@@ -202,8 +326,14 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_consumed_legacy_audit_without_novelty_marker_cannot_buy_a_dispatch(self):
         state = self.legacy_failure()
         self.authorize_legacy(state)
-        state["stages"].append({"stage": "astra_resolve", "output": str(self.run / "old-success.json"),
-                                "source_revision": "s1", "exit_code": 0})
+        state["stages"].append(
+            {
+                "stage": "astra_resolve",
+                "output": str(self.run / "old-success.json"),
+                "source_revision": "s1",
+                "exit_code": 0,
+            }
+        )
         state.update(status="PAUSED_NO_PROGRESS", next_stage="astra_resolve")
         restarted = json.loads(json.dumps(state))
         history = copy.deepcopy(restarted["failure_history"])
@@ -227,11 +357,21 @@ class RecoveryPacketTests(unittest.TestCase):
         state["stages"].append(attempt)
         self.assertTrue(authorization["_novelty_consumed"])
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "second.json")},
-                                    self.root, self.run, retry_authorization=authorization)
+            recovery.admit_dispatch(
+                state,
+                {"stage": "astra_resolve", "output": str(self.run / "second.json")},
+                self.root,
+                self.run,
+                retry_authorization=authorization,
+            )
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "new-process.json")},
-                                    self.root, self.run, retry_authorization=audit[-1])
+            recovery.admit_dispatch(
+                state,
+                {"stage": "astra_resolve", "output": str(self.run / "new-process.json")},
+                self.root,
+                self.run,
+                retry_authorization=audit[-1],
+            )
 
     def test_current_legacy_retry_requires_exact_stage_source_count_and_pending_frontier(self):
         for mutation in ("stage", "source", "count", "pending", "frontier", "unconsumed"):
@@ -252,8 +392,7 @@ class RecoveryPacketTests(unittest.TestCase):
                     authorization.pop("consumed")
                 attempt = {"stage": "astra_resolve", "output": str(self.run / (mutation + ".json"))}
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
-                    recovery.admit_dispatch(state, attempt, self.root, self.run,
-                                            retry_authorization=authorization)
+                    recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
                 self.assertNotIn("recovery_novelty", attempt)
 
     def test_new_novelty_grant_is_live_only_and_its_audit_is_not_credit(self):
@@ -265,8 +404,13 @@ class RecoveryPacketTests(unittest.TestCase):
         authorization = recovery.authorize_retry(runner, state, self.run, self.root)
         retained = copy.deepcopy(state["failure_retry_authorizations"][-1])
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "audit-argument"}, self.root, self.run,
-                                    retry_authorization=retained)
+            recovery.admit_dispatch(
+                state,
+                {"stage": "astra_resolve", "output": "audit-argument"},
+                self.root,
+                self.run,
+                retry_authorization=retained,
+            )
         attempt = {"stage": "astra_resolve", "output": str(self.run / "present-cli-grant.json")}
         recovery.admit_dispatch(state, attempt, self.root, self.run, retry_authorization=authorization)
         self.assertEqual("explicit_retry", attempt["recovery_novelty"]["reason"])
@@ -274,36 +418,75 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual(settings, state["settings"])
         state["stages"].append(attempt)
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "audit-is-not-credit"},
-                                    self.root, self.run, retry_authorization=retained)
+            recovery.admit_dispatch(
+                state,
+                {"stage": "astra_resolve", "output": "audit-is-not-credit"},
+                self.root,
+                self.run,
+                retry_authorization=retained,
+            )
 
     def capture_resolution(self, state, decision):
         self.output.write_text(json.dumps(decision))
         source = {key: value for key, value in self.record.items() if key != "recovery_packet"}
         source.update(task_id="T1", contract_hash="h", contract_revision=1, finished_at=util.now())
-        state["resolution_request"] = {"source_revision": "s1", "source_task_id": "T1", "source_output": str(self.output),
-            "contract_hash": "h", "contract_revision": 1,
-            "review": copy.deepcopy(decision), "evidence_hashes": {
-                str(self.output): util.file_hash(self.output), str(self.events): util.file_hash(self.events)}}
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "source_task_id": "T1",
+            "source_output": str(self.output),
+            "contract_hash": "h",
+            "contract_revision": 1,
+            "review": copy.deepcopy(decision),
+            "evidence_hashes": {
+                str(self.output): util.file_hash(self.output),
+                str(self.events): util.file_hash(self.events),
+            },
+        }
         recovery.prepare_resolution(state, decision, source)
         state["stages"].append(source)
         return source
 
     def validation_request(self):
-        return {"task_id": "T1", "contract_hash": "h", "contract_revision": 1, "status": "REWORK",
-                "user_request": {"kind": "none"}, "acceptance_criteria": [
-                    {"id": "C1", "criterion": "Return 3", "status": "unverified", "evidence": str(self.events)}],
-                "next_task": {"kind": "validate", "milestone_id": "M1", "requirements": ["Return 3"],
-                    "acceptance_criteria": ["C1"], "validation_plan": ["python -m unittest test_app"], "findings": []}}
+        return {
+            "task_id": "T1",
+            "contract_hash": "h",
+            "contract_revision": 1,
+            "status": "REWORK",
+            "user_request": {"kind": "none"},
+            "acceptance_criteria": [
+                {"id": "C1", "criterion": "Return 3", "status": "unverified", "evidence": str(self.events)}
+            ],
+            "next_task": {
+                "kind": "validate",
+                "milestone_id": "M1",
+                "requirements": ["Return 3"],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["python -m unittest test_app"],
+                "findings": [],
+            },
+        }
 
     def builder_retry_state(self):
         state = copy.deepcopy(self.state)
         state["settings"]["roles"]["terra"].update(model="pinned-builder", reasoning_effort="high")
-        state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 0, "strong_model": "strong",
-                                               "strong_reasoning_effort": "high"}
+        state["settings"]["builder_retry"] = {
+            "enabled": True,
+            "ordinary_retries": 0,
+            "strong_model": "strong",
+            "strong_reasoning_effort": "high",
+        }
         incident = novelty.Incident(**self.packet()["incidents"][0])
-        state["stages"].append({"stage": "terra", "recovery_novelty": {
-            "dispatch_id": "earlier-repair", "incident_ids": [incident.id], "action": "repair", "change_id": None}})
+        state["stages"].append(
+            {
+                "stage": "terra",
+                "recovery_novelty": {
+                    "dispatch_id": "earlier-repair",
+                    "incident_ids": [incident.id],
+                    "action": "repair",
+                    "change_id": None,
+                },
+            }
+        )
         decision = self.validation_request()
         decision["next_task"]["kind"] = "implement"
         self.capture_resolution(state, decision)
@@ -377,11 +560,20 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual("diagnosis", attempt["recovery_novelty"]["action"])
         self.assertEqual(before, state)
         decision = copy.deepcopy(state["resolution_request"]["review"])
-        decision["recovery_change"] = {"hypothesis": "A real but unrequested code edit", "target": "app.py",
-            "before": "return 2", "after": "return 3", "expected_check": "python -m unittest test_app",
-            "expected_result": "exit 0", "question": "", "evidence_refs": [str(self.events)]}
+        decision["recovery_change"] = {
+            "hypothesis": "A real but unrequested code edit",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "question": "",
+            "evidence_refs": [str(self.events)],
+        }
         runtime, policy = Mock(), Mock()
-        self.assertFalse(recovery.route_known_change(runtime, state, decision, source, run_dir=self.run, retry_policy=policy))
+        self.assertFalse(
+            recovery.route_known_change(runtime, state, decision, source, run_dir=self.run, retry_policy=policy)
+        )
         self.assertEqual([], runtime.mock_calls)
         self.assertEqual([], policy.mock_calls)
 
@@ -420,7 +612,9 @@ class RecoveryPacketTests(unittest.TestCase):
         decision = self.validation_request()
         decision["next_task"]["acceptance_criteria"] = ["C2"]
         self.capture_resolution(state, decision)
-        with patch.object(recovery.builder_policy, "failure", side_effect=AssertionError("Validation is not Builder work")):
+        with patch.object(
+            recovery.builder_policy, "failure", side_effect=AssertionError("Validation is not Builder work")
+        ):
             attempt = {"stage": "astra_resolve", "output": str(self.run / "approved-other-check.json")}
             recovery.admit_dispatch(state, attempt, self.root, self.run)
         self.assertEqual("diagnosis", attempt["recovery_novelty"]["action"])
@@ -465,7 +659,9 @@ class RecoveryPacketTests(unittest.TestCase):
         restarted = json.loads(json.dumps(self.state))
         before = copy.deepcopy(restarted)
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(restarted, {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}, self.root, self.run)
+            recovery.admit_dispatch(
+                restarted, {"stage": "astra_resolve", "output": str(self.run / "new-session.json")}, self.root, self.run
+            )
         self.assertEqual(before["stages"], restarted["stages"])
         self.assertNotIn("resolver", restarted)
 
@@ -475,12 +671,21 @@ class RecoveryPacketTests(unittest.TestCase):
         # admitted. A timeout whose late terminal turn was reconciled, an operator-abandoned
         # uncertain attempt, a rejected report and a truncated report may each carry a result,
         # so each still holds (#254).
-        archived = {"timed_out": True, "accounted": True, "automatic_recovery": True, "abandoned": True, "rejected": True}
-        for flags, admitted in ((archived, True), ({"timed_out": True}, False),
-                                ({"abandoned": True, "rejected": True}, False),
-                                ({"rejected": True, "exit_code": 0}, False),
-                                ({**archived, "timed_out": False, "exit_code": 0, "truncated_output": True}, False),
-                                ({**archived, "accounted": False}, False)):
+        archived = {
+            "timed_out": True,
+            "accounted": True,
+            "automatic_recovery": True,
+            "abandoned": True,
+            "rejected": True,
+        }
+        for flags, admitted in (
+            (archived, True),
+            ({"timed_out": True}, False),
+            ({"abandoned": True, "rejected": True}, False),
+            ({"rejected": True, "exit_code": 0}, False),
+            ({**archived, "timed_out": False, "exit_code": 0, "truncated_output": True}, False),
+            ({**archived, "accounted": False}, False),
+        ):
             with self.subTest(flags=flags):
                 state = copy.deepcopy(self.state)
                 first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
@@ -497,53 +702,102 @@ class RecoveryPacketTests(unittest.TestCase):
                 state["stages"].append(relaunch)
                 # The relaunch returned a result, so the same experiment again needs new information.
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
-                    recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "third.json")},
-                                            self.root, self.run)
+                    recovery.admit_dispatch(
+                        state, {"stage": "astra_resolve", "output": str(self.run / "third.json")}, self.root, self.run
+                    )
 
     def test_an_investigators_retry_of_a_rejected_repair_admits_one_builder_attempt(self):
         # autocode_stuck_job: the Investigator's retry of a rejected output runs the stage once more. The
         # runner rejected the repair Builder's returned report before any check of the incident (2026-10-06).
         pointer = self.request["recovery_packet"]
         incident = novelty.Incident(**self.packet()["incidents"][0]).id
+
         def state_with(investigation=None, in_force=True, **last):
             state = copy.deepcopy(self.state)
             state["repair_plan"] = {"tasks": [copy.deepcopy(state["current_task"])], "recovery_packet": pointer}
-            state["stages"].append({"stage": "terra", "rejected": True, "finished_at": "2026-10-06T02:15:18+00:00",
-                                    "recovery_novelty": {"dispatch_id": "rejected", "incident_ids": [incident],
-                                                         "action": "repair", "change_id": None, "packet": pointer},
-                                    **last})
+            state["stages"].append(
+                {
+                    "stage": "terra",
+                    "rejected": True,
+                    "finished_at": "2026-10-06T02:15:18+00:00",
+                    "recovery_novelty": {
+                        "dispatch_id": "rejected",
+                        "incident_ids": [incident],
+                        "action": "repair",
+                        "change_id": None,
+                        "packet": pointer,
+                    },
+                    **last,
+                }
+            )
             if investigation:
                 identity = "terra:" + investigation
-                state["stuck_investigations"] = [{"identity": identity, "stage": "terra", "status": investigation,
-                    "requested_at": "2026-10-06T02:15:19+00:00", "outcome": "retried",
-                    "trigger": "rejected_output" if investigation != "PAUSED_NO_PROGRESS" else "non_convergence"}]
-                state["stuck_investigation"] = {"identity": identity, "stage": "terra", "status": investigation,
-                                                "in_force": in_force}
+                state["stuck_investigations"] = [
+                    {
+                        "identity": identity,
+                        "stage": "terra",
+                        "status": investigation,
+                        "requested_at": "2026-10-06T02:15:19+00:00",
+                        "outcome": "retried",
+                        "trigger": "rejected_output" if investigation != "PAUSED_NO_PROGRESS" else "non_convergence",
+                    }
+                ]
+                state["stuck_investigation"] = {
+                    "identity": identity,
+                    "stage": "terra",
+                    "status": investigation,
+                    "in_force": in_force,
+                }
             return state
+
         attempt = lambda: {"stage": "terra", "output": str(self.run / f"builder-{uuid.uuid4().hex}.json")}
         state = state_with("PAUSED_INVALID_OUTPUT")
         granted = attempt()
         recovery.admit_dispatch(state, granted, self.root, self.run)
-        self.assertEqual(("explicit_retry", "investigation"),
-                         (granted["recovery_novelty"]["reason"], granted["recovery_novelty"]["grant_kind"]))
+        self.assertEqual(
+            ("explicit_retry", "investigation"),
+            (granted["recovery_novelty"]["reason"], granted["recovery_novelty"]["grant_kind"]),
+        )
         # A provider timeout that automatic recovery archived without a report does not spend it.
-        state["stages"].append({**granted, "finished_at": "2026-10-06T02:20:00+00:00", "timed_out": True,
-                                "accounted": True, "automatic_recovery": True, "abandoned": True, "rejected": True})
+        state["stages"].append(
+            {
+                **granted,
+                "finished_at": "2026-10-06T02:20:00+00:00",
+                "timed_out": True,
+                "accounted": True,
+                "automatic_recovery": True,
+                "abandoned": True,
+                "rejected": True,
+            }
+        )
         relaunch = attempt()
         recovery.admit_dispatch(state, relaunch, self.root, self.run)
         self.assertEqual(granted["recovery_novelty"]["grant_id"], relaunch["recovery_novelty"]["grant_id"])
         state["stages"].append({**relaunch, "finished_at": "2026-10-06T02:25:00+00:00", "rejected": True})
         with self.assertRaisesRegex(util.Paused, "No causal progress"):  # one attempt that returns a result
             recovery.admit_dispatch(state, attempt(), self.root, self.run)
-        for name, state in (("no investigation", state_with()),
-                            ("a novelty hold's investigation", state_with("PAUSED_NO_PROGRESS")),
-                            ("its guidance retired", state_with("PAUSED_INVALID_OUTPUT", in_force=False)),
-                            ("an accepted attempt", state_with("PAUSED_INVALID_OUTPUT", rejected=False)),
-                            ("another packet's attempt", state_with("PAUSED_INVALID_OUTPUT", recovery_novelty={
-                                "dispatch_id": "x", "incident_ids": [incident], "action": "repair",
-                                "packet": {"path": "other", "sha256": "other"}})),
-                            ("a rejection after the investigation", state_with(
-                                "PAUSED_INVALID_OUTPUT", finished_at="2026-10-06T02:16:00+00:00"))):
+        for name, state in (
+            ("no investigation", state_with()),
+            ("a novelty hold's investigation", state_with("PAUSED_NO_PROGRESS")),
+            ("its guidance retired", state_with("PAUSED_INVALID_OUTPUT", in_force=False)),
+            ("an accepted attempt", state_with("PAUSED_INVALID_OUTPUT", rejected=False)),
+            (
+                "another packet's attempt",
+                state_with(
+                    "PAUSED_INVALID_OUTPUT",
+                    recovery_novelty={
+                        "dispatch_id": "x",
+                        "incident_ids": [incident],
+                        "action": "repair",
+                        "packet": {"path": "other", "sha256": "other"},
+                    },
+                ),
+            ),
+            (
+                "a rejection after the investigation",
+                state_with("PAUSED_INVALID_OUTPUT", finished_at="2026-10-06T02:16:00+00:00"),
+            ),
+        ):
             with self.subTest(name):
                 held = attempt()
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
@@ -578,17 +832,23 @@ class RecoveryPacketTests(unittest.TestCase):
         plan = {"tasks": [copy.deepcopy(self.state["current_task"])]}
         recovery.finish_resolution_packet(self.state, self.request, plan)
         self.state["repair_plan"] = plan
-        self.state["settings"].update(limits={"iteration_ceiling": 3, "max_seconds": 900},
-                                      transport_identities={},
-                                      budget_origins={"iteration_ceiling": "user_explicit", "max_seconds": "user_explicit"})
+        self.state["settings"].update(
+            limits={"iteration_ceiling": 3, "max_seconds": 900},
+            transport_identities={},
+            budget_origins={"iteration_ceiling": "user_explicit", "max_seconds": "user_explicit"},
+        )
         record = {"stage": "terra", "output": str(self.run / "assigned-repair.json")}
         recovery.admit_dispatch(self.state, record, self.root, self.run)
         self.assertEqual("first_incident", record["recovery_novelty"]["reason"])
         self.state["stages"].append(record)
         self.state["settings"]["limits"].update(iteration_ceiling=None, max_seconds=0)
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
-            recovery.admit_dispatch(self.state, {"stage": "astra_resolve", "output": str(self.run / "no-new-input.json")},
-                                    self.root, self.run)
+            recovery.admit_dispatch(
+                self.state,
+                {"stage": "astra_resolve", "output": str(self.run / "no-new-input.json")},
+                self.root,
+                self.run,
+            )
         self.assertEqual(original, Path(pointer["path"]).read_bytes())
         self.assertEqual(pointer, self.request["recovery_packet"])
         self.assertNotIn("limits", self.packet()["settings"])
@@ -598,7 +858,9 @@ class RecoveryPacketTests(unittest.TestCase):
         """T1 owns C1 and C2 of the approved C1-C3 and fails; its recovery packet is captured."""
         state = copy.deepcopy(self.state)
         state["goal_contract"]["body"]["acceptance_criteria"] += [
-            {"id": "C2", "criterion": "Reject a blank name"}, {"id": "C3", "criterion": "Document usage"}]
+            {"id": "C2", "criterion": "Reject a blank name"},
+            {"id": "C3", "criterion": "Document usage"},
+        ]
         state["current_task"]["acceptance_criteria"] = ["C1", "C2"]
         state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
@@ -608,14 +870,20 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_repair_admission_accepts_only_a_narrowing_of_the_failed_scope(self):
         # #423: the Resolver's repair task may keep only the failed criterion, but
         # it may not add one, move to another milestone, or change the contract.
-        cases = {"narrowed": ({"acceptance_criteria": ["C2"]}, {}, None),
-                 "unchanged": ({}, {}, None),
-                 "widened": ({"acceptance_criteria": ["C2", "C3"]}, {}, "changed before admission"),
-                 "other milestone": ({"milestone_id": "M2", "acceptance_criteria": ["C2"]}, {}, "changed before admission"),
-                 "joined wave": ({"milestone_ids": ["M1", "M2"], "acceptance_criteria": ["C2"]}, {}, "changed before admission"),
-                 "no criteria": ({"acceptance_criteria": []}, {}, "changed before admission"),
-                 "other contract": ({"acceptance_criteria": ["C2"]}, {"hash": "h2"}, "changed before admission"),
-                 "other job": ({"acceptance_criteria": ["C2"]}, {"task_id": "other-job"}, "changed before admission")}
+        cases = {
+            "narrowed": ({"acceptance_criteria": ["C2"]}, {}, None),
+            "unchanged": ({}, {}, None),
+            "widened": ({"acceptance_criteria": ["C2", "C3"]}, {}, "changed before admission"),
+            "other milestone": ({"milestone_id": "M2", "acceptance_criteria": ["C2"]}, {}, "changed before admission"),
+            "joined wave": (
+                {"milestone_ids": ["M1", "M2"], "acceptance_criteria": ["C2"]},
+                {},
+                "changed before admission",
+            ),
+            "no criteria": ({"acceptance_criteria": []}, {}, "changed before admission"),
+            "other contract": ({"acceptance_criteria": ["C2"]}, {"hash": "h2"}, "changed before admission"),
+            "other job": ({"acceptance_criteria": ["C2"]}, {"task_id": "other-job"}, "changed before admission"),
+        }
         for name, (task, contract, refused) in cases.items():
             with self.subTest(name):
                 state = self.two_criteria_failure()
@@ -639,29 +907,45 @@ class RecoveryPacketTests(unittest.TestCase):
                 # Narrowing buys no novelty: the same incident still needs a new change.
                 state["stages"].append(attempt)
                 with self.assertRaisesRegex(util.Paused, "No causal progress"):
-                    recovery.admit_dispatch(state, {"stage": "terra", "output": str(self.run / "again.json")},
-                                            self.root, self.run)
+                    recovery.admit_dispatch(
+                        state, {"stage": "terra", "output": str(self.run / "again.json")}, self.root, self.run
+                    )
 
     def test_a_repair_may_keep_a_criterion_the_reviewed_decision_assigned(self):
         # Live run 1y_2l0cv (#185): an earlier repair kept 6 of M1's 11 criteria; the Completion Reviewer's
         # REWORK named a dropped one again, as its prompt allows, and the Resolver's repair that followed
         # it paused as a stale handoff. Here the failed task owns C1 and C2 of M1 (C1-C3).
-        cases = {"the decision's criteria": (["C2", "C3"], "M1", ["C2", "C3"], None),
-                 "one the decision did not name": (["C2"], "M1", ["C2", "C3"], "changed before admission"),
-                 "the decision is another milestone's": (["C2", "C3"], "M2", ["C2", "C3"], "changed before admission"),
-                 "outside the milestone": (["C2", "C4"], "M1", ["C2", "C4"], "changed before admission")}
+        cases = {
+            "the decision's criteria": (["C2", "C3"], "M1", ["C2", "C3"], None),
+            "one the decision did not name": (["C2"], "M1", ["C2", "C3"], "changed before admission"),
+            "the decision is another milestone's": (["C2", "C3"], "M2", ["C2", "C3"], "changed before admission"),
+            "outside the milestone": (["C2", "C4"], "M1", ["C2", "C4"], "changed before admission"),
+        }
         for name, (decided, milestone, repair, refused) in cases.items():
             with self.subTest(name):
                 state = copy.deepcopy(self.state)
                 body = state["goal_contract"]["body"]
-                body["acceptance_criteria"] += [{"id": cid, "criterion": f"Criterion {cid}"} for cid in ("C2", "C3", "C4")]
-                body["milestones"] = [{"id": "M1", "acceptance_criteria": ["C1", "C2", "C3"]},
-                                      {"id": "M2", "acceptance_criteria": ["C4"]}]
+                body["acceptance_criteria"] += [
+                    {"id": cid, "criterion": f"Criterion {cid}"} for cid in ("C2", "C3", "C4")
+                ]
+                body["milestones"] = [
+                    {"id": "M1", "acceptance_criteria": ["C1", "C2", "C3"]},
+                    {"id": "M2", "acceptance_criteria": ["C4"]},
+                ]
                 state["current_task"]["acceptance_criteria"] = ["C1", "C2"]
-                state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
+                state["resolution_request"] = {
+                    key: value for key, value in self.request.items() if key != "recovery_packet"
+                }
                 record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
-                recovery.prepare_resolution(state, {"status": "REWORK", "summary": "Open question missing", "next_task": {
-                    "milestone_id": milestone, "acceptance_criteria": decided}}, record)
+                recovery.prepare_resolution(
+                    state,
+                    {
+                        "status": "REWORK",
+                        "summary": "Open question missing",
+                        "next_task": {"milestone_id": milestone, "acceptance_criteria": decided},
+                    },
+                    record,
+                )
                 state["current_task"].update(id="T2", acceptance_criteria=repair)
                 plan = {"tasks": [copy.deepcopy(state["current_task"])]}
                 recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
@@ -676,9 +960,12 @@ class RecoveryPacketTests(unittest.TestCase):
                 self.assertEqual("repair", attempt["recovery_novelty"]["action"])
 
     def test_execution_timeout_model_and_permission_changes_still_invalidate_binding(self):
-        for settings in ({"limits": {"stage_timeout_seconds": 0}}, {"allow_no_changes": True},
-                         {"transport_identities": {"opencode": {"base_url": "different-endpoint"}}},
-                         {"roles": {"terra": {"model": "different", "model_pinned": True}}}):
+        for settings in (
+            {"limits": {"stage_timeout_seconds": 0}},
+            {"allow_no_changes": True},
+            {"transport_identities": {"opencode": {"base_url": "different-endpoint"}}},
+            {"roles": {"terra": {"model": "different", "model_pinned": True}}},
+        ):
             state = copy.deepcopy(self.state)
             state["settings"].update(settings)
             with self.assertRaisesRegex(util.Paused, "settings"):
@@ -687,8 +974,12 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_integrated_parent_keeps_existing_handoff_without_opening_worker_artifacts(self):
         state = copy.deepcopy(self.state)
         state["current_task"]["milestone_ids"] = ["M1", "M2"]
-        state["resolution_request"] = {"source_revision": "s1", "evidence_hashes": {
-            str(self.root / ".autocode" / "workers" / "owned-child" / "proof.json"): "already-validated-parent-pin"}}
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "evidence_hashes": {
+                str(self.root / ".autocode" / "workers" / "owned-child" / "proof.json"): "already-validated-parent-pin"
+            },
+        }
         pins = copy.deepcopy(state["resolution_request"]["evidence_hashes"])
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
         with patch.object(recovery, "_archive", side_effect=AssertionError("must not open a worker artifact")):
@@ -705,13 +996,19 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_existing_builder_exhaustion_precedes_diagnosis_and_is_idempotent(self):
         state = copy.deepcopy(self.state)
         state["settings"]["roles"]["terra"].update(model="pinned-builder")
-        state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 0, "strong_model": "strong",
-                                               "strong_reasoning_effort": "high"}
-        state["milestone_progress"] = {"M1": {"contract_hash": "h", "milestone_ids": ["M1"],
-                                               "needs_replan": True}}
+        state["settings"]["builder_retry"] = {
+            "enabled": True,
+            "ordinary_retries": 0,
+            "strong_model": "strong",
+            "strong_reasoning_effort": "high",
+        }
+        state["milestone_progress"] = {"M1": {"contract_hash": "h", "milestone_ids": ["M1"], "needs_replan": True}}
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
-        state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output),
-                                       "evidence_hashes": {str(self.output): util.file_hash(self.output)}}
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": {str(self.output): util.file_hash(self.output)},
+        }
         recovery.prepare_resolution(state, {"summary": "Actual failed candidate"}, record)
         settings = copy.deepcopy(state["settings"])
         for _ in range(2):
@@ -736,8 +1033,13 @@ class RecoveryPacketTests(unittest.TestCase):
         state["resolver"] = {"diagnostic_calls": 1}
         state["settings"]["operational_diagnosis"] = {"max_calls_per_run": 2}
         original = copy.deepcopy(state)
-        request = {"source_revision": "s1", "description": "Repeated report failure", "evidence_hashes": {
-            str(self.root / ".autocode" / "workers" / "owned-child" / "report.json"): "existing-parent-pin"}}
+        request = {
+            "source_revision": "s1",
+            "description": "Repeated report failure",
+            "evidence_hashes": {
+                str(self.root / ".autocode" / "workers" / "owned-child" / "report.json"): "existing-parent-pin"
+            },
+        }
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
         with patch.object(recovery, "_archive", side_effect=AssertionError("must not open a worker artifact")):
             recovery.prepare_diagnosis(state, request, record, self.run)
@@ -748,13 +1050,19 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_available_builder_preview_never_spends_or_escalates(self):
         state = copy.deepcopy(self.state)
         state["settings"]["roles"]["terra"].update(model="builder", model_pinned=False)
-        state["settings"]["builder_retry"] = {"enabled": True, "ordinary_retries": 1, "strong_model": "strong",
-                                               "strong_reasoning_effort": "high"}
-        state["milestone_progress"] = {"M1": {"contract_hash": "h", "milestone_ids": ["M1"],
-                                               "needs_replan": True}}
+        state["settings"]["builder_retry"] = {
+            "enabled": True,
+            "ordinary_retries": 1,
+            "strong_model": "strong",
+            "strong_reasoning_effort": "high",
+        }
+        state["milestone_progress"] = {"M1": {"contract_hash": "h", "milestone_ids": ["M1"], "needs_replan": True}}
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
-        state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output),
-                                       "evidence_hashes": {str(self.output): util.file_hash(self.output)}}
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": {str(self.output): util.file_hash(self.output)},
+        }
         recovery.prepare_resolution(state, {"summary": "Actual failed candidate"}, record)
         settings = copy.deepcopy(state["settings"])
         progress = copy.deepcopy(state["milestone_progress"])
@@ -768,13 +1076,35 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def test_claimed_builder_grant_without_matching_operator_receipt_cannot_dispatch(self):
         packet = self.packet()
-        self.state["stages"].append({"stage": "terra", "recovery_novelty": {
-            "dispatch_id": "previous", "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
-            "action": "repair", "change_id": None}})
-        self.state["builder_retry_decisions"] = [{"owner": "user_cli", "action": "retry", "at": "claimed",
-            "milestone_key": util.digest(["h", ["M1"]]), "failure": str(self.output)}]
-        self.state["user_events"] = [{"kind": "builder_retry", "actor": "provider", "at": "claimed",
-                                     "milestone_ids": ["M1"], "failure": str(self.output)}]
+        self.state["stages"].append(
+            {
+                "stage": "terra",
+                "recovery_novelty": {
+                    "dispatch_id": "previous",
+                    "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
+                    "action": "repair",
+                    "change_id": None,
+                },
+            }
+        )
+        self.state["builder_retry_decisions"] = [
+            {
+                "owner": "user_cli",
+                "action": "retry",
+                "at": "claimed",
+                "milestone_key": util.digest(["h", ["M1"]]),
+                "failure": str(self.output),
+            }
+        ]
+        self.state["user_events"] = [
+            {
+                "kind": "builder_retry",
+                "actor": "provider",
+                "at": "claimed",
+                "milestone_ids": ["M1"],
+                "failure": str(self.output),
+            }
+        ]
         attempt = {"stage": "astra_resolve", "output": str(self.run / "unauthorized.json")}
         with self.assertRaisesRegex(util.Paused, "No causal progress"):
             recovery.admit_dispatch(self.state, attempt, self.root, self.run)
@@ -793,12 +1123,24 @@ class RecoveryPacketTests(unittest.TestCase):
         # #422: a diagnosis's accepted retry does not depend on its proposed change. One the
         # packet cannot attest is passed on as unattested advice with the reason, under a key
         # admit_dispatch does not read, instead of voiding the retry or vanishing.
-        change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
-                  "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-                  "evidence_refs": [str(self.events)], "question": ""}
+        change = {
+            "hypothesis": "Wrong answer return branch",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "evidence_refs": [str(self.events)],
+            "question": "",
+        }
         self.assertEqual((change, None), recovery.diagnosis_change(self.request, change, self.run))
-        for mutation in ({"expected_check": "ruby test.rb"}, {"target": "source.rb"},
-                         {"evidence_refs": ["invented"]}, {"before": "return 9"}, "not an object"):
+        for mutation in (
+            {"expected_check": "ruby test.rb"},
+            {"target": "source.rb"},
+            {"evidence_refs": ["invented"]},
+            {"before": "return 9"},
+            "not an object",
+        ):
             with self.subTest(mutation=mutation):
                 proposed = {**change, **mutation} if isinstance(mutation, dict) else mutation
                 attested, unattested = recovery.diagnosis_change(self.request, proposed, self.run)
@@ -817,23 +1159,39 @@ class RecoveryPacketTests(unittest.TestCase):
     def test_diagnosis_records_which_check_an_unproven_change_failed(self):
         # #418: an unproven proposal is no longer a raised stale handoff, so its reason is
         # the check it failed, named the same way in a novelty hold.
-        change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
-                  "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-                  "evidence_refs": [str(self.events)], "question": ""}
+        change = {
+            "hypothesis": "Wrong answer return branch",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "evidence_refs": [str(self.events)],
+            "question": "",
+        }
         unbounded = "not a bounded attested source change with the original discriminating check"
         unpinned = "evidence_refs do not cite pinned originals"
-        cases = (("Return 3 instead", "not an object"), (["return 3"], "not an object"),
-                 ({"before": "return  2"}, unbounded), ({"before": "return 2", "after": "return 2"}, unbounded),
-                 ({"expected_check": "python -m unittest"}, unbounded), ({"target": "elsewhere.py"}, unbounded),
-                 ({"hypothesis": ""}, unbounded), ({"evidence_refs": []}, unpinned), ({"evidence_refs": "events"}, unpinned),
-                 ({"evidence_refs": ["/foreign/receipt"]}, unpinned), ({"evidence_refs": ["event:invented"]}, unpinned))
+        cases = (
+            ("Return 3 instead", "not an object"),
+            (["return 3"], "not an object"),
+            ({"before": "return  2"}, unbounded),
+            ({"before": "return 2", "after": "return 2"}, unbounded),
+            ({"expected_check": "python -m unittest"}, unbounded),
+            ({"target": "elsewhere.py"}, unbounded),
+            ({"hypothesis": ""}, unbounded),
+            ({"evidence_refs": []}, unpinned),
+            ({"evidence_refs": "events"}, unpinned),
+            ({"evidence_refs": ["/foreign/receipt"]}, unpinned),
+            ({"evidence_refs": ["event:invented"]}, unpinned),
+        )
         for mutation, why in cases:
             with self.subTest(mutation=mutation):
                 proposed = {**change, **mutation} if isinstance(mutation, dict) else mutation
                 attested, unattested = recovery.diagnosis_change(self.request, proposed, self.run)
                 self.assertIsNone(attested)
-                self.assertEqual({"change": proposed, "reason": f"Recovery packet: proposed change is unproven ({why})"},
-                                 unattested)
+                self.assertEqual(
+                    {"change": proposed, "reason": f"Recovery packet: proposed change is unproven ({why})"}, unattested
+                )
         # Attested bounds that prove no structural novelty are not unproven: novelty decides them.
         cosmetic = {**change, "after": "return (2)"}
         self.assertEqual((cosmetic, None), recovery.diagnosis_change(self.request, cosmetic, self.run))
@@ -842,30 +1200,65 @@ class RecoveryPacketTests(unittest.TestCase):
         packet = self.packet()
         old, new = '{"files": {"lib.py": "old"}}', '{"files": {"lib.py": "new"}}'
         incident = novelty.Incident(**packet["incidents"][0]).id
-        current = {**packet, "permitted_controls": [inputs.TARGET], "inputs": {inputs.TARGET: new},
-                   "input_pins": {str(self.events): util.file_hash(self.events)},
-                   "prior_receipts": [{"incident_ids": [incident], "packet": "prior"}]}
+        current = {
+            **packet,
+            "permitted_controls": [inputs.TARGET],
+            "inputs": {inputs.TARGET: new},
+            "input_pins": {str(self.events): util.file_hash(self.events)},
+            "prior_receipts": [{"incident_ids": [incident], "packet": "prior"}],
+        }
         prior = {**packet, "inputs": {inputs.TARGET: old}}
         transition = {**change, "target": inputs.TARGET, "before": old, "after": new}
-        cases = ((transition, None), ({**transition, "before": "claimed old input"},
-                                      "not an attested input transition with the original discriminating check"),
-                 ({**transition, "evidence_refs": [str(self.output)]}, "changed input does not cite its attested input evidence"))
-        with patch.object(recovery, "load_packet", side_effect=lambda pointer, _: prior if pointer == "prior" else current):
+        cases = (
+            (transition, None),
+            (
+                {**transition, "before": "claimed old input"},
+                "not an attested input transition with the original discriminating check",
+            ),
+            (
+                {**transition, "evidence_refs": [str(self.output)]},
+                "changed input does not cite its attested input evidence",
+            ),
+        )
+        with patch.object(
+            recovery, "load_packet", side_effect=lambda pointer, _: prior if pointer == "prior" else current
+        ):
             for proposed, why in cases:
                 with self.subTest(input=proposed["before"], refs=proposed["evidence_refs"]):
-                    expected = ((proposed, None) if why is None else
-                                (None, {"change": proposed, "reason": f"Recovery packet: proposed change is unproven ({why})"}))
+                    expected = (
+                        (proposed, None)
+                        if why is None
+                        else (
+                            None,
+                            {"change": proposed, "reason": f"Recovery packet: proposed change is unproven ({why})"},
+                        )
+                    )
                     self.assertEqual(expected, recovery.diagnosis_change(self.request, proposed, self.run))
 
     def test_specific_changed_repair_is_admitted_but_not_marked_accepted(self):
-        self.request["recovery_change"] = {"hypothesis": "Wrong answer return branch", "target": "app.py",
-            "before": "return 2", "after": "return 3", "expected_check": "python -m unittest test_app",
-            "expected_result": "exit 0", "evidence_refs": [str(self.events)], "question": ""}
+        self.request["recovery_change"] = {
+            "hypothesis": "Wrong answer return branch",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "evidence_refs": [str(self.events)],
+            "question": "",
+        }
         recovery.validate_decision(self.state, {"recovery_change": self.request["recovery_change"]}, self.record)
         packet = self.packet()
-        self.state["stages"].append({"stage": "terra", "recovery_novelty": {
-            "dispatch_id": "prior", "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
-            "action": "repair", "change_id": None}})
+        self.state["stages"].append(
+            {
+                "stage": "terra",
+                "recovery_novelty": {
+                    "dispatch_id": "prior",
+                    "incident_ids": [novelty.Incident(**packet["incidents"][0]).id],
+                    "action": "repair",
+                    "change_id": None,
+                },
+            }
+        )
         plan = {"tasks": [self.state["current_task"]]}
         recovery.finish_resolution_packet(self.state, self.request, plan)
         self.state["repair_plan"] = plan
@@ -879,9 +1272,16 @@ class RecoveryPacketTests(unittest.TestCase):
         # #418: the Resolver's decision stands instead of a stale handoff. Its unproven proposal
         # has no identity and reaches the Builder's plan only as advice with the check it failed,
         # as a diagnosis's does (#422), so a repeated Builder repair holds as no progress.
-        change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
-                  "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-                  "evidence_refs": [str(self.events)], "question": ""}
+        change = {
+            "hypothesis": "Wrong answer return branch",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "evidence_refs": [str(self.events)],
+            "question": "",
+        }
         unproven = {**change, "evidence_refs": ["/foreign/receipt"]}
         packet = self.packet()
         for proposed, attested in ((change, True), (unproven, False)):
@@ -889,21 +1289,37 @@ class RecoveryPacketTests(unittest.TestCase):
                 state = copy.deepcopy(self.state)
                 request = state["resolution_request"]
                 recovery.validate_decision(state, {"recovery_change": proposed}, self.record)
-                self.assertEqual((proposed, attested), (request["recovery_change"], request["recovery_change_id"] is not None))
+                self.assertEqual(
+                    (proposed, attested), (request["recovery_change"], request["recovery_change_id"] is not None)
+                )
                 plan = {"tasks": [state["current_task"]]}
                 recovery.finish_resolution_packet(state, request, plan)
                 if attested:
-                    self.assertEqual((proposed, request["recovery_change_id"]), (plan["recovery_change"], plan["recovery_change_id"]))
+                    self.assertEqual(
+                        (proposed, request["recovery_change_id"]), (plan["recovery_change"], plan["recovery_change_id"])
+                    )
                     self.assertNotIn("unattested_change", plan)
                     continue
-                self.assertEqual({"change": unproven, "reason": "Recovery packet: proposed change is unproven "
-                                  "(evidence_refs do not cite pinned originals)"}, plan["unattested_change"])
+                self.assertEqual(
+                    {
+                        "change": unproven,
+                        "reason": "Recovery packet: proposed change is unproven "
+                        "(evidence_refs do not cite pinned originals)",
+                    },
+                    plan["unattested_change"],
+                )
                 self.assertFalse({"recovery_change", "recovery_change_id"} & set(plan))
                 state["repair_plan"] = plan
                 first = {"stage": "terra", "output": str(self.run / "builder.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
-                self.assertEqual(("repair", "first_incident", None), (first["recovery_novelty"]["action"],
-                                 first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                self.assertEqual(
+                    ("repair", "first_incident", None),
+                    (
+                        first["recovery_novelty"]["action"],
+                        first["recovery_novelty"]["reason"],
+                        first["recovery_novelty"]["change_id"],
+                    ),
+                )
                 state["stages"].append(first)
                 attempt = {"stage": "terra", "output": str(self.run / "builder-again.json"), "started_at": "again"}
                 with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
@@ -916,23 +1332,40 @@ class RecoveryPacketTests(unittest.TestCase):
         # #418: an optional recovery_change that is not a bounded, attested change with pinned
         # refs is unproven, like recovery_change=null: the first occurrence is admitted, a repeat
         # holds as no progress and says why, and neither is a PAUSED_STALE_HANDOFF.
-        change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
-                  "expected_check": "python -m unittest test_app", "expected_result": "exit 0", "question": "Which branch?"}
+        change = {
+            "hypothesis": "Wrong answer",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "question": "Which branch?",
+        }
         pinned = {"evidence_refs": [str(self.events)]}
-        cases = (({"evidence_refs": []}, "pinned originals"), ({"evidence_refs": ["/foreign/receipt"]}, "pinned originals"),
-                 ({"evidence_refs": ["event:invented"]}, "pinned originals"),
-                 ({**pinned, "before": "return  2"}, "not a bounded attested source change"),
-                 ({**pinned, "expected_check": "python -m unittest"}, "not a bounded attested source change"),
-                 ({**pinned, "target": "elsewhere.py"}, "not a bounded attested source change"),
-                 ("Return 3 instead", "not an object"), (["return 3"], "not an object"))
+        cases = (
+            ({"evidence_refs": []}, "pinned originals"),
+            ({"evidence_refs": ["/foreign/receipt"]}, "pinned originals"),
+            ({"evidence_refs": ["event:invented"]}, "pinned originals"),
+            ({**pinned, "before": "return  2"}, "not a bounded attested source change"),
+            ({**pinned, "expected_check": "python -m unittest"}, "not a bounded attested source change"),
+            ({**pinned, "target": "elsewhere.py"}, "not a bounded attested source change"),
+            ("Return 3 instead", "not an object"),
+            (["return 3"], "not an object"),
+        )
         for bad, why in cases:
             with self.subTest(bad=bad):
                 state = copy.deepcopy(self.state)
                 state["resolution_request"]["recovery_change"] = {**change, **bad} if isinstance(bad, dict) else bad
                 first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
-                self.assertEqual(("diagnosis", "first_incident", None), (first["recovery_novelty"]["action"],
-                                 first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                self.assertEqual(
+                    ("diagnosis", "first_incident", None),
+                    (
+                        first["recovery_novelty"]["action"],
+                        first["recovery_novelty"]["reason"],
+                        first["recovery_novelty"]["change_id"],
+                    ),
+                )
                 state["stages"].append(first)
                 again = {"stage": "astra_resolve", "output": str(self.run / "again.json"), "started_at": "again"}
                 with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
@@ -944,9 +1377,16 @@ class RecoveryPacketTests(unittest.TestCase):
 
     def test_unproven_proposal_still_fails_closed_on_tampered_evidence(self):
         # #418 does not relax load_packet: changed retained evidence is still a stale handoff.
-        self.request["recovery_change"] = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return  2",
-            "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-            "question": "Which branch?", "evidence_refs": []}
+        self.request["recovery_change"] = {
+            "hypothesis": "Wrong answer",
+            "target": "app.py",
+            "before": "return  2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "question": "Which branch?",
+            "evidence_refs": [],
+        }
         archived = Path(self.packet()["originals"][0]["path"])
         archived.write_text(archived.read_text().replace("{", "{ ", 1))
         attempt = {"stage": "astra_resolve", "output": str(self.run / "not-launched.json")}
@@ -956,9 +1396,16 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertNotIn("recovery_novelty", attempt)
 
     def test_current_validator_event_alias_resolves_only_to_its_pinned_stream(self):
-        change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
-                  "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-                  "question": "Which branch?", "evidence_refs": ["event:check"]}
+        change = {
+            "hypothesis": "Wrong answer",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "question": "Which branch?",
+            "evidence_refs": ["event:check"],
+        }
         self.request["recovery_change"] = change
         attempt = {"stage": "astra_resolve", "output": str(self.run / "alias-diagnosis.json")}
         recovery.admit_dispatch(self.state, attempt, self.root, self.run)
@@ -968,14 +1415,26 @@ class RecoveryPacketTests(unittest.TestCase):
         original = {"files": {"lib.py": "old"}, "consumer_contract": "h"}
         changed = {"files": {"lib.py": "new"}, "consumer_contract": "h"}
         old, new = json.dumps(original, sort_keys=True), json.dumps(changed, sort_keys=True)
-        change = {"target": inputs.TARGET, "hypothesis": "The registered dependency supplies the missing export",
-            "before": old, "after": new, "expected_check": "python -m unittest test_app", "expected_result": "exit 0"}
+        change = {
+            "target": inputs.TARGET,
+            "hypothesis": "The registered dependency supplies the missing export",
+            "before": old,
+            "after": new,
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+        }
         kwargs = {"operations": {"python -m unittest test_app"}}
         ident = inputs.change_identity(change, {inputs.TARGET: new}, {inputs.TARGET: old}, **kwargs)
         self.assertTrue(ident)
-        for bad in ({"target": "input:arbitrary_environment"}, {"before": "claimed old input"},
-                    {"after": "claimed new input"}, {"expected_check": "unrelatedcheck"}):
-            self.assertIsNone(inputs.change_identity({**change, **bad}, {inputs.TARGET: new}, {inputs.TARGET: old}, **kwargs))
+        for bad in (
+            {"target": "input:arbitrary_environment"},
+            {"before": "claimed old input"},
+            {"after": "claimed new input"},
+            {"expected_check": "unrelatedcheck"},
+        ):
+            self.assertIsNone(
+                inputs.change_identity({**change, **bad}, {inputs.TARGET: new}, {inputs.TARGET: old}, **kwargs)
+            )
         self.assertIsNone(inputs.change_identity(change, {inputs.TARGET: new}, {inputs.TARGET: new}, **kwargs))
 
     def test_dependency_capture_requires_the_existing_user_receipt_and_live_pins(self):
@@ -987,23 +1446,48 @@ class RecoveryPacketTests(unittest.TestCase):
         contract.update(hash=util.digest(contract), approval_status="approved")
         snapshot = {"head": "saved-producer-head", "files": files}
         revision = util.digest(snapshot)
-        for name, value in (("contract.json", contract), ("source-snapshot.json", snapshot),
-                            ("validator.json", {"verdict": "PASS", "contract_hash": contract["hash"]}),
-                            ("reviewer.json", {"status": "TASK_COMPLETE", "contract_hash": contract["hash"]})):
+        for name, value in (
+            ("contract.json", contract),
+            ("source-snapshot.json", snapshot),
+            ("validator.json", {"verdict": "PASS", "contract_hash": contract["hash"]}),
+            ("reviewer.json", {"status": "TASK_COMPLETE", "contract_hash": contract["hash"]}),
+        ):
             util.atomic_json(root / name, value)
         producer = str(self.root / "producer")
-        receipt = {"producer_workspace": producer, "producer_run": producer + "/.autocode/runs/one",
-            "consumer_contract": "h", "producer_contract": contract["hash"], "source_revision": revision,
-            "verified_complete": True, "files": files,
+        receipt = {
+            "producer_workspace": producer,
+            "producer_run": producer + "/.autocode/runs/one",
+            "consumer_contract": "h",
+            "producer_contract": contract["hash"],
+            "source_revision": revision,
+            "verified_complete": True,
+            "files": files,
             "pins": {name: util.file_hash(root / name) for name in ("contract.json", "source-snapshot.json")},
-            "proofs": {role: {"path": role + ".json", "sha256": util.file_hash(root / (role + ".json")),
-                               "source_revision": revision} for role in ("validator", "reviewer")}}
+            "proofs": {
+                role: {
+                    "path": role + ".json",
+                    "sha256": util.file_hash(root / (role + ".json")),
+                    "source_revision": revision,
+                }
+                for role in ("validator", "reviewer")
+            },
+        }
         manifest = root / "manifest.json"
         util.atomic_json(manifest, receipt)
-        wait = {"status": "delivered", "authorization": "user_cli_dependency_binding", "consumer_contract": "h",
-            "consumer_source": "s1", "destination": "evidence/dependency", "files": ["lib.py"],
-            "producer_run": receipt["producer_run"], "producer_workspace": producer, "request_id": "registered-request",
-            "manifest": str(manifest), "manifest_sha256": util.file_hash(manifest), "next_stage": "terra"}
+        wait = {
+            "status": "delivered",
+            "authorization": "user_cli_dependency_binding",
+            "consumer_contract": "h",
+            "consumer_source": "s1",
+            "destination": "evidence/dependency",
+            "files": ["lib.py"],
+            "producer_run": receipt["producer_run"],
+            "producer_workspace": producer,
+            "request_id": "registered-request",
+            "manifest": str(manifest),
+            "manifest_sha256": util.file_hash(manifest),
+            "next_stage": "terra",
+        }
         self.state["dependency_wait"] = wait
         with self.assertRaisesRegex(ValueError, "matching user binding"):
             inputs.capture(self.state, self.run)
@@ -1014,8 +1498,14 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual(6, len(pins))
         self.assertEqual(before, self.state)
         record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
-        self.state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": {
-            str(self.output): util.file_hash(self.output), str(self.events): util.file_hash(self.events)}}
+        self.state["resolution_request"] = {
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": {
+                str(self.output): util.file_hash(self.output),
+                str(self.events): util.file_hash(self.events),
+            },
+        }
         recovery.prepare_resolution(self.state, {"summary": "Same failure after delivery"}, record)
         (root / "source" / "lib.py").write_text("tampered = True\n")
         with self.assertRaisesRegex(ValueError, "source hash mismatch"):
@@ -1039,8 +1529,11 @@ class RecoveryPacketTests(unittest.TestCase):
         state = copy.deepcopy(self.state)
         if recorded:
             state["stages"][-1]["tool_containment"] = {"version": 1, "scratch": str(recorded)}
-        state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": {
-            str(path): util.file_hash(path) for path in (self.output, self.events, receipt, raw)}}
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": {str(path): util.file_hash(path) for path in (self.output, self.events, receipt, raw)},
+        }
         return state, receipt, raw
 
     def test_contained_validator_scratch_capture_is_archived_as_this_runs_evidence(self):
@@ -1058,11 +1551,13 @@ class RecoveryPacketTests(unittest.TestCase):
         recovery.prepare_resolution(state, {"summary": "Recorded scratch"}, copy.deepcopy(record))
         sibling, misnamed, control = self.scratch(), self.scratch("tool-containment-" + "g" * 32), self.scratch().parent
         foreign = self.root / ".autocode" / "runs" / "foreign" / ("tool-containment-" + "a" * 32) / "scratch"
-        cases = {"unrecorded": (self.scratch(), None),
-                 "beside the recorded scratch": (sibling.with_name("scratch-copy"), sibling),
-                 "not a runner-made name": (misnamed, misnamed),
-                 "the control directory, not its scratch": (control, control),
-                 "inside another run": (foreign, foreign)}
+        cases = {
+            "unrecorded": (self.scratch(), None),
+            "beside the recorded scratch": (sibling.with_name("scratch-copy"), sibling),
+            "not a runner-made name": (misnamed, misnamed),
+            "the control directory, not its scratch": (control, control),
+            "inside another run": (foreign, foreign),
+        }
         for label, (evidence, recorded) in cases.items():
             with self.subTest(label=label):
                 state, _, _ = self.contained_capture(evidence, recorded=recorded)
@@ -1076,7 +1571,8 @@ class RecoveryPacketTests(unittest.TestCase):
         scratch.symlink_to(elsewhere)
         state["resolution_request"]["evidence_hashes"] = {
             str(scratch / Path(path).name) if Path(path).parent == elsewhere else path: digest
-            for path, digest in state["resolution_request"]["evidence_hashes"].items()}
+            for path, digest in state["resolution_request"]["evidence_hashes"].items()
+        }
         with self.assertRaisesRegex(util.Paused, "symlink"):
             recovery.prepare_resolution(state, {"summary": "Symlinked scratch"}, copy.deepcopy(record))
 
@@ -1088,13 +1584,24 @@ class RecoveryPacketTests(unittest.TestCase):
         png(retained / "home.png")
         state = copy.deepcopy(self.state)
         state["settings"]["design_manifest"] = {"manifest_hash": reference, "root": str(retained)}
-        screen = {"id": "home", "route": "/", "state": "ready",
-                  "viewport": {"width": 2, "height": 1, "device_scale_factor": 1}}
+        screen = {
+            "id": "home",
+            "route": "/",
+            "state": "ready",
+            "viewport": {"width": 2, "height": 1, "device_scale_factor": 1},
+        }
         item = make_capture(self.root, reference, screen, asset="app.py")
         current = {"revision": "s1", "files": {"app.py": util.file_hash(self.source)}}
         _, refs = visual.verify(state, item["capture_ref"], item["capture_sha256"], current=current)
-        pins = {str(path): util.file_hash(path) for path in (self.output, self.events, retained / "home.png", *map(Path, refs))}
-        state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": pins}
+        pins = {
+            str(path): util.file_hash(path)
+            for path in (self.output, self.events, retained / "home.png", *map(Path, refs))
+        }
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "source_output": str(self.output),
+            "evidence_hashes": pins,
+        }
         return state, Path(item["capture_ref"]), retained / "home.png"
 
     def test_design_capture_bundle_and_retained_reference_are_archived_as_this_runs_evidence(self):
@@ -1118,21 +1625,48 @@ class RecoveryPacketTests(unittest.TestCase):
         self.state["iteration"] = 2
         self.state["settings"]["roles"] = {"terra": {"model": "builder"}, "sol": {"model": "reviewer"}}
         identity = {"task_id": "T1", "contract_hash": "h", "contract_revision": 1}
-        change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
-                  "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-                  "question": "", "evidence_refs": [str(self.events)], **mutation}
-        decision = {**identity, "status": "REWORK", "user_request": {"kind": "none"},
-                    "next_objective": "Return the accepted answer", "recovery_change": change,
-                    "next_task": {"kind": "implement"}}
+        change = {
+            "hypothesis": "Wrong answer",
+            "target": "app.py",
+            "before": "return 2",
+            "after": "return 3",
+            "expected_check": "python -m unittest test_app",
+            "expected_result": "exit 0",
+            "question": "",
+            "evidence_refs": [str(self.events)],
+            **mutation,
+        }
+        decision = {
+            **identity,
+            "status": "REWORK",
+            "user_request": {"kind": "none"},
+            "next_objective": "Return the accepted answer",
+            "recovery_change": change,
+            "next_task": {"kind": "implement"},
+        }
         completion_events = self.run / "completion.jsonl"
         completion_events.write_text('{"type":"turn.completed"}\n')
         reported = self.run / "completion.reported.json"
         reported.write_text(json.dumps(decision))
         self.output.write_text(json.dumps(decision))
-        record = {**identity, "stage": "astra_review", "source_revision": "s1", "exit_code": 0,
-                  "output": str(self.output), "events": str(completion_events), "reported_output": str(reported)}
-        accepted = {**identity, "stage": "sol", "role": "sol", "source_revision": "s1", "exit_code": 0,
-                    "output": str(self.validator), "events": str(self.events)}
+        record = {
+            **identity,
+            "stage": "astra_review",
+            "source_revision": "s1",
+            "exit_code": 0,
+            "output": str(self.output),
+            "events": str(completion_events),
+            "reported_output": str(reported),
+        }
+        accepted = {
+            **identity,
+            "stage": "sol",
+            "role": "sol",
+            "source_revision": "s1",
+            "exit_code": 0,
+            "output": str(self.validator),
+            "events": str(self.events),
+        }
         report = {**identity, "verdict": "FAIL", "checks": self.state["validation"]["checks"]}
         self.validator.write_text(json.dumps(report))
         rework.capture(record, decision)
@@ -1142,19 +1676,29 @@ class RecoveryPacketTests(unittest.TestCase):
         raw.write_text("AssertionError: 2 != 3\n")
         receipt = evidence / "executed-check.receipt.json"
         receipt.write_text(json.dumps({"full_output": str(raw)}))
-        self.state["validation"] = {**report, "source_revision": "s1", "reviewer_role": "sol", "output": str(self.validator),
-            "evidence_hashes": {str(path): util.file_hash(path) for path in (self.events, raw, receipt)}}
+        self.state["validation"] = {
+            **report,
+            "source_revision": "s1",
+            "reviewer_role": "sol",
+            "output": str(self.validator),
+            "evidence_hashes": {str(path): util.file_hash(path) for path in (self.events, raw, receipt)},
+        }
         self.state["stages"] = [{"stage": "terra", "role": "terra", "task_id": "T1"}, accepted]
-        runtime = SimpleNamespace(lifecycle=SimpleNamespace(assign_task=Mock()), support=SimpleNamespace(
-            snapshot=util.snapshot, verify_checks=Mock()), check_evidence_options=lambda _: {})
+        runtime = SimpleNamespace(
+            lifecycle=SimpleNamespace(assign_task=Mock()),
+            support=SimpleNamespace(snapshot=util.snapshot, verify_checks=Mock()),
+            check_evidence_options=lambda _: {},
+        )
         retry = SimpleNamespace(enabled=lambda _: True, failure=Mock(return_value="retry"))
         paths = [self.output, completion_events, reported, self.validator, self.events, raw, receipt]
         return decision, record, raw, paths, runtime, retry
 
     def known_correction_prepared(self, decision, record, paths):
         state, current_record = copy.deepcopy(self.state), copy.deepcopy(record)
-        state["resolution_request"] = {"source_revision": "s1", "evidence_hashes": {
-            str(path): util.file_hash(path) for path in paths}}
+        state["resolution_request"] = {
+            "source_revision": "s1",
+            "evidence_hashes": {str(path): util.file_hash(path) for path in paths},
+        }
         current_record.update(finished_at="2026-10-03T00:00:00Z", processes=[{"pid": 123, "birth_identity": 42}])
         state["active_stage"] = copy.deepcopy(current_record)
         recovery.prepare_resolution(state, decision, current_record)
@@ -1169,33 +1713,45 @@ class RecoveryPacketTests(unittest.TestCase):
         runtime.goals = SimpleNamespace(record_decision=Mock())
         runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
         with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
-            self.assertTrue(recovery.route_known_change(runtime, state, decision, current_record,
-                                                        run_dir=self.run, retry_policy=retry))
+            self.assertTrue(
+                recovery.route_known_change(
+                    runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                )
+            )
         self.assertEqual("known-correction", state["repair_plan"]["kind"])
         self.assertIn(str(raw), state["repair_plan"]["evidence_hashes"])
 
     def test_attested_correction_with_verified_operational_check_does_not_charge_or_assign(self):
         baseline = copy.deepcopy(self.state)
         baseline_event = json.loads(self.events.read_text())
-        for metadata in ({'timed_out': True}, {'interrupted': True}, {'error': 'receipt unavailable'},
-                         {'supervision_errors': ['not stopped']}):
+        for metadata in (
+            {"timed_out": True},
+            {"interrupted": True},
+            {"error": "receipt unavailable"},
+            {"supervision_errors": ["not stopped"]},
+        ):
             with self.subTest(metadata=metadata):
                 self.state = copy.deepcopy(baseline)
-                self.state['validation']['checks'][0].update(metadata)
+                self.state["validation"]["checks"][0].update(metadata)
                 event = copy.deepcopy(baseline_event)
-                event['item'].update(metadata)
-                self.events.write_text(json.dumps(event) + '\n')
+                event["item"].update(metadata)
+                self.events.write_text(json.dumps(event) + "\n")
                 decision, record, _, paths, runtime, retry = self.known_correction(self.run)
                 state, current_record = self.known_correction_prepared(decision, record, paths)
-                queued = copy.deepcopy(state['resolution_request'])
-                with patch.object(recovery.processes, 'recorded_worker_state', return_value={'checked': True, 'alive': False}):
-                    self.assertFalse(recovery.route_known_change(runtime, state, decision, current_record,
-                                                                 run_dir=self.run, retry_policy=retry))
+                queued = copy.deepcopy(state["resolution_request"])
+                with patch.object(
+                    recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}
+                ):
+                    self.assertFalse(
+                        recovery.route_known_change(
+                            runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                        )
+                    )
                 runtime.support.verify_checks.assert_called_once()
                 runtime.lifecycle.assign_task.assert_not_called()
                 retry.failure.assert_not_called()
-                self.assertEqual(queued, {key: state['resolution_request'][key] for key in queued})
-                self.assertNotIn('repair_plan', state)
+                self.assertEqual(queued, {key: state["resolution_request"][key] for key in queued})
+                self.assertNotIn("repair_plan", state)
 
     def test_known_correction_is_held_only_by_a_repair_that_returned_a_result(self):
         # #422: the same change's earlier Builder dispatch, archived without a report, did not
@@ -1206,49 +1762,86 @@ class RecoveryPacketTests(unittest.TestCase):
         state, current_record = self.known_correction_prepared(decision, record, paths)
         packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
         recovery.validate_decision(state, decision, current_record)
-        earlier = {"stage": "terra", "role": "terra", "output": str(self.run / "earlier-repair.json"),
-                   "recovery_novelty": {"dispatch_id": "earlier-repair", "action": "repair",
-                                        "incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
-                                        "change_id": state["resolution_request"]["recovery_change_id"]}}
-        for flags, routed in (({"timed_out": True, "accounted": True, "automatic_recovery": True,
-                                "abandoned": True, "rejected": True}, True), ({"exit_code": 0}, False)):
+        earlier = {
+            "stage": "terra",
+            "role": "terra",
+            "output": str(self.run / "earlier-repair.json"),
+            "recovery_novelty": {
+                "dispatch_id": "earlier-repair",
+                "action": "repair",
+                "incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
+                "change_id": state["resolution_request"]["recovery_change_id"],
+            },
+        }
+        for flags, routed in (
+            (
+                {"timed_out": True, "accounted": True, "automatic_recovery": True, "abandoned": True, "rejected": True},
+                True,
+            ),
+            ({"exit_code": 0}, False),
+        ):
             with self.subTest(flags=flags):
                 trial, trial_record = copy.deepcopy(state), copy.deepcopy(current_record)
                 trial["stages"].append({**earlier, **flags})
-                with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
-                    self.assertIs(routed, recovery.route_known_change(runtime, trial, decision, trial_record,
-                                                                       run_dir=self.run, retry_policy=retry))
+                with patch.object(
+                    recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}
+                ):
+                    self.assertIs(
+                        routed,
+                        recovery.route_known_change(
+                            runtime, trial, decision, trial_record, run_dir=self.run, retry_policy=retry
+                        ),
+                    )
 
     def test_unproven_known_correction_goes_to_the_resolver_not_a_stale_handoff(self):
         # #418: routing a known correction requires an attested change. An unproven one is not
         # routed, and is no longer a stale handoff that rejects the Completion review: the queued
         # Resolver route stays, and its admission grants the proposal no novelty.
         snapshot = copy.deepcopy(self.state)
-        for mutation, why in (({"evidence_refs": ["/foreign/receipt"]}, "evidence_refs do not cite pinned originals"),
-                              ({"before": "return  2"}, "not a bounded attested source change")):
+        for mutation, why in (
+            ({"evidence_refs": ["/foreign/receipt"]}, "evidence_refs do not cite pinned originals"),
+            ({"before": "return  2"}, "not a bounded attested source change"),
+        ):
             with self.subTest(mutation=mutation):
                 self.state = copy.deepcopy(snapshot)
                 decision, record, _, paths, runtime, retry = self.known_correction(self.run / "evidence", **mutation)
                 state, current_record = self.known_correction_prepared(decision, record, paths)
-                with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
-                    self.assertFalse(recovery.route_known_change(runtime, state, decision, current_record,
-                                                                 run_dir=self.run, retry_policy=retry))
+                with patch.object(
+                    recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}
+                ):
+                    self.assertFalse(
+                        recovery.route_known_change(
+                            runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                        )
+                    )
                 runtime.lifecycle.assign_task.assert_not_called()
                 retry.failure.assert_not_called()
                 request = state["resolution_request"]
-                self.assertEqual((decision["recovery_change"], None), (request["recovery_change"], request["recovery_change_id"]))
+                self.assertEqual(
+                    (decision["recovery_change"], None), (request["recovery_change"], request["recovery_change_id"])
+                )
                 self.assertNotIn("repair_plan", state)
                 # The queued Resolver request, as queue_resolution binds it, with the finished review reconciled.
                 request.update(source_output=current_record["output"], review=copy.deepcopy(decision))
                 state.pop("active_stage")
                 first = {"stage": "astra_resolve", "output": str(self.run / "resolver.json"), "started_at": "first"}
                 recovery.admit_dispatch(state, first, self.root, self.run)
-                self.assertEqual(("diagnosis", "first_incident", None), (first["recovery_novelty"]["action"],
-                                 first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                self.assertEqual(
+                    ("diagnosis", "first_incident", None),
+                    (
+                        first["recovery_novelty"]["action"],
+                        first["recovery_novelty"]["reason"],
+                        first["recovery_novelty"]["change_id"],
+                    ),
+                )
                 state["stages"].append(first)
                 with self.assertRaisesRegex(util.Paused, "Proposed change is unproven") as caught:
-                    recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "again.json"),
-                                                    "started_at": "again"}, self.root, self.run)
+                    recovery.admit_dispatch(
+                        state,
+                        {"stage": "astra_resolve", "output": str(self.run / "again.json"), "started_at": "again"},
+                        self.root,
+                        self.run,
+                    )
                 self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
                 self.assertIn(why, str(caught.exception))
         # A non-object proposal, outside the schema, is not routed either rather than failing on it.
@@ -1257,8 +1850,16 @@ class RecoveryPacketTests(unittest.TestCase):
         state, current_record = self.known_correction_prepared(decision, record, paths)
         for proposal in ("Return 3 instead", ["return 3"]):
             with self.subTest(proposal=proposal):
-                self.assertFalse(recovery.route_known_change(runtime, state, {**decision, "recovery_change": proposal},
-                                                             current_record, run_dir=self.run, retry_policy=retry))
+                self.assertFalse(
+                    recovery.route_known_change(
+                        runtime,
+                        state,
+                        {**decision, "recovery_change": proposal},
+                        current_record,
+                        run_dir=self.run,
+                        retry_policy=retry,
+                    )
+                )
         runtime.lifecycle.assign_task.assert_not_called()
 
     def test_known_correction_cannot_repin_artifacts_changed_during_queue(self):
@@ -1272,11 +1873,15 @@ class RecoveryPacketTests(unittest.TestCase):
                 state = copy.deepcopy(self.state)
                 # Simulate an ineligible first-repair path queueing current hashes
                 # after an edit. The original sealed reports/pins remain unchanged.
-                state["resolution_request"] = {"source_revision": "s1", "evidence_hashes": {
-                    str(path): util.file_hash(path) for path in paths}}
+                state["resolution_request"] = {
+                    "source_revision": "s1",
+                    "evidence_hashes": {str(path): util.file_hash(path) for path in paths},
+                }
                 recovery.prepare_resolution(state, decision, current_record)
                 with self.assertRaises(util.Paused):
-                    recovery.route_known_change(runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry)
+                    recovery.route_known_change(
+                        runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                    )
                 runtime.lifecycle.assign_task.assert_not_called()
                 retry.failure.assert_not_called()
                 self.assertEqual(immutable, current_record["rework_evidence"])
@@ -1284,12 +1889,16 @@ class RecoveryPacketTests(unittest.TestCase):
         for missing in paths:
             with self.subTest(missing=missing.name):
                 state, current_record = copy.deepcopy(self.state), copy.deepcopy(record)
-                state["resolution_request"] = {"source_revision": "s1", "evidence_hashes": {
-                    str(path): util.file_hash(path) for path in paths}}
+                state["resolution_request"] = {
+                    "source_revision": "s1",
+                    "evidence_hashes": {str(path): util.file_hash(path) for path in paths},
+                }
                 recovery.prepare_resolution(state, decision, current_record)
                 missing.unlink()
                 with self.assertRaises(util.Paused) as caught:
-                    recovery.route_known_change(runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry)
+                    recovery.route_known_change(
+                        runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                    )
                 self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
                 runtime.lifecycle.assign_task.assert_not_called()
                 retry.failure.assert_not_called()
@@ -1303,7 +1912,9 @@ class RecoveryPacketTests(unittest.TestCase):
             active = copy.deepcopy(state["active_stage"])
             with patch.object(recovery.processes, "recorded_worker_state", return_value=worker):
                 with self.assertRaisesRegex(util.Paused, "descendants"):
-                    recovery.route_known_change(runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry)
+                    recovery.route_known_change(
+                        runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                    )
             self.assertEqual(active, state["active_stage"])
             runtime.lifecycle.assign_task.assert_not_called()
             retry.failure.assert_not_called()
@@ -1316,15 +1927,21 @@ class RecoveryPacketTests(unittest.TestCase):
 
         for mutation in ("evidence", "source"):
             state, current_record = prepared()
+
             def preflight(candidate, *_):
                 if mutation == "evidence":
                     raw.write_text("changed during preflight")
                 else:
                     runtime.support.snapshot.return_value = {"revision": "s2", "files": {"app.py": "changed"}}
+
             runtime.lifecycle.assign_task.side_effect = preflight
-            with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
+            with patch.object(
+                recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}
+            ):
                 with self.assertRaises(util.Paused):
-                    recovery.route_known_change(runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry)
+                    recovery.route_known_change(
+                        runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                    )
             self.assertEqual(1, runtime.lifecycle.assign_task.call_count)
             retry.failure.assert_not_called()
             self.assertEqual("T1", state["current_task"]["id"])
@@ -1335,7 +1952,11 @@ class RecoveryPacketTests(unittest.TestCase):
         runtime.goals = SimpleNamespace(record_decision=Mock())
         runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
         with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
-            self.assertTrue(recovery.route_known_change(runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry))
+            self.assertTrue(
+                recovery.route_known_change(
+                    runtime, state, decision, current_record, run_dir=self.run, retry_policy=retry
+                )
+            )
         self.assertEqual(2, runtime.lifecycle.assign_task.call_count)
         retry.failure.assert_called_once()
         self.assertEqual("known-correction", state["repair_plan"]["kind"])
@@ -1343,9 +1964,11 @@ class RecoveryPacketTests(unittest.TestCase):
 
 class RecoveryNoveltyCLI(unittest.TestCase):
     """User-visible recurrence, explicit retry and independent corrected acceptance."""
+
     def setUp(self):
         from scenarios import run  # noqa: F401, I001 - initialize the harness before importing it
         from harness import catalog
+
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix="novelty-cli-", dir=results)
@@ -1358,26 +1981,46 @@ class RecoveryNoveltyCLI(unittest.TestCase):
     def driver(self, fault):
         from harness.driver import Driver, default_autocode, fake_setup
         from harness.project import materialize
+
         scenario = dataclasses.replace(self.scenario, fake_fault="recovery_novelty_" + fault)
         if fault == "nonpython":
-            scenario = dataclasses.replace(scenario, dir=scenario.dir / "nonpython",
-                                          brief=scenario.brief.replace("Repair greet.py", "Repair greet.js"))
+            scenario = dataclasses.replace(
+                scenario,
+                dir=scenario.dir / "nonpython",
+                brief=scenario.brief.replace("Repair greet.py", "Repair greet.js"),
+            )
         self.scenario = scenario
         self.project = materialize(scenario.seed, self.root / "project")
         flags, env = fake_setup(scenario, self.root, scenario.reference)
         if fault == "nonpython":
             flags += ["--builder-strong-model", "gpt-5.4", "--pin-model-role", "sol"]
-        env.update(XDG_CONFIG_HOME=str(self.root / "config"), CODEX_HOME=str(self.root / "codex-home"),
-                   AUTOCODE_PROVIDER="opencode")
+        env.update(
+            XDG_CONFIG_HOME=str(self.root / "config"),
+            CODEX_HOME=str(self.root / "codex-home"),
+            AUTOCODE_PROVIDER="opencode",
+        )
+
         class RecoveryDriver(Driver):
             def call(self, *args, **kwargs):
                 if self.run_dir:
                     initial = self.flags
-                    self.flags = [value for index, value in enumerate(initial) if value != "--builder-strong-model"
-                                  and not (index and initial[index - 1] == "--builder-strong-model")]
+                    self.flags = [
+                        value
+                        for index, value in enumerate(initial)
+                        if value != "--builder-strong-model"
+                        and not (index and initial[index - 1] == "--builder-strong-model")
+                    ]
                 return super().call(*args, **kwargs)
-        return RecoveryDriver(self.project, self.root, [*flags, "--max-iterations", "6"], env,
-                              autocode=default_autocode(), max_steps=30, timeout_seconds=240)
+
+        return RecoveryDriver(
+            self.project,
+            self.root,
+            [*flags, "--max-iterations", "6"],
+            env,
+            autocode=default_autocode(),
+            max_steps=30,
+            timeout_seconds=240,
+        )
 
     def trace(self):
         return [json.loads(line) for line in (self.root / "rework-trace.jsonl").read_text().splitlines()]
@@ -1399,7 +2042,9 @@ class RecoveryNoveltyCLI(unittest.TestCase):
     def test_discriminating_fix_executes_then_requires_fresh_independent_acceptance(self):
         driver = self.driver("fix")
         view = driver.drive(self.scenario.brief)
-        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), [row["stage"] for row in self.trace()]))
+        self.assertTrue(
+            view["done"], (view.get("status"), view.get("stop_reason"), [row["stage"] for row in self.trace()])
+        )
         checks = self.scenario.oracle()(self.project, self.scenario)
         self.assertTrue(all(check.ok for check in checks), checks)
         self.assertEqual(["terra", "sol", "astra_review"] * 3, [row["stage"] for row in self.trace()])
@@ -1418,7 +2063,9 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         # (PAUSED_INVALID_OUTPUT). Now the review stands and novelty holds the repeat.
         self.assertNotIn(view.get("status"), ("PAUSED_INVALID_OUTPUT", "PAUSED_STALE_HANDOFF"))
         self.assertIn("No causal progress", view.get("stop_reason", ""))
-        self.assertIn("Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", ""))
+        self.assertIn(
+            "Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", "")
+        )
         stages = [row["stage"] for row in self.trace()]
         self.assertEqual(["terra", "sol", "astra_review"] * 2, stages)
         # An authorized retry buys one Resolver run. Its own unproven proposal does not reject
@@ -1427,14 +2074,18 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         self.assertEqual(stages + ["astra_resolve"], [row["stage"] for row in self.trace()])
         view = driver.view()
         self.assertEqual("PAUSED_NO_PROGRESS", view.get("status"), view.get("stop_reason"))
-        self.assertIn("Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", ""))
+        self.assertIn(
+            "Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", "")
+        )
 
     def test_specific_new_experiment_may_use_one_bounded_diagnosis(self):
         driver = self.driver("question")
         view = driver.drive(self.scenario.brief)
         stages = [row["stage"] for row in self.trace()]
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
-        self.assertEqual(["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages)
+        self.assertEqual(
+            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+        )
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
 
     def test_resolver_repair_narrowed_to_the_failed_criterion_reaches_the_builder(self):
@@ -1444,7 +2095,9 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         trace = self.trace()
         stages = [row["stage"] for row in trace]
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
-        self.assertEqual(["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages)
+        self.assertEqual(
+            ["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages
+        )
         # The first Builder owned both criteria; the Builder after the Resolver owned only C2.
         self.assertEqual([["C1", "C2"], ["C2"]], [row["task_criteria"] for row in (trace[0], trace[7])])
         self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
@@ -1466,19 +2119,34 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         # Resume the saved configured escalation, rather than reapplying the
         # harness's initial model flags and legitimately invalidating its pins.
         flags = driver.flags
-        driver.flags = [value for index, value in enumerate(flags) if not value.endswith("-model")
-                        and not (index and flags[index - 1].endswith("-model"))]
+        driver.flags = [
+            value
+            for index, value in enumerate(flags)
+            if not value.endswith("-model") and not (index and flags[index - 1].endswith("-model"))
+        ]
         ordinary = driver.call("ordinary-resume", "--resume-paused")
         self.assertEqual(original + ["astra_resolve"], [row["stage"] for row in self.trace()])
         authorized = driver.call("authorize-builder", "--resume-paused", "--retry-failed-stage")
         view = driver.until_stopped()
-        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), ordinary.stdout[-1200:],
-                                       ordinary.stderr[-1200:], authorized.stdout[-1200:], authorized.stderr[-1200:]))
-        self.assertEqual(original + ["astra_resolve", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        self.assertTrue(
+            view["done"],
+            (
+                view.get("status"),
+                view.get("stop_reason"),
+                ordinary.stdout[-1200:],
+                ordinary.stderr[-1200:],
+                authorized.stdout[-1200:],
+                authorized.stderr[-1200:],
+            ),
+        )
+        self.assertEqual(
+            original + ["astra_resolve", "terra", "sol", "astra_review"], [row["stage"] for row in self.trace()]
+        )
         self.assertTrue(all(row.ok for row in self.scenario.oracle()(self.project, self.scenario)))
 
     def test_oracle_rejects_broken_reference_controls(self):
         from scenarios import run
+
         rows = run.self_test(self.scenario)
         self.assertTrue(all(ok for _, ok, _ in rows), rows)
 

@@ -1,4 +1,5 @@
 """Upgrade approved, idle three-role OpenCode runs without repeating planning."""
+
 import copy
 import json
 import sys
@@ -16,15 +17,27 @@ from goal_fixtures import approve_fixture
 
 class JointUpgradeTests(unittest.TestCase):
     def setUp(self):
-        self.state = {"version": 2, "workspace": "/fixture", "task": "Keep approved work",
-            "iteration": 22, "acceptance_criteria": [], "stages": [], "history": [],
+        self.state = {
+            "version": 2,
+            "workspace": "/fixture",
+            "task": "Keep approved work",
+            "iteration": 22,
+            "acceptance_criteria": [],
+            "stages": [],
+            "history": [],
             "sessions": {"astra": "ses_astra", "terra": "ses_terra", "sol": "ses_sol"},
-            "settings": {"engine": "opencode", "transport_identity": {"engine": "opencode"},
+            "settings": {
+                "engine": "opencode",
+                "transport_identity": {"engine": "opencode"},
                 "limits": {"iteration_ceiling": None, "idle_timeout_seconds": 0, "tool_timeout_seconds": 0},
                 "report_repair": {"max_attempts": 2},
-                "roles": {"astra": {"model": "openai/gpt-6-astra", "reasoning_effort": "high"},
-                          "terra": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"},
-                          "sol": {"model": "cursor-acp/grok-4.7-xhigh", "reasoning_effort": "high"}}}}
+                "roles": {
+                    "astra": {"model": "openai/gpt-6-astra", "reasoning_effort": "high"},
+                    "terra": {"model": "zai-coding-plan/glm-5.3", "reasoning_effort": "max"},
+                    "sol": {"model": "cursor-acp/grok-4.7-xhigh", "reasoning_effort": "high"},
+                },
+            },
+        }
         approve_fixture(self.state, goals)
         self.state.update(status="PAUSED_TRANSPORT_CHANGED", next_stage="sol")
         self.args = test_planning.PlanningTests.configure_args(self, joint_planning=True)
@@ -52,9 +65,14 @@ class JointUpgradeTests(unittest.TestCase):
         self.assertFalse(settings.get("joint_planning"))
 
     def test_unresolved_attempts_and_unapproved_plans_cannot_upgrade(self):
-        for change in ({"active_stage": {"pid": 1}}, {"pending_report_repair": {"role": "terra"}},
-                       {"uncertain_artifacts": "partial"}, {"next_stage": "astra_discovery"},
-                       {"status": "TASK_COMPLETE"}, {"user_events": []}):
+        for change in (
+            {"active_stage": {"pid": 1}},
+            {"pending_report_repair": {"role": "terra"}},
+            {"uncertain_artifacts": "partial"},
+            {"next_stage": "astra_discovery"},
+            {"status": "TASK_COMPLETE"},
+            {"user_events": []},
+        ):
             state = {**copy.deepcopy(self.state), **change}
             before = copy.deepcopy(state)
             with self.subTest(change=change), self.assertRaises(ValueError):
@@ -68,7 +86,10 @@ class JointUpgradeTests(unittest.TestCase):
 
     def test_provider_preflight_failure_preserves_checkpoint(self):
         before = copy.deepcopy(self.state)
-        with patch.object(oc, "check_models", side_effect=RuntimeError("model unavailable")), self.assertRaises(RuntimeError):
+        with (
+            patch.object(oc, "check_models", side_effect=RuntimeError("model unavailable")),
+            self.assertRaises(RuntimeError),
+        ):
             runner.configure(self.args, self.state)
         self.assertEqual(before, self.state)
 
@@ -103,8 +124,13 @@ class JointUpgradeFlow(unittest.TestCase):
         self.assertNotIn("planning", upgraded)
         self.assertEqual({"astra", "terra", "sol", "completion", "glm"}, set(upgraded["settings"]["roles"]))
         self.assertEqual(state, json.loads(Path(upgraded["planning_migrations"][-1]["backup"]).read_text()))
-        runner.interventions.submit(self.project, run, request_id="revise-with-glm", kind="feedback",
-                                    text="Keep the same deliverable and document invocation.")
+        runner.interventions.submit(
+            self.project,
+            run,
+            request_id="revise-with-glm",
+            kind="feedback",
+            text="Keep the same deliverable and document invocation.",
+        )
         self.launch(args, 2)
         self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         revised = self.saved()[1]

@@ -1,4 +1,5 @@
 """Explicit verification-command repair at a reconciled stopped run boundary."""
+
 from __future__ import annotations
 
 try:
@@ -25,15 +26,30 @@ def configure_resume(state, settings, args):
     if not getattr(args, "resume_paused", False) or not str(state.get("status", "")).startswith("PAUSED_"):
         raise ValueError("Changing saved verification commands requires a paused run and --resume-paused")
     if state.get("next_stage") not in ("sol", "astra_checkpoint"):
-        raise ValueError("Changing verification commands requires a stopped checkpoint before the Validator "
-                         "or combined checkpoint; the new proof must run before any acceptance")
-    if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts", "active_runner_check", "runner_check")):
+        raise ValueError(
+            "Changing verification commands requires a stopped checkpoint before the Validator "
+            "or combined checkpoint; the new proof must run before any acceptance"
+        )
+    if any(
+        state.get(key)
+        for key in (
+            "active_stage",
+            "pending_report_repair",
+            "uncertain_artifacts",
+            "active_runner_check",
+            "runner_check",
+        )
+    ):
         raise ValueError("Reconcile the active or uncertain attempt before changing verification commands")
     current = {**previous, **changed}
     settings["regression"] = current
-    state.setdefault("user_events", []).append({
-        "kind": "verification_commands_changed", "actor": "user_cli", "at": util.now(),
-        "previous": {key: previous.get(key) for key in changed},
-        "current": changed,
-    })
+    state.setdefault("user_events", []).append(
+        {
+            "kind": "verification_commands_changed",
+            "actor": "user_cli",
+            "at": util.now(),
+            "previous": {key: previous.get(key) for key in changed},
+            "current": changed,
+        }
+    )
     return settings

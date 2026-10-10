@@ -11,7 +11,8 @@ class SharedFileCacheTests(unittest.TestCase):
             fetched = []
             for worker in range(4):
                 SharedFileCache(directory, 3600, lambda: 10.0).get_or_fetch(
-                    "net", lambda: fetched.append(worker) or {"tld": "net"})
+                    "net", lambda: fetched.append(worker) or {"tld": "net"}
+                )
             self.assertEqual([0], fetched)
             self.assertEqual([], [p.name for p in Path(directory).iterdir() if p.suffix == ".tmp"])
 

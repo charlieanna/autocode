@@ -1,4 +1,5 @@
 """The task-run interface: the status view and the CLI client. See docs/task-run.md."""
+
 import copy
 import json
 import os
@@ -25,50 +26,117 @@ import goal_fixtures
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
-BRIEF = ("Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
-         "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
-         "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
-         "Python standard library only.")
-FIXTURE_OPTIONS = ("--evidence-provenance", "fake", "--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
-                   "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
-                   "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra")
+BRIEF = (
+    "Build a deterministic greeting CLI named greet.py. It prints 'Hello, NAME' for one nonempty name "
+    "argument and exits 0. Any other argument count (no arguments, or two or more) prints a usage line to "
+    "stderr and exits 2. Deliver greet.py, test_greet.py with regression tests, and a short README.md. "
+    "Python standard library only."
+)
+FIXTURE_OPTIONS = (
+    "--evidence-provenance",
+    "fake",
+    "--engine",
+    "codex",
+    "--joint-planning",
+    "--astra-model",
+    "gpt-6-astra",
+    "--terra-model",
+    "gpt-5.6-terra",
+    "--sol-model",
+    "gpt-5.6-sol",
+    "--completion-model",
+    "gpt-6-astra",
+    "--glm-model",
+    "gpt-5.6-sol",
+    "--plan-reviewer-model",
+    "gpt-6-astra",
+)
 
 
 class RunViewTests(unittest.TestCase):
     def test_explicit_report_retry_bypasses_automatic_escalation(self):
-        self.assertTrue(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report='001/sol_report_repair-02'), None))
+        self.assertTrue(
+            run_actions.explicit_recovery_requested(SimpleNamespace(retry_report="001/sol_report_repair-02"), None)
+        )
         self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report=None), None))
 
     def test_contract_fields(self):
-        self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
-                          "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
-                          "efficiency", "recovery", "verification", "code_checkpoints", "routes",
-                          "route_assignments", "liveness", "information_review", "tool_containment",
-                          "escalation_outcomes", "job_report_recovery", "verification_obligation", "evidence_report", "explanation"},
-                         set(run_view.view({"status": "RUNNING"})))
+        self.assertEqual(
+            {
+                "schema",
+                "status",
+                "done",
+                "needs",
+                "phase",
+                "next_stage",
+                "iteration",
+                "stop_reason",
+                "runner_check",
+                "current_task",
+                "workflow",
+                "workflow_source",
+                "workflow_reason",
+                "turn",
+                "evidence",
+                "dependency",
+                "usage",
+                "request_context",
+                "output_transport",
+                "direct_rework_assignments",
+                "efficiency",
+                "recovery",
+                "verification",
+                "code_checkpoints",
+                "routes",
+                "route_assignments",
+                "liveness",
+                "information_review",
+                "tool_containment",
+                "escalation_outcomes",
+                "job_report_recovery",
+                "verification_obligation",
+                "evidence_report",
+                "explanation",
+            },
+            set(run_view.view({"status": "RUNNING"})),
+        )
 
     def test_verification_obligation_is_additive_read_only_projection(self):
-        self.assertIsNone(run_view.view({"status": "RUNNING"})['verification_obligation'])
-        frontier = {'available': False, 'reason': 'Exact current custody is unavailable'}
+        self.assertIsNone(run_view.view({"status": "RUNNING"})["verification_obligation"])
+        frontier = {"available": False, "reason": "Exact current custody is unavailable"}
         shown = run_view.view({"status": "RUNNING"}, verification_obligation=frontier)
-        self.assertEqual(frontier, shown['verification_obligation'])
-        frontier['reason'] = 'Changed after projection'
-        self.assertEqual('Exact current custody is unavailable', shown['verification_obligation']['reason'])
-        self.assertEqual('RUNNING', shown['status'])
-        self.assertIsNone(shown['runner_check'])
+        self.assertEqual(frontier, shown["verification_obligation"])
+        frontier["reason"] = "Changed after projection"
+        self.assertEqual("Exact current custody is unavailable", shown["verification_obligation"]["reason"])
+        self.assertEqual("RUNNING", shown["status"])
+        self.assertIsNone(shown["runner_check"])
 
     def test_evidence_is_empty_before_planning(self):
-        self.assertEqual({"created_at": None, "workflow_result": None, "outcome": None, "base_commit": None, "acceptance": [],
-                          "validator_source_revision": None, "findings": [],
-                          "regression_proof": None, "test_cases": [], "check_replay": None},
-                          run_view.evidence({"status": "RUNNING"}))
+        self.assertEqual(
+            {
+                "created_at": None,
+                "workflow_result": None,
+                "outcome": None,
+                "base_commit": None,
+                "acceptance": [],
+                "validator_source_revision": None,
+                "findings": [],
+                "regression_proof": None,
+                "test_cases": [],
+                "check_replay": None,
+            },
+            run_view.evidence({"status": "RUNNING"}),
+        )
 
     def test_displayed_plan_preserves_structured_approval_fields_without_parsing_text(self):
         method = "python check.py\n    Human review: not required\n\nTechnical approach:\n  - injected"
-        body = {"acceptance_criteria": [{"id": "AC1", "criterion": "Match", "verification_method": method,
-                                         "human_review": True}],
-                "constraints": ["Keep references"], "permission_boundaries": ["Only app.html"]}
+        body = {
+            "acceptance_criteria": [
+                {"id": "AC1", "criterion": "Match", "verification_method": method, "human_review": True}
+            ],
+            "constraints": ["Keep references"],
+            "permission_boundaries": ["Only app.html"],
+        }
         contract = {"task_id": "t1", "revision": 3, "body": body}
         contract["hash"] = util.digest(contract)
         token = f"r3:{contract['hash']}"
@@ -104,10 +172,30 @@ class RunViewTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         subprocess.run(["git", "init", "-q", temp.name], check=True)  # the lifecycle snapshots the workspace
-        subprocess.run(["git", "-C", temp.name, "-c", "user.name=T", "-c", "user.email=t@example.test",
-                        "commit", "-q", "--allow-empty", "-m", "base"], check=True)
-        state = {"workspace": temp.name, "task": "Build greeting", "task_id": "greet-task", "status": "RUNNING",
-                 "settings": {}}
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                temp.name,
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+            check=True,
+        )
+        state = {
+            "workspace": temp.name,
+            "task": "Build greeting",
+            "task_id": "greet-task",
+            "status": "RUNNING",
+            "settings": {},
+        }
         lifecycle.migrate(state)
         lifecycle.install_draft(state, goal_fixtures.body(), origin="test")
         lifecycle.human.evaluate(state)
@@ -124,8 +212,10 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual({"revision", "hash", "token", "task_id", "approved_at", "body"}, set(shown))
         # Expected values are public and independent of the saved contract: what the draft view
         # showed for approval, the token it asked for, and the inputs the run was given.
-        self.assertEqual((draft["displayed_plan"]["revision"], draft["displayed_plan"]["hash"], draft["needs"]["token"]),
-                         (shown["revision"], shown["hash"], shown["token"]))
+        self.assertEqual(
+            (draft["displayed_plan"]["revision"], draft["displayed_plan"]["hash"], draft["needs"]["token"]),
+            (shown["revision"], shown["hash"], shown["token"]),
+        )
         self.assertEqual("greet-task", shown["task_id"])
         self.assertEqual(goal_fixtures.body(), shown["body"])
         self.assertIsInstance(shown["approved_at"], str)
@@ -151,10 +241,17 @@ class RunViewTests(unittest.TestCase):
             "approval not among the user's events": lambda state: state.update(user_events=[]),
             "approved by the model": lambda state: approval(state, actor="model"),
             "workflow policy outside a policy origin": lambda state: (
-                approval(state, actor="workflow_policy"), state["goal_contract"].update(origin="test")),
+                approval(state, actor="workflow_policy"),
+                state["goal_contract"].update(origin="test"),
+            ),
             "body edited after approval": lambda state: state["goal_contract"]["body"]["acceptance_criteria"].append(
-                {"id": "C9", "criterion": "Also greets twice", "verification_method": "python -m unittest",
-                 "human_review": False}),
+                {
+                    "id": "C9",
+                    "criterion": "Also greets twice",
+                    "verification_method": "python -m unittest",
+                    "human_review": False,
+                }
+            ),
             "newer draft installed after approval": lambda state: lifecycle.install_draft(state, newer, origin="test"),
         }
         for name, change in refused.items():
@@ -171,8 +268,12 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual(token, run_view.approved_contract(state)["token"])
 
     def test_direct_rework_provenance_is_not_completion_proof_and_is_copied(self):
-        receipt = {"source_task_id": "task-old", "assigned_task_id": "task-repair",
-                   "evidence_hashes": {"review.json": "digest"}, "provenance": "completion_direct_assignment"}
+        receipt = {
+            "source_task_id": "task-old",
+            "assigned_task_id": "task-repair",
+            "evidence_hashes": {"review.json": "digest"},
+            "provenance": "completion_direct_assignment",
+        }
         state = {"status": "RUNNING", "direct_rework_assignments": [receipt]}
         view = run_view.view(state)
         self.assertEqual([receipt], view["direct_rework_assignments"])
@@ -184,8 +285,11 @@ class RunViewTests(unittest.TestCase):
 
     def test_evidence_carries_the_english_test_cases_and_what_proves_them(self):
         case = {"id": "T1", "given": "a timeout", "when": "renew()", "then": "one mutation"}
-        state = {"status": "TASK_COMPLETE", "investigation": {"outcome": "reproduced", "test_cases": [case]},
-                 "regression_proof": {"verdict": "PASS", "case_tests": {"T1": ["test_t1_one_mutation"]}}}
+        state = {
+            "status": "TASK_COMPLETE",
+            "investigation": {"outcome": "reproduced", "test_cases": [case]},
+            "regression_proof": {"verdict": "PASS", "case_tests": {"T1": ["test_t1_one_mutation"]}},
+        }
         evidence = run_view.evidence(state)
         self.assertEqual([case], evidence["test_cases"])
         self.assertEqual({"T1": ["test_t1_one_mutation"]}, evidence["regression_proof"]["case_tests"])
@@ -193,39 +297,91 @@ class RunViewTests(unittest.TestCase):
         self.assertEqual([], run_view.evidence(state)["test_cases"])
 
     def test_evidence_pairs_criteria_with_their_latest_outcome(self):
-        state = {"status": "TASK_COMPLETE", "base_commit": "abc",
-                 "goal_contract": {"body": {"intended_outcome": "Fix it", "acceptance_criteria": [
-                     {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"},
-                     {"id": "AC3", "criterion": "Ships it"}]}},
-                 "last_decision": {"report": {"acceptance_criteria": [
-                     {"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]}},
-                 "validation": {"source_revision": "r7",
-                                "criterion_results": [{"id": "AC1", "status": "FAIL"},
-                                                      {"id": "AC3", "status": "NOT_VERIFIED"}]},
-                 "human_reviews": {"AC2": {"token": "r1"}},
-                 "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo",
-                                      "times_reported": 2}],
-                 "regression_proof": {"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [],
-                                      "unverified": [], "commands": {"suite": "pytest"}, "source_revision": "r9",
-                                      "checks": {"large": "output"}}}
+        state = {
+            "status": "TASK_COMPLETE",
+            "base_commit": "abc",
+            "goal_contract": {
+                "body": {
+                    "intended_outcome": "Fix it",
+                    "acceptance_criteria": [
+                        {"id": "AC1", "criterion": "Parses dates"},
+                        {"id": "AC2", "criterion": "Documents it"},
+                        {"id": "AC3", "criterion": "Ships it"},
+                    ],
+                }
+            },
+            "last_decision": {
+                "report": {
+                    "acceptance_criteria": [{"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]
+                }
+            },
+            "validation": {
+                "source_revision": "r7",
+                "criterion_results": [{"id": "AC1", "status": "FAIL"}, {"id": "AC3", "status": "NOT_VERIFIED"}],
+            },
+            "human_reviews": {"AC2": {"token": "r1"}},
+            "findings_ledger": [
+                {"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "times_reported": 2}
+            ],
+            "regression_proof": {
+                "verdict": "PASS",
+                "fail_to_pass": ["test_dates"],
+                "failures": [],
+                "unverified": [],
+                "commands": {"suite": "pytest"},
+                "source_revision": "r9",
+                "checks": {"large": "output"},
+            },
+        }
         evidence = run_view.evidence(state)
         self.assertEqual(("Fix it", "abc"), (evidence["outcome"], evidence["base_commit"]))
         self.assertEqual("r7", evidence["validator_source_revision"])
         # validator_status keeps a Validator FAIL distinct from NOT_VERIFIED and from a
         # criterion the latest validation never listed (None).
-        self.assertEqual([{"id": "AC1", "criterion": "Parses dates", "status": "passed",
-                           "evidence": "pytest -k dates: 3 passed", "validator_status": "FAIL",
-                           "human_reviewed": False},
-                          {"id": "AC2", "criterion": "Documents it", "status": None, "evidence": None,
-                           "validator_status": None, "human_reviewed": True},
-                          {"id": "AC3", "criterion": "Ships it", "status": None, "evidence": None,
-                           "validator_status": "NOT_VERIFIED", "human_reviewed": False}],
-                         evidence["acceptance"])
-        self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
-                         evidence["findings"])
-        self.assertEqual({"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [], "unverified": [],
-                          "commands": {"suite": "pytest"}, "source_revision": "r9", "case_tests": None},
-                         evidence["regression_proof"])
+        self.assertEqual(
+            [
+                {
+                    "id": "AC1",
+                    "criterion": "Parses dates",
+                    "status": "passed",
+                    "evidence": "pytest -k dates: 3 passed",
+                    "validator_status": "FAIL",
+                    "human_reviewed": False,
+                },
+                {
+                    "id": "AC2",
+                    "criterion": "Documents it",
+                    "status": None,
+                    "evidence": None,
+                    "validator_status": None,
+                    "human_reviewed": True,
+                },
+                {
+                    "id": "AC3",
+                    "criterion": "Ships it",
+                    "status": None,
+                    "evidence": None,
+                    "validator_status": "NOT_VERIFIED",
+                    "human_reviewed": False,
+                },
+            ],
+            evidence["acceptance"],
+        )
+        self.assertEqual(
+            [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}], evidence["findings"]
+        )
+        self.assertEqual(
+            {
+                "verdict": "PASS",
+                "fail_to_pass": ["test_dates"],
+                "failures": [],
+                "unverified": [],
+                "commands": {"suite": "pytest"},
+                "source_revision": "r9",
+                "case_tests": None,
+            },
+            evidence["regression_proof"],
+        )
 
     def test_workflow_is_none_until_recognized(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["workflow"])
@@ -238,86 +394,141 @@ class RunViewTests(unittest.TestCase):
         self.assertIsNone(view["needs"])
 
     def test_human_review_comes_before_other_questions(self):
-        state = {"status": "WAITING_FOR_USER", "pending_questions": [
-            {"id": "d-1", "question": "Accept C2?", "review_criteria": ["C2"], "review_token": "r-9"}]}
-        self.assertEqual({"kind": "review", "criteria": ["C2"], "token": "r-9", "question": "Accept C2?"},
-                         run_view.needs(state))
+        state = {
+            "status": "WAITING_FOR_USER",
+            "pending_questions": [
+                {"id": "d-1", "question": "Accept C2?", "review_criteria": ["C2"], "review_token": "r-9"}
+            ],
+        }
+        self.assertEqual(
+            {"kind": "review", "criteria": ["C2"], "token": "r-9", "question": "Accept C2?"}, run_view.needs(state)
+        )
 
     def test_human_review_after_validation_passes_with_no_pending_question(self):
         # autopilot.apply_review_result sets user_request directly, with pending_questions
         # left empty — no question object to read review_criteria/review_token from. Shape
         # matches a real run captured live (2026-09-26): sol PASSED, AC11/AC13 need a person.
-        state = {"status": "WAITING_FOR_USER", "pending_questions": [],
-                 "displayed_review": "r5:abc@def:ghi",
-                 "user_request": {"kind": "human_review", "criteria": ["AC11", "AC13"],
-                                  "decision_needed": "Review the current artifact and explicitly approve the listed criteria"}}
-        self.assertEqual({"kind": "review", "criteria": ["AC11", "AC13"], "token": "r5:abc@def:ghi",
-                          "question": "Review the current artifact and explicitly approve the listed criteria"},
-                         run_view.needs(state))
+        state = {
+            "status": "WAITING_FOR_USER",
+            "pending_questions": [],
+            "displayed_review": "r5:abc@def:ghi",
+            "user_request": {
+                "kind": "human_review",
+                "criteria": ["AC11", "AC13"],
+                "decision_needed": "Review the current artifact and explicitly approve the listed criteria",
+            },
+        }
+        self.assertEqual(
+            {
+                "kind": "review",
+                "criteria": ["AC11", "AC13"],
+                "token": "r5:abc@def:ghi",
+                "question": "Review the current artifact and explicitly approve the listed criteria",
+            },
+            run_view.needs(state),
+        )
 
     def test_questions_carry_their_defaults(self):
-        state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "permission"},
-                 "pending_questions": [{"id": "q1", "question": "Use a network?", "why": "tests", "options": ["no"],
-                                        "proposed_default": "no", "internal": "x"}]}
+        state = {
+            "status": "WAITING_FOR_USER",
+            "user_request": {"kind": "permission"},
+            "pending_questions": [
+                {
+                    "id": "q1",
+                    "question": "Use a network?",
+                    "why": "tests",
+                    "options": ["no"],
+                    "proposed_default": "no",
+                    "internal": "x",
+                }
+            ],
+        }
         need = run_view.needs(state)
         self.assertEqual(("answer", "permission"), (need["kind"], need["request_kind"]))
-        self.assertEqual([{"id": "q1", "question": "Use a network?", "why": "tests", "options": ["no"],
-                           "proposed_default": "no"}], need["questions"])
+        self.assertEqual(
+            [{"id": "q1", "question": "Use a network?", "why": "tests", "options": ["no"], "proposed_default": "no"}],
+            need["questions"],
+        )
 
     def test_a_pending_resolver_request_carries_its_token_and_scope(self):
         public = {"request_id": "r1", "request_token": "t1", "scope": "operational_exhaustion"}
-        state = {"status": "WAITING_FOR_USER", "user_request": {"kind": "blocker"},
-                 "pending_questions": [{"id": "q1", "question": "Raise the cap?"}],
-                 "resolver_human_request": public,
-                 "resolver": {"human_escalations": {"r1": {"status": "pending"}}}}
+        state = {
+            "status": "WAITING_FOR_USER",
+            "user_request": {"kind": "blocker"},
+            "pending_questions": [{"id": "q1", "question": "Raise the cap?"}],
+            "resolver_human_request": public,
+            "resolver": {"human_escalations": {"r1": {"status": "pending"}}},
+        }
         need = run_view.needs(state)
-        self.assertEqual(("r1", "t1", "operational_exhaustion"),
-                         (need["resolver_request_id"], need["resolver_token"], need["resolver_scope"]))
+        self.assertEqual(
+            ("r1", "t1", "operational_exhaustion"),
+            (need["resolver_request_id"], need["resolver_token"], need["resolver_scope"]),
+        )
         # A consumed request is not answerable, so it carries none of them.
         state["resolver"]["human_escalations"]["r1"]["status"] = "consumed"
         self.assertFalse({"resolver_request_id", "resolver_token", "resolver_scope"} & set(run_view.needs(state)))
 
     def test_plan_approval_needs_the_displayed_token(self):
-        self.assertEqual({"kind": "approve_plan", "token": "g-1"},
-                         run_view.needs({"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "g-1"}))
+        self.assertEqual(
+            {"kind": "approve_plan", "token": "g-1"},
+            run_view.needs({"status": "AWAITING_GOAL_APPROVAL", "displayed_goal": "g-1"}),
+        )
         self.assertEqual({"kind": "continue"}, run_view.needs({"status": "AWAITING_GOAL_APPROVAL"}))
 
     def test_pauses(self):
-        self.assertEqual({"kind": "planning_budget", "reason": "two calls"},
-                         run_view.needs({"status": "PAUSED_PLANNING_BUDGET", "stop_reason": "two calls"}))
-        self.assertEqual({"kind": "resume", "reason": "quota"},
-                         run_view.needs({"status": "PAUSED_BUDGET", "stop_reason": "quota"}))
+        self.assertEqual(
+            {"kind": "planning_budget", "reason": "two calls"},
+            run_view.needs({"status": "PAUSED_PLANNING_BUDGET", "stop_reason": "two calls"}),
+        )
+        self.assertEqual(
+            {"kind": "resume", "reason": "quota"}, run_view.needs({"status": "PAUSED_BUDGET", "stop_reason": "quota"})
+        )
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
     def test_quota_pause_names_the_abandon_step_with_the_attempt_id(self):
-        need = run_view.needs({
-            "status": "PAUSED_BUDGET", "stop_reason": "quota restored; set the attempt aside",
-            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"}})
+        need = run_view.needs(
+            {
+                "status": "PAUSED_BUDGET",
+                "stop_reason": "quota restored; set the attempt aside",
+                "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"},
+            }
+        )
         self.assertEqual("001/terra-01", need["abandon_stage"])
         self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
 
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
-        state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
-                 "settings": {"report_repair": {"max_attempts": 2}},
-                 "pending_report_repair": {"error": "Check is not supported by an exact executed Validator event",
-                                           "original": {"stage": "sol"}, "attempts": 2,
-                                           "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"}}}
+        state = {
+            "status": "PAUSED_REPEATED_FAILURE",
+            "stop_reason": "report rejected",
+            "settings": {"report_repair": {"max_attempts": 2}},
+            "pending_report_repair": {
+                "error": "Check is not supported by an exact executed Validator event",
+                "original": {"stage": "sol"},
+                "attempts": 2,
+                "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"},
+            },
+        }
         self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
 
     def test_legacy_job_without_source_identity_exposes_recovery_not_retry(self):
-        failure = {'reason': 'Provider stopped', 'stage': 'investigate_bug',
-                   'attempt_id': '001/bug-investigation-01', 'job_retry_token': 'jr:old',
-                   'archive': '/run/archive', 'source_identity': None,
-                   'write_diagnosis': {'unrestored': ['original source capture']},
-                   'unrestored': ['original source capture']}
-        for status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
-            need = run_view.needs({'status': status, 'job_failure': failure})
-            self.assertEqual('recover_source', need['kind'])
-            self.assertIsNone(need['action'])
-            self.assertIn('original source identity', need['recovery_hint'])
-            self.assertEqual('jr:old', need['job_retry_token'])
-            self.assertEqual('/run/archive', need['archive'])
-            self.assertEqual(failure['write_diagnosis'], need['write_diagnosis'])
+        failure = {
+            "reason": "Provider stopped",
+            "stage": "investigate_bug",
+            "attempt_id": "001/bug-investigation-01",
+            "job_retry_token": "jr:old",
+            "archive": "/run/archive",
+            "source_identity": None,
+            "write_diagnosis": {"unrestored": ["original source capture"]},
+            "unrestored": ["original source capture"],
+        }
+        for status in ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED"):
+            need = run_view.needs({"status": status, "job_failure": failure})
+            self.assertEqual("recover_source", need["kind"])
+            self.assertIsNone(need["action"])
+            self.assertIn("original source identity", need["recovery_hint"])
+            self.assertEqual("jr:old", need["job_retry_token"])
+            self.assertEqual("/run/archive", need["archive"])
+            self.assertEqual(failure["write_diagnosis"], need["write_diagnosis"])
 
     def test_running_continues(self):
         self.assertEqual({"kind": "continue"}, run_view.needs({"status": "RUNNING", "pending_questions": []}))
@@ -327,7 +538,7 @@ class TaskRunTests(unittest.TestCase):
     """End to end through the real CLI with the offline fixture provider (a few seconds)."""
 
     def setUp(self):
-        if artifacts := os.environ.get('BUILD_AUDIT_ARTIFACTS'):
+        if artifacts := os.environ.get("BUILD_AUDIT_ARTIFACTS"):
             Path(artifacts).mkdir(parents=True, exist_ok=True)
             root = Path(tempfile.mkdtemp(prefix="taskrun-", dir=artifacts))
         else:
@@ -337,20 +548,39 @@ class TaskRunTests(unittest.TestCase):
         self.workspace = root / "project"
         self.workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
-        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=T", "-c", "user.email=t@example.test",
-                        "commit", "-q", "--allow-empty", "-m", "base"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.test",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "base",
+            ],
+            check=True,
+        )
         bindir = root / "bin"
         bindir.mkdir()
         shutil.copy2(HERE / "live_fixture_provider.py", bindir / "codex")
         (bindir / "codex").chmod(0o755)
-        self.env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(root / "registry"),
-                    "PYTHONDONTWRITEBYTECODE": "1"}
+        self.env = {
+            "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
+            "AUTOCODE_HOME": str(root / "registry"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
 
     def test_retired_token_cap_option_is_rejected_before_a_run_starts(self):
         for cap in ("0", "1", "2000000"):
             with self.subTest(cap=cap), self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments"):
-                taskrun.TaskRun.start(self.workspace, BRIEF,
-                    options=[*FIXTURE_OPTIONS, "--max-reported-tokens", cap], env=self.env)
+                taskrun.TaskRun.start(
+                    self.workspace, BRIEF, options=[*FIXTURE_OPTIONS, "--max-reported-tokens", cap], env=self.env
+                )
         self.assertFalse((self.workspace / ".autocode").exists())
 
     def test_start_approve_and_complete(self):
@@ -410,8 +640,9 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual(1, view["efficiency"]["by_category"]["report_repair"]["attempts"], view["efficiency"])
         view = run.approve_plan(view["needs"]["token"])
         first = view["approved_contract"]["body"]["initial_task"]
-        self.assertEqual(("implement", ["greet.py", "test_greet.py", "README.md"]),
-                         (first["kind"], first["affected_paths"]))  # the repaired plan names what it writes
+        self.assertEqual(
+            ("implement", ["greet.py", "test_greet.py", "README.md"]), (first["kind"], first["affected_paths"])
+        )  # the repaired plan names what it writes
 
     def saved_unassignable_first_task(self, *, activate_later=False, adaptive=True, repaired_planner=False):
         # Seed a sealed older checkpoint; modifying it here models the pre-#620 draft format.
@@ -424,7 +655,14 @@ class TaskRunTests(unittest.TestCase):
         script = provider.read_text()
         anchor = '    repairing = bool(data.get("report_repair"))'
         self.assertIn(anchor, script)
-        provider.write_text(script.replace(anchor, '    with Path(os.environ["AUTOCODE_REGISTRY_LAUNCH_PROBE"]).open("a") as probe:\n        probe.write(stage + "\\n")\n' + anchor, 1))
+        provider.write_text(
+            script.replace(
+                anchor,
+                '    with Path(os.environ["AUTOCODE_REGISTRY_LAUNCH_PROBE"]).open("a") as probe:\n        probe.write(stage + "\\n")\n'
+                + anchor,
+                1,
+            )
+        )
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=options, env=env, timeout=300)
         checkpoint = run.run_dir / "state.json"
         state = util.read(checkpoint)
@@ -435,8 +673,14 @@ class TaskRunTests(unittest.TestCase):
         state["displayed_goal"] = state["planning"]["final_token"]
         if activate_later:
             state["settings"]["milestone_checkpoints"]["enabled"] = False
-            run = taskrun.TaskRun(self.workspace, run.run_dir, options=options,
-                                  command=(*run.command, "--milestone-checkpoints"), env=env, timeout=300)
+            run = taskrun.TaskRun(
+                self.workspace,
+                run.run_dir,
+                options=options,
+                command=(*run.command, "--milestone-checkpoints"),
+                env=env,
+                timeout=300,
+            )
         util.atomic_json(checkpoint, state)
         before = probe.read_bytes()
         if activate_later:
@@ -471,8 +715,11 @@ class TaskRunTests(unittest.TestCase):
     def test_a_default_launch_keeps_its_job_in_its_own_task_worktree(self):
         # The CLI without --in-place, as a person launches it: the run works in a task worktree.
         before = self.footprint()
-        launch = captured_process.run([*taskrun.AUTOCODE, BRIEF, "--no-chat", *FIXTURE_OPTIONS,
-                                       "--workspace", str(self.workspace)], env={**os.environ, **self.env}, timeout=300)
+        launch = captured_process.run(
+            [*taskrun.AUTOCODE, BRIEF, "--no-chat", *FIXTURE_OPTIONS, "--workspace", str(self.workspace)],
+            env={**os.environ, **self.env},
+            timeout=300,
+        )
         self.assertEqual(2, launch.returncode, (launch.stdout + launch.stderr)[-2000:])  # stopped for plan approval
         (tree,) = self.footprint().worktrees - before.worktrees
         run = taskrun.TaskRun.attach(tree, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
@@ -489,14 +736,19 @@ class TaskRunTests(unittest.TestCase):
         directory that ignores itself, as .autocode does, still shows), every ref and its commit,
         and the worktrees.
         """
-        git = lambda *args: subprocess.run(["git", "-C", str(self.workspace), *args], capture_output=True,
-                                           text=True, check=True).stdout.splitlines()
+        git = lambda *args: subprocess.run(
+            ["git", "-C", str(self.workspace), *args], capture_output=True, text=True, check=True
+        ).stdout.splitlines()
         return SimpleNamespace(
             entries={entry.name for entry in self.workspace.iterdir()},
             status=set(git("status", "--porcelain", "--ignored", "--untracked-files=normal")),
             refs=dict(line.split(" ", 1) for line in git("for-each-ref", "--format=%(refname) %(objectname)")),
-            worktrees={Path(line.removeprefix("worktree ")).resolve()
-                       for line in git("worktree", "list", "--porcelain") if line.startswith("worktree ")})
+            worktrees={
+                Path(line.removeprefix("worktree ")).resolve()
+                for line in git("worktree", "list", "--porcelain")
+                if line.startswith("worktree ")
+            },
+        )
 
     def assert_no_project_level_files(self, before, run, view, *, delivered=()):
         """#22: a normal single job creates no project-level files.
@@ -624,13 +876,17 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual("continue", view["needs"]["kind"], view)
 
     def test_joint_planning_upgrade_before_first_draft_reaches_approval_and_completes(self):
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=("--evidence-provenance", "fake", "--engine", "codex"),
-                                   start_options=("--pause-after-stage",), env=self.env, timeout=60)
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=("--evidence-provenance", "fake", "--engine", "codex"),
+            start_options=("--pause-after-stage",),
+            env=self.env,
+            timeout=60,
+        )
         paused = run.status()
-        self.assertEqual(("PAUSED_REQUESTED", "astra_discovery"),
-                         (paused["status"], paused["next_stage"]), paused)
-        upgraded = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS,
-                                   env=self.env, timeout=120)
+        self.assertEqual(("PAUSED_REQUESTED", "astra_discovery"), (paused["status"], paused["next_stage"]), paused)
+        upgraded = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=120)
         view = upgraded.resume_paused()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
         self.assertFalse((self.workspace / "greet.py").exists(), "Upgrade is not approval")
@@ -646,7 +902,8 @@ class TaskRunTests(unittest.TestCase):
         script = provider.read_text()
         anchor = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
         self.assertIn(anchor, script)
-        amendment = textwrap.dedent("""
+        amendment = (
+            textwrap.dedent("""
             if stage in ("astra_discovery", "glm_revise", "astra_finalize") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
                 previous = "Print Hello, NAME for one nonempty name"
                 event = next((e for e in data.get("brief_feedback", []) if e.get("text") == REQUEST), {})
@@ -658,10 +915,19 @@ class TaskRunTests(unittest.TestCase):
                     report["contract_changes"] = [{"item": previous, "change": "reworded",
                         "replacement": REPLACEMENT, "basis": "user_feedback",
                         "answer_id": event.get("id", "feedback-unrecorded-follow-up"), "example_correction": None}]
-        """).replace("REQUEST", repr(request)).replace("REPLACEMENT", repr(replacement))
+        """)
+            .replace("REQUEST", repr(request))
+            .replace("REPLACEMENT", repr(replacement))
+        )
         provider.write_text(script.replace(anchor, textwrap.indent(amendment, "    ") + "\n" + anchor, 1))
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS,
-                                   start_options=("--workflow", "build"), env=self.env, timeout=300)
+        run = taskrun.TaskRun.start(
+            self.workspace,
+            BRIEF,
+            options=FIXTURE_OPTIONS,
+            start_options=("--workflow", "build"),
+            env=self.env,
+            timeout=300,
+        )
         first = run.status()["needs"]["token"]
         run.approve_plan(first)
         self.assertEqual("TASK_COMPLETE", run.advance_until_input()["status"])
@@ -669,11 +935,13 @@ class TaskRunTests(unittest.TestCase):
         run.follow_up(request)
         self.env["FOLLOW_UP_PROVENANCE_TEST"] = "1"
         self.env["LIVE_FIXTURE_CLARITY"] = "clear"
-        recognizing = taskrun.TaskRun(self.workspace, run.run_dir,
-            options=(*FIXTURE_OPTIONS, "--pause-after-stage"), env=self.env, timeout=300)
+        recognizing = taskrun.TaskRun(
+            self.workspace, run.run_dir, options=(*FIXTURE_OPTIONS, "--pause-after-stage"), env=self.env, timeout=300
+        )
         boundary = recognizing.advance()
-        self.assertEqual(("PAUSED_REQUESTED", "requirements_gather"),
-                         (boundary["status"], boundary["next_stage"]), boundary)
+        self.assertEqual(
+            ("PAUSED_REQUESTED", "requirements_gather"), (boundary["status"], boundary["next_stage"]), boundary
+        )
         # Reattach: refresh the prior handoff, and retain the recorded request and authorization identity.
         run = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.resume_paused()
@@ -694,104 +962,113 @@ class TaskRunTests(unittest.TestCase):
 
     def test_rejected_verification_change_is_reported_to_the_caller(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
-        before = (run.run_dir / 'state.json').read_bytes()
-        broken = taskrun.TaskRun(self.workspace, run.run_dir,
-                                options=('--test-command', 'python -m unittest'), env=self.env)
-        with self.assertRaisesRegex(taskrun.TaskRunError, 'Changing saved verification commands'):
+        before = (run.run_dir / "state.json").read_bytes()
+        broken = taskrun.TaskRun(
+            self.workspace, run.run_dir, options=("--test-command", "python -m unittest"), env=self.env
+        )
+        with self.assertRaisesRegex(taskrun.TaskRunError, "Changing saved verification commands"):
             broken.resume_paused()
-        self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
-
-
-    def test_rejected_verification_change_is_reported_to_the_caller(self):
-        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
-        before = (run.run_dir / 'state.json').read_bytes()
-        broken = taskrun.TaskRun(self.workspace, run.run_dir,
-                                options=('--test-command', 'python -m unittest'), env=self.env)
-        with self.assertRaisesRegex(taskrun.TaskRunError, 'Changing saved verification commands'):
-            broken.resume_paused()
-        self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
+        self.assertEqual(before, (run.run_dir / "state.json").read_bytes())
 
 
 class TaskRunClientTests(unittest.TestCase):
     def test_advancing_command_rejects_input_error_instead_of_treating_it_as_a_pause(self):
-        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
-        rejected = subprocess.CompletedProcess([], 2,
-                                               stdout='Input rejected: pending report repair must be reconciled\n',
-                                               stderr='')
-        with patch.object(taskrun, 'run_captured', return_value=rejected), \
-                self.assertRaisesRegex(taskrun.TaskRunError, 'pending report repair'):
-            run._invoke('retry failed stage', '--resume-paused', '--retry-failed-stage', advancing=True)
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        rejected = subprocess.CompletedProcess(
+            [], 2, stdout="Input rejected: pending report repair must be reconciled\n", stderr=""
+        )
+        with (
+            patch.object(taskrun, "run_captured", return_value=rejected),
+            self.assertRaisesRegex(taskrun.TaskRunError, "pending report repair"),
+        ):
+            run._invoke("retry failed stage", "--resume-paused", "--retry-failed-stage", advancing=True)
 
     def test_retry_failed_stage_uses_explicit_inspected_retry(self):
-        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
-        with patch.object(run, '_invoke') as invoke, patch.object(run, 'status', return_value={}) as status:
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}) as status:
             run.retry_failed_stage()
-        invoke.assert_called_once_with('retry failed stage', '--resume-paused', '--retry-failed-stage',
-                                       '--no-chat', advancing=True)
+        invoke.assert_called_once_with(
+            "retry failed stage", "--resume-paused", "--retry-failed-stage", "--no-chat", advancing=True
+        )
         status.assert_called_once()
 
     def test_retry_report_uses_exact_attempt_and_explicit_resume(self):
-        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
-        with patch.object(run, '_invoke') as invoke, patch.object(run, 'status', return_value={}) as status:
-            run.retry_report('001/sol_report_repair-02')
-        invoke.assert_called_once_with('retry report', '--resume-paused', '--retry-report',
-                                       '001/sol_report_repair-02', '--no-chat', advancing=True)
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}) as status:
+            run.retry_report("001/sol_report_repair-02")
+        invoke.assert_called_once_with(
+            "retry report", "--resume-paused", "--retry-report", "001/sol_report_repair-02", "--no-chat", advancing=True
+        )
         status.assert_called_once()
 
     def test_operational_response_uses_resolver_command_not_question_answer(self):
-        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
-        with patch.object(run, '_act', return_value={'needs': {'kind': 'resume'}}) as act:
-            view = run.respond_operational('request-1', 'token-1', 'Cause identified')
-        act.assert_called_once_with('resolver response', '--resolver-request', 'request-1',
-                                    '--resolver-token', 'token-1', '--resolver-response',
-                                    'provide_information', '--resolver-message', 'Cause identified')
-        self.assertEqual('resume', view['needs']['kind'])
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_act", return_value={"needs": {"kind": "resume"}}) as act:
+            view = run.respond_operational("request-1", "token-1", "Cause identified")
+        act.assert_called_once_with(
+            "resolver response",
+            "--resolver-request",
+            "request-1",
+            "--resolver-token",
+            "token-1",
+            "--resolver-response",
+            "provide_information",
+            "--resolver-message",
+            "Cause identified",
+        )
+        self.assertEqual("resume", view["needs"]["kind"])
 
     def test_accept_transport_change_requires_explicit_cli_flag(self):
-        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
-        with patch.object(run, '_invoke') as invoke, patch.object(run, 'status', return_value={}) as status:
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_invoke") as invoke, patch.object(run, "status", return_value={}) as status:
             run.accept_transport_change()
-        invoke.assert_called_once_with('accept transport change', '--resume-paused',
-                                       '--accept-transport-change', '--no-chat', advancing=True)
+        invoke.assert_called_once_with(
+            "accept transport change", "--resume-paused", "--accept-transport-change", "--no-chat", advancing=True
+        )
         status.assert_called_once()
 
     def test_answer_forwards_the_current_resolver_token(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         with patch.object(run, "_act", return_value={"needs": {"kind": "answer"}}) as act:
             view = run.answer("Q1", "Use addition.py", resolver_token="current-token")
-        act.assert_called_once_with("answer", "--answer", "Q1=Use addition.py",
-                                     "--resolver-token", "current-token")
+        act.assert_called_once_with("answer", "--answer", "Q1=Use addition.py", "--resolver-token", "current-token")
         self.assertEqual("answer", view["needs"]["kind"])
 
     def test_answer_without_resolver_token_uses_the_current_request_token(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
-        current = {"needs": {"kind": "answer", "questions": [{"id": "Q1"}, {"id": "Q2"}],
-                             "resolver_token": "current-token"}}
+        current = {
+            "needs": {"kind": "answer", "questions": [{"id": "Q1"}, {"id": "Q2"}], "resolver_token": "current-token"}
+        }
         with patch.object(run, "status", return_value=current), patch.object(run, "_act") as act:
             run.answer("Q2", "Use addition.py")
-        act.assert_called_once_with("answer", "--answer", "Q2=Use addition.py",
-                                    "--resolver-token", "current-token")
+        act.assert_called_once_with("answer", "--answer", "Q2=Use addition.py", "--resolver-token", "current-token")
 
     def test_answer_without_resolver_token_refuses_a_question_the_run_is_not_asking(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
         asking = {"kind": "answer", "questions": [{"id": "Q1"}], "resolver_token": "current-token"}
-        for needs, message in ((None, "not waiting for an answer to Q2"),
-                               ({"kind": "approve_plan", "token": "plan"}, "needs approve_plan"),
-                               (asking, r"questions \['Q1'\]"),
-                               ({**asking, "questions": [{"id": "Q2"}], "resolver_token": None},
-                                "advance the run to publish one")):
-            with self.subTest(needs=needs), patch.object(run, "status", return_value={"needs": needs}), \
-                    patch.object(run, "_act") as act, self.assertRaisesRegex(taskrun.TaskRunError, message):
+        for needs, message in (
+            (None, "not waiting for an answer to Q2"),
+            ({"kind": "approve_plan", "token": "plan"}, "needs approve_plan"),
+            (asking, r"questions \['Q1'\]"),
+            ({**asking, "questions": [{"id": "Q2"}], "resolver_token": None}, "advance the run to publish one"),
+        ):
+            with (
+                self.subTest(needs=needs),
+                patch.object(run, "status", return_value={"needs": needs}),
+                patch.object(run, "_act") as act,
+                self.assertRaisesRegex(taskrun.TaskRunError, message),
+            ):
                 run.answer("Q2", "Use addition.py")
             act.assert_not_called()
 
     def test_start_preserves_cli_error_when_no_run_was_created(self):
-        for stderr, stdout in (("autocode: GoCode authentication check failed", ""),
-                               ("", "autocode: startup failed")):
+        for stderr, stdout in (("autocode: GoCode authentication check failed", ""), ("", "autocode: startup failed")):
             with self.subTest(stderr=stderr, stdout=stdout), tempfile.TemporaryDirectory() as root:
                 completed = subprocess.CompletedProcess([], 2, stdout=stdout, stderr=stderr)
-                with patch.object(taskrun.TaskRun, "_invoke", return_value=completed), \
-                     self.assertRaises(taskrun.TaskRunError) as raised:
+                with (
+                    patch.object(taskrun.TaskRun, "_invoke", return_value=completed),
+                    self.assertRaises(taskrun.TaskRunError) as raised,
+                ):
                     taskrun.TaskRun.start(root, "A sample task")
                 self.assertIn("start exited 2 without creating a run", str(raised.exception))
                 self.assertIn(stderr or stdout, str(raised.exception))
@@ -799,8 +1076,10 @@ class TaskRunClientTests(unittest.TestCase):
     def test_start_bounds_diagnostic_output_when_no_run_was_created(self):
         with tempfile.TemporaryDirectory() as root:
             completed = subprocess.CompletedProcess([], 2, stdout="", stderr="x" * 2000 + "cause")
-            with patch.object(taskrun.TaskRun, "_invoke", return_value=completed), \
-                 self.assertRaises(taskrun.TaskRunError) as raised:
+            with (
+                patch.object(taskrun.TaskRun, "_invoke", return_value=completed),
+                self.assertRaises(taskrun.TaskRunError) as raised,
+            ):
                 taskrun.TaskRun.start(root, "A sample task")
             self.assertTrue(str(raised.exception).endswith("cause"))
             self.assertLess(len(str(raised.exception)), 1000)
@@ -892,8 +1171,12 @@ class TaskRunProcessTests(unittest.TestCase):
         self.assertEqual(2, raised.exception.process.returncode)
 
     def test_a_call_that_cannot_run_is_a_task_run_error(self):
-        run = taskrun.TaskRun(self.workspace, self.workspace / ".autocode" / "runs" / "one",
-                              command=self.command, cwd=self.root / "removed")
+        run = taskrun.TaskRun(
+            self.workspace,
+            self.workspace / ".autocode" / "runs" / "one",
+            command=self.command,
+            cwd=self.root / "removed",
+        )
         with self.assertRaisesRegex(taskrun.TaskRunError, "status could not run: .*No such file") as raised:
             run.status()
         self.assertIsNone(raised.exception.process)
@@ -911,39 +1194,46 @@ class TaskRunProcessTests(unittest.TestCase):
         self.assertEqual(sorted([mine.run_dir, theirs]), taskrun.TaskRun.runs_in(self.workspace))
         with self.assertRaises(taskrun.TaskRunError):
             taskrun.TaskRun.attach(self.workspace, command=self.command)
-        self.assertIsNone(taskrun.TaskRun.attach(self.workspace, command=self.command,
-                                                 exclude=[str(mine.run_dir), theirs]))
-        self.assertEqual(mine.run_dir, taskrun.TaskRun.attach(self.workspace, command=self.command,
-                                                              exclude=[theirs]).run_dir)
+        self.assertIsNone(
+            taskrun.TaskRun.attach(self.workspace, command=self.command, exclude=[str(mine.run_dir), theirs])
+        )
+        self.assertEqual(
+            mine.run_dir, taskrun.TaskRun.attach(self.workspace, command=self.command, exclude=[theirs]).run_dir
+        )
 
     def test_a_restored_continuation_keeps_the_working_directory(self):
         run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.cwd)
         continuation = run.restore_checkpoint("checkpoint-1", "token", "request-1")
-        self.assertEqual((self.workspace / ".autocode" / "runs" / "two", self.cwd),
-                         (continuation.run_dir, continuation.cwd))
+        self.assertEqual(
+            (self.workspace / ".autocode" / "runs" / "two", self.cwd), (continuation.run_dir, continuation.cwd)
+        )
         self.assertEqual(str(self.cwd), continuation.status()["cwd"])
 
     def test_status_errors_carry_the_status_process(self):
-        run = taskrun.TaskRun(self.workspace, self.workspace / ".autocode" / "runs" / "one",
-                              command=(sys.executable, "-c", "import sys; sys.exit(1)"))
+        run = taskrun.TaskRun(
+            self.workspace,
+            self.workspace / ".autocode" / "runs" / "one",
+            command=(sys.executable, "-c", "import sys; sys.exit(1)"),
+        )
         with self.assertRaises(taskrun.TaskRunError) as raised:
             run.status()
         self.assertEqual(1, raised.exception.process.returncode)
         self.assertIsNone(run.last_advance)
 
     def test_timeout_stops_detached_workers_and_retains_saved_run_identity(self):
-        self.assert_owned_cleanup('timeout')
+        self.assert_owned_cleanup("timeout")
 
     def test_sigterm_stops_detached_workers_and_restores_caller_handler(self):
-        self.assert_owned_cleanup('sigterm')
+        self.assert_owned_cleanup("sigterm")
 
     def assert_owned_cleanup(self, trigger):
-        ready = self.root / 'ready'
+        ready = self.root / "ready"
         os.mkfifo(ready)
         ready_fd = os.open(ready, os.O_RDWR)
         self.addCleanup(os.close, ready_fd)
-        stub = self.root / 'timeout_cli.py'
-        stub.write_text(textwrap.dedent('''
+        stub = self.root / "timeout_cli.py"
+        stub.write_text(
+            textwrap.dedent("""
             import json, os, pathlib, subprocess, sys
             args = sys.argv[1:]
             workspace = pathlib.Path(args[args.index('--workspace') + 1])
@@ -957,9 +1247,9 @@ class TaskRunProcessTests(unittest.TestCase):
                 signal.write('R')
             reader, writer = os.pipe()
             os.read(reader, 1)
-        '''))
-        sentinel = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'],
-                                    stdin=subprocess.PIPE)
+        """)
+        )
+        sentinel = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
         supervisor_wait = captured_process.supervisor.wait
         real_clock = captured_process.supervisor.time.monotonic
         previous_handler = signal.getsignal(signal.SIGTERM)
@@ -967,9 +1257,9 @@ class TaskRunProcessTests(unittest.TestCase):
 
         def stop_after_fixture_is_ready(child, timeout):
             nonlocal receipt
-            self.assertEqual(b'R', os.read(ready_fd, 1))
-            if trigger == 'sigterm':
-                worker_pid = json.loads((self.workspace / 'worker.json').read_text())['pid']
+            self.assertEqual(b"R", os.read(ready_fd, 1))
+            if trigger == "sigterm":
+                worker_pid = json.loads((self.workspace / "worker.json").read_text())["pid"]
                 sample = processes.ProcessTree.sample
                 interrupted = False
 
@@ -978,13 +1268,13 @@ class TaskRunProcessTests(unittest.TestCase):
                     result = sample(tree, *args, **kwargs)
                     if worker_pid in tree.known and not interrupted:
                         interrupted = True
-                        receipt = {'owned': list(tree.known.values())}
+                        receipt = {"owned": list(tree.known.values())}
                         os.kill(os.getpid(), signal.SIGTERM)
                     return result
 
                 # Signal only after the supervisor has recorded the detached
                 # worker and entered the wait's cleanup-protected loop.
-                with patch.object(processes.ProcessTree, 'sample', interrupt_owned_sample):
+                with patch.object(processes.ProcessTree, "sample", interrupt_owned_sample):
                     return supervisor_wait(child, timeout)
             first = True
 
@@ -998,25 +1288,35 @@ class TaskRunProcessTests(unittest.TestCase):
 
             # Advance the deadline without waiting for it in real time. Process
             # cleanup still uses the real monotonic clock after this offset.
-            with patch.object(captured_process.supervisor.time, 'monotonic', deadline_clock):
+            with patch.object(captured_process.supervisor.time, "monotonic", deadline_clock):
                 code, expired, receipt = supervisor_wait(child, timeout)
             return code, expired, receipt
 
         try:
-            expected_error = (self.assertRaisesRegex(taskrun.TaskRunError, 'start did not finish within 60 s')
-                              if trigger == 'timeout' else self.assertRaises(KeyboardInterrupt))
-            with patch.object(captured_process.supervisor, 'wait', stop_after_fixture_is_ready), \
-                    expected_error as raised:
-                taskrun.TaskRun.start(self.workspace, 'A task', command=(sys.executable, str(stub)),
-                                     env={'READY_FIFO': str(ready)}, timeout=60)
-            saved_run = self.workspace / '.autocode/runs/saved-before-timeout'
+            expected_error = (
+                self.assertRaisesRegex(taskrun.TaskRunError, "start did not finish within 60 s")
+                if trigger == "timeout"
+                else self.assertRaises(KeyboardInterrupt)
+            )
+            with (
+                patch.object(captured_process.supervisor, "wait", stop_after_fixture_is_ready),
+                expected_error as raised,
+            ):
+                taskrun.TaskRun.start(
+                    self.workspace,
+                    "A task",
+                    command=(sys.executable, str(stub)),
+                    env={"READY_FIFO": str(ready)},
+                    timeout=60,
+                )
+            saved_run = self.workspace / ".autocode/runs/saved-before-timeout"
             self.assertEqual([saved_run], taskrun.TaskRun.runs_in(self.workspace))
-            if trigger == 'timeout':
+            if trigger == "timeout":
                 self.assertIsNone(raised.exception.process)
                 self.assertEqual(saved_run, raised.exception.run_dir)
-            worker_pid = json.loads((self.workspace / 'worker.json').read_text())['pid']
-            self.assertIn(worker_pid, {row['pid'] for row in receipt['owned']})
-            self.assertEqual([], processes.live_processes(receipt['owned']))
+            worker_pid = json.loads((self.workspace / "worker.json").read_text())["pid"]
+            self.assertIn(worker_pid, {row["pid"] for row in receipt["owned"]})
+            self.assertEqual([], processes.live_processes(receipt["owned"]))
             self.assertIsNone(sentinel.poll())
             self.assertIs(previous_handler, signal.getsignal(signal.SIGTERM))
         finally:
@@ -1025,14 +1325,17 @@ class TaskRunProcessTests(unittest.TestCase):
 
     def test_captured_cli_can_be_driven_from_a_worker_thread(self):
         with ThreadPoolExecutor(max_workers=1) as worker:
-            result = worker.submit(captured_process.run, [sys.executable, '-c', "print('thread caller')"],
-                                   timeout=60).result(timeout=10)
-        self.assertEqual((0, 'thread caller\n', ''), (result.returncode, result.stdout, result.stderr))
+            result = worker.submit(
+                captured_process.run, [sys.executable, "-c", "print('thread caller')"], timeout=60
+            ).result(timeout=10)
+        self.assertEqual((0, "thread caller\n", ""), (result.returncode, result.stdout, result.stderr))
 
     def test_supervision_failure_is_a_task_run_error(self):
-        with patch.object(taskrun, 'run_captured', side_effect=processes.ProcessError('ownership unavailable')), \
-                self.assertRaisesRegex(taskrun.TaskRunError, 'could not supervise.*ownership unavailable') as raised:
-            taskrun.TaskRun.start(self.workspace, 'A task', command=self.command)
+        with (
+            patch.object(taskrun, "run_captured", side_effect=processes.ProcessError("ownership unavailable")),
+            self.assertRaisesRegex(taskrun.TaskRunError, "could not supervise.*ownership unavailable") as raised,
+        ):
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
         self.assertIsNone(raised.exception.process)
         self.assertIsNone(raised.exception.run_dir)
 

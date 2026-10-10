@@ -3,6 +3,7 @@
 The workflow engine calls one provider facade. OpenCode is built in. Every
 other name loads a TOML config; there is no Python plug-in path.
 """
+
 from __future__ import annotations
 
 import os

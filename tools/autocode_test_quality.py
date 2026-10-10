@@ -4,6 +4,7 @@ This is a narrow sanity check, not proof of semantic coverage. Calls, fixtures,
 and dynamic tests are left to execution and independent review. Empty tests
 and literal true assertions cannot establish an application's behavior.
 """
+
 import ast
 import shlex
 from pathlib import Path
@@ -30,9 +31,9 @@ def python_test_files(workspace, command):
         at = words.index("-m")
     except ValueError:
         return []
-    if words[at + 1:at + 2] != ["unittest"]:
+    if words[at + 1 : at + 2] != ["unittest"]:
         return []
-    args = words[at + 2:]
+    args = words[at + 2 :]
     root = Path(workspace).resolve()
     if "discover" in args:
         start, pattern = ".", "test*.py"
@@ -65,19 +66,35 @@ def require_behavioral_tests(workspace, commands):
                 continue
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
-                    known = any(isinstance(base, ast.Attribute) and isinstance(base.value, ast.Name)
-                                and base.value.id == "unittest" and base.attr == "TestCase"
-                                or isinstance(base, ast.Name) and base.id == "TestCase" for base in node.bases)
+                    known = any(
+                        isinstance(base, ast.Attribute)
+                        and isinstance(base.value, ast.Name)
+                        and base.value.id == "unittest"
+                        and base.attr == "TestCase"
+                        or isinstance(base, ast.Name)
+                        and base.id == "TestCase"
+                        for base in node.bases
+                    )
                     if node.bases and not known or node.decorator_list:
                         uncertain = True  # inherited checks and custom decorators may assert in fixtures
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     uncertain |= bool(node.decorator_list)
                     if node.name.startswith("test"):
                         tests.append((path, node))
-                    elif node.name in ("setUp", "setUpClass", "setUpModule", "tearDown", "tearDownClass", "tearDownModule", "load_tests"):
+                    elif node.name in (
+                        "setUp",
+                        "setUpClass",
+                        "setUpModule",
+                        "tearDown",
+                        "tearDownClass",
+                        "tearDownModule",
+                        "load_tests",
+                    ):
                         uncertain |= any(not inert(statement) for statement in node.body)
         if tests and not uncertain and all(all(inert(statement) for statement in node.body) for _, node in tests):
             names = ", ".join(f"{path.relative_to(Path(workspace))}:{node.name}" for path, node in tests)
-            raise ValueError(f"Verification command `{command}` only exercises vacuous test bodies ({names}). "
-                             "Passing empty tests cannot verify required behaviors; add assertions or executed "
-                             "behavioral probes for the approved examples and rerun validation.")
+            raise ValueError(
+                f"Verification command `{command}` only exercises vacuous test bodies ({names}). "
+                "Passing empty tests cannot verify required behaviors; add assertions or executed "
+                "behavioral probes for the approved examples and rerun validation."
+            )

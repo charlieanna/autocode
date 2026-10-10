@@ -12,6 +12,7 @@ Pure: no docker, no subprocess. When the goldens change, check by hand that
 unicode.compose.json is there because Compose's YAML reader refuses the
 surrogate-pair escape JSON normally gives a character above U+FFFF.
 """
+
 import json
 import re
 import unittest
@@ -24,47 +25,104 @@ FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures" / "local_c
 TREE = Path("/TREE")
 
 STORE = {"kind": "service", "port": 8001, "dockerfile": "Dockerfile", "health": "/health"}
-GATEWAY = {"kind": "service", "port": 8002, "start": "python3 server.py", "health": "/health",
-           "runtime_depends_on": ["store"]}
-DATABASE = {"kind": "database", "port": 5432, "dockerfile": "Dockerfile", "health": ["pg_isready", "-U", "app"],
-            "env": {"POSTGRES_USER": "app", "POSTGRES_PASSWORD": "local-only"}}
+GATEWAY = {
+    "kind": "service",
+    "port": 8002,
+    "start": "python3 server.py",
+    "health": "/health",
+    "runtime_depends_on": ["store"],
+}
+DATABASE = {
+    "kind": "database",
+    "port": 5432,
+    "dockerfile": "Dockerfile",
+    "health": ["pg_isready", "-U", "app"],
+    "env": {"POSTGRES_USER": "app", "POSTGRES_PASSWORD": "local-only"},
+}
 
 # Each golden file and the runtime blocks (None: no block) and tree it renders.
 GOLDENS = {
     "two_services.compose.json": ({"store": STORE, "gateway": GATEWAY}, TREE),
-    "escaped.compose.json": ({
-        "api": {"kind": "service", "port": 8000, "start": "python3 server.py --home $HOME --port $PORT",
-                "health": "/health", "env": {"HOME_DIR": "$HOME", "PRICE": "$$5", "BRACED": "${USER}"}},
-        "poller": {"kind": "worker", "start": "python3 poll.py", "health": ["sh", "-c", "test -f /tmp/ready-$HOSTNAME"],
-                   "runtime_depends_on": ["api"]},
-    }, Path("/TREE/$USER")),
+    "escaped.compose.json": (
+        {
+            "api": {
+                "kind": "service",
+                "port": 8000,
+                "start": "python3 server.py --home $HOME --port $PORT",
+                "health": "/health",
+                "env": {"HOME_DIR": "$HOME", "PRICE": "$$5", "BRACED": "${USER}"},
+            },
+            "poller": {
+                "kind": "worker",
+                "start": "python3 poll.py",
+                "health": ["sh", "-c", "test -f /tmp/ready-$HOSTNAME"],
+                "runtime_depends_on": ["api"],
+            },
+        },
+        Path("/TREE/$USER"),
+    ),
     "library_skipped.compose.json": ({"store": STORE, "shared": {"kind": "library"}, "notes": None}, TREE),
-    "worker.compose.json": ({
-        "store": STORE,
-        "mailer": {"kind": "worker", "start": "python3 worker.py", "health": ["python3", "check.py"],
-                   "runtime_depends_on": ["store"], "env": {"MODE": "batch"}},
-        "sweeper": {"kind": "worker", "dockerfile": "Dockerfile.worker"},
-    }, TREE),
-    "database.compose.json": ({
-        "db": DATABASE,
-        "api": {"kind": "service", "port": 8000, "start": "python3 server.py", "health": "/health",
-                "runtime_depends_on": ["db"]},
-        "indexer": {"kind": "worker", "start": "python3 indexer.py", "runtime_depends_on": ["db", "api"]},
-    }, TREE),
+    "worker.compose.json": (
+        {
+            "store": STORE,
+            "mailer": {
+                "kind": "worker",
+                "start": "python3 worker.py",
+                "health": ["python3", "check.py"],
+                "runtime_depends_on": ["store"],
+                "env": {"MODE": "batch"},
+            },
+            "sweeper": {"kind": "worker", "dockerfile": "Dockerfile.worker"},
+        },
+        TREE,
+    ),
+    "database.compose.json": (
+        {
+            "db": DATABASE,
+            "api": {
+                "kind": "service",
+                "port": 8000,
+                "start": "python3 server.py",
+                "health": "/health",
+                "runtime_depends_on": ["db"],
+            },
+            "indexer": {"kind": "worker", "start": "python3 indexer.py", "runtime_depends_on": ["db", "api"]},
+        },
+        TREE,
+    ),
     # Characters above U+FFFF (written raw), other non-ASCII ones (escaped), and text that only looks like an escape.
-    "unicode.compose.json": ({
-        "api": {"kind": "service", "port": 8000, "start": "echo \U0001F600 && python3 server.py", "health": "/health",
-                "env": {"GREETING": "hi \U0001F600", "ACCENTED": "caf\u00e9 \u4f60", "NONCHARACTERS": "a\ufffeb\uffff",
-                        "C1": "\x80", "LOOKS_ESCAPED": "\\ud83d\\ude00 \\\U0001F680"}},
-        "poller": {"kind": "worker", "start": "python3 poll.py", "health": ["sh", "-c", "test -f /tmp/\U0001F680"],
-                   "runtime_depends_on": ["api"]},
-    }, Path("/TREE/tree-\U0001F680")),
+    "unicode.compose.json": (
+        {
+            "api": {
+                "kind": "service",
+                "port": 8000,
+                "start": "echo \U0001f600 && python3 server.py",
+                "health": "/health",
+                "env": {
+                    "GREETING": "hi \U0001f600",
+                    "ACCENTED": "caf\u00e9 \u4f60",
+                    "NONCHARACTERS": "a\ufffeb\uffff",
+                    "C1": "\x80",
+                    "LOOKS_ESCAPED": "\\ud83d\\ude00 \\\U0001f680",
+                },
+            },
+            "poller": {
+                "kind": "worker",
+                "start": "python3 poll.py",
+                "health": ["sh", "-c", "test -f /tmp/\U0001f680"],
+                "runtime_depends_on": ["api"],
+            },
+        },
+        Path("/TREE/tree-\U0001f680"),
+    ),
 }
 
 
 def runtimes(blocks):
-    return {cid: None if block is None else ComponentRuntime.load({"id": cid, "runtime": block}, cid)
-            for cid, block in blocks.items()}
+    return {
+        cid: None if block is None else ComponentRuntime.load({"id": cid, "runtime": block}, cid)
+        for cid, block in blocks.items()
+    }
 
 
 def document(name):
@@ -97,30 +155,41 @@ class GoldenTests(unittest.TestCase):
                 self.assertEqual((FIXTURES / name).read_text(encoding="utf-8"), compose.render(document(name)))
 
     def test_render_writes_only_characters_above_u_ffff_as_themselves(self):
-        value = {"emoji": "\U0001F600", "bmp": "\u00e9\ufffe\uffff\x80", "text": "\\ud83d\\ude00",
-                 "after_a_backslash": "\\\U0001F680"}
+        value = {
+            "emoji": "\U0001f600",
+            "bmp": "\u00e9\ufffe\uffff\x80",
+            "text": "\\ud83d\\ude00",
+            "after_a_backslash": "\\\U0001f680",
+        }
         text = compose.render(value)
-        self.assertEqual('{\n  "after_a_backslash": "\\\\\U0001F680",\n  "bmp": "\\u00e9\\ufffe\\uffff\\u0080",\n'
-                         '  "emoji": "\U0001F600",\n  "text": "\\\\ud83d\\\\ude00"\n}\n', text)
+        self.assertEqual(
+            '{\n  "after_a_backslash": "\\\\\U0001f680",\n  "bmp": "\\u00e9\\ufffe\\uffff\\u0080",\n'
+            '  "emoji": "\U0001f600",\n  "text": "\\\\ud83d\\\\ude00"\n}\n',
+            text,
+        )
         self.assertEqual(value, json.loads(text))
 
     def test_characters_above_u_ffff_reach_the_file_as_themselves(self):
         doc = document("unicode.compose.json")
         api, poller = doc["services"]["api"], doc["services"]["poller"]
-        self.assertEqual(["/bin/sh", "-c", "echo \U0001F600 && python3 server.py"], api["command"])
-        self.assertEqual("hi \U0001F600", api["environment"]["GREETING"])
-        self.assertEqual("/TREE/tree-\U0001F680/components/poller", poller["build"]["context"])
+        self.assertEqual(["/bin/sh", "-c", "echo \U0001f600 && python3 server.py"], api["command"])
+        self.assertEqual("hi \U0001f600", api["environment"]["GREETING"])
+        self.assertEqual("/TREE/tree-\U0001f680/components/poller", poller["build"]["context"])
         text = (FIXTURES / "unicode.compose.json").read_text(encoding="utf-8")
-        self.assertIn('"GREETING": "hi \U0001F600"', text)
+        self.assertIn('"GREETING": "hi \U0001f600"', text)
         self.assertIn('"NONCHARACTERS": "a\\ufffeb\\uffff"', text)
 
     def test_two_services(self):
         services = document("two_services.compose.json")["services"]
         self.assertEqual({"context": "/TREE/components/store", "dockerfile": "Dockerfile"}, services["store"]["build"])
         self.assertNotIn("command", services["store"])
-        self.assertEqual({"context": "/TREE/components/gateway",
-                          "dockerfile_inline": f"FROM {START_IMAGE}\nWORKDIR /app\nCOPY . /app\n"},
-                         services["gateway"]["build"])
+        self.assertEqual(
+            {
+                "context": "/TREE/components/gateway",
+                "dockerfile_inline": f"FROM {START_IMAGE}\nWORKDIR /app\nCOPY . /app\n",
+            },
+            services["gateway"]["build"],
+        )
         self.assertEqual(["/bin/sh", "-c", "python3 server.py"], services["gateway"]["command"])
         self.assertEqual({"PORT": "8002", "STORE_URL": "http://store:8001"}, services["gateway"]["environment"])
         self.assertEqual({"store": {"condition": "service_started"}}, services["gateway"]["depends_on"])
@@ -131,8 +200,9 @@ class GoldenTests(unittest.TestCase):
         doc = document("escaped.compose.json")
         api, poller = doc["services"]["api"], doc["services"]["poller"]
         self.assertEqual("python3 server.py --home $$HOME --port $$PORT", api["command"][2])
-        self.assertEqual({"PORT": "8000", "HOME_DIR": "$$HOME", "PRICE": "$$$$5", "BRACED": "$${USER}"},
-                         api["environment"])
+        self.assertEqual(
+            {"PORT": "8000", "HOME_DIR": "$$HOME", "PRICE": "$$$$5", "BRACED": "$${USER}"}, api["environment"]
+        )
         self.assertEqual("/TREE/$$USER/components/api", api["build"]["context"])
         self.assertEqual(["CMD", "sh", "-c", "test -f /tmp/ready-$$HOSTNAME"], poller["healthcheck"]["test"])
         for path, value in walk(doc):
@@ -149,8 +219,15 @@ class GoldenTests(unittest.TestCase):
         self.assertNotIn("ports", mailer)
         self.assertNotIn("ports", sweeper)
         self.assertEqual({"MODE": "batch", "STORE_URL": "http://store:8001"}, mailer["environment"])
-        self.assertEqual({"test": ["CMD", "python3", "check.py"], "interval": compose.HEALTH_INTERVAL,
-                          "timeout": compose.HEALTH_TIMEOUT, "retries": compose.HEALTH_RETRIES}, mailer["healthcheck"])
+        self.assertEqual(
+            {
+                "test": ["CMD", "python3", "check.py"],
+                "interval": compose.HEALTH_INTERVAL,
+                "timeout": compose.HEALTH_TIMEOUT,
+                "retries": compose.HEALTH_RETRIES,
+            },
+            mailer["healthcheck"],
+        )
         self.assertEqual({"store": {"condition": "service_started"}}, mailer["depends_on"])
         self.assertNotIn("healthcheck", sweeper)
         self.assertEqual({"context": "/TREE/components/sweeper", "dockerfile": "Dockerfile.worker"}, sweeper["build"])
@@ -167,8 +244,10 @@ class GoldenTests(unittest.TestCase):
         self.assertEqual({"PORT": "5432", "POSTGRES_USER": "app", "POSTGRES_PASSWORD": "local-only"}, db["environment"])
         self.assertEqual({"PORT": "8000", "DB_HOST": "db", "DB_PORT": "5432"}, services["api"]["environment"])
         self.assertEqual({"db": {"condition": "service_healthy"}}, services["api"]["depends_on"])
-        self.assertEqual({"api": {"condition": "service_started"}, "db": {"condition": "service_healthy"}},
-                         services["indexer"]["depends_on"])
+        self.assertEqual(
+            {"api": {"condition": "service_started"}, "db": {"condition": "service_healthy"}},
+            services["indexer"]["depends_on"],
+        )
 
 
 class ShapeTests(unittest.TestCase):
@@ -217,15 +296,19 @@ class ShapeTests(unittest.TestCase):
                     self.assertEqual(["no-new-privileges:true"], service["security_opt"])
                     self.assertEqual(compose.MEM_LIMIT, service["mem_limit"])
                     self.assertEqual(compose.PIDS_LIMIT, service["pids_limit"])
-                    self.assertTrue(all(isinstance(value, str) for value in service["environment"].values()),
-                                    "no environment value is left for the host to fill in")
+                    self.assertTrue(
+                        all(isinstance(value, str) for value in service["environment"].values()),
+                        "no environment value is left for the host to fill in",
+                    )
 
     def test_input_order_does_not_change_the_output(self):
         for name, (blocks, tree) in GOLDENS.items():
             with self.subTest(name):
                 reversed_blocks = dict(reversed(list(blocks.items())))
-                self.assertEqual(compose.render(compose.compose_document(runtimes(blocks), tree)),
-                                 compose.render(compose.compose_document(runtimes(reversed_blocks), tree)))
+                self.assertEqual(
+                    compose.render(compose.compose_document(runtimes(blocks), tree)),
+                    compose.render(compose.compose_document(runtimes(reversed_blocks), tree)),
+                )
 
     def test_the_rendered_file_is_json_with_no_project_name(self):
         for name in GOLDENS:
@@ -255,10 +338,14 @@ class RefusalTests(unittest.TestCase):
             compose.compose_document(runtimes({"store": STORE}), Path("/TREE/a\udcff"))
 
     def test_a_dependency_graph_start_layers_refuses_is_refused(self):
-        cases = [({"gateway": GATEWAY}, "unknown component 'store'"),
-                 ({"gateway": GATEWAY, "store": None}, "declares no runtime block"),
-                 ({"a": {**STORE, "runtime_depends_on": ["b"]}, "b": {**STORE, "runtime_depends_on": ["a"]}},
-                  "runtime dependency cycle")]
+        cases = [
+            ({"gateway": GATEWAY}, "unknown component 'store'"),
+            ({"gateway": GATEWAY, "store": None}, "declares no runtime block"),
+            (
+                {"a": {**STORE, "runtime_depends_on": ["b"]}, "b": {**STORE, "runtime_depends_on": ["a"]}},
+                "runtime dependency cycle",
+            ),
+        ]
         for blocks, message in cases:
             with self.subTest(message):
                 with self.assertRaisesRegex(ValueError, re.escape(message)):
@@ -268,8 +355,9 @@ class RefusalTests(unittest.TestCase):
 class EscapeTests(unittest.TestCase):
     def test_escape_doubles_every_dollar_in_string_values_only(self):
         value = {"A": "$X", "B": ["$", "$$", 1, None, True], "C": {"D": "no dollar"}}
-        self.assertEqual({"A": "$$X", "B": ["$$", "$$$$", 1, None, True], "C": {"D": "no dollar"}},
-                         compose.escape(value))
+        self.assertEqual(
+            {"A": "$$X", "B": ["$$", "$$$$", 1, None, True], "C": {"D": "no dollar"}}, compose.escape(value)
+        )
         self.assertEqual({"$K": "$$v"}, compose.escape({"$K": "$v"}))
 
 

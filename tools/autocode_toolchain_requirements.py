@@ -8,10 +8,10 @@ def initial_validation(state):
     the executable declaration sealed in the approved initial task. An unrelated
     criterion slice must not inherit that task's commands.
     """
-    body = (state.get('goal_contract') or {}).get('body') or {}
-    initial = body.get('initial_task') or {}
-    current = state.get('current_task') or {}
-    selected = set(current.get('acceptance_criteria') or [])
-    if selected and not selected.intersection(initial.get('acceptance_criteria') or []):
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    initial = body.get("initial_task") or {}
+    current = state.get("current_task") or {}
+    selected = set(current.get("acceptance_criteria") or [])
+    if selected and not selected.intersection(initial.get("acceptance_criteria") or []):
         return []
-    return list(initial.get('validation_plan') or [])
+    return list(initial.get("validation_plan") or [])

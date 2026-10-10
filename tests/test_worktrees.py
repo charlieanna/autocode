@@ -1,4 +1,5 @@
 """Task worktrees deliver to their branch and can be cleaned up; Builder checkouts retire."""
+
 import contextlib
 import io
 import json
@@ -35,8 +36,14 @@ class Fixture(unittest.TestCase):
         (tree / "greet.py").write_text("print('hi')\n")
         run = tree / ".autocode" / "runs" / "r1"
         run.mkdir(parents=True)
-        state = {"status": status, "task": name, "run_dir": str(run), "workspace": str(tree),
-                 "project_workspace": str(self.project), "goal_contract": {"revision": 1}}
+        state = {
+            "status": status,
+            "task": name,
+            "run_dir": str(run),
+            "workspace": str(tree),
+            "project_workspace": str(self.project),
+            "goal_contract": {"revision": 1},
+        }
         (run / "state.json").write_text(json.dumps(state))
         return data, tree, state
 
@@ -70,8 +77,9 @@ class DeliverTests(Fixture):
         self.assertEqual("", worktrees.deliver({**state, "status": "TASK_COMPLETE"}, self.project))
         # A program writes the same metadata without kind "task"; its branch is the program's.
         meta = tree / ".autocode" / "task-workspace.json"
-        meta.write_text(json.dumps({key: value for key, value in json.loads(meta.read_text()).items()
-                                    if key != "kind"}))
+        meta.write_text(
+            json.dumps({key: value for key, value in json.loads(meta.read_text()).items() if key != "kind"})
+        )
         self.assertEqual("", worktrees.deliver({**state, "status": "TASK_COMPLETE"}, tree))
         self.assertEqual(data["base_commit"], git(self.project, "rev-parse", data["branch"]))
 
@@ -105,6 +113,7 @@ class CleanTests(Fixture):
         worktrees.deliver(state, locked)
         with open(locked / ".autocode" / "runs" / "r1" / "writer.lock", "a+") as handle:
             import fcntl
+
             fcntl.flock(handle, fcntl.LOCK_EX)
             code, out = self.clean("--yes")
         self.assertEqual(0, code, out)
@@ -126,7 +135,9 @@ class CleanTests(Fixture):
         code, out = self.clean("--yes")
         self.assertEqual(0, code, out)
         archived = self.project / ".autocode" / "archive" / tree.name
-        self.assertTrue((archived / "builders" / "b1" / "1" / ".autocode" / "runs" / "builder-b1-1" / "result.json").is_file())
+        self.assertTrue(
+            (archived / "builders" / "b1" / "1" / ".autocode" / "runs" / "builder-b1-1" / "result.json").is_file()
+        )
         self.assertFalse((archived / "builders" / "b1" / "1" / ".git").exists())
         self.assertEqual("", git(self.project, "branch", "--list", "autocode/builder-*"))
         self.assertEqual(1, git(self.project, "worktree", "list", "--porcelain").count("worktree "))
@@ -152,12 +163,16 @@ class RemoveCheckoutTests(Fixture):
 
 class CliTests(unittest.TestCase):
     def test_a_completed_worktree_run_delivers_stays_current_and_cleans_up(self):
-        flow = test_subprocess.SubprocessFlow(); flow.setUp()
+        flow = test_subprocess.SubprocessFlow()
+        flow.setUp()
         self.addCleanup(flow.doCleanups)
         env = {**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"}
-        run = lambda *args, **kw: subprocess.run([*flow.entry, *args], cwd=flow.root, env=env, text=True,
-                                                 capture_output=True, timeout=60, **kw)
-        result = run("--workspace", str(flow.project), "--engine", "codex", "--chat", "Build greeting", input="CLI\nyes\n")
+        run = lambda *args, **kw: subprocess.run(
+            [*flow.entry, *args], cwd=flow.root, env=env, text=True, capture_output=True, timeout=60, **kw
+        )
+        result = run(
+            "--workspace", str(flow.project), "--engine", "codex", "--chat", "Build greeting", input="CLI\nyes\n"
+        )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("Delivered on branch autocode/build-greeting-", result.stdout)
         (tree,) = (flow.project / ".autocode" / "worktrees").iterdir()
@@ -165,8 +180,9 @@ class CliTests(unittest.TestCase):
         status = json.loads(run("--workspace", str(flow.project), "--run-dir", str(run_dir), "--status").stdout)
         self.assertEqual("TASK_COMPLETE", status["status"])
         # From the project without --run-dir: the only run, finished, shown read-only.
-        bare = subprocess.run([*flow.entry, "--status"], cwd=flow.project, env=env, text=True,
-                              capture_output=True, timeout=60)
+        bare = subprocess.run(
+            [*flow.entry, "--status"], cwd=flow.project, env=env, text=True, capture_output=True, timeout=60
+        )
         self.assertEqual(0, bare.returncode, bare.stderr)
         self.assertEqual(status, json.loads(bare.stdout))
         self.assertIn(f"Using the saved run {run_dir.resolve()} (TASK_COMPLETE, the latest finished run)", bare.stderr)

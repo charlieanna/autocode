@@ -21,6 +21,7 @@ role's default model. A ready Codex does not pass for a default that is not
 ready; doctor names ``--engine codex``, the single-login route, as the
 alternative (issue #67).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -64,16 +65,24 @@ def python_check(version=sys.version_info) -> Check:
     found = f"{version[0]}.{version[1]}.{version[2]}"
     if tuple(version[:2]) >= (3, 11):
         return Check("python", OK, f"Python {found}")
-    return Check("python", MISSING, f"Python {found}; AutoCode needs 3.11 or newer",
-                 "install Python 3.11+ and reinstall AutoCode with it (pipx install --python python3.11 ...)")
+    return Check(
+        "python",
+        MISSING,
+        f"Python {found}; AutoCode needs 3.11 or newer",
+        "install Python 3.11+ and reinstall AutoCode with it (pipx install --python python3.11 ...)",
+    )
 
 
 def psutil_check() -> Check:
     try:
         import psutil  # noqa: F401
     except ImportError:
-        return Check("psutil", MISSING, "the psutil package is not importable from this Python",
-                     "reinstall AutoCode with pipx, or run it with the project's .venv/bin/python")
+        return Check(
+            "psutil",
+            MISSING,
+            "the psutil package is not importable from this Python",
+            "reinstall AutoCode with pipx, or run it with the project's .venv/bin/python",
+        )
     return Check("psutil", OK, "psutil importable")
 
 
@@ -92,16 +101,26 @@ def conformance_check(engine: str, version: str) -> Check:
     try:
         row = provider_matrix.status_for(engine, version)
     except (OSError, ValueError) as error:
-        return Check(f"conformance:{engine}", WARN, f"cannot read the conformance matrix: {error}",
-                     "see docs/providers.md#conformance-matrix")
+        return Check(
+            f"conformance:{engine}",
+            WARN,
+            f"cannot read the conformance matrix: {error}",
+            "see docs/providers.md#conformance-matrix",
+        )
     if row is None:
-        return Check(f"conformance:{engine}", WARN,
-                     f"{engine} {version} is untested against the offline conformance suite",
-                      "run tools/provider_conformance.py --fake and add a row to tools/provider-matrix.json")
-    return Check(f"conformance:{engine}", OK if row["result"] == "known-good" else WARN,
-                 f"{engine} {version}: {row['result']} (containment {row['containment']}, "
-                 f"visual {row['visual_profile']}, {row['date']})",
-                 None if row["result"] == "known-good" else row["note"])
+        return Check(
+            f"conformance:{engine}",
+            WARN,
+            f"{engine} {version} is untested against the offline conformance suite",
+            "run tools/provider_conformance.py --fake and add a row to tools/provider-matrix.json",
+        )
+    return Check(
+        f"conformance:{engine}",
+        OK if row["result"] == "known-good" else WARN,
+        f"{engine} {version}: {row['result']} (containment {row['containment']}, "
+        f"visual {row['visual_profile']}, {row['date']})",
+        None if row["result"] == "known-good" else row["note"],
+    )
 
 
 def engine_checks(which=shutil.which, runner=run) -> list[Check]:
@@ -115,21 +134,41 @@ def engine_checks(which=shutil.which, runner=run) -> list[Check]:
                 detail += "; strict tool containment is qualified only for OpenCode 1.18.33"
             checks.append(Check("engine:opencode", OK, detail))
         else:
-            checks.append(Check("engine:opencode", MISSING, f"OpenCode {version or '(no version)'}; AutoCode "
-                                "requires OpenCode 1.x or 2.x",
-                                "install OpenCode 1.x or 2.x, then log in (docs/install.md)"))
+            checks.append(
+                Check(
+                    "engine:opencode",
+                    MISSING,
+                    f"OpenCode {version or '(no version)'}; AutoCode requires OpenCode 1.x or 2.x",
+                    "install OpenCode 1.x or 2.x, then log in (docs/install.md)",
+                )
+            )
         checks.append(conformance_check("opencode", parsed or version or "unknown"))
     else:
-        checks.append(Check("engine:opencode", MISSING, "opencode is not on PATH",
-                            "npm install -g opencode-ai@1, then log in (docs/install.md)"))
+        checks.append(
+            Check(
+                "engine:opencode",
+                MISSING,
+                "opencode is not on PATH",
+                "npm install -g opencode-ai@1, then log in (docs/install.md)",
+            )
+        )
         checks.append(conformance_check("opencode", "not-installed"))
     if which("codex"):
         login = runner(["codex", "login", "status"])
-        checks.append(Check("engine:codex", OK, "Codex, logged in") if login.returncode == 0 else
-                      Check("engine:codex", MISSING, "Codex found but not logged in", "run `codex login`"))
+        checks.append(
+            Check("engine:codex", OK, "Codex, logged in")
+            if login.returncode == 0
+            else Check("engine:codex", MISSING, "Codex found but not logged in", "run `codex login`")
+        )
     else:
-        checks.append(Check("engine:codex", MISSING, "codex is not on PATH",
-                            "only for --engine codex: npm install -g @openai/codex, then `codex login`"))
+        checks.append(
+            Check(
+                "engine:codex",
+                MISSING,
+                "codex is not on PATH",
+                "only for --engine codex: npm install -g @openai/codex, then `codex login`",
+            )
+        )
     return checks
 
 
@@ -154,9 +193,11 @@ def provider_check(name: str, resolve=autocode_providers.resolve) -> Check:
 
 
 # What connects a default OpenCode route's model, by its provider prefix (docs/install.md).
-LOGINS = {"openai/": "sign in to ChatGPT (`opencode auth login`, choose OpenAI)",
-          "zai-coding-plan/": "connect the Z.AI Coding Plan (`opencode auth login`, choose Z.AI Coding Plan, "
-                              "not the pay-per-token Z.AI)"}
+LOGINS = {
+    "openai/": "sign in to ChatGPT (`opencode auth login`, choose OpenAI)",
+    "zai-coding-plan/": "connect the Z.AI Coding Plan (`opencode auth login`, choose Z.AI Coding Plan, "
+    "not the pay-per-token Z.AI)",
+}
 
 
 def route_check(name: str, workspace: Path | None, resolve=autocode_providers.resolve) -> Check:
@@ -167,8 +208,12 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
         provider = resolve(name)
         available = provider.available_models(workspace)
     except (OSError, RuntimeError, ValueError) as error:
-        return Check("routes", WARN, f"cannot list {name}'s models: {error}",
-                     "run `autocode models`; a new run checks again before its first model call")
+        return Check(
+            "routes",
+            WARN,
+            f"cannot list {name}'s models: {error}",
+            "run `autocode models`; a new run checks again before its first model call",
+        )
     if available is None:
         return Check("routes", OK, f"provider {name} does not list its models; its routes are not checked")
     missing = model_catalogue.advise(model_catalogue.default_roles(provider), available)["missing"]
@@ -177,11 +222,17 @@ def route_check(name: str, workspace: Path | None, resolve=autocode_providers.re
     by_model: dict[str, list[str]] = {}
     for role, model in missing.items():
         by_model.setdefault(model, []).append(model_catalogue.ROLES[role][0])
-    fixes = [login for prefix, login in LOGINS.items()
-             if name == "opencode" and any(model.startswith(prefix) for model in by_model)]
-    return Check("routes", MISSING, f"{name} does not offer: " + "; ".join(
-        f"{model} ({', '.join(labels)})" for model, labels in by_model.items()),
-        "; ".join([*fixes, "`autocode models` lists what your plans offer and suggests replacements"]))
+    fixes = [
+        login
+        for prefix, login in LOGINS.items()
+        if name == "opencode" and any(model.startswith(prefix) for model in by_model)
+    ]
+    return Check(
+        "routes",
+        MISSING,
+        f"{name} does not offer: " + "; ".join(f"{model} ({', '.join(labels)})" for model, labels in by_model.items()),
+        "; ".join([*fixes, "`autocode models` lists what your plans offer and suggests replacements"]),
+    )
 
 
 def engine_verdict(checks: list[Check], wanted: str | None = None, provider: str = "opencode") -> Check:
@@ -190,17 +241,24 @@ def engine_verdict(checks: list[Check], wanted: str | None = None, provider: str
     status = {c.name: c.status for c in checks}
     if wanted == "codex":
         ok = status.get("engine:codex") == OK
-        return Check("engine", OK if ok else MISSING, f"--engine codex is {'ready' if ok else 'not ready'}",
-                     "" if ok else "fix engine:codex above")
+        return Check(
+            "engine",
+            OK if ok else MISSING,
+            f"--engine codex is {'ready' if ok else 'not ready'}",
+            "" if ok else "fix engine:codex above",
+        )
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
     what = ("OpenCode" if provider == "opencode" else f"provider {provider}") + (
-        " (what --engine opencode runs)" if wanted else " (the default for a new run)")
+        " (what --engine opencode runs)" if wanted else " (the default for a new run)"
+    )
     if status.get(tool) == OK and status.get("routes") != MISSING:
         return Check("engine", OK, f"{what} is ready")
     fix = f"fix {tool if status.get(tool) != OK else 'routes'} above"
     if provider == "codex":
-        fix += ("; AUTOCODE_PROVIDER or default_provider names a provider config called codex, not the Codex "
-                "engine: remove that setting and pass --engine codex")
+        fix += (
+            "; AUTOCODE_PROVIDER or default_provider names a provider config called codex, not the Codex "
+            "engine: remove that setting and pass --engine codex"
+        )
     elif provider != "opencode":
         fix += "; AUTOCODE_PROVIDER or default_provider in ~/.config/autocode/config.toml selects it"
     codex_ready = status.get("engine:codex") == OK
@@ -214,17 +272,35 @@ def workspace_check(workspace: Path, runner=run) -> list[Check]:
         return [Check("workspace", MISSING, f"{workspace} is not a directory", "pass --workspace PATH")]
     top = runner(["git", "rev-parse", "--show-toplevel"], cwd=workspace)
     if top.returncode != 0:
-        return [Check("workspace", MISSING, f"{workspace} is not a Git repository",
-                      f"git -C {workspace} init && git -C {workspace} commit --allow-empty -m 'Start'")]
+        return [
+            Check(
+                "workspace",
+                MISSING,
+                f"{workspace} is not a Git repository",
+                f"git -C {workspace} init && git -C {workspace} commit --allow-empty -m 'Start'",
+            )
+        ]
     if runner(["git", "rev-parse", "--verify", "HEAD"], cwd=workspace).returncode != 0:
-        return [Check("workspace", MISSING, f"{workspace} has no commit yet",
-                      f"git -C {workspace} commit --allow-empty -m 'Start'")]
+        return [
+            Check(
+                "workspace",
+                MISSING,
+                f"{workspace} has no commit yet",
+                f"git -C {workspace} commit --allow-empty -m 'Start'",
+            )
+        ]
     checks = [Check("workspace", OK, f"Git repository at {top.stdout.strip()}")]
     dirty = runner(["git", "status", "--porcelain"], cwd=workspace).stdout.strip()
     if dirty:
         count = len(dirty.splitlines())
-        checks.append(Check("workspace:clean", WARN, f"{count} uncommitted change(s); a task's review cannot "
-                            "tell them apart from AutoCode's own", "commit or stash them before starting a task"))
+        checks.append(
+            Check(
+                "workspace:clean",
+                WARN,
+                f"{count} uncommitted change(s); a task's review cannot tell them apart from AutoCode's own",
+                "commit or stash them before starting a task",
+            )
+        )
     return checks
 
 
@@ -234,8 +310,12 @@ def opencode_checks(checks: list[Check], workspace: Path, wanted: str | None, re
     try:
         provider = default_provider()
     except (OSError, ValueError) as error:  # no run can start either
-        return Check("engine", MISSING, f"cannot tell which provider a new run uses: {error}",
-                     "make that setting valid and its file readable, or pass --engine codex")
+        return Check(
+            "engine",
+            MISSING,
+            f"cannot tell which provider a new run uses: {error}",
+            "make that setting valid and its file readable, or pass --engine codex",
+        )
     if provider != "opencode":
         checks.append(provider_check(provider, resolve))
     tool = "engine:opencode" if provider == "opencode" else f"provider:{provider}"
@@ -244,14 +324,23 @@ def opencode_checks(checks: list[Check], workspace: Path, wanted: str | None, re
     return engine_verdict(checks, wanted, provider)
 
 
-def all_checks(workspace: Path, engine: str | None = None, which=shutil.which, runner=run,
-               resolve=autocode_providers.resolve) -> list[Check]:
+def all_checks(
+    workspace: Path, engine: str | None = None, which=shutil.which, runner=run, resolve=autocode_providers.resolve
+) -> list[Check]:
     checks = engine_checks(which, runner)
     # --engine codex uses Codex's own transport; no flag and --engine opencode run the default provider.
-    verdict = (engine_verdict(checks, engine) if engine == "codex"
-               else opencode_checks(checks, workspace, engine, resolve))
-    return [python_check(), psutil_check(), git_check(which, runner), *checks, verdict,
-            *workspace_check(workspace, runner), *local_compose_checks(which, runner)]
+    verdict = (
+        engine_verdict(checks, engine) if engine == "codex" else opencode_checks(checks, workspace, engine, resolve)
+    )
+    return [
+        python_check(),
+        psutil_check(),
+        git_check(which, runner),
+        *checks,
+        verdict,
+        *workspace_check(workspace, runner),
+        *local_compose_checks(which, runner),
+    ]
 
 
 def local_compose_checks(which=shutil.which, runner=run) -> list[Check]:
@@ -276,11 +365,16 @@ def passed(checks: list[Check]) -> bool:
 
 
 def cli(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="autocode doctor", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="autocode doctor", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="project to check (default: cwd)")
-    parser.add_argument("--engine", choices=ENGINES, help="check what a run with this --engine uses: codex is "
-                        "Codex; opencode, like no flag, is the default provider")
+    parser.add_argument(
+        "--engine",
+        choices=ENGINES,
+        help="check what a run with this --engine uses: codex is "
+        "Codex; opencode, like no flag, is the default provider",
+    )
     parser.add_argument("--json", action="store_true", help="print the checks as JSON")
     args = parser.parse_args(argv)
     checks = all_checks(args.workspace.resolve(), args.engine)

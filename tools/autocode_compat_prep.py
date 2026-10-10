@@ -38,6 +38,7 @@ leaves no destination worktree behind and never changes the candidate
 workspace's revision. Model-free: this module imports only ``autocode_verify``,
 ``autocode_util`` and the standard library, and adds no CLI surface.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -82,9 +83,14 @@ def candidate_hashes(workspace, changes) -> dict:
     silently skip (``make_tree`` alone would copy nothing for it).
     """
     root = Path(workspace)
-    return {path: {"sha256": None if status == "deleted" else _sha256(root / path),
-                   "mode": None if status == "deleted" else _mode(root / path), "status": status}
-            for path, status in sorted(changes.items())}
+    return {
+        path: {
+            "sha256": None if status == "deleted" else _sha256(root / path),
+            "mode": None if status == "deleted" else _mode(root / path),
+            "status": status,
+        }
+        for path, status in sorted(changes.items())
+    }
 
 
 def copy_hashes(tree, changes) -> dict:
@@ -94,12 +100,12 @@ def copy_hashes(tree, changes) -> dict:
 
 
 def _patch_paths(contents, *, reverse=False):
-    result = subprocess.run(["git", "apply", "--numstat", "-z",
-                             *(["--reverse"] if reverse else [])], input=contents, capture_output=True)
+    result = subprocess.run(
+        ["git", "apply", "--numstat", "-z", *(["--reverse"] if reverse else [])], input=contents, capture_output=True
+    )
     if result.returncode:
         raise ValueError(result.stderr.decode(errors="replace").strip())
-    return {row.split(b"\t", 2)[2].decode(errors="surrogateescape")
-            for row in result.stdout.split(b"\0") if row}
+    return {row.split(b"\t", 2)[2].decode(errors="surrogateescape") for row in result.stdout.split(b"\0") if row}
 
 
 def overlay_paths(patch_path, *, patch_bytes=None) -> list[str]:
@@ -149,20 +155,26 @@ def composition_problems(copy, changes, pre_overlay, patch_path, *, patch_bytes=
                 problems.append(f"copy failure: deleted candidate input {path} is present in the copy")
         elif path in touched:
             if present == record["sha256"] and _mode(Path(copy) / path) == record["mode"]:
-                problems.append(f"erased overlay: the pinned patch touches {path} but the copy's {path} "
-                                "shows none of the patch's effect")
+                problems.append(
+                    f"erased overlay: the pinned patch touches {path} but the copy's {path} "
+                    "shows none of the patch's effect"
+                )
         elif present != record["sha256"] or _mode(Path(copy) / path) != record["mode"]:
-            problems.append(f"unbound copy: patch-untouched candidate input {path} does not equal the "
-                            "candidate working-tree hash")
+            problems.append(
+                f"unbound copy: patch-untouched candidate input {path} does not equal the candidate working-tree hash"
+            )
     contents = Path(patch_path).read_bytes() if patch_bytes is None else patch_bytes
     for path, expected in _overlay_modes(contents).items():
         if _git_mode(Path(copy) / path) != expected:
             problems.append(f"erased overlay: {path} does not retain pinned Git mode {expected:o}")
-    reverse = subprocess.run(["git", "-C", str(copy), "apply", "--reverse", "--check", "-"],
-                             input=contents, capture_output=True)
+    reverse = subprocess.run(
+        ["git", "-C", str(copy), "apply", "--reverse", "--check", "-"], input=contents, capture_output=True
+    )
     if reverse.returncode:
-        problems.append("erased overlay: the complete pinned patch is not retained in the copy: "
-                        + reverse.stderr.decode(errors="replace").strip()[-300:])
+        problems.append(
+            "erased overlay: the complete pinned patch is not retained in the copy: "
+            + reverse.stderr.decode(errors="replace").strip()[-300:]
+        )
     return problems
 
 
@@ -175,13 +187,17 @@ def _bind_candidate_copy(tree, pre_overlay) -> list[str]:
             if present is not None:
                 failures.append(f"copy failure: deleted candidate input {path} is still present in the copy")
         elif record["sha256"] is None:
-            failures.append(f"copy failure: candidate input {path} ({record['status']}) disappeared from the "
-                            "candidate workspace before the copy step; the copy cannot bind it")
+            failures.append(
+                f"copy failure: candidate input {path} ({record['status']}) disappeared from the "
+                "candidate workspace before the copy step; the copy cannot bind it"
+            )
         elif present is None:
             failures.append(f"copy failure: candidate input {path} ({record['status']}) is missing from the copy")
         elif present != record["sha256"]:
-            failures.append(f"copy failure: candidate input {path} ({record['status']}) in the copy does not "
-                            "equal the candidate working-tree file")
+            failures.append(
+                f"copy failure: candidate input {path} ({record['status']}) in the copy does not "
+                "equal the candidate working-tree file"
+            )
         elif _mode(Path(tree) / path) != record["mode"]:
             failures.append(f"copy failure: candidate input {path} has a different mode in the copy")
     return failures
@@ -194,8 +210,11 @@ def _apply_transformations(tree, transformations, records) -> list[str]:
         path = str(spec.get("path"))
         relative = Path(path)
         target = Path(tree) / relative
-        if (relative.is_absolute() or '..' in relative.parts
-                or not target.resolve().is_relative_to(Path(tree).resolve())):
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not target.resolve().is_relative_to(Path(tree).resolve())
+        ):
             problems.append(f"invalid transformation path: {path} must stay within the validation copy")
             continue
         rationale = str(spec.get("rationale") or "").strip()
@@ -212,8 +231,7 @@ def _apply_transformations(tree, transformations, records) -> list[str]:
             problems.append(f"transformation failed for {path}: {error}")
             continue
         target.write_text(rewritten)
-        records.append({"path": path, "before_sha256": before, "after_sha256": _sha256(target),
-                        "rationale": rationale})
+        records.append({"path": path, "before_sha256": before, "after_sha256": _sha256(target), "rationale": rationale})
     return problems
 
 
@@ -227,10 +245,16 @@ def _account(result) -> list[str]:
     skipped = set(results["skipped"])
     missing = [nodeid for nodeid in result["expected_nodeids"] if nodeid not in accounted]
     skipped_expected = [nodeid for nodeid in result["expected_nodeids"] if nodeid in skipped]
-    result["accounting"] = {"passed": list(results["passed"]), "failed": list(results["failed"]),
-                            "skipped": list(results["skipped"]), "unaccounted": missing}
-    reasons = [f"incomplete proof: expected nodeid {nodeid} did not run in the selected suite "
-               "(skipped, deselected or missing)" for nodeid in missing]
+    result["accounting"] = {
+        "passed": list(results["passed"]),
+        "failed": list(results["failed"]),
+        "skipped": list(results["skipped"]),
+        "unaccounted": missing,
+    }
+    reasons = [
+        f"incomplete proof: expected nodeid {nodeid} did not run in the selected suite (skipped, deselected or missing)"
+        for nodeid in missing
+    ]
     reasons += [f"incomplete proof: expected nodeid {nodeid} was skipped" for nodeid in skipped_expected]
     return reasons
 
@@ -239,12 +263,26 @@ def _verdict(reasons, suite) -> str:
     if reasons:
         return INCOMPLETE
     failed = ((suite or {}).get("results") or {}).get("failed") or []
-    return FAIL if failed or (suite or {}).get('exit_code') != 0 else PASS
+    return FAIL if failed or (suite or {}).get("exit_code") != 0 else PASS
 
 
-def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expected_nodeids=(),
-            suite_files=(), suite_command=None, transformations=(), python=None,
-            timeout=verify.DEFAULT_TIMEOUT, dependencies_from=None, changes=None, log_dir=None) -> dict:
+def prepare(
+    workspace,
+    base,
+    destination,
+    patch_path,
+    *,
+    overlay_sha256,
+    expected_nodeids=(),
+    suite_files=(),
+    suite_command=None,
+    transformations=(),
+    python=None,
+    timeout=verify.DEFAULT_TIMEOUT,
+    dependencies_from=None,
+    changes=None,
+    log_dir=None,
+) -> dict:
     """Assemble the validation copy candidate-first, run the selected suite in it.
 
     ``overlay_sha256`` is the pin: the expected sha256 of the complete patch
@@ -260,14 +298,27 @@ def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expecte
         patch_bytes = None
     patch_hash = hashlib.sha256(patch_bytes).hexdigest() if patch_bytes is not None else None
     revision_before = util.snapshot(workspace)["revision"]
-    result = {"verdict": INCOMPLETE, "reasons": [], "workspace": str(workspace), "base": base,
-              "changes": {}, "copy": None,
-              "overlay": {"path": str(patch_path), "expected_sha256": overlay_sha256,
-                          "patch_sha256": patch_hash, "touched": []},
-              "candidate_inputs": {"pre_overlay": {}, "post_overlay": {}, "post_overlay_modes": {}},
-              "transformations": [],
-              "expected_nodeids": list(expected_nodeids), "accounting": {}, "suite": None,
-              "workspace_revision_before": revision_before, "workspace_revision_after": None}
+    result = {
+        "verdict": INCOMPLETE,
+        "reasons": [],
+        "workspace": str(workspace),
+        "base": base,
+        "changes": {},
+        "copy": None,
+        "overlay": {
+            "path": str(patch_path),
+            "expected_sha256": overlay_sha256,
+            "patch_sha256": patch_hash,
+            "touched": [],
+        },
+        "candidate_inputs": {"pre_overlay": {}, "post_overlay": {}, "post_overlay_modes": {}},
+        "transformations": [],
+        "expected_nodeids": list(expected_nodeids),
+        "accounting": {},
+        "suite": None,
+        "workspace_revision_before": revision_before,
+        "workspace_revision_after": None,
+    }
 
     def close(tree, *, keep):
         if tree is not None and not keep:
@@ -283,26 +334,32 @@ def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expecte
 
     reasons = result["reasons"]
     source_root, copy_root = workspace.resolve(), destination.resolve()
-    scratch_root = source_root / '.autocode' / 'scratch'
-    fresh_scratch = (copy_root.is_relative_to(scratch_root) and copy_root != scratch_root
-                     and not destination.exists() and not destination.is_symlink())
+    scratch_root = source_root / ".autocode" / "scratch"
+    fresh_scratch = (
+        copy_root.is_relative_to(scratch_root)
+        and copy_root != scratch_root
+        and not destination.exists()
+        and not destination.is_symlink()
+    )
     if source_root.is_relative_to(copy_root) or (copy_root.is_relative_to(source_root) and not fresh_scratch):
         reasons.append("invalid destination: the validation copy must not overlap the candidate workspace")
     complete_changes = verify.changed_files(workspace, base)
     changes = dict(changes) if changes is not None else complete_changes
     result["changes"] = dict(changes)
     if changes != complete_changes:
-        missing = sorted(path for path in set(changes) | set(complete_changes)
-                         if changes.get(path) != complete_changes.get(path))
-        reasons.append("copy failure: candidate inputs differ from the complete working tree: "
-                       + ', '.join(missing))
+        missing = sorted(
+            path for path in set(changes) | set(complete_changes) if changes.get(path) != complete_changes.get(path)
+        )
+        reasons.append("copy failure: candidate inputs differ from the complete working tree: " + ", ".join(missing))
     if not result["expected_nodeids"]:
         reasons.append("incomplete proof: required original and candidate nodeids must be declared")
     sources = [path for path in sorted(changes) if not verify.is_test_path(path)]
     tests = [path for path in sorted(changes) if verify.is_test_path(path)]
     if not changes:
-        reasons.append("insufficient proof: the candidate change set is empty — a detached HEAD copy alone "
-                       "omits the candidate production and test inputs")
+        reasons.append(
+            "insufficient proof: the candidate change set is empty — a detached HEAD copy alone "
+            "omits the candidate production and test inputs"
+        )
     if changes and not sources:
         reasons.append("insufficient proof: no candidate production input is bound")
     if changes and not tests:
@@ -310,8 +367,10 @@ def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expecte
     if result["overlay"]["patch_sha256"] is None:
         reasons.append(f"partial overlay: the overlay patch file {patch_path} does not exist")
     elif result["overlay"]["patch_sha256"] != overlay_sha256:
-        reasons.append(f"partial overlay: the patch file's sha256 {result['overlay']['patch_sha256']} does "
-                       f"not match the pinned complete overlay sha256 {overlay_sha256}")
+        reasons.append(
+            f"partial overlay: the patch file's sha256 {result['overlay']['patch_sha256']} does "
+            f"not match the pinned complete overlay sha256 {overlay_sha256}"
+        )
     if reasons:
         return close(None, keep=False)
 
@@ -322,8 +381,7 @@ def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expecte
         reasons.append(f"overlay failure: git rejected the pinned patch: {error}")
         return close(None, keep=False)
     result["candidate_inputs"]["pre_overlay"] = candidate_hashes(workspace, changes)
-    tree = verify.make_tree(workspace, base, destination, workspace, changes,
-                            dependencies_from=dependencies_from)
+    tree = verify.make_tree(workspace, base, destination, workspace, changes, dependencies_from=dependencies_from)
     try:
         reasons.extend(_bind_candidate_copy(tree, result["candidate_inputs"]["pre_overlay"]))
         if reasons:
@@ -331,17 +389,21 @@ def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expecte
         if _sha256(patch_path) != patch_hash:
             reasons.append("partial overlay: the pinned patch changed before application")
             return close(tree, keep=False)
-        applied = subprocess.run(["git", "-C", str(tree), "apply", "-"],
-                                 input=patch_bytes, capture_output=True)
+        applied = subprocess.run(["git", "-C", str(tree), "apply", "-"], input=patch_bytes, capture_output=True)
         if applied.returncode:
-            reasons.append("overlay failure: git apply rejected the pinned patch: "
-                           + (applied.stderr or applied.stdout).decode(errors="replace").strip()[-300:])
+            reasons.append(
+                "overlay failure: git apply rejected the pinned patch: "
+                + (applied.stderr or applied.stdout).decode(errors="replace").strip()[-300:]
+            )
             return close(tree, keep=False)
         result["overlay"]["applied_sha256"] = patch_hash
         result["candidate_inputs"]["post_overlay"] = copy_hashes(tree, changes)
         result["candidate_inputs"]["post_overlay_modes"] = {path: _mode(Path(tree) / path) for path in changes}
-        reasons.extend(composition_problems(tree, changes, result["candidate_inputs"]["pre_overlay"],
-                                            patch_path, patch_bytes=patch_bytes))
+        reasons.extend(
+            composition_problems(
+                tree, changes, result["candidate_inputs"]["pre_overlay"], patch_path, patch_bytes=patch_bytes
+            )
+        )
         if reasons:
             return close(tree, keep=False)
         reasons.extend(_apply_transformations(tree, transformations, result["transformations"]))
@@ -351,13 +413,17 @@ def prepare(workspace, base, destination, patch_path, *, overlay_sha256, expecte
         framework = verify.detect_framework(tree, python=interpreter)
         command = suite_command or (framework.targeted(list(suite_files)) if framework else None)
         if not command:
-            reasons.append("no selected suite command: pass suite_command, or suite_files for a project "
-                           "whose framework can be detected")
+            reasons.append(
+                "no selected suite command: pass suite_command, or suite_files for a project "
+                "whose framework can be detected"
+            )
             return close(tree, keep=False)
         log_root = Path(log_dir) if log_dir else destination.parent / "compat"
         logs = log_root / f"run-{uuid.uuid4().hex}"
-        result["suite"] = {**verify.run_suite(framework, command, tree, logs, "selected-suite", timeout=timeout),
-                           "cwd": str(tree)}
+        result["suite"] = {
+            **verify.run_suite(framework, command, tree, logs, "selected-suite", timeout=timeout),
+            "cwd": str(tree),
+        }
         reasons.extend(_account(result))
         return close(tree, keep=True)
     except BaseException:
@@ -372,6 +438,6 @@ def write_receipt(directory, receipt) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     identity = hashlib.sha256((stamp + json.dumps(receipt, sort_keys=True, default=str)).encode()).hexdigest()
     path = directory / f"compat-{stamp}-{identity[:8]}-{uuid.uuid4().hex}.json"
-    with path.open('x') as stream:
+    with path.open("x") as stream:
         stream.write(json.dumps(receipt, indent=2, sort_keys=True, default=str) + "\n")
     return path

@@ -9,239 +9,242 @@ Prefer existing keys. If you must add one, add it here with its writer and
 reader in the same change; ``tests/test_run_state.py`` fails on a key tools/
 touches that is not named here.
 """
+
 from __future__ import annotations
 
 from typing import Any, TypedDict
 
 # Every key tools/ reads or writes on a run state dict.
 # Generated from the source; add a new one here in the same change that introduces it.
-KEYS: frozenset[str] = frozenset({
-    "_authorized_bound_change",
-    "_fixture_accepted",
-    "_fixture_attempt",
-    "_fixture_interventions",
-    "_fixture_model_confirm_mode",
-    "_fixture_model_reconcile_proposed",
-    "_fixture_model_reconcile_reads",
-    "_fixture_model_reconcile_role",
-    "_fixture_monitor",
-    "_fixture_pause_reconcile_reads",
-    "_fixture_saved_diff",
-    "_fixture_verification",
-    "acceptance_criteria",
-    "active_runner_check",
-    "active_seconds",
-    "active_stage",
-    "active_stage_workers",
-    "affected_paths",
-    "agent_request",
-    "agreement",
-    "alive",
-    "answer",
-    "answers",
-    "applied_interventions",
-    "automatic_capacity_recoveries",
-    "automatic_permission_recoveries",
-    "automatic_recoveries_since_resume",
-    "automatic_timeout_recoveries",
-    "base_commit",
-    "brief_feedback",
-    "builder_failure_hold",
-    "builder_retries",
-    "builder_retry_decisions",
-    "builder_retry_key",
-    "change_requests",
-    "changed_files",
-    "checked",
-    "checkpoint_continuation",
-    "checkpoint_history",
-    "checkpoint_restores",
-    "clarification_episode",
-    "code_checkpoints",
-    "completed_at",
-    "completion_archive",
-    "completion_sent_back",
-    "configuration_changes",
-    "consecutive_timeout_recoveries",
-    "consultation_reports",
-    "continued",
-    "contract",
-    "contract_history",
-    "conversation_handoff",
-    "conversation_id",
-    "created_at",
-    "criteria_revision",
-    "current_task",
-    "decisions",
-    "deferred_backlog",
-    "deferred_obligations",
-    "dependency_wait",
-    "design_check",
-    "design_constraint",
-    "design_input_changes",
-    "design_intake",
-    "design_review",
-    "diagnosis_request",
-    "diff_ref",
-    "direct_rework_assignments",
-    "discovery_summary",
-    "displayed_goal",
-    "displayed_handoff",
-    "displayed_review",
-    "efficiency_observations",
-    "engine",
-    "error",
-    "events",
-    "evidence_export",
-    "evidence_locations",
-    "execution_checkpoints",
-    "failure_history",
-    "failure_retry_authorizations",
-    "figma_file",
-    "final_audit_request",
-    "final_decision",
-    "findings_ledger",
-    "findings_seq",
-    "finished_at",
-    "generated_sources_at_start",
-    "goal_base_check",
-    "goal_contract",
-    "history",
-    "human_review_archive",
-    "human_reviews",
-    "implementation",
-    "implementation_handoffs",
-    "input",
-    "intake_input_hash",
-    "integration",
-    "interfaces",
-    "intervention_ack_pending",
-    "intervention_capability",
-    "investigation",
-    "investigation_request",
-    "iteration",
-    "job_failure",
-    "job_retry_authorization",
-    "key",
-    "kind",
-    "lanes",
-    "last_decision",
-    "launch_sources",
-    "machine_resolutions",
-    "manifest_sha256",
-    "metadata",
-    "migration",
-    "milestone_activation_requests",
-    "milestone_blocker",
-    "milestone_carry_forward",
-    "milestone_progress",
-    "models",
-    "name",
-    "next_action",
-    "next_stage",
-    "no_progress_batches",
-    "no_progress_reports",
-    "orchestration_batch",
-    "orchestration_history",
-    "output",
-    "outputs",
-    "parent_batch",
-    "parent_run",
-    "pause",
-    "pause_intent",
-    "pause_requested",
-    "pending_builder_failure",
-    "pending_context_metrics",
-    "pending_planning_artifacts",
-    "pending_planning_outputs",
-    "pending_questions",
-    "pending_report_repair",
-    "permission_reuse_context",
-    "permission_reuses",
-    "phase",
-    "plan",
-    "plan_source",
-    "planning",
-    "planning_artifact_history",
-    "planning_artifact_reconciliation",
-    "planning_artifacts",
-    "planning_final",
-    "planning_final_archive",
-    "planning_history",
-    "planning_iteration",
-    "planning_migrations",
-    "pre_goal_checkpoint",
-    "private_source_exceptions",
-    "progress",
-    "progress_checkpoint",
-    "progress_messages",
-    "progress_sequence",
-    "progressive",
-    "project_worked_in_place",
-    "project_workspace",
-    "reasoning_escalations",
-    "reconciliation_notes",
-    "recovery",
-    "recovery_context",
-    "recovery_context_archive",
-    "recovery_grants",
-    "regression_baseline",
-    "regression_proof",
-    "regression_proofs",
-    "repair_plan",
-    "report_repair_archive",
-    "report_repair_history",
-    "report_repair_lifetime_attempts",
-    "reports",
-    "requirements_artifact_token",
-    "requirements_body",
-    "requirements_handoff",
-    "requirements_history",
-    "resolution_history",
-    "resolution_request",
-    "resolver",
-    "resolver_human_request",
-    "retained_candidate_handoffs",
-    "retired_integrations",
-    "review",
-    "run_dir",
-    "session_rotations",
-    "sessions",
-    "settings",
-    "skeleton",
-    "source_revision",
-    "source_snapshot",
-    "stages",
-    "status",
-    "stop_intent",
-    "stop_reason",
-    "stuck_investigation",
-    "stuck_investigations",
-    "targeted_consultation",
-    "task",
-    "task_archive",
-    "task_branch",
-    "task_id",
-    "task_preflight",
-    "tasks",
-    "turns",
-    "ui_run",
-    "uncertain_artifacts",
-    "unit_handoffs",
-    "unresolved_findings",
-    "user_events",
-    "user_request",
-    "validation",
-    "validation_archive",
-    "validator_rechecks",
-    "verification_count",
-    "verifications",
-    "version",
-    "visual_acceptance_receipts",
-    "workflow",
-    "workspace",
-    "workstreams",
-})
+KEYS: frozenset[str] = frozenset(
+    {
+        "_authorized_bound_change",
+        "_fixture_accepted",
+        "_fixture_attempt",
+        "_fixture_interventions",
+        "_fixture_model_confirm_mode",
+        "_fixture_model_reconcile_proposed",
+        "_fixture_model_reconcile_reads",
+        "_fixture_model_reconcile_role",
+        "_fixture_monitor",
+        "_fixture_pause_reconcile_reads",
+        "_fixture_saved_diff",
+        "_fixture_verification",
+        "acceptance_criteria",
+        "active_runner_check",
+        "active_seconds",
+        "active_stage",
+        "active_stage_workers",
+        "affected_paths",
+        "agent_request",
+        "agreement",
+        "alive",
+        "answer",
+        "answers",
+        "applied_interventions",
+        "automatic_capacity_recoveries",
+        "automatic_permission_recoveries",
+        "automatic_recoveries_since_resume",
+        "automatic_timeout_recoveries",
+        "base_commit",
+        "brief_feedback",
+        "builder_failure_hold",
+        "builder_retries",
+        "builder_retry_decisions",
+        "builder_retry_key",
+        "change_requests",
+        "changed_files",
+        "checked",
+        "checkpoint_continuation",
+        "checkpoint_history",
+        "checkpoint_restores",
+        "clarification_episode",
+        "code_checkpoints",
+        "completed_at",
+        "completion_archive",
+        "completion_sent_back",
+        "configuration_changes",
+        "consecutive_timeout_recoveries",
+        "consultation_reports",
+        "continued",
+        "contract",
+        "contract_history",
+        "conversation_handoff",
+        "conversation_id",
+        "created_at",
+        "criteria_revision",
+        "current_task",
+        "decisions",
+        "deferred_backlog",
+        "deferred_obligations",
+        "dependency_wait",
+        "design_check",
+        "design_constraint",
+        "design_input_changes",
+        "design_intake",
+        "design_review",
+        "diagnosis_request",
+        "diff_ref",
+        "direct_rework_assignments",
+        "discovery_summary",
+        "displayed_goal",
+        "displayed_handoff",
+        "displayed_review",
+        "efficiency_observations",
+        "engine",
+        "error",
+        "events",
+        "evidence_export",
+        "evidence_locations",
+        "execution_checkpoints",
+        "failure_history",
+        "failure_retry_authorizations",
+        "figma_file",
+        "final_audit_request",
+        "final_decision",
+        "findings_ledger",
+        "findings_seq",
+        "finished_at",
+        "generated_sources_at_start",
+        "goal_base_check",
+        "goal_contract",
+        "history",
+        "human_review_archive",
+        "human_reviews",
+        "implementation",
+        "implementation_handoffs",
+        "input",
+        "intake_input_hash",
+        "integration",
+        "interfaces",
+        "intervention_ack_pending",
+        "intervention_capability",
+        "investigation",
+        "investigation_request",
+        "iteration",
+        "job_failure",
+        "job_retry_authorization",
+        "key",
+        "kind",
+        "lanes",
+        "last_decision",
+        "launch_sources",
+        "machine_resolutions",
+        "manifest_sha256",
+        "metadata",
+        "migration",
+        "milestone_activation_requests",
+        "milestone_blocker",
+        "milestone_carry_forward",
+        "milestone_progress",
+        "models",
+        "name",
+        "next_action",
+        "next_stage",
+        "no_progress_batches",
+        "no_progress_reports",
+        "orchestration_batch",
+        "orchestration_history",
+        "output",
+        "outputs",
+        "parent_batch",
+        "parent_run",
+        "pause",
+        "pause_intent",
+        "pause_requested",
+        "pending_builder_failure",
+        "pending_context_metrics",
+        "pending_planning_artifacts",
+        "pending_planning_outputs",
+        "pending_questions",
+        "pending_report_repair",
+        "permission_reuse_context",
+        "permission_reuses",
+        "phase",
+        "plan",
+        "plan_source",
+        "planning",
+        "planning_artifact_history",
+        "planning_artifact_reconciliation",
+        "planning_artifacts",
+        "planning_final",
+        "planning_final_archive",
+        "planning_history",
+        "planning_iteration",
+        "planning_migrations",
+        "pre_goal_checkpoint",
+        "private_source_exceptions",
+        "progress",
+        "progress_checkpoint",
+        "progress_messages",
+        "progress_sequence",
+        "progressive",
+        "project_worked_in_place",
+        "project_workspace",
+        "reasoning_escalations",
+        "reconciliation_notes",
+        "recovery",
+        "recovery_context",
+        "recovery_context_archive",
+        "recovery_grants",
+        "regression_baseline",
+        "regression_proof",
+        "regression_proofs",
+        "repair_plan",
+        "report_repair_archive",
+        "report_repair_history",
+        "report_repair_lifetime_attempts",
+        "reports",
+        "requirements_artifact_token",
+        "requirements_body",
+        "requirements_handoff",
+        "requirements_history",
+        "resolution_history",
+        "resolution_request",
+        "resolver",
+        "resolver_human_request",
+        "retained_candidate_handoffs",
+        "retired_integrations",
+        "review",
+        "run_dir",
+        "session_rotations",
+        "sessions",
+        "settings",
+        "skeleton",
+        "source_revision",
+        "source_snapshot",
+        "stages",
+        "status",
+        "stop_intent",
+        "stop_reason",
+        "stuck_investigation",
+        "stuck_investigations",
+        "targeted_consultation",
+        "task",
+        "task_archive",
+        "task_branch",
+        "task_id",
+        "task_preflight",
+        "tasks",
+        "turns",
+        "ui_run",
+        "uncertain_artifacts",
+        "unit_handoffs",
+        "unresolved_findings",
+        "user_events",
+        "user_request",
+        "validation",
+        "validation_archive",
+        "validator_rechecks",
+        "verification_count",
+        "verifications",
+        "version",
+        "visual_acceptance_receipts",
+        "workflow",
+        "workspace",
+        "workstreams",
+    }
+)
 
 
 class RunState(TypedDict, total=False):
@@ -252,69 +255,69 @@ class RunState(TypedDict, total=False):
     """
 
     # --- core (status view / most stages) ---
-    version: int                          # written at run start; read by every loader
-    task: str                             # the original request; read by goals, briefing
-    task_id: str                          # current task id; written by goals
-    workspace: str                        # the project (or task worktree) root
-    project_workspace: str                # the project a task worktree belongs to
-    run_dir: str                          # this run's .autocode/runs/<id>
-    status: str                           # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
-    phase: str                            # PLANNING / EXECUTING / ...; written by the runner
-    stop_reason: str                      # why a pause happened; read by explain/status
-    iteration: int                        # the planning/execution iteration
-    next_stage: str                       # which stage runs next; written by the controller
-    sessions: dict                        # provider session ids by role
-    history: list                         # finished stage records (autocode_run_view)
-    stages: list                          # saved stage records; written by the runner
-    active_stage: dict | None             # the in-flight stage record
-    settings: dict                        # roles, budgets, engine, workflow mode
-    acceptance_criteria: list             # the approved criteria; written by goals
-    criteria_revision: str                # hash of the criteria definition
-    goal_contract: dict | None            # the approved contract; written by goals
-    current_task: dict | None             # the task the Builder is on
-    user_events: list                     # answers, feedback, approvals (goals)
-    answers: dict                         # question id -> answer text
-    pending_questions: list               # open questions for a person
-    user_request: dict | None             # a pending decision request
-    validation: dict | None               # the latest independent validation (autoreview)
-    validation_archive: list              # superseded validations
-    findings_ledger: list                 # open/closed findings (autocode_findings)
-    implementation: dict | None           # the Builder build-candidate record
-    base_commit: str                      # the revision a bug fix is proven against
+    version: int  # written at run start; read by every loader
+    task: str  # the original request; read by goals, briefing
+    task_id: str  # current task id; written by goals
+    workspace: str  # the project (or task worktree) root
+    project_workspace: str  # the project a task worktree belongs to
+    run_dir: str  # this run's .autocode/runs/<id>
+    status: str  # RUNNING / PAUSED_* / TASK_COMPLETE; written by the runner
+    phase: str  # PLANNING / EXECUTING / ...; written by the runner
+    stop_reason: str  # why a pause happened; read by explain/status
+    iteration: int  # the planning/execution iteration
+    next_stage: str  # which stage runs next; written by the controller
+    sessions: dict  # provider session ids by role
+    history: list  # finished stage records (autocode_run_view)
+    stages: list  # saved stage records; written by the runner
+    active_stage: dict | None  # the in-flight stage record
+    settings: dict  # roles, budgets, engine, workflow mode
+    acceptance_criteria: list  # the approved criteria; written by goals
+    criteria_revision: str  # hash of the criteria definition
+    goal_contract: dict | None  # the approved contract; written by goals
+    current_task: dict | None  # the task the Builder is on
+    user_events: list  # answers, feedback, approvals (goals)
+    answers: dict  # question id -> answer text
+    pending_questions: list  # open questions for a person
+    user_request: dict | None  # a pending decision request
+    validation: dict | None  # the latest independent validation (autoreview)
+    validation_archive: list  # superseded validations
+    findings_ledger: list  # open/closed findings (autocode_findings)
+    implementation: dict | None  # the Builder build-candidate record
+    base_commit: str  # the revision a bug fix is proven against
 
     # --- recovery / diagnosis ---
-    recovery_context: dict | None         # what the last pause knew (autocode_recovery)
-    resolution_request: dict | None       # a pending Resolver request
-    stuck_investigation: dict | None      # an in-flight Investigator request
-    stuck_investigations: list            # the investigation history
-    pending_report_repair: dict | None    # a queued report-repair attempt
-    uncertain_artifacts: list             # attempts whose cleanup is unverified
-    job_failure: dict | None              # a failed workflow job awaiting retry
-    failure_history: dict                 # failure identity -> attempts (builder_failure)
-    builder_retries: dict                 # retry allowances by lane
-    no_progress_batches: int              # consecutive no-progress batches
+    recovery_context: dict | None  # what the last pause knew (autocode_recovery)
+    resolution_request: dict | None  # a pending Resolver request
+    stuck_investigation: dict | None  # an in-flight Investigator request
+    stuck_investigations: list  # the investigation history
+    pending_report_repair: dict | None  # a queued report-repair attempt
+    uncertain_artifacts: list  # attempts whose cleanup is unverified
+    job_failure: dict | None  # a failed workflow job awaiting retry
+    failure_history: dict  # failure identity -> attempts (builder_failure)
+    builder_retries: dict  # retry allowances by lane
+    no_progress_batches: int  # consecutive no-progress batches
 
     # --- human review / approvals ---
-    human_reviews: dict                   # criterion id -> the review binding
-    brief_feedback: list                  # user feedback on the brief
-    last_decision: dict | None            # the latest plan decision
-    contract_history: list                # prior contract revisions
+    human_reviews: dict  # criterion id -> the review binding
+    brief_feedback: list  # user feedback on the brief
+    last_decision: dict | None  # the latest plan decision
+    contract_history: list  # prior contract revisions
 
     # --- orchestration / progressive ---
-    orchestration_batch: dict | None      # a parallel Builder batch
-    workstreams: list                     # a program workstreams
-    parent_run: str | None                # the parent of a child run
-    progressive: dict | None              # progressive-planning record
-    milestone_progress: dict              # per-milestone progress (autocode_milestones)
+    orchestration_batch: dict | None  # a parallel Builder batch
+    workstreams: list  # a program workstreams
+    parent_run: str | None  # the parent of a child run
+    progressive: dict | None  # progressive-planning record
+    milestone_progress: dict  # per-milestone progress (autocode_milestones)
 
     # --- others (see KEYS for the full set) ---
-    workflow: dict | None                 # recognised workflow kind/source
-    integration: dict | None              # program integration state
-    turns: list                           # follow-up turns of a conversation
-    regression_proof: dict | None         # the bug-fix fail-before/pass-after proof
-    active_runner_check: dict | None      # an in-flight runner-owned check
-    evidence_export: dict | None         # written only by evidence_export.record; read by public view/TaskRun
-    finished_at: str | None               # legacy completion time read by evidence_export; no new writer
+    workflow: dict | None  # recognised workflow kind/source
+    integration: dict | None  # program integration state
+    turns: list  # follow-up turns of a conversation
+    regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
+    active_runner_check: dict | None  # an in-flight runner-owned check
+    evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
+    finished_at: str | None  # legacy completion time read by evidence_export; no new writer
 
     _authorized_bound_change: Any
     _fixture_accepted: Any

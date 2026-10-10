@@ -1,4 +1,5 @@
 """Public stage/approval boundary tests with real source and replay evidence."""
+
 import copy
 import json
 import subprocess
@@ -24,52 +25,132 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.workspace = root / "workspace"
         self.workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
-        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=Fixture", "-c",
-                        "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.workspace),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
         goal_fixtures.seed_greeting_workspace(self.workspace)
         self.run_dir = self.workspace / ".autocode" / "runs" / "test"
         self.run_dir.mkdir(parents=True)
-        self.state = {"version": 3, "task_id": "runtime-test", "task": "Build greeting and rejection",
-            "workspace": str(self.workspace), "run_dir": str(self.run_dir), "iteration": 0,
-            "answers": {}, "user_events": [], "acceptance_criteria": [], "status": "RUNNING",
-            "next_stage": "astra_discovery", "settings": {"joint_planning": True,
+        self.state = {
+            "version": 3,
+            "task_id": "runtime-test",
+            "task": "Build greeting and rejection",
+            "workspace": str(self.workspace),
+            "run_dir": str(self.run_dir),
+            "iteration": 0,
+            "answers": {},
+            "user_events": [],
+            "acceptance_criteria": [],
+            "status": "RUNNING",
+            "next_stage": "astra_discovery",
+            "settings": {
+                "joint_planning": True,
                 "roles": {"glm": {"model": "fake-planner"}, "astra": {"model": "fake-reviewer"}},
                 "milestone_checkpoints": {"enabled": True, "max_seconds": 5400},
-                "limits": {"max_seconds": 43200}}}
+                "limits": {"max_seconds": 43200},
+            },
+        }
         self.body = goal_fixtures.body()
         self.body["milestones"][0]["affected_paths"] = ["greet.py", "test_greeting.py"]
-        self.first = {"objective": "Deliver greeting", "affected_paths": ["greet.py", "test_greeting.py"],
-            "kind": "implement", "milestone_id": "M1", "requirements": ["Print greeting"],
-            "acceptance_criteria": ["C1"], "validation_plan": ["python3 -m unittest test_greeting.py"]}
-        self.proposal = {"version": 1, "needed_because": "Greeting and rejection are separately useful",
-            "shared_decisions": ["Keep a local CLI"], "outstanding_criteria": [], "done_slices": [],
-            "slices": [{"id": "S1", "intended_result": "Print the greeting", "criterion_ids": ["C1"],
-                "paths": ["greet.py", "test_greeting.py"], "depends_on": [], "tentative": False,
-                "checks": [{"id": "A", "method": "python3 -m unittest test_greeting.py",
-                            "relation": "contributes_to", "criterion_ids": ["C1"]}]},
-                {"id": "S2", "intended_result": "Reject invalid input too", "criterion_ids": ["C1"],
-                 "paths": ["greet.py", "test_greeting.py"], "depends_on": ["S1"], "tentative": True,
-                 "checks": [{"id": "B", "method": "python3 -m unittest test_greeting.py",
-                             "relation": "fully_verify", "criterion_ids": ["C1"]}]}]}
+        self.first = {
+            "objective": "Deliver greeting",
+            "affected_paths": ["greet.py", "test_greeting.py"],
+            "kind": "implement",
+            "milestone_id": "M1",
+            "requirements": ["Print greeting"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": ["python3 -m unittest test_greeting.py"],
+        }
+        self.proposal = {
+            "version": 1,
+            "needed_because": "Greeting and rejection are separately useful",
+            "shared_decisions": ["Keep a local CLI"],
+            "outstanding_criteria": [],
+            "done_slices": [],
+            "slices": [
+                {
+                    "id": "S1",
+                    "intended_result": "Print the greeting",
+                    "criterion_ids": ["C1"],
+                    "paths": ["greet.py", "test_greeting.py"],
+                    "depends_on": [],
+                    "tentative": False,
+                    "checks": [
+                        {
+                            "id": "A",
+                            "method": "python3 -m unittest test_greeting.py",
+                            "relation": "contributes_to",
+                            "criterion_ids": ["C1"],
+                        }
+                    ],
+                },
+                {
+                    "id": "S2",
+                    "intended_result": "Reject invalid input too",
+                    "criterion_ids": ["C1"],
+                    "paths": ["greet.py", "test_greeting.py"],
+                    "depends_on": ["S1"],
+                    "tentative": True,
+                    "checks": [
+                        {
+                            "id": "B",
+                            "method": "python3 -m unittest test_greeting.py",
+                            "relation": "fully_verify",
+                            "criterion_ids": ["C1"],
+                        }
+                    ],
+                },
+            ],
+        }
 
     def stage(self, stage, value, seconds=100):
         self.state["next_stage"] = stage
         output = self.run_dir / (stage + "-" + str(len(self.state.get("stages", []))) + ".json")
         output.write_text(json.dumps(value))
-        record = {"stage": stage, "role": "glm" if stage in ("astra_discovery", "glm_revise") else "astra",
-            "output": str(output), "iteration": 0, "exit_code": 0, "duration_seconds": seconds,
-            "source_revision": util.snapshot(self.workspace)["revision"], "changed_files": []}
+        record = {
+            "stage": stage,
+            "role": "glm" if stage in ("astra_discovery", "glm_revise") else "astra",
+            "output": str(output),
+            "iteration": 0,
+            "exit_code": 0,
+            "duration_seconds": seconds,
+            "source_revision": util.snapshot(self.workspace)["revision"],
+            "changed_files": [],
+        }
         if stage == "sol":
             record["role"] = "sol"
             event = output.with_suffix(".jsonl")
             rows = []
             for check in value["checks"]:
-                executed = subprocess.run(check["command"], shell=True, cwd=self.workspace,
-                                          capture_output=True, text=True, check=True)
+                executed = subprocess.run(
+                    check["command"], shell=True, cwd=self.workspace, capture_output=True, text=True, check=True
+                )
                 event_id = check["evidence_ref"].removeprefix("event:")
-                rows.append({"type": "item.completed", "item": {"id": event_id, "type": "command_execution",
-                    "command": check["command"], "exit_code": executed.returncode,
-                    "aggregated_output": executed.stdout + executed.stderr}})
+                rows.append(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": event_id,
+                            "type": "command_execution",
+                            "command": check["command"],
+                            "exit_code": executed.returncode,
+                            "aggregated_output": executed.stdout + executed.stderr,
+                        },
+                    }
+                )
             event.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
             record["events"] = str(event)
         if stage in ("astra_challenge", "astra_finalize"):
@@ -84,8 +165,12 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         if session:
             record.update(thread_id=session, supports_sessions=True)
             events = output.with_suffix(".jsonl")
-            events.write_text(json.dumps({"type": "thread.started", "thread_id": session}) + "\n"
-                              + json.dumps({"type": "turn.completed"}) + "\n")
+            events.write_text(
+                json.dumps({"type": "thread.started", "thread_id": session})
+                + "\n"
+                + json.dumps({"type": "turn.completed"})
+                + "\n"
+            )
             record["events"] = str(events)
         if stage in getattr(self, "repair_stages", ()):
             if not session:
@@ -94,11 +179,20 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                 Path(record["events"]).write_text("")
             output.write_text(json.dumps({"summary": "Rejected incomplete draft"}))
             runner.archive_rejected_stage(self.state, self.run_dir, record, "repair fixture")
-            self.state["pending_report_repair"] = {"original": copy.deepcopy(record), "attempts": 1,
+            self.state["pending_report_repair"] = {
+                "original": copy.deepcopy(record),
+                "attempts": 1,
                 "contract_hash": self.state["goal_contract"]["hash"],
-                "pins": {record[key]: util.file_hash(record[key]) for key in ("output", "events")}}
-            repair = {**copy.deepcopy(record), "stage": stage + "_report_repair", "original_stage": stage,
-                "report_only": True, "output": str(output), "events": str(output.with_suffix(".repair.jsonl"))}
+                "pins": {record[key]: util.file_hash(record[key]) for key in ("output", "events")},
+            }
+            repair = {
+                **copy.deepcopy(record),
+                "stage": stage + "_report_repair",
+                "original_stage": stage,
+                "report_only": True,
+                "output": str(output),
+                "events": str(output.with_suffix(".repair.jsonl")),
+            }
             for key in ("rejected", "rejection_reason", "thread_id"):
                 repair.pop(key, None)
             Path(repair["events"]).write_text("")
@@ -109,15 +203,35 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         return record
 
     def plan(self):
-        common = {"summary": "Plan useful slices", "contract_changes": [], "conflict_resolutions": [],
-                  "requirement_trace": [], "progressive_proposal": copy.deepcopy(self.proposal)}
-        self.stage("astra_discovery", {**common, "contract": copy.deepcopy(self.body),
-            "code_refs": ["greet.py"], "alternatives": [], "uncertainties": []})
+        common = {
+            "summary": "Plan useful slices",
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "requirement_trace": [],
+            "progressive_proposal": copy.deepcopy(self.proposal),
+        }
+        self.stage(
+            "astra_discovery",
+            {
+                **common,
+                "contract": copy.deepcopy(self.body),
+                "code_refs": ["greet.py"],
+                "alternatives": [],
+                "uncertainties": [],
+            },
+        )
         self.stage("astra_challenge", {"summary": "No blocking concerns", "concerns": []})
-        self.stage("glm_revise", {**common, "contract": copy.deepcopy(self.body),
-                                 "code_refs": ["greet.py"], "responses": []})
-        self.stage("astra_finalize", {**common, "contract": {**copy.deepcopy(self.body),
-                    "initial_task": copy.deepcopy(self.first)}, "decisions": []})
+        self.stage(
+            "glm_revise", {**common, "contract": copy.deepcopy(self.body), "code_refs": ["greet.py"], "responses": []}
+        )
+        self.stage(
+            "astra_finalize",
+            {
+                **common,
+                "contract": {**copy.deepcopy(self.body), "initial_task": copy.deepcopy(self.first)},
+                "decisions": [],
+            },
+        )
         human.evaluate(self.state)
         lifecycle.present(self.state)
 
@@ -154,27 +268,25 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.plan()
         output = Path(self.state["planning"]["reports"]["astra_finalize"]["output"])
         saved = json.loads(output.read_text())
-        generated = progressive.rules.disclosure(self.proposal, ["C1"],
-                                                 limits=progressive.initial_limits(self.state))
-        saved["contract"]["constraints"] = (generated["constraints"]
-                                               + saved["contract"]["constraints"])
+        generated = progressive.rules.disclosure(self.proposal, ["C1"], limits=progressive.initial_limits(self.state))
+        saved["contract"]["constraints"] = generated["constraints"] + saved["contract"]["constraints"]
         output.write_text(json.dumps(saved))
         report_contract = self.state["planning"]["reports"]["astra_finalize"]["report"]["contract"]
-        ordinary = [line for line in report_contract["constraints"]
-                    if line not in generated["constraints"]]
+        ordinary = [line for line in report_contract["constraints"] if line not in generated["constraints"]]
         report_contract["constraints"] = generated["constraints"] + ordinary
         loaded = json.loads(output.read_text())
         loaded_contract = progressive._canonical_contract(
-            loaded["contract"], self.proposal, ["C1"],
-            progressive.initial_limits(self.state))
+            loaded["contract"], self.proposal, ["C1"], progressive.initial_limits(self.state)
+        )
         reviewed_contract = progressive._canonical_contract(
-            report_contract, self.proposal, ["C1"],
-            progressive.initial_limits(self.state))
+            report_contract, self.proposal, ["C1"], progressive.initial_limits(self.state)
+        )
         self.assertEqual(loaded_contract, reviewed_contract)
         tampered = copy.deepcopy(reviewed_contract)
         tampered["acceptance_criteria"][0]["description"] = "Changed after review"
-        self.assertEqual("$.acceptance_criteria[0].description",
-                         progressive._first_difference(loaded_contract, tampered))
+        self.assertEqual(
+            "$.acceptance_criteria[0].description", progressive._first_difference(loaded_contract, tampered)
+        )
 
     def test_repaired_planner_and_reviewer_activate_from_original_sessions(self):
         self.repair_stages = ("glm_revise", "astra_finalize")
@@ -216,9 +328,15 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                     self.state = copy.deepcopy(saved)
                     value = json.loads(accepted)
                     if change == "decisions":
-                        value["decisions"] = [{"concern_id": "unreviewed", "decision": "blocked",
-                            "rationale": "Changed after acceptance", "acceptance_test": "Not verified",
-                            "resolved": False}]
+                        value["decisions"] = [
+                            {
+                                "concern_id": "unreviewed",
+                                "decision": "blocked",
+                                "rationale": "Changed after acceptance",
+                                "acceptance_test": "Not verified",
+                                "resolved": False,
+                            }
+                        ]
                     elif change == "constraint":
                         value["contract"]["constraints"].append("New unreviewed constraint")
                     elif change == "null":
@@ -256,8 +374,14 @@ class ProgressiveRuntimeTests(unittest.TestCase):
                     self.assertEqual(before, self.state)
 
     def test_ordinary_repaired_plan_checks_accepted_hash_before_approval(self):
-        self.proposal = {"version": 0, "needed_because": "", "shared_decisions": [],
-            "outstanding_criteria": [], "done_slices": [], "slices": []}
+        self.proposal = {
+            "version": 0,
+            "needed_because": "",
+            "shared_decisions": [],
+            "outstanding_criteria": [],
+            "done_slices": [],
+            "slices": [],
+        }
         self.repair_stages = ("glm_revise", "astra_finalize")
         self.plan()
         output = Path(self.state["planning"]["reports"]["astra_finalize"]["output"])
@@ -289,8 +413,20 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.plan()
         saved = copy.deepcopy(self.state)
         for stage in self.repair_stages:
-            for change in ("receipt", "events", "role", "source", "session", "output", "rejected", "stage",
-                           "expected_session", "iteration", "changed_files", "session_capability"):
+            for change in (
+                "receipt",
+                "events",
+                "role",
+                "source",
+                "session",
+                "output",
+                "rejected",
+                "stage",
+                "expected_session",
+                "iteration",
+                "changed_files",
+                "session_capability",
+            ):
                 with self.subTest(stage=stage, change=change):
                     self.state = copy.deepcopy(saved)
                     repair = next(row for row in self.state["stages"] if row.get("original_stage") == stage)
@@ -339,8 +475,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
     def test_non_review_attempt_time_is_bound_at_launch_and_accounted_once(self):
         self.approve()
         snapshot = util.snapshot(self.workspace)
-        record = {"stage": "terra", "output": str(self.run_dir / "builder.json"), "duration_seconds": 300,
-                  "exit_code": 1, "source_revision": snapshot["revision"]}
+        record = {
+            "stage": "terra",
+            "output": str(self.run_dir / "builder.json"),
+            "duration_seconds": 300,
+            "exit_code": 1,
+            "source_revision": snapshot["revision"],
+        }
         progressive.admit_attempt(self.state, record, snapshot)
         runner.account_stage(self.state, record)
         runner.account_stage(self.state, record)
@@ -367,7 +508,9 @@ class ProgressiveRuntimeTests(unittest.TestCase):
 
     def test_reviewed_initial_task_cannot_target_tentative_future_with_same_paths_and_criterion(self):
         future = self.proposal["slices"][1]
-        future["checks"][0]["method"] = "python3 -m unittest test_greeting.GreetingTests.test_rejects_empty_and_whitespace_names"
+        future["checks"][0]["method"] = (
+            "python3 -m unittest test_greeting.GreetingTests.test_rejects_empty_and_whitespace_names"
+        )
         self.first.update(objective=future["intended_result"], validation_plan=[future["checks"][0]["method"]])
         source = util.snapshot(self.workspace)
         self.plan()
@@ -399,8 +542,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
     def test_default_local_time_ceiling_stops_next_admission_without_resetting_usage(self):
         self.approve()
         snapshot = util.snapshot(self.workspace)
-        record = {"stage": "terra", "output": str(self.run_dir / "slow-builder.json"),
-                  "duration_seconds": 5000, "exit_code": 1, "source_revision": snapshot["revision"]}
+        record = {
+            "stage": "terra",
+            "output": str(self.run_dir / "slow-builder.json"),
+            "duration_seconds": 5000,
+            "exit_code": 1,
+            "source_revision": snapshot["revision"],
+        }
         progressive.admit_attempt(self.state, record, snapshot)
         runner.account_stage(self.state, record)
         with self.assertRaises(runner.support.Paused):
@@ -429,10 +577,19 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         # the active slice's paths, not the whole-product milestone's, which the slice guard would refuse.
         self.body["milestones"][0]["affected_paths"] = ["greet.py", "test_greeting.py", "README.md"]
         self.approve()
-        decision = {"status": "CONTINUE", "next_objective": "Check the greeting", "affected_paths": [],
-                    "evidence": [], "next_task": {"kind": "validate", "milestone_id": "M1",
-                    "requirements": ["Print greeting"], "acceptance_criteria": ["C1"],
-                    "validation_plan": ["python3 -m unittest test_greeting.py"]}}
+        decision = {
+            "status": "CONTINUE",
+            "next_objective": "Check the greeting",
+            "affected_paths": [],
+            "evidence": [],
+            "next_task": {
+                "kind": "validate",
+                "milestone_id": "M1",
+                "requirements": ["Print greeting"],
+                "acceptance_criteria": ["C1"],
+                "validation_plan": ["python3 -m unittest test_greeting.py"],
+            },
+        }
         self.assertEqual("validate", lifecycle.assign_task(self.state, decision, util.snapshot(self.workspace)))
         self.assertEqual(["greet.py", "test_greeting.py"], self.state["current_task"]["affected_paths"])
 
@@ -468,9 +625,14 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.stage("sol", self.validation())
         self.stage("astra_review", self.checkpoint_decision())
         snapshot = util.snapshot(self.workspace)
-        failed = {"stage": "astra_finalize", "output": str(self.run_dir / "failed-review.json"),
-                  "duration_seconds": 25, "exit_code": 1, "timed_out": True,
-                  "source_revision": snapshot["revision"]}
+        failed = {
+            "stage": "astra_finalize",
+            "output": str(self.run_dir / "failed-review.json"),
+            "duration_seconds": 25,
+            "exit_code": 1,
+            "timed_out": True,
+            "source_revision": snapshot["revision"],
+        }
         progressive.admit_attempt(self.state, failed, snapshot)
         pool_id = self.state["progressive"]["pending_allowance"]["pool_id"]
         self.assertEqual(1, self.state["progressive"]["budget"]["pools"][pool_id]["reviews_used"])
@@ -482,8 +644,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         rejected.pop("accounted")
         progressive.admit_attempt(self.state, rejected, snapshot)
         runner.account_stage(self.state, rejected)
-        self.assertEqual((1, 50), (self.state["progressive"]["budget"]["pools"][pool_id]["reviews_used"],
-                                 self.state["progressive"]["budget"]["pools"][pool_id]["seconds_used"]))
+        self.assertEqual(
+            (1, 50),
+            (
+                self.state["progressive"]["budget"]["pools"][pool_id]["reviews_used"],
+                self.state["progressive"]["budget"]["pools"][pool_id]["seconds_used"],
+            ),
+        )
 
     def test_explicit_product_reapproval_renews_reviewed_authority_without_losing_checks_or_usage(self):
         self.approve()
@@ -495,8 +662,7 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         old_pools = copy.deepcopy(self.state["progressive"]["budget"]["pools"])
         self.body["intended_outcome"] = "Provide the revised greeting and rejection CLI"
         lifecycle.install_draft(self.state, copy.deepcopy(self.body), origin="user_cli_edit")
-        self.proposal["slices"] = [copy.deepcopy(self.proposal["slices"][1]),
-                                    copy.deepcopy(self.proposal["slices"][1])]
+        self.proposal["slices"] = [copy.deepcopy(self.proposal["slices"][1]), copy.deepcopy(self.proposal["slices"][1])]
         self.proposal["slices"][0].update(tentative=False, depends_on=[])
         self.proposal["slices"][1].update(id="S3", depends_on=["S2"])
         self.proposal["slices"][1]["checks"][0]["id"] = "C"
@@ -514,30 +680,70 @@ class ProgressiveRuntimeTests(unittest.TestCase):
 
     def validation(self, fully=False):
         command = "python3 -m unittest test_greeting.py"
-        return {**goal_fixtures.envelope(self.state), "verdict": "PASS", "findings": [],
-            "checks_run": [command], "unverified_criteria": [] if fully else ["C1"],
+        return {
+            **goal_fixtures.envelope(self.state),
+            "verdict": "PASS",
+            "findings": [],
+            "checks_run": [command],
+            "unverified_criteria": [] if fully else ["C1"],
             "checks": [{"command": command, "exit_code": 0, "evidence_ref": "event:check"}],
-            "end_to_end_result": {"status": "PASS" if fully else "NOT_VERIFIED", "summary": "Executed CLI",
-                                  "evidence_refs": ["event:check"] if fully else []},
-            "criterion_results": [{"id": "C1", "status": "PASS" if fully else "NOT_VERIFIED",
-                                   "evidence_refs": ["event:check"] if fully else []}], "finding_dispositions": []}
+            "end_to_end_result": {
+                "status": "PASS" if fully else "NOT_VERIFIED",
+                "summary": "Executed CLI",
+                "evidence_refs": ["event:check"] if fully else [],
+            },
+            "criterion_results": [
+                {
+                    "id": "C1",
+                    "status": "PASS" if fully else "NOT_VERIFIED",
+                    "evidence_refs": ["event:check"] if fully else [],
+                }
+            ],
+            "finding_dispositions": [],
+        }
 
     def checkpoint_decision(self):
-        return {**goal_fixtures.envelope(self.state), "status": "CONTINUE", "progressive_checkpoint": True,
+        return {
+            **goal_fixtures.envelope(self.state),
+            "status": "CONTINUE",
+            "progressive_checkpoint": True,
             "acceptance_criteria": copy.deepcopy(self.state["acceptance_criteria"]),
-            "next_objective": "Review the next slice", "next_task": {"kind": "none", "milestone_id": "",
-                "requirements": [], "acceptance_criteria": [], "validation_plan": [], "findings": []},
-            "findings": [], "finding_dispositions": [], "agreed_limitations": [], "evidence": [], "blocker": "",
-            "plan": ["Continue the approved slices"], "affected_paths": []}
+            "next_objective": "Review the next slice",
+            "next_task": {
+                "kind": "none",
+                "milestone_id": "",
+                "requirements": [],
+                "acceptance_criteria": [],
+                "validation_plan": [],
+                "findings": [],
+            },
+            "findings": [],
+            "finding_dispositions": [],
+            "agreed_limitations": [],
+            "evidence": [],
+            "blocker": "",
+            "plan": ["Continue the approved slices"],
+            "affected_paths": [],
+        }
 
     def test_intermediate_task_proof_does_not_make_unfinished_slice_checks_due(self):
         self.approve()
         command = "python3 -m unittest test_greeting.GreetingTests.test_greets_a_valid_name"
-        next_task = {"kind": "validate", "milestone_id": "M1", "requirements": ["Inspect greeting unit"],
-                     "acceptance_criteria": ["C1"], "validation_plan": [command], "findings": []}
-        decision = {**self.checkpoint_decision(), "progressive_checkpoint": False,
-                    "next_objective": "Validate the intermediate greeting unit", "next_task": next_task,
-                    "affected_paths": ["greet.py", "test_greeting.py"]}
+        next_task = {
+            "kind": "validate",
+            "milestone_id": "M1",
+            "requirements": ["Inspect greeting unit"],
+            "acceptance_criteria": ["C1"],
+            "validation_plan": [command],
+            "findings": [],
+        }
+        decision = {
+            **self.checkpoint_decision(),
+            "progressive_checkpoint": False,
+            "next_objective": "Validate the intermediate greeting unit",
+            "next_task": next_task,
+            "affected_paths": ["greet.py", "test_greeting.py"],
+        }
         self.stage("astra_review", decision)
         local = self.validation()
         local["checks"] = [{"command": command, "exit_code": 0, "evidence_ref": "event:check"}]
@@ -560,14 +766,28 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         proposal["done_slices"] = ["S1"]
         proposal["slices"] = [proposal["slices"][1]]
         proposal["slices"][0]["tentative"] = False
-        self.stage("glm_revise", {"summary": "Detail S2", "progressive_proposal": proposal,
-                                  "initial_task": {**self.first, "objective": "Deliver complete CLI"}})
+        self.stage(
+            "glm_revise",
+            {
+                "summary": "Detail S2",
+                "progressive_proposal": proposal,
+                "initial_task": {**self.first, "objective": "Deliver complete CLI"},
+            },
+        )
 
     def test_rejected_technical_review_reuses_reserved_pool_without_report_repair(self):
         self.begin_next_detail()
         pool_id = self.state["progressive"]["pending_allowance"]["pool_id"]
-        self.stage("astra_finalize", {"summary": "Improve the concrete task detail", "accepted": False,
-                   "product_changes": False, "permission_changes": False, "unresolved_product_decisions": False})
+        self.stage(
+            "astra_finalize",
+            {
+                "summary": "Improve the concrete task detail",
+                "accepted": False,
+                "product_changes": False,
+                "permission_changes": False,
+                "unresolved_product_decisions": False,
+            },
+        )
         self.assertEqual("glm_revise", self.state["next_stage"])
         self.assertEqual("detail", self.state["progressive"]["transition"]["phase"])
         self.assertEqual(pool_id, self.state["progressive"]["pending_allowance"]["pool_id"])
@@ -579,9 +799,16 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.begin_next_detail()
         token = goals.token(self.state["goal_contract"])
         task_id = self.state["current_task"]["id"]
-        self.stage("astra_finalize", {"summary": "Decide whether to add remote accounts to this local CLI",
-                   "accepted": False, "product_changes": True, "permission_changes": False,
-                   "unresolved_product_decisions": True})
+        self.stage(
+            "astra_finalize",
+            {
+                "summary": "Decide whether to add remote accounts to this local CLI",
+                "accepted": False,
+                "product_changes": True,
+                "permission_changes": False,
+                "unresolved_product_decisions": True,
+            },
+        )
         self.assertEqual("RESOLVER_PENDING", self.state["status"])
         human.evaluate(self.state)
         self.assertEqual("goal_change", human.current(self.state)["scope"])
@@ -604,21 +831,40 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         second = copy.deepcopy(self.proposal["slices"][1])
         second.update(id="S2b", depends_on=["S2a"])
         proposal = {**copy.deepcopy(self.proposal), "done_slices": ["S1"], "slices": [first, second]}
-        review = {"summary": "Independent split preserves product coverage", "accepted": True,
-                  "product_changes": False, "permission_changes": False, "unresolved_product_decisions": False}
-        self.stage("glm_revise", {"summary": "Split S2 without new capacity", "progressive_proposal": proposal,
-                                  "initial_task": {**self.first, "validation_plan": [unit]}})
+        review = {
+            "summary": "Independent split preserves product coverage",
+            "accepted": True,
+            "product_changes": False,
+            "permission_changes": False,
+            "unresolved_product_decisions": False,
+        }
+        self.stage(
+            "glm_revise",
+            {
+                "summary": "Split S2 without new capacity",
+                "progressive_proposal": proposal,
+                "initial_task": {**self.first, "validation_plan": [unit]},
+            },
+        )
         self.stage("astra_finalize", review)
         self.assertEqual("S2a", self.state["current_task"]["slice_id"])
-        checks = [{"command": full, "exit_code": 0, "evidence_ref": "event:full"},
-                  {"command": unit, "exit_code": 0, "evidence_ref": "event:unit"}]
+        checks = [
+            {"command": full, "exit_code": 0, "evidence_ref": "event:full"},
+            {"command": unit, "exit_code": 0, "evidence_ref": "event:unit"},
+        ]
         local = {**self.validation(), "checks": checks, "checks_run": [full, unit]}
         self.stage("sol", local)
         self.stage("astra_review", self.checkpoint_decision())
         self.assertEqual(pool_id, self.state["progressive"]["pending_allowance"]["pool_id"])
         next_proposal = {**proposal, "done_slices": ["S1", "S2a"], "slices": [{**second, "tentative": False}]}
-        self.stage("glm_revise", {"summary": "Detail retained sibling", "progressive_proposal": next_proposal,
-                                  "initial_task": copy.deepcopy(self.first)})
+        self.stage(
+            "glm_revise",
+            {
+                "summary": "Detail retained sibling",
+                "progressive_proposal": next_proposal,
+                "initial_task": copy.deepcopy(self.first),
+            },
+        )
         self.stage("astra_finalize", review)
         self.assertEqual("S2b", self.state["current_task"]["slice_id"])
         self.assertEqual(pool_id, self.state["progressive"]["active_allowance"]["pool_id"])
@@ -636,8 +882,16 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.body["acceptance_criteria"][0]["verification_method"] = original
         self.begin_next_detail()
         self.assertNotIn(original, [row["command"] for row in self.state["validation"]["check_replay"]["checks"]])
-        self.stage("astra_finalize", {"summary": "Original product checks remain required", "accepted": True,
-                   "product_changes": False, "permission_changes": False, "unresolved_product_decisions": False})
+        self.stage(
+            "astra_finalize",
+            {
+                "summary": "Original product checks remain required",
+                "accepted": True,
+                "product_changes": False,
+                "permission_changes": False,
+                "unresolved_product_decisions": False,
+            },
+        )
         canonical = next(row for row in self.state["progressive"]["required_checks"] if row["method"] == original)
         self.assertTrue(canonical["id"].startswith("contract-"))
         with self.assertRaisesRegex(ValueError, "omitted cumulative"):
@@ -651,22 +905,46 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.stage("astra_review", self.checkpoint_decision())
         proof = self.state["progressive"]["completion_proof"]
         self.assertIn(canonical["id"], proof["results"])
-        self.assertEqual(util.snapshot(self.workspace)["revision"], proof["results"][canonical["id"]]["source_revision"])
+        self.assertEqual(
+            util.snapshot(self.workspace)["revision"], proof["results"][canonical["id"]]["source_revision"]
+        )
         self.assertTrue(completion.ready(self.state, util.snapshot(self.workspace)))
 
     def test_initial_revise_can_replace_exact_generated_map_and_limits_without_rewriting_product(self):
-        common = {"summary": "Initial plan", "contract_changes": [], "conflict_resolutions": [],
-                  "requirement_trace": [], "progressive_proposal": copy.deepcopy(self.proposal)}
-        self.stage("astra_discovery", {**common, "contract": copy.deepcopy(self.body),
-            "code_refs": ["greet.py"], "alternatives": [], "uncertainties": []})
+        common = {
+            "summary": "Initial plan",
+            "contract_changes": [],
+            "conflict_resolutions": [],
+            "requirement_trace": [],
+            "progressive_proposal": copy.deepcopy(self.proposal),
+        }
+        self.stage(
+            "astra_discovery",
+            {
+                **common,
+                "contract": copy.deepcopy(self.body),
+                "code_refs": ["greet.py"],
+                "alternatives": [],
+                "uncertainties": [],
+            },
+        )
         original = copy.deepcopy(self.state["goal_contract"]["body"])
         self.stage("astra_challenge", {"summary": "Detail the next slice more concretely", "concerns": []})
         self.proposal["slices"][1]["intended_result"] = "Reject all invalid names and preserve greeting"
         self.state["settings"]["planning_review_call_limit"] = 3
         common["progressive_proposal"] = copy.deepcopy(self.proposal)
         self.stage("glm_revise", {**common, "contract": original, "code_refs": ["greet.py"], "responses": []})
-        self.stage("astra_finalize", {**common, "contract": {**copy.deepcopy(self.state["goal_contract"]["body"]),
-                    "initial_task": copy.deepcopy(self.first)}, "decisions": []})
+        self.stage(
+            "astra_finalize",
+            {
+                **common,
+                "contract": {
+                    **copy.deepcopy(self.state["goal_contract"]["body"]),
+                    "initial_task": copy.deepcopy(self.first),
+                },
+                "decisions": [],
+            },
+        )
         human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
@@ -676,14 +954,31 @@ class ProgressiveRuntimeTests(unittest.TestCase):
 
     def test_initial_revise_can_drop_only_known_runner_disclosure_and_return_to_ordinary(self):
         common = {"summary": "Plan", "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}
-        self.stage("astra_discovery", {**common, "contract": copy.deepcopy(self.body),
-            "progressive_proposal": copy.deepcopy(self.proposal), "code_refs": ["greet.py"],
-            "alternatives": [], "uncertainties": []})
+        self.stage(
+            "astra_discovery",
+            {
+                **common,
+                "contract": copy.deepcopy(self.body),
+                "progressive_proposal": copy.deepcopy(self.proposal),
+                "code_refs": ["greet.py"],
+                "alternatives": [],
+                "uncertainties": [],
+            },
+        )
         prior = copy.deepcopy(self.state["goal_contract"]["body"])
         self.stage("astra_challenge", {"summary": "An ordinary bounded plan suffices", "concerns": []})
         self.stage("glm_revise", {**common, "contract": prior, "code_refs": ["greet.py"], "responses": []})
-        self.stage("astra_finalize", {**common, "contract": {**copy.deepcopy(self.state["goal_contract"]["body"]),
-                    "initial_task": copy.deepcopy(self.first)}, "decisions": []})
+        self.stage(
+            "astra_finalize",
+            {
+                **common,
+                "contract": {
+                    **copy.deepcopy(self.state["goal_contract"]["body"]),
+                    "initial_task": copy.deepcopy(self.first),
+                },
+                "decisions": [],
+            },
+        )
         human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
@@ -694,8 +989,16 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.proposal["slices"][1]["checks"][0]["relation"] = "contributes_to"
         self.begin_next_detail()
         token = goals.token(self.state["goal_contract"])
-        self.stage("astra_finalize", {"summary": "Second contribution is within the original goal", "accepted": True,
-                   "product_changes": False, "permission_changes": False, "unresolved_product_decisions": False})
+        self.stage(
+            "astra_finalize",
+            {
+                "summary": "Second contribution is within the original goal",
+                "accepted": True,
+                "product_changes": False,
+                "permission_changes": False,
+                "unresolved_product_decisions": False,
+            },
+        )
         pool_id = self.state["progressive"]["active_allowance"]["pool_id"]
         self.stage("sol", self.validation())
         self.stage("astra_review", self.checkpoint_decision())
@@ -703,23 +1006,60 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertEqual(pool_id, self.state["progressive"]["pending_allowance"]["pool_id"])
         self.assertEqual(["C1"], self.state["progressive"]["transition"]["remaining_criteria"])
         self.assertFalse(completion.ready(self.state, util.snapshot(self.workspace)))
-        proposal = {**copy.deepcopy(self.proposal), "done_slices": ["S1", "S2"], "slices": [{
-            "id": "S3", "intended_result": "Validate the original product end to end", "criterion_ids": ["C1"],
-            "paths": ["greet.py", "test_greeting.py"], "depends_on": ["S2"], "tentative": False,
-            "checks": [{"id": "G", "method": "python3 -m unittest test_greeting.py", "relation": "fully_verify", "criterion_ids": ["C1"]}]}]}
-        self.stage("glm_revise", {"summary": "Detail the still-open product proof", "progressive_proposal": proposal,
-                                  "initial_task": {**self.first, "kind": "validate"}})
-        self.stage("astra_finalize", {"summary": "Independently reviewed full proof within the existing grant", "accepted": True,
-                   "product_changes": False, "permission_changes": False, "unresolved_product_decisions": False})
+        proposal = {
+            **copy.deepcopy(self.proposal),
+            "done_slices": ["S1", "S2"],
+            "slices": [
+                {
+                    "id": "S3",
+                    "intended_result": "Validate the original product end to end",
+                    "criterion_ids": ["C1"],
+                    "paths": ["greet.py", "test_greeting.py"],
+                    "depends_on": ["S2"],
+                    "tentative": False,
+                    "checks": [
+                        {
+                            "id": "G",
+                            "method": "python3 -m unittest test_greeting.py",
+                            "relation": "fully_verify",
+                            "criterion_ids": ["C1"],
+                        }
+                    ],
+                }
+            ],
+        }
+        self.stage(
+            "glm_revise",
+            {
+                "summary": "Detail the still-open product proof",
+                "progressive_proposal": proposal,
+                "initial_task": {**self.first, "kind": "validate"},
+            },
+        )
+        self.stage(
+            "astra_finalize",
+            {
+                "summary": "Independently reviewed full proof within the existing grant",
+                "accepted": True,
+                "product_changes": False,
+                "permission_changes": False,
+                "unresolved_product_decisions": False,
+            },
+        )
         self.assertEqual(token, goals.token(self.state["goal_contract"]))
         self.assertEqual(pool_id, self.state["progressive"]["active_allowance"]["pool_id"])
         self.assertEqual(2, self.state["progressive"]["budget"]["pools"][pool_id]["reviews_used"])
         self.assertEqual(2, len(self.state["progressive"]["budget"]["pools"]))
         self.stage("sol", self.validation(fully=True))
         decision = self.checkpoint_decision()
-        decision.update(status="COMPLETE", progressive_checkpoint=False,
-                        acceptance_criteria=[{**row, "status": "verified", "evidence": "Current full original product proof"}
-                                             for row in self.state["acceptance_criteria"]])
+        decision.update(
+            status="COMPLETE",
+            progressive_checkpoint=False,
+            acceptance_criteria=[
+                {**row, "status": "verified", "evidence": "Current full original product proof"}
+                for row in self.state["acceptance_criteria"]
+            ],
+        )
         self.stage("astra_review", decision)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
@@ -738,11 +1078,26 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         proposal["done_slices"] = ["S1"]
         proposal["slices"] = [proposal["slices"][1]]
         proposal["slices"][0]["tentative"] = False
-        self.stage("glm_revise", {"summary": "Detail S2", "progressive_proposal": proposal,
-                    "initial_task": {**self.first, "objective": "Deliver complete CLI"}}, seconds=100)
-        self.stage("astra_finalize", {"summary": "Exact candidate accepted", "accepted": True,
-                   "product_changes": False, "permission_changes": False,
-                   "unresolved_product_decisions": False}, seconds=100)
+        self.stage(
+            "glm_revise",
+            {
+                "summary": "Detail S2",
+                "progressive_proposal": proposal,
+                "initial_task": {**self.first, "objective": "Deliver complete CLI"},
+            },
+            seconds=100,
+        )
+        self.stage(
+            "astra_finalize",
+            {
+                "summary": "Exact candidate accepted",
+                "accepted": True,
+                "product_changes": False,
+                "permission_changes": False,
+                "unresolved_product_decisions": False,
+            },
+            seconds=100,
+        )
         self.assertEqual("S2", self.state["current_task"]["slice_id"])
         self.assertEqual(original_contract, self.state["goal_contract"])
         self.stage("sol", self.validation(fully=True), seconds=3000)
@@ -755,8 +1110,13 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         self.assertTrue(all(pool["seconds_used"] < 5400 for pool in pools))
         self.assertEqual({"A", "B"}, set(self.state["progressive"]["completion_proof"]["results"]))
         decision = self.checkpoint_decision()
-        decision.update(status="COMPLETE", progressive_checkpoint=False,
-                        acceptance_criteria=[{**row, "status": "verified", "evidence": "Current independent full CLI proof"}
-                                             for row in self.state["acceptance_criteria"]])
+        decision.update(
+            status="COMPLETE",
+            progressive_checkpoint=False,
+            acceptance_criteria=[
+                {**row, "status": "verified", "evidence": "Current independent full CLI proof"}
+                for row in self.state["acceptance_criteria"]
+            ],
+        )
         self.stage("astra_review", decision)
         self.assertEqual("TASK_COMPLETE", self.state["status"])

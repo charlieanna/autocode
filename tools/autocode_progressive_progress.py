@@ -28,8 +28,7 @@ duplicate evidence) is NOT progress and must not reset stagnation. Failures reta
 ordinary rework/escalation handling. No counters, state writes, I/O or clocks.
 """
 
-_BINDING_TEXT = ("contract_token", "plan_hash", "slice_id", "task_id",
-                 "assignment_source", "validated_source")
+_BINDING_TEXT = ("contract_token", "plan_hash", "slice_id", "task_id", "assignment_source", "validated_source")
 
 
 def _text(value):
@@ -45,22 +44,38 @@ def _ids(value):
 
 
 def _binding(value):
-    return (type(value) is dict and set(value) == {*_BINDING_TEXT, "attempt"}
-            and all(_text(value[key]) for key in _BINDING_TEXT)
-            and type(value["attempt"]) is int and value["attempt"] > 0)
+    return (
+        type(value) is dict
+        and set(value) == {*_BINDING_TEXT, "attempt"}
+        and all(_text(value[key]) for key in _BINDING_TEXT)
+        and type(value["attempt"]) is int
+        and value["attempt"] > 0
+    )
 
 
-def classify(*, due_checks, results, current_binding, proof_identity,
-             receipts_authenticated, new_obligation_ids, seen_proof_identities,
-             seen_receipt_identities, gaps, deferred_criteria, deferred_tasks, findings):
+def classify(
+    *,
+    due_checks,
+    results,
+    current_binding,
+    proof_identity,
+    receipts_authenticated,
+    new_obligation_ids,
+    seen_proof_identities,
+    seen_receipt_identities,
+    gaps,
+    deferred_criteria,
+    deferred_tasks,
+    findings,
+):
     """Classify normalized evidence; malformed input fails closed, never mutates.
 
     No separate checkpoint flag: the caller's authoritative due set determines
     which checks must pass. A deferred ID never exempts a due check or a blocker.
     """
+
     def outcome(kind, reason):
-        return {"kind": kind, "reason": reason,
-                "proof_identity": proof_identity if kind == "progress" else None}
+        return {"kind": kind, "reason": reason, "proof_identity": proof_identity if kind == "progress" else None}
 
     try:
         new = _ids(new_obligation_ids)
@@ -72,9 +87,12 @@ def classify(*, due_checks, results, current_binding, proof_identity,
     if type(findings) is not list:
         return outcome("failure", "malformed_findings")
     for row in findings:
-        if (type(row) is not dict or row.get("status") not in ("open", "resolved", "retracted")
-                or row.get("severity") not in ("critical", "high", "medium", "low")
-                or type(row.get("blocking", True)) is not bool):
+        if (
+            type(row) is not dict
+            or row.get("status") not in ("open", "resolved", "retracted")
+            or row.get("severity") not in ("critical", "high", "medium", "low")
+            or type(row.get("blocking", True)) is not bool
+        ):
             return outcome("failure", "malformed_findings")
         # Match the product ledger: severity does not override an explicit flag.
         if row["status"] == "open" and row.get("blocking", True):
@@ -83,9 +101,13 @@ def classify(*, due_checks, results, current_binding, proof_identity,
         return outcome("failure", "malformed_gaps")
     gap_ids = set()
     for gap in gaps:
-        if (type(gap) is not dict or type(gap.get("kind")) is not str
-                or gap["kind"] not in deferred or not _text(gap.get("id"))
-                or type(gap.get("status")) is not str):
+        if (
+            type(gap) is not dict
+            or type(gap.get("kind")) is not str
+            or gap["kind"] not in deferred
+            or not _text(gap.get("id"))
+            or type(gap.get("status")) is not str
+        ):
             return outcome("failure", "malformed_gaps")
         key = (gap["kind"], gap["id"])
         if key in gap_ids:
@@ -99,8 +121,12 @@ def classify(*, due_checks, results, current_binding, proof_identity,
         return outcome("failure", "malformed_checks")
     due = {}
     for check in due_checks:
-        if (type(check) is not dict or not _text(check.get("id"))
-                or not _text(check.get("check_hash")) or check["id"] in due):
+        if (
+            type(check) is not dict
+            or not _text(check.get("id"))
+            or not _text(check.get("check_hash"))
+            or check["id"] in due
+        ):
             return outcome("failure", "malformed_checks")
         due[check["id"]] = check["check_hash"]
     if any(not _text(key) or key not in due for key in results) or not new <= due.keys():
@@ -127,12 +153,18 @@ def classify(*, due_checks, results, current_binding, proof_identity,
         receipt_ids.add(receipt["identity"])
         if not _binding(receipt.get("binding")):
             return outcome("failure", "malformed_binding")
-        if (receipt["binding"] != current_binding or receipt.get("check_hash") != check_hash
-                or receipt.get("source_revision") != current_binding["validated_source"]):
+        if (
+            receipt["binding"] != current_binding
+            or receipt.get("check_hash") != check_hash
+            or receipt.get("source_revision") != current_binding["validated_source"]
+        ):
             return outcome("failure", "stale_receipt")
         evidence = receipt.get("evidence_hashes")
-        if (type(evidence) is not dict or not evidence
-                or not all(_text(path) and _text(digest) for path, digest in evidence.items())):
+        if (
+            type(evidence) is not dict
+            or not evidence
+            or not all(_text(path) and _text(digest) for path, digest in evidence.items())
+        ):
             return outcome("failure", "malformed_receipt")
     # A duplicate never hides a regression or blocker: validate everything first.
     if proof_identity in seen or receipt_ids & seen_receipts:

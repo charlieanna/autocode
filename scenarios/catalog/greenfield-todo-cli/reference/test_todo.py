@@ -14,8 +14,7 @@ class TodoTests(unittest.TestCase):
         self.store = Path(self.dir.name) / "todos.json"
 
     def todo(self, *args):
-        return subprocess.run([sys.executable, str(TODO), *args], cwd=self.dir.name,
-                              capture_output=True, text=True)
+        return subprocess.run([sys.executable, str(TODO), *args], cwd=self.dir.name, capture_output=True, text=True)
 
     def test_add_list_complete(self):
         self.todo("add", "buy milk")

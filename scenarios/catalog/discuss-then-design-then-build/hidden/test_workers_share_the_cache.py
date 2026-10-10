@@ -5,6 +5,7 @@ cache directory the deploy configuration names and provisions (METADATA_CACHE_DI
 to the upstream at urllib.request.urlopen. They do not depend on the names a design
 chose for its cache module; the oracle checks the code against the design separately.
 """
+
 import json
 import os
 import subprocess
@@ -49,10 +50,20 @@ class WorkersShareTheCache(unittest.TestCase):
 
     def worker(self, *tlds):
         """A fresh worker process: one of the four gunicorn workers, or one just recycled."""
-        env = {**os.environ, "METADATA_CACHE_DIR": str(self.cache), "PYTHONPATH": str(ROOT),
-               "PYTHONDONTWRITEBYTECODE": "1"}
-        proc = subprocess.run([sys.executable, "-c", WORKER, str(self.calls), *tlds], cwd=ROOT, env=env,
-                              capture_output=True, text=True, timeout=60)
+        env = {
+            **os.environ,
+            "METADATA_CACHE_DIR": str(self.cache),
+            "PYTHONPATH": str(ROOT),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        proc = subprocess.run(
+            [sys.executable, "-c", WORKER, str(self.calls), *tlds],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
         self.assertEqual(0, proc.returncode, proc.stderr[-2000:])
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
@@ -71,8 +82,9 @@ class WorkersShareTheCache(unittest.TestCase):
 
     def test_the_cache_lives_in_the_configured_directory(self):
         self.worker("org")
-        self.assertTrue(self.cache.is_dir() and any(self.cache.iterdir()),
-                        "nothing was written under METADATA_CACHE_DIR")
+        self.assertTrue(
+            self.cache.is_dir() and any(self.cache.iterdir()), "nothing was written under METADATA_CACHE_DIR"
+        )
 
 
 if __name__ == "__main__":

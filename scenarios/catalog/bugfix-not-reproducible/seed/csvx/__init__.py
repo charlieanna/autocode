@@ -1,4 +1,5 @@
 """Export rows of dictionaries as CSV text."""
+
 import csv
 import io
 

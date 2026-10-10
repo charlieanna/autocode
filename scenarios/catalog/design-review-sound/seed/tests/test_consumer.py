@@ -29,8 +29,9 @@ class ConsumerTests(unittest.TestCase):
     def test_a_renew_is_charged_notified_and_marked(self):
         db, notifier = database(), Notifier()
         self.assertTrue(consumer.run_once(db, notifier))
-        self.assertEqual([("example.com", "e1", 1200)],
-                         db.execute("SELECT domain, event_id, amount_cents FROM charges").fetchall())
+        self.assertEqual(
+            [("example.com", "e1", 1200)], db.execute("SELECT domain, event_id, amount_cents FROM charges").fetchall()
+        )
         self.assertEqual(["e1"], notifier.sent)
         self.assertFalse(consumer.run_once(db, notifier))
 

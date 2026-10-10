@@ -4,6 +4,7 @@ The oracle is the authority on whether the work is correct; AutoCode's status
 only says whether AutoCode claimed completion. The worst outcome is a false
 completion: AutoCode said done and the oracle disagrees.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -15,21 +16,21 @@ from pathlib import Path
 from .oracle import Check
 from . import evidence_reports
 
-PASS = "PASS"                        # AutoCode ended the way the scenario expects and the oracle agrees
-FALSE_COMPLETE = "FALSE_COMPLETE"    # AutoCode completed but the oracle found failures, or it should have stopped
-HONEST_BLOCKER = "HONEST_BLOCKER"    # AutoCode stopped and said why, without claiming completion
-ERROR = "ERROR"                      # the run or the oracle broke; no judgement possible
-SKIPPED = "SKIPPED"                  # a required tool or capability is missing
-NOT_EXERCISED = "NOT_EXERCISED"      # the run never reached a stage the scenario exists to test
+PASS = "PASS"  # AutoCode ended the way the scenario expects and the oracle agrees
+FALSE_COMPLETE = "FALSE_COMPLETE"  # AutoCode completed but the oracle found failures, or it should have stopped
+HONEST_BLOCKER = "HONEST_BLOCKER"  # AutoCode stopped and said why, without claiming completion
+ERROR = "ERROR"  # the run or the oracle broke; no judgement possible
+SKIPPED = "SKIPPED"  # a required tool or capability is missing
+NOT_EXERCISED = "NOT_EXERCISED"  # the run never reached a stage the scenario exists to test
 INTERRUPTED_UNGRADED = "INTERRUPTED_UNGRADED"  # supervision stopped; no final delivery/usage judgement exists
 PENDING_UNGRADED = "PENDING_UNGRADED"  # an admitted harness owner has not published a final result
 
 # An oracle may also define diagnosis(project, run): how a stage judged the failure the scenario plants
 # (issue #59), scored apart from the run verdict above. Its verdicts, besides NOT_EXERCISED (the planted
 # failure never reached the stage) and ERROR (diagnosis() itself crashed):
-CORRECT = "CORRECT"                  # the stage ran on the planted failure and every required check passed
-INCORRECT = "INCORRECT"              # it ran on the planted failure and a required check failed
-UNSCORED = "UNSCORED"                # it launched on the planted failure but saved no output to score
+CORRECT = "CORRECT"  # the stage ran on the planted failure and every required check passed
+INCORRECT = "INCORRECT"  # it ran on the planted failure and a required check failed
+UNSCORED = "UNSCORED"  # it launched on the planted failure but saved no output to score
 DIAGNOSIS_VERDICTS = (CORRECT, INCORRECT, UNSCORED, NOT_EXERCISED)
 
 COMPLETE_STATUSES = ("TASK_COMPLETE", "COMPLETE")
@@ -39,21 +40,40 @@ STOPPED_PREFIXES = ("PAUSED_", "BLOCKED_HUMAN", "AWAITING_GOAL_APPROVAL", "WAITI
 # provider outage or a budget death (#455). The verdict stays the contract; this is a
 # secondary class. Reuses the existing status/stop_reason vocabulary, never a second one.
 STOP_CLASS_PASSED = "passed"
-STOP_CLASS_FALSE = "false_completion"       # claimed done; wrong or should have stopped
-STOP_CLASS_SAFETY = "safety_stop"           # correct pause/blocker for a person or a real defect
-STOP_CLASS_PROVIDER = "provider_failure"    # provider, transport, or sandbox/setup
-STOP_CLASS_HARNESS = "harness_failure"      # the harness or oracle broke; no judgement
-STOP_CLASS_BUDGET = "budget_exhaustion"     # time, attempt or supervision budget
+STOP_CLASS_FALSE = "false_completion"  # claimed done; wrong or should have stopped
+STOP_CLASS_SAFETY = "safety_stop"  # correct pause/blocker for a person or a real defect
+STOP_CLASS_PROVIDER = "provider_failure"  # provider, transport, or sandbox/setup
+STOP_CLASS_HARNESS = "harness_failure"  # the harness or oracle broke; no judgement
+STOP_CLASS_BUDGET = "budget_exhaustion"  # time, attempt or supervision budget
 STOP_CLASS_NOT_EXERCISED = "not_exercised"
 STOP_CLASS_SKIPPED = "skipped"
-STOP_CLASSES = (STOP_CLASS_PASSED, STOP_CLASS_FALSE, STOP_CLASS_SAFETY, STOP_CLASS_PROVIDER,
-                STOP_CLASS_HARNESS, STOP_CLASS_BUDGET, STOP_CLASS_NOT_EXERCISED, STOP_CLASS_SKIPPED)
+STOP_CLASSES = (
+    STOP_CLASS_PASSED,
+    STOP_CLASS_FALSE,
+    STOP_CLASS_SAFETY,
+    STOP_CLASS_PROVIDER,
+    STOP_CLASS_HARNESS,
+    STOP_CLASS_BUDGET,
+    STOP_CLASS_NOT_EXERCISED,
+    STOP_CLASS_SKIPPED,
+)
 
 # Status words that name a provider/setup stop, not a product decision.
-_PROVIDER_STATUS = ("PAUSED_TOOL_CONTAINMENT", "PAUSED_PROVIDER_TIMEOUT", "PAUSED_CONTENT_FILTER",
-                    "PAUSED_AUTH", "PAUSED_QUOTA_ROUTE", "PAUSED_PROVIDER")
-_BUDGET_STATUS = ("PAUSED_BUDGET", "PAUSED_INTERRUPTED", "PAUSED_ITERATION_LIMIT",
-                  "PAUSED_TIME_BUDGET", "PAUSED_STAGE_TIMEOUT")
+_PROVIDER_STATUS = (
+    "PAUSED_TOOL_CONTAINMENT",
+    "PAUSED_PROVIDER_TIMEOUT",
+    "PAUSED_CONTENT_FILTER",
+    "PAUSED_AUTH",
+    "PAUSED_QUOTA_ROUTE",
+    "PAUSED_PROVIDER",
+)
+_BUDGET_STATUS = (
+    "PAUSED_BUDGET",
+    "PAUSED_INTERRUPTED",
+    "PAUSED_ITERATION_LIMIT",
+    "PAUSED_TIME_BUDGET",
+    "PAUSED_STAGE_TIMEOUT",
+)
 
 
 @dataclass
@@ -100,8 +120,12 @@ def diagnose(scenario, project, run: dict | None) -> dict | None:
         return block
     except Exception:
         error = traceback.format_exc()
-        return {"verdict": ERROR, "reason": f"diagnosis error: {error.strip().splitlines()[-1]}", "checks": [],
-                "error": error}
+        return {
+            "verdict": ERROR,
+            "reason": f"diagnosis error: {error.strip().splitlines()[-1]}",
+            "checks": [],
+            "error": error,
+        }
 
 
 def _plain(value):
@@ -143,8 +167,9 @@ def turn_not_reached(outcome: str, summary: str, turn: int) -> tuple[str, str]:
 PROGRAM_STOPS = ("WAITING", "WAITING_AGREEMENT_APPROVAL", "WAITING_CHANGE_REQUEST", "AUTHORIZATION_REQUIRED")
 
 
-def judge_program(status: str, oracle: OracleResult, expected: str = "complete",
-                  summary: dict | None = None) -> tuple[str, str]:
+def judge_program(
+    status: str, oracle: OracleResult, expected: str = "complete", summary: dict | None = None
+) -> tuple[str, str]:
     """``judge`` for a program's final status, with the program-only stops; single runs never come here.
     A program that did not complete says where each unfinished workstream stopped (``program_summary``)."""
     if oracle.error or status not in PROGRAM_STOPS:
@@ -159,10 +184,18 @@ def judge_program(status: str, oracle: OracleResult, expected: str = "complete",
 
 def program_summary(summary: dict) -> str:
     """Each workstream that has not merged: its status and its run's status and progress line."""
-    return "; ".join(f"{row['id']} {row.get('status')}"
-                     + (f" ({row.get('run_status')}: {row['progress']})" if row.get("progress") else
-                        f" ({row['run_status']})" if row.get("run_status") else "")
-                     for row in summary.get("workstreams") or [] if row.get("status") != "MERGED")
+    return "; ".join(
+        f"{row['id']} {row.get('status')}"
+        + (
+            f" ({row.get('run_status')}: {row['progress']})"
+            if row.get("progress")
+            else f" ({row['run_status']})"
+            if row.get("run_status")
+            else ""
+        )
+        for row in summary.get("workstreams") or []
+        if row.get("status") != "MERGED"
+    )
 
 
 def change_not_reached(outcome: str, text: str, changes: list[dict]) -> tuple[str, str]:
@@ -202,9 +235,17 @@ def stop_class(outcome: str, status: str = "", summary: str = "") -> str:
         return STOP_CLASS_HARNESS
     # HONEST_BLOCKER and program stops: split the pause by what stopped it.
     text = f"{status} {summary}"
-    if status in _PROVIDER_STATUS or any(word in text.lower() for word in
-                                         ("sandbox-exec", "tool containment", "provider exit",
-                                          "content filter", "opencode exhausted", "auth")):
+    if status in _PROVIDER_STATUS or any(
+        word in text.lower()
+        for word in (
+            "sandbox-exec",
+            "tool containment",
+            "provider exit",
+            "content filter",
+            "opencode exhausted",
+            "auth",
+        )
+    ):
         return STOP_CLASS_PROVIDER
     if status in _BUDGET_STATUS or "budget" in text.lower() or "time budget" in text.lower():
         return STOP_CLASS_BUDGET

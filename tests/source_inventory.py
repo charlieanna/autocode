@@ -1,4 +1,5 @@
 """Application Python sources inspected by the repository's source gates."""
+
 from pathlib import Path
 
 

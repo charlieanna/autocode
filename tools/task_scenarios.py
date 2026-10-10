@@ -12,6 +12,7 @@ Scenario ids are typed on purpose (``BUGFIX-01``, ``FEATURE-01``, ``ARCH-01``,
 checks each oracle against a reference delivery and broken variants before it
 is allowed to score a live run.
 """
+
 from __future__ import annotations
 
 import ast
@@ -32,7 +33,7 @@ from pathlib import Path
 try:
     from . import autocode_grader_process as supervisor
     from . import autocode_oracle_process as oracle_process
-    from .scenario_verdicts import DEFERRED, ERROR, FAIL, PASS, OracleResult
+    from .scenario_verdicts import DEFERRED, FAIL, PASS, OracleResult
 except ImportError:  # pragma: no cover - script execution
     import autocode_grader_process as supervisor
     import autocode_oracle_process as oracle_process
@@ -93,8 +94,9 @@ def _free_port() -> int:
 
 def _http(method: str, url: str, body: dict | None = None, timeout: float = 10) -> tuple[int, object]:
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method,
-                                     headers={"Content-Type": "application/json"} if data else {})
+    request = urllib.request.Request(
+        url, data=data, method=method, headers={"Content-Type": "application/json"} if data else {}
+    )
     try:
         # Scenario services are local; host proxy discovery is not part of their contract.
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=timeout) as response:
@@ -138,7 +140,7 @@ def main(argv=None) -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 ''',
-    "test_greet.py": '''\
+    "test_greet.py": """\
 import subprocess
 import sys
 import unittest
@@ -163,7 +165,7 @@ class TestGreet(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-''',
+""",
     "README.md": "# Greeting CLI\n\n`greet.py NAME` prints `Hello, NAME`. Invalid usage exits 2.\n",
 }
 BUGFIX_SEED_TESTS = ("test_ada", "test_no_arg", "test_two_arg")
@@ -181,8 +183,13 @@ def bugfix01_oracle(project: Path) -> OracleResult:
     if not cli.is_file():
         checks.record("greet.py.present", True, False)
         return checks.result()
-    cases = [("blank", [""], 2), ("whitespace", ["   "], 2), ("ada", ["Ada"], 0),
-             ("no-arg", [], 2), ("two-arg", ["Ada", "Lovelace"], 2)]
+    cases = [
+        ("blank", [""], 2),
+        ("whitespace", ["   "], 2),
+        ("ada", ["Ada"], 0),
+        ("no-arg", [], 2),
+        ("two-arg", ["Ada", "Lovelace"], 2),
+    ]
     for case_id, argv, want_exit in cases:
         code, out, err = _run([sys.executable, "greet.py", *argv], cwd=project, timeout=30)
         checks.record(f"{case_id}.exit", want_exit, code)
@@ -210,12 +217,14 @@ def bugfix01_oracle(project: Path) -> OracleResult:
 
 # --- FEATURE-01: case-insensitive tag filter in a seeded notes CLI ----------
 
-FEATURE_NOTES = {"notes": [
-    {"id": 1, "text": "Renew passport", "tags": ["Admin", "urgent"]},
-    {"id": 2, "text": "Draft quarterly report", "tags": ["Work"]},
-    {"id": 3, "text": "Book dentist", "tags": ["health"]},
-    {"id": 4, "text": "Prepare sprint review", "tags": ["WORK", "Urgent"]},
-]}
+FEATURE_NOTES = {
+    "notes": [
+        {"id": 1, "text": "Renew passport", "tags": ["Admin", "urgent"]},
+        {"id": 2, "text": "Draft quarterly report", "tags": ["Work"]},
+        {"id": 3, "text": "Book dentist", "tags": ["health"]},
+        {"id": 4, "text": "Prepare sprint review", "tags": ["WORK", "Urgent"]},
+    ]
+}
 
 FEATURE_SEED = {
     "notes.py": '''\
@@ -281,7 +290,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ''',
     "notes.json": json.dumps(FEATURE_NOTES, indent=2) + "\n",
-    "test_notes.py": '''\
+    "test_notes.py": """\
 import json
 import subprocess
 import sys
@@ -321,9 +330,9 @@ class TestNotes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-''',
+""",
     "README.md": "# Notes CLI\n\n`notes.py add TEXT [--tag TAG ...]` stores a note in `notes.json`; "
-                 "`notes.py list` prints `ID<TAB>TEXT<TAB>tag1,tag2` per note.\n",
+    "`notes.py list` prints `ID<TAB>TEXT<TAB>tag1,tag2` per note.\n",
 }
 FEATURE_SEED_TESTS = ("test_add_then_list", "test_list_empty_store", "test_unknown_command")
 FEATURE_DELIVERABLES = ("notes.py", "test_notes.py", "README.md", "notes.json")
@@ -340,8 +349,11 @@ def feature01_oracle(project: Path) -> OracleResult:
     """
     checks = Checks("FEATURE-01")
     delivered_store = project / "notes.json"
-    checks.record("store.delivered_unchanged", True,
-                  delivered_store.is_file() and delivered_store.read_bytes() == FEATURE_SEED["notes.json"].encode())
+    checks.record(
+        "store.delivered_unchanged",
+        True,
+        delivered_store.is_file() and delivered_store.read_bytes() == FEATURE_SEED["notes.json"].encode(),
+    )
     cli = project / "notes.py"
     if not cli.is_file():
         checks.record("notes.py.present", True, False)
@@ -404,7 +416,7 @@ def component_imports(package: Path) -> set[str]:
             if isinstance(node, ast.Import):
                 modules = [alias.name.split(".") for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
-                prefix = parent[:len(parent) - node.level + 1] if node.level else []
+                prefix = parent[: len(parent) - node.level + 1] if node.level else []
                 module = prefix + (node.module.split(".") if node.module else [])
                 modules = [module + alias.name.split(".") for alias in node.names]
             for parts in modules:
@@ -418,9 +430,12 @@ def _insert_python(source: str, statement: str) -> str:
     tree = ast.parse(source)
     line = 0
     for index, node in enumerate(tree.body):
-        if (index == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
-                and isinstance(node.value.value, str)) or (
-                isinstance(node, ast.ImportFrom) and node.module == "__future__"):
+        if (
+            index == 0
+            and isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ) or (isinstance(node, ast.ImportFrom) and node.module == "__future__"):
             line = node.end_lineno
         else:
             break
@@ -451,7 +466,7 @@ def _disjoint(paths: dict[str, list[str]]) -> list[str]:
     overlaps = []
     items = [(cid, Path(p).as_posix().rstrip("/")) for cid, rows in paths.items() for p in rows]
     for index, (left_id, left) in enumerate(items):
-        for right_id, right in items[index + 1:]:
+        for right_id, right in items[index + 1 :]:
             if left_id != right_id and (left == right or left.startswith(right + "/") or right.startswith(left + "/")):
                 overlaps.append(f"{left_id}:{left} vs {right_id}:{right}")
     return overlaps
@@ -484,8 +499,9 @@ def arch01_oracle(project: Path) -> OracleResult:
     for cid in ids:
         owned = [Path(p).as_posix().rstrip("/") for p in owns.get(cid, [])]
         package = f"services/{cid}"
-        checks.record(f"ownership[{cid}].covers_package", True,
-                      any(package == p or package.startswith(p + "/") for p in owned))
+        checks.record(
+            f"ownership[{cid}].covers_package", True, any(package == p or package.startswith(p + "/") for p in owned)
+        )
         checks.record(f"ownership[{cid}].paths_exist", [], [p for p in owned if not (project / p).exists()])
     contracts = {}
     for row in rows:
@@ -499,10 +515,12 @@ def arch01_oracle(project: Path) -> OracleResult:
             names = []
         contracts[cid] = names
         checks.record(f"contract[{cid}].has_operations", True, bool(names))
-        probe = ("import contextlib, importlib, json, sys\n"
-                 "with contextlib.redirect_stdout(sys.stderr):\n"
-                 f"    m = importlib.import_module({'services.' + cid + '.api'!r})\n"
-                 f"print(json.dumps([n for n in {names!r} if callable(getattr(m, n, None))]))")
+        probe = (
+            "import contextlib, importlib, json, sys\n"
+            "with contextlib.redirect_stdout(sys.stderr):\n"
+            f"    m = importlib.import_module({'services.' + cid + '.api'!r})\n"
+            f"print(json.dumps([n for n in {names!r} if callable(getattr(m, n, None))]))"
+        )
         code, out, err = _run([sys.executable, "-c", probe], cwd=project, timeout=30)
         try:
             implemented = json.loads(out) if code == 0 else f"import failed: {err.strip()[-120:]}"
@@ -534,9 +552,13 @@ def arch01_oracle(project: Path) -> OracleResult:
                     control, _, _ = _run([sys.executable, "architecture/check.py"], cwd=scratch, timeout=60)
                     api.write_text(_insert_python(source, "if False:\n    import services.notifications.api"))
                     code, out, err = _run([sys.executable, "architecture/check.py"], cwd=scratch, timeout=60)
-                    rejected = (candidate_ok and control == 0 and code > 0
-                                and "Traceback (most recent call last)" not in out + err
-                                and "SyntaxError" not in out + err)
+                    rejected = (
+                        candidate_ok
+                        and control == 0
+                        and code > 0
+                        and "Traceback (most recent call last)" not in out + err
+                        and "SyntaxError" not in out + err
+                    )
                 except SyntaxError:
                     pass
             checks.record("check.py.rejects_injected_violation", True, rejected)
@@ -552,9 +574,14 @@ PROGRAM_SHAPES = {
     "Cart": {"cartId", "items"},
     "Order": {"orderId", "cartId", "total_cents"},
 }
-PROGRAM_STATIC_FILES = ("contracts/README.md", "deploy/docker-compose.yml", "deploy/README.md",
-                        "scripts/run_local.py", "tests/test_e2e.py",
-                        *(f"contracts/{shape}.json" for shape in PROGRAM_SHAPES))
+PROGRAM_STATIC_FILES = (
+    "contracts/README.md",
+    "deploy/docker-compose.yml",
+    "deploy/README.md",
+    "scripts/run_local.py",
+    "tests/test_e2e.py",
+    *(f"contracts/{shape}.json" for shape in PROGRAM_SHAPES),
+)
 
 
 def compose_services(text: str) -> list[str]:
@@ -614,8 +641,9 @@ class _Services:
         for name, port in self.ports.items():
             command.extend([f"--{name}-port", str(port)])
         with (tmp / "launcher.log").open("w") as handle:
-            self.proc = subprocess.Popen(command, cwd=self.project, stdout=handle,
-                                         stderr=subprocess.STDOUT, start_new_session=True)
+            self.proc = subprocess.Popen(
+                command, cwd=self.project, stdout=handle, stderr=subprocess.STDOUT, start_new_session=True
+            )
         healthy = dict.fromkeys(PROGRAM_SERVICES, False)
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline and supervisor.running(self.proc):
@@ -672,9 +700,13 @@ def program01_oracle(project: Path) -> OracleResult:
         try:
             contract = json.loads((project / f"contracts/{shape}.json").read_text())
             required = contract.get("required") if isinstance(contract, dict) else None
-            valid = (isinstance(contract, dict) and contract.get("type") == "object"
-                     and isinstance(required, list) and all(isinstance(field, str) for field in required)
-                     and fields <= set(required))
+            valid = (
+                isinstance(contract, dict)
+                and contract.get("type") == "object"
+                and isinstance(required, list)
+                and all(isinstance(field, str) for field in required)
+                and fields <= set(required)
+            )
         except (OSError, ValueError):
             valid = False
         checks.record(f"contract[{shape}].shape", True, valid)
@@ -687,18 +719,30 @@ def program01_oracle(project: Path) -> OracleResult:
     def journey():
         gateway = services.url("gateway")
         status, items = _http("GET", gateway + "/catalog")
-        ok_items = (status == 200 and isinstance(items, list) and len(items) >= 3
-                    and all(isinstance(i, dict) and {"sku", "name", "price_cents"} <= set(i)
-                            and isinstance(i["price_cents"], int) for i in items))
+        ok_items = (
+            status == 200
+            and isinstance(items, list)
+            and len(items) >= 3
+            and all(
+                isinstance(i, dict) and {"sku", "name", "price_cents"} <= set(i) and isinstance(i["price_cents"], int)
+                for i in items
+            )
+        )
         checks.record("catalog.list", True, ok_items)
         if not ok_items:
             return
         first, second = items[0], items[1]
-        status, cart = _http("POST", f"{gateway}/cart/c1/items",
-                             {"sku": first["sku"], "quantity": 2, "price_cents": first["price_cents"]})
+        status, cart = _http(
+            "POST",
+            f"{gateway}/cart/c1/items",
+            {"sku": first["sku"], "quantity": 2, "price_cents": first["price_cents"]},
+        )
         checks.record("cart.add_first", 200, status)
-        status, cart = _http("POST", f"{gateway}/cart/c1/items",
-                             {"sku": second["sku"], "quantity": 1, "price_cents": second["price_cents"]})
+        status, cart = _http(
+            "POST",
+            f"{gateway}/cart/c1/items",
+            {"sku": second["sku"], "quantity": 1, "price_cents": second["price_cents"]},
+        )
         checks.record("cart.add_second", 200, status)
         status, cart = _http("GET", f"{gateway}/cart/c1")
         lines = cart.get("items", []) if isinstance(cart, dict) else []
@@ -710,13 +754,19 @@ def program01_oracle(project: Path) -> OracleResult:
         checks.record("checkout.order_id", True, bool(order_id))
         checks.record("checkout.total", expected_total, order.get("total_cents") if isinstance(order, dict) else order)
         status, cart = _http("GET", f"{gateway}/cart/c1")
-        checks.record("cart.cleared_after_checkout", {"status": 200, "items": 0},
-                      {"status": status, "items": len(cart.get("items", [])) if isinstance(cart, dict) else cart})
+        checks.record(
+            "cart.cleared_after_checkout",
+            {"status": 200, "items": 0},
+            {"status": status, "items": len(cart.get("items", [])) if isinstance(cart, dict) else cart},
+        )
         status, body = _http("POST", f"{gateway}/checkout", {"cartId": "c1"})
         checks.record("checkout.empty_cart_rejected", 409, status)
         status, fetched = _http("GET", f"{gateway}/orders/{order_id}")
-        checks.record("orders.get", {"status": 200, "total_cents": expected_total},
-                      {"status": status, "total_cents": fetched.get("total_cents") if isinstance(fetched, dict) else fetched})
+        checks.record(
+            "orders.get",
+            {"status": 200, "total_cents": expected_total},
+            {"status": status, "total_cents": fetched.get("total_cents") if isinstance(fetched, dict) else fetched},
+        )
         status, _ = _http("GET", f"{gateway}/orders/does-not-exist")
         checks.record("orders.unknown", 404, status)
 
@@ -741,7 +791,9 @@ UI_SPEC = {
     "copy": {
         "heading": "Local task monitor",
         "status_label": "Status",
-        "pause": "Pause", "resume": "Resume", "cancel": "Cancel",
+        "pause": "Pause",
+        "resume": "Resume",
+        "cancel": "Cancel",
         "cancelled_note": "This task was cancelled. Start a new task to continue.",
     },
     "elements": [
@@ -750,8 +802,12 @@ UI_SPEC = {
         {"id": "pause", "kind": "button", "label": "Pause"},
         {"id": "resume", "kind": "button", "label": "Resume"},
         {"id": "cancel", "kind": "button", "label": "Cancel"},
-        {"id": "note", "kind": "text", "text": "This task was cancelled. Start a new task to continue.",
-         "visible_only_in": ["CANCELLED"]},
+        {
+            "id": "note",
+            "kind": "text",
+            "text": "This task was cancelled. Start a new task to continue.",
+            "visible_only_in": ["CANCELLED"],
+        },
     ],
     "states": {
         "RUNNING": {"enabled": ["pause", "cancel"], "disabled": ["resume"]},
@@ -764,9 +820,13 @@ UI_SPEC = {
         {"from": "RUNNING", "click": "cancel", "to": "CANCELLED"},
     ],
     "tokens": {
-        "color.background": "#0f172a", "color.surface": "#1e293b", "color.text": "#f8fafc",
-        "color.accent": "#38bdf8", "color.danger": "#f87171",
-        "font.family": "system-ui, sans-serif", "space.unit": 8,
+        "color.background": "#0f172a",
+        "color.surface": "#1e293b",
+        "color.text": "#f8fafc",
+        "color.accent": "#38bdf8",
+        "color.danger": "#f87171",
+        "font.family": "system-ui, sans-serif",
+        "space.unit": 8,
     },
     "layout": {
         "desktop": {"min_width": 1024, "buttons": "row"},
@@ -831,9 +891,15 @@ class _Html(HTMLParser):
 
 def _chromium(playwright):
     """Launch Chromium from an explicit path when the runtime's own download is absent."""
-    candidates = [path for path in (os.environ.get("AUTOCODE_CHROMIUM"),
-                  os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE"), "/opt/pw-browsers/chromium")
-                  if path and Path(path).is_file()] + [None]
+    candidates = [
+        path
+        for path in (
+            os.environ.get("AUTOCODE_CHROMIUM"),
+            os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE"),
+            "/opt/pw-browsers/chromium",
+        )
+        if path and Path(path).is_file()
+    ] + [None]
     errors = []
     for path in candidates:
         try:
@@ -861,8 +927,7 @@ def ui01_static(project: Path, checks: Checks) -> bool:
     for name in UI_BUTTONS:
         node = parser.ids.get(name, {})
         checks.record(f"button[{name}].is_button", "button", node.get("tag"))
-        checks.record(f"button[{name}].label", UI_SPEC["copy"][name],
-                      "".join(parser.texts.get(name, [])).strip())
+        checks.record(f"button[{name}].label", UI_SPEC["copy"][name], "".join(parser.texts.get(name, [])).strip())
     positions = [parser.order.index(name) if name in parser.order else -1 for name in UI_BUTTONS]
     checks.record("buttons.dom_order", True, positions == sorted(positions) and -1 not in positions)
     for token in ("color.background", "color.accent", "color.danger"):
@@ -894,7 +959,9 @@ def ui01_dynamic(project: Path, checks: Checks) -> str:
                     expected = {button: button in spec["disabled"] for button in UI_BUTTONS}
                     checks.record(f"state[{name}].disabled_map", expected, observed)
                     checks.record(f"state[{name}].status_text", name, page.inner_text("#status").strip())
-                    checks.record(f"state[{name}].note_visible", name == "CANCELLED", page.locator("#note").is_visible())
+                    checks.record(
+                        f"state[{name}].note_visible", name == "CANCELLED", page.locator("#note").is_visible()
+                    )
 
                 def press(name):
                     # A disabled target is a wrong state, not a browser problem: record it and move on.
@@ -921,11 +988,15 @@ def ui01_dynamic(project: Path, checks: Checks) -> str:
                 rows = {round(box["y"]) for box in boxes.values() if box}
                 checks.record("layout.mobile.buttons_stacked", len(UI_BUTTONS), len(rows))
                 minimum = UI_SPEC["layout"]["min_touch_target_px"]
-                small = [name for name, box in boxes.items()
-                         if not box or box["height"] < minimum or box["width"] < minimum]
+                small = [
+                    name for name, box in boxes.items() if not box or box["height"] < minimum or box["width"] < minimum
+                ]
                 checks.record("layout.mobile.touch_targets", [], small)
-                checks.record("layout.mobile.no_horizontal_scroll", True,
-                              page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"))
+                checks.record(
+                    "layout.mobile.no_horizontal_scroll",
+                    True,
+                    page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+                )
             finally:
                 browser.close()
     except Exception as error:  # noqa: BLE001 - a browser crash is an oracle error, not a product fact
@@ -954,8 +1025,8 @@ def ui01_oracle(project: Path) -> OracleResult:
 # --- briefs ---------------------------------------------------------------
 
 BUGFIX_TASK = (
-    "Bug report for the committed greeting CLI in this repository: `python3 greet.py \"\"` and "
-    "`python3 greet.py \"   \"` print a greeting and exit 0. A blank or whitespace-only NAME must "
+    'Bug report for the committed greeting CLI in this repository: `python3 greet.py ""` and '
+    '`python3 greet.py "   "` print a greeting and exit 0. A blank or whitespace-only NAME must '
     "print the usage line to stderr and exit 2, exactly like the missing-argument case. Fix the "
     "defect in greet.py and add a regression test to test_greet.py that fails on the current code "
     "and passes after the fix. Keep every existing test, do not change valid-input behavior "
@@ -967,7 +1038,7 @@ FEATURE_TASK = (
     "Add tag filtering to the committed notes CLI in this repository. `notes.py list --tag TAG` "
     "prints only the notes that carry TAG, compared case-insensitively (`--tag work` matches "
     "notes tagged `Work` or `WORK`), in the same `ID<TAB>TEXT<TAB>tag1,tag2` format and id order "
-    "as plain `list`. No matching note prints nothing and exits 0. An empty tag (`--tag \"\"`) or a "
+    'as plain `list`. No matching note prints nothing and exits 0. An empty tag (`--tag ""`) or a '
     "missing value (`list --tag`) prints the usage line to stderr and exits 2. Plain `list`, the "
     "`add` command, the stored file format, and existing stored data must not change; listing "
     "never rewrites notes.json. Keep every existing test and add tests for the new behavior in "
@@ -979,13 +1050,13 @@ ARCH_TASK = (
     "Design the architecture for a small order-processing system with four components: catalog, "
     "cart, checkout, notifications. Deliver: (1) docs/adr/0001-service-decomposition.md with the "
     "sections `## Context`, `## Options considered`, `## Decision`, `## Consequences`; (2) "
-    "architecture/components.json shaped {\"components\": [{\"id\", \"owns\": [repository-relative "
-    "directories], \"depends_on\": [component ids], \"contract\": \"contracts/<id>.json\"}]}; the graph "
+    'architecture/components.json shaped {"components": [{"id", "owns": [repository-relative '
+    'directories], "depends_on": [component ids], "contract": "contracts/<id>.json"}]}; the graph '
     "must be acyclic, checkout depends on catalog and cart, notifications depends on checkout, and "
     "catalog and cart depend on nothing; each component's `owns` must include its own package "
     "services/<id>/ and ownership must not overlap; (3) one contracts/<id>.json per component "
-    "shaped {\"component\": id, \"operations\": [{\"name\", \"description\", \"input\": {...}, "
-    "\"output\": {...}}]} with at least one operation each; (4) a Python package services/<id>/ per "
+    'shaped {"component": id, "operations": [{"name", "description", "input": {...}, '
+    '"output": {...}}]} with at least one operation each; (4) a Python package services/<id>/ per '
     "component whose services/<id>/api.py defines a plain function for every operation name in its "
     "contract (in-memory data, no servers, no persistence); (5) the dependency rule that a "
     "component package may import `services.<other>` only when <other> is listed in its "
@@ -998,17 +1069,17 @@ PROGRAM_TASK = (
     "Build a locally runnable order system made of four independent HTTP services plus shared "
     "contracts and deployment descriptors. Python standard library only; every service is a "
     "separate process started as `python3 <path> --port N` and answers GET /health with 200 "
-    "{\"status\": \"ok\"}. Shared contracts: contracts/README.md describing the JSON shapes Item "
+    '{"status": "ok"}. Shared contracts: contracts/README.md describing the JSON shapes Item '
     "{sku, name, price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order "
     "{orderId, cartId, total_cents}, plus one contracts/<shape>.json per shape declaring "
-    "{\"type\": \"object\", \"required\": [all field names above]}. Services: "
+    '{"type": "object", "required": [all field names above]}. Services: '
     "services/catalog/server.py: GET /items -> 200 JSON list of at least three items; GET "
     "/items/{sku} -> 200 item or 404. services/cart/server.py: POST /carts/{cartId}/items with a "
     "CartItem body -> 200 Cart; GET /carts/{cartId} -> 200 Cart (empty items for an unknown id); "
     "DELETE /carts/{cartId} -> 204. services/checkout/server.py --catalog-url --cart-url: POST "
     "/checkout {cartId} -> 201 Order whose total_cents is the sum of quantity*price_cents over the "
     "cart's items fetched from the cart service, then clears that cart with DELETE; an empty cart "
-    "-> 409 {\"error\": \"empty_cart\"}; GET /orders/{orderId} -> 200 Order or 404. "
+    '-> 409 {"error": "empty_cart"}; GET /orders/{orderId} -> 200 Order or 404. '
     "gateway/server.py --catalog-url --cart-url --checkout-url proxies GET /catalog -> catalog "
     "/items, POST /cart/{cartId}/items and GET /cart/{cartId} -> the cart service, POST /checkout "
     "and GET /orders/{orderId} -> the checkout service, preserving status codes and bodies. "
@@ -1036,9 +1107,13 @@ UI_TASK = (
     "design/spec.json or add other files."
 )
 
-PROGRAM_FLOW = ["List the catalog through the gateway", "Add two items to a cart",
-                "Check out and receive an order total", "The cart is empty afterwards",
-                "An empty-cart checkout is rejected with 409"]
+PROGRAM_FLOW = [
+    "List the catalog through the gateway",
+    "Add two items to a cart",
+    "Check out and receive an order total",
+    "The cart is empty afterwards",
+    "An empty-cart checkout is rejected with 409",
+]
 PROGRAM_SKELETON_CHECK = "python3 -m unittest discover -s tests -p test_skeleton.py"
 
 PROGRAM_MANIFEST = {
@@ -1046,60 +1121,109 @@ PROGRAM_MANIFEST = {
     "name": "order system",
     "brief": PROGRAM_TASK,
     "shared": {
-        "constraints": ["Python standard library only", "Every service is a separate process with GET /health",
-                        "No deployment is executed"],
+        "constraints": [
+            "Python standard library only",
+            "Every service is a separate process with GET /health",
+            "No deployment is executed",
+        ],
         "end_to_end_flow": list(PROGRAM_FLOW),
-        "interfaces": [{"id": "contracts", "summary": "JSON shapes Item, CartItem, Cart, Order", "paths": ["contracts/"],
-                        "version": 1, "producer": "contracts", "consumers": ["catalog", "cart", "checkout", "gateway"]}],
+        "interfaces": [
+            {
+                "id": "contracts",
+                "summary": "JSON shapes Item, CartItem, Cart, Order",
+                "paths": ["contracts/"],
+                "version": 1,
+                "producer": "contracts",
+                "consumers": ["catalog", "cart", "checkout", "gateway"],
+            }
+        ],
     },
-    "journeys": [{"id": "order-journey", "name": "Shop and check out through the gateway", "steps": list(PROGRAM_FLOW)}],
+    "journeys": [
+        {"id": "order-journey", "name": "Shop and check out through the gateway", "steps": list(PROGRAM_FLOW)}
+    ],
     # Re-run on the integration branch after every merge, starting with the walking skeleton's.
     "checks": [PROGRAM_SKELETON_CHECK],
     "workstreams": [
         # The walking skeleton: the shared contracts plus the thinnest path through every process.
         # It owns the parent directories because every other workstream depends on it and extends it.
-        {"id": "contracts", "kind": "code", "skeleton": True,
-         "owns": ["contracts/", "services/", "gateway/", "tests/test_skeleton.py"], "depends_on": [],
-         "brief": "Walking skeleton: the shared contracts and the thinnest end-to-end path every other workstream "
-                  "extends. Write contracts/README.md and one contracts/<shape>.json per shape: Item {sku, name, "
-                  "price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order {orderId, "
-                  "cartId, total_cents}. Each JSON file declares type object and a required list of those fields. "
-                  "Then create services/catalog/server.py, services/cart/server.py, services/checkout/server.py and "
-                  "gateway/server.py as separate standard-library HTTP processes started as `python3 <path> --port N` "
-                  "and already taking the program's wiring flags (checkout: --catalog-url --cart-url; gateway: "
-                  "--catalog-url --cart-url --checkout-url). Each answers GET /health with 200 {\"status\": \"ok\"}; "
-                  "the catalog answers GET /items with a JSON list of Item objects and the gateway proxies GET "
-                  "/catalog to it. Leave every other route to the workstream that owns that service. "
-                  "tests/test_skeleton.py is one discoverable unittest that starts all four processes wired together "
-                  "on free ports, checks each GET /health, lists the catalog through the gateway, and stops them; `"
-                  + PROGRAM_SKELETON_CHECK + "` runs it."},
-        {"id": "catalog", "kind": "code", "owns": ["services/catalog/"], "depends_on": ["contracts"],
-         "brief": "services/catalog/server.py --port N: GET /health -> 200 {status: ok}; GET /items -> 200 list of "
-                  "at least three Item objects; GET /items/{sku} -> 200 Item or 404. Include unit tests in the package."},
-        {"id": "cart", "kind": "code", "owns": ["services/cart/"], "depends_on": ["contracts"],
-         "brief": "services/cart/server.py --port N: GET /health; POST /carts/{cartId}/items CartItem -> 200 Cart; "
-                  "GET /carts/{cartId} -> 200 Cart (empty items for unknown ids); DELETE /carts/{cartId} -> 204. "
-                  "In-memory storage. Include unit tests in the package."},
-        {"id": "checkout", "kind": "code", "owns": ["services/checkout/"], "depends_on": ["catalog", "cart"],
-         "brief": "services/checkout/server.py --port N --catalog-url --cart-url: GET /health; POST /checkout "
-                  "{cartId} -> 201 Order with total_cents = sum(quantity*price_cents) over the cart fetched from "
-                  "the cart service, then DELETE that cart; empty cart -> 409 {error: empty_cart}; GET "
-                  "/orders/{orderId} -> 200 Order or 404. Include unit tests using a stub cart server."},
-        {"id": "gateway", "kind": "code", "owns": ["gateway/"], "depends_on": ["checkout"],
-         "brief": "gateway/server.py --port N --catalog-url --cart-url --checkout-url: GET /health; proxy GET "
-                  "/catalog, POST /cart/{cartId}/items, GET /cart/{cartId}, POST /checkout, GET /orders/{orderId} "
-                  "to the owning service, preserving status codes and JSON bodies."},
-        {"id": "deploy", "kind": "code", "owns": ["deploy/"], "depends_on": ["gateway"],
-         "brief": "deploy/docker-compose.yml defining services catalog, cart, checkout and gateway, and "
-                  "deploy/README.md stating that no deployment was performed. Do not run docker or reach any "
-                  "external system."},
-        {"id": "integration", "kind": "integration", "owns": ["tests/", "scripts/"], "depends_on": ["gateway", "deploy"],
-         "brief": "scripts/run_local.py --catalog-port --cart-port --checkout-port --gateway-port starts all four "
-                  "services wired together and stops them on SIGTERM. tests/test_e2e.py is a discoverable unittest "
-                  "suite that starts the services on "
-                  "free ports and verifies the full journey through the gateway: catalog listing, two cart "
-                  "additions, checkout total, cart empty afterwards, empty-cart checkout 409. Fix integration "
-                  "defects in any service only when the journey fails."},
+        {
+            "id": "contracts",
+            "kind": "code",
+            "skeleton": True,
+            "owns": ["contracts/", "services/", "gateway/", "tests/test_skeleton.py"],
+            "depends_on": [],
+            "brief": "Walking skeleton: the shared contracts and the thinnest end-to-end path every other workstream "
+            "extends. Write contracts/README.md and one contracts/<shape>.json per shape: Item {sku, name, "
+            "price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order {orderId, "
+            "cartId, total_cents}. Each JSON file declares type object and a required list of those fields. "
+            "Then create services/catalog/server.py, services/cart/server.py, services/checkout/server.py and "
+            "gateway/server.py as separate standard-library HTTP processes started as `python3 <path> --port N` "
+            "and already taking the program's wiring flags (checkout: --catalog-url --cart-url; gateway: "
+            '--catalog-url --cart-url --checkout-url). Each answers GET /health with 200 {"status": "ok"}; '
+            "the catalog answers GET /items with a JSON list of Item objects and the gateway proxies GET "
+            "/catalog to it. Leave every other route to the workstream that owns that service. "
+            "tests/test_skeleton.py is one discoverable unittest that starts all four processes wired together "
+            "on free ports, checks each GET /health, lists the catalog through the gateway, and stops them; `"
+            + PROGRAM_SKELETON_CHECK
+            + "` runs it.",
+        },
+        {
+            "id": "catalog",
+            "kind": "code",
+            "owns": ["services/catalog/"],
+            "depends_on": ["contracts"],
+            "brief": "services/catalog/server.py --port N: GET /health -> 200 {status: ok}; GET /items -> 200 list of "
+            "at least three Item objects; GET /items/{sku} -> 200 Item or 404. Include unit tests in the package.",
+        },
+        {
+            "id": "cart",
+            "kind": "code",
+            "owns": ["services/cart/"],
+            "depends_on": ["contracts"],
+            "brief": "services/cart/server.py --port N: GET /health; POST /carts/{cartId}/items CartItem -> 200 Cart; "
+            "GET /carts/{cartId} -> 200 Cart (empty items for unknown ids); DELETE /carts/{cartId} -> 204. "
+            "In-memory storage. Include unit tests in the package.",
+        },
+        {
+            "id": "checkout",
+            "kind": "code",
+            "owns": ["services/checkout/"],
+            "depends_on": ["catalog", "cart"],
+            "brief": "services/checkout/server.py --port N --catalog-url --cart-url: GET /health; POST /checkout "
+            "{cartId} -> 201 Order with total_cents = sum(quantity*price_cents) over the cart fetched from "
+            "the cart service, then DELETE that cart; empty cart -> 409 {error: empty_cart}; GET "
+            "/orders/{orderId} -> 200 Order or 404. Include unit tests using a stub cart server.",
+        },
+        {
+            "id": "gateway",
+            "kind": "code",
+            "owns": ["gateway/"],
+            "depends_on": ["checkout"],
+            "brief": "gateway/server.py --port N --catalog-url --cart-url --checkout-url: GET /health; proxy GET "
+            "/catalog, POST /cart/{cartId}/items, GET /cart/{cartId}, POST /checkout, GET /orders/{orderId} "
+            "to the owning service, preserving status codes and JSON bodies.",
+        },
+        {
+            "id": "deploy",
+            "kind": "code",
+            "owns": ["deploy/"],
+            "depends_on": ["gateway"],
+            "brief": "deploy/docker-compose.yml defining services catalog, cart, checkout and gateway, and "
+            "deploy/README.md stating that no deployment was performed. Do not run docker or reach any "
+            "external system.",
+        },
+        {
+            "id": "integration",
+            "kind": "integration",
+            "owns": ["tests/", "scripts/"],
+            "depends_on": ["gateway", "deploy"],
+            "brief": "scripts/run_local.py --catalog-port --cart-port --checkout-port --gateway-port starts all four "
+            "services wired together and stops them on SIGTERM. tests/test_e2e.py is a discoverable unittest "
+            "suite that starts the services on "
+            "free ports and verifies the full journey through the gateway: catalog listing, two cart "
+            "additions, checkout total, cart empty afterwards, empty-cart checkout 409. Fix integration "
+            "defects in any service only when the journey fails.",
+        },
     ],
 }
 
@@ -1113,9 +1237,13 @@ SCENARIOS = {
         "oracle_name": "BUGFIX-01",
         "expected_class": "pass_or_honest",
         "deliverables": list(BUGFIX_DELIVERABLES),
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: report-repair fix rerun reached Builder but exhausted 1200-second deadline; "
-                             "unchanged seed still fails oracle; no completed delivery"},
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: report-repair fix rerun reached Builder but exhausted 1200-second deadline; "
+            "unchanged seed still fails oracle; no completed delivery",
+        },
     },
     "FEATURE-01": {
         "title": "Feature: case-insensitive tag filter in a seeded notes CLI",
@@ -1126,8 +1254,12 @@ SCENARIOS = {
         "oracle_name": "FEATURE-01",
         "expected_class": "pass_or_honest",
         "deliverables": list(FEATURE_DELIVERABLES),
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: externally interrupted during report repair; unchanged seed fails oracle; no completed delivery"},
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: externally interrupted during report repair; unchanged seed fails oracle; no completed delivery",
+        },
     },
     "ARCH-01": {
         "title": "Architecture: service decomposition with enforced boundaries",
@@ -1137,11 +1269,15 @@ SCENARIOS = {
         "oracle": arch01_oracle,
         "oracle_name": "ARCH-01",
         "expected_class": "pass_or_honest",
-        "deliverables": [ARCH_ADR, "architecture/components.json", "architecture/check.py",
-                         "docs/architecture.md"] + [f"contracts/{c}.json" for c in ARCH_COMPONENTS]
-                        + [f"services/{c}/api.py" for c in ARCH_COMPONENTS],
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: 900-second deadline during report repair; no architecture delivered"},
+        "deliverables": [ARCH_ADR, "architecture/components.json", "architecture/check.py", "docs/architecture.md"]
+        + [f"contracts/{c}.json" for c in ARCH_COMPONENTS]
+        + [f"services/{c}/api.py" for c in ARCH_COMPONENTS],
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: 900-second deadline during report repair; no architecture delivered",
+        },
     },
     "PROGRAM-01": {
         "title": "Program: four-service order system behind a gateway",
@@ -1151,13 +1287,17 @@ SCENARIOS = {
         "oracle": program01_oracle,
         "oracle_name": "PROGRAM-01",
         "expected_class": "pass_or_honest",
-        "deliverables": list(PROGRAM_STATIC_FILES) + ["services/catalog/server.py", "services/cart/server.py",
-                                                      "services/checkout/server.py", "gateway/server.py"],
+        "deliverables": list(PROGRAM_STATIC_FILES)
+        + ["services/catalog/server.py", "services/cart/server.py", "services/checkout/server.py", "gateway/server.py"],
         # The same brief can run as one run with parallel milestone Builders or
         # as `autocode program run` with this manifest; the oracle is identical.
         "program_manifest": PROGRAM_MANIFEST,
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: program mode hit 1200-second deadline planning contracts; nothing merged"},
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: program mode hit 1200-second deadline planning contracts; nothing merged",
+        },
     },
     "UI-01": {
         "title": "UI: implement a frozen design reference (Figma stand-in)",
@@ -1168,8 +1308,12 @@ SCENARIOS = {
         "oracle_name": "UI-01",
         "expected_class": "pass_or_honest",
         "deliverables": list(UI_DELIVERABLES),
-        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
-                     "note": "2026-09-26: frozen-spec code run hit 900-second deadline in report repair; no UI delivered; "
-                             "live Figma route remains untested"},
+        "baseline": {
+            "status": "ERROR",
+            "profile": "glm53-mimo",
+            "record": "VALIDATION.md",
+            "note": "2026-09-26: frozen-spec code run hit 900-second deadline in report repair; no UI delivered; "
+            "live Figma route remains untested",
+        },
     },
 }

@@ -7,7 +7,6 @@ def main(argv=None):
     parser.add_argument("value", type=float)
     parser.add_argument("unit", choices=("C", "F"))
     args = parser.parse_args(argv)
-    minimum = -273.15 if args.unit == "C" else -459.67
     if not math.isfinite(args.value) or False:
         parser.error("temperature must be finite and at or above absolute zero")
     value = args.value * 9 / 5 + 32 if args.unit == "C" else (args.value - 32) * 5 / 9

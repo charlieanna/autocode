@@ -16,30 +16,47 @@ failure ledger (autocode_failures), so repeats count as one failure.
 A command whose text happens to embed a JSON report is still a command: the runner
 does not unwrap it. Pure module: no runner imports.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-ERROR = ('Provider final message is a shell command ({"cmd": ...}) instead of the JSON report; '
-         'AutoCode never runs it (a known provider defect, docs/providers.md: if it repeats, '
-         'run this role on another model)')
+ERROR = (
+    'Provider final message is a shell command ({"cmd": ...}) instead of the JSON report; '
+    "AutoCode never runs it (a known provider defect, docs/providers.md: if it repeats, "
+    "run this role on another model)"
+)
 COMMAND_KEYS = frozenset({"cmd", "command"})
 # The other arguments of a Codex shell tool call; alongside a command they add no report content.
-TOOL_ARGUMENT_KEYS = frozenset({"workdir", "timeout_ms", "yield_time_ms", "max_output_tokens", "shell",
-                                "login", "with_escalated_permissions", "justification"})
+TOOL_ARGUMENT_KEYS = frozenset(
+    {
+        "workdir",
+        "timeout_ms",
+        "yield_time_ms",
+        "max_output_tokens",
+        "shell",
+        "login",
+        "with_escalated_permissions",
+        "justification",
+    }
+)
 
-CORRECTION = ('Your previous final message was a shell command ({"cmd": ...}), not your report. AutoCode '
-              'never runs a command from a final message and never accepts one as a report. Return ONLY '
-              'your report now: exactly one JSON object matching the schema, with no command, prose or '
-              'code fence before or after it. Run no more commands: write it from the work already done '
-              'in this session, and where evidence you meant to gather is missing, say so in the report '
-              'as the schema allows instead of inventing it.')
-REPAIR_INSTRUCTION = ('report from this completed stage. Its final message was a shell command '
-                      '({"cmd": ...}) instead of the report, so rejected_report holds no report content; '
-                      'AutoCode did not run that command and never will. Never return a command or a '
-                      '{"cmd": ...} object: write the whole report from the original stage\'s saved '
-                      'evidence (original.events) and the run state (state_file). Do not redo ')
+CORRECTION = (
+    'Your previous final message was a shell command ({"cmd": ...}), not your report. AutoCode '
+    "never runs a command from a final message and never accepts one as a report. Return ONLY "
+    "your report now: exactly one JSON object matching the schema, with no command, prose or "
+    "code fence before or after it. Run no more commands: write it from the work already done "
+    "in this session, and where evidence you meant to gather is missing, say so in the report "
+    "as the schema allows instead of inventing it."
+)
+REPAIR_INSTRUCTION = (
+    "report from this completed stage. Its final message was a shell command "
+    '({"cmd": ...}) instead of the report, so rejected_report holds no report content; '
+    "AutoCode did not run that command and never will. Never return a command or a "
+    '{"cmd": ...} object: write the whole report from the original stage\'s saved '
+    "evidence (original.events) and the run state (state_file). Do not redo "
+)
 
 
 class CommandOnlyReport(RuntimeError):

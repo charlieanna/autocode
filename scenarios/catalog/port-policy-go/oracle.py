@@ -15,8 +15,13 @@ def check(project, scenario):
             return checks
         for tld, days in GOLDEN:
             proc = run(["./policy.bin", *([tld] if tld else [])], copy, timeout=30)
-            checks.append(Check(f"vector[{tld or 'empty'}]", proc.returncode == 0 and proc.stdout == f"{days}\n",
-                                tail(proc) if proc.returncode else repr(proc.stdout[:40])))
+            checks.append(
+                Check(
+                    f"vector[{tld or 'empty'}]",
+                    proc.returncode == 0 and proc.stdout == f"{days}\n",
+                    tail(proc) if proc.returncode else repr(proc.stdout[:40]),
+                )
+            )
         tests = run(["go", "test", "./..."], copy, timeout=300)
         checks.append(Check("go_test", tests.returncode == 0, tail(tests)))
     for name in ("go.mod", "policy_test.go", "golden-cases.json"):

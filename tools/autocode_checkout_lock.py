@@ -13,6 +13,7 @@ and the same command works once the other run's agents have stopped. Saving an
 answer, approval or other action that launches no agent does not need the checkout
 and is not blocked. This runtime helper uses files, ``fcntl`` and process identity.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -34,14 +35,17 @@ _writer_handles = {}
 
 class CheckoutBusy(RuntimeError):
     """Another run's agents are working in this checkout; nothing was changed."""
+
     status = STATUS
 
 
 def busy_message(workspace) -> str:
     other = holder(workspace).get("run_dir")
-    return (f"Another AutoCode run is working in this checkout{f' ({other})' if other else ''}; "
-            "nothing was changed. Run the same command again once it stops, or give each task its own "
-            "worktree by starting it without --in-place.")
+    return (
+        f"Another AutoCode run is working in this checkout{f' ({other})' if other else ''}; "
+        "nothing was changed. Run the same command again once it stops, or give each task its own "
+        "worktree by starting it without --in-place."
+    )
 
 
 def lock_path(workspace) -> Path:
@@ -87,8 +91,11 @@ def child_options(workspace, options):
     handle = _writer_handles.get(str(Path(workspace).resolve()))
     if handle is None:
         return options
-    return {**options, "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), handle.fileno()))),
-            "close_fds": True}
+    return {
+        **options,
+        "pass_fds": tuple(dict.fromkeys((*options.get("pass_fds", ()), handle.fileno()))),
+        "close_fds": True,
+    }
 
 
 @contextlib.contextmanager
@@ -120,8 +127,9 @@ def exclusive(workspace, run_dir, *, busy=None):
         try:
             handle.seek(0)
             handle.truncate()
-            handle.write(json.dumps({"run_dir": str(run_dir), "pid": os.getpid(),
-                                     "since": dt.datetime.now(dt.UTC).isoformat()}))
+            handle.write(
+                json.dumps({"run_dir": str(run_dir), "pid": os.getpid(), "since": dt.datetime.now(dt.UTC).isoformat()})
+            )
             handle.flush()
             _writer_handles[str(Path(workspace).resolve())] = handle
             yield

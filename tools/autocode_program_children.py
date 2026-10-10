@@ -18,6 +18,7 @@ reads a child's state.json: the status view is the only source of a
 workstream's status. Worker threads pass the program's state lock as ``lock``;
 the CLI calls themselves run outside it.
 """
+
 from __future__ import annotations
 
 from contextlib import nullcontext
@@ -38,7 +39,16 @@ WAITING_CODE = {"WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"}
 NO_LOCK = nullcontext()
 VIEW_FIELDS = ("needs", "progress")  # copied from the child's latest status view by apply_view
 INTERNAL_FIELDS = ("command", "runs_before")  # this module's bookkeeping; a program summary leaves it out
-RUN_FIELDS = ("run_dir", "run_status", "runs_before", "exit_code", "command", "last_invocation_at", "approved_plan", *VIEW_FIELDS)
+RUN_FIELDS = (
+    "run_dir",
+    "run_status",
+    "runs_before",
+    "exit_code",
+    "command",
+    "last_invocation_at",
+    "approved_plan",
+    *VIEW_FIELDS,
+)
 
 
 def _run(workspace, run_dir) -> taskrun.TaskRun:
@@ -70,8 +80,9 @@ def handle(record, *, lock=NO_LOCK) -> taskrun.TaskRun | None:
     if not record.get("workspace") or "runs_before" not in record:
         return None
     try:
-        run = taskrun.TaskRun.attach(record["workspace"], command=tuple(CHILD_COMMAND), cwd=record["workspace"],
-                                     exclude=record["runs_before"])
+        run = taskrun.TaskRun.attach(
+            record["workspace"], command=tuple(CHILD_COMMAND), cwd=record["workspace"], exclude=record["runs_before"]
+        )
     except taskrun.TaskRunError:
         raise taskrun.TaskRunError(MULTIPLE) from None
     if run is not None:
@@ -119,11 +130,17 @@ def apply_view(record, view) -> None:
 
 
 def _needs(needs):
-    kept = {key: needs[key] for key in ("kind", "token", "request_kind", "resolver_scope", "resolver_request_id")
-            if needs.get(key) is not None}
+    kept = {
+        key: needs[key]
+        for key in ("kind", "token", "request_kind", "resolver_scope", "resolver_request_id")
+        if needs.get(key) is not None
+    }
     if isinstance(needs.get("questions"), list):
-        kept["questions"] = [{key: question.get(key) for key in ("id", "question")}
-                             for question in needs["questions"] if isinstance(question, dict)]
+        kept["questions"] = [
+            {key: question.get(key) for key in ("id", "question")}
+            for question in needs["questions"]
+            if isinstance(question, dict)
+        ]
     return kept
 
 
@@ -187,8 +204,9 @@ def start(record, workspace, brief, start_options=(), *, log_dir, lock=NO_LOCK) 
     if record.get("run_dir"):
         return advance(record, log_dir=log_dir, lock=lock)
     try:
-        run = taskrun.TaskRun.start(workspace, brief, start_options=tuple(start_options),
-                                    command=tuple(CHILD_COMMAND), cwd=workspace)
+        run = taskrun.TaskRun.start(
+            workspace, brief, start_options=tuple(start_options), command=tuple(CHILD_COMMAND), cwd=workspace
+        )
     except taskrun.TaskRunError as error:
         if error.run_dir is not None:  # the start saved its run before it failed: read that run below
             with lock:

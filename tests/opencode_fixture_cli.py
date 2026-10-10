@@ -3,6 +3,7 @@
 Only the checked-in fake OpenCode/Codex bundle may run through this transport.
 Nothing in production imports this module or selects it from fixture env vars.
 """
+
 import importlib
 import os
 import runpy
@@ -13,15 +14,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
-TIMEOUT_ONCE = '''
+TIMEOUT_ONCE = """
 if data["stage"] == "astra_challenge":
     marker = Path(os.environ["AUTOCODE_FIXTURE_TIMEOUT_ONCE"])
     if not marker.exists():
         marker.write_text("first challenge attempt")
         import time
         time.sleep(60)
-with tempfile.TemporaryDirectory() as temp:'''
-TRANSIENT_VALIDATOR_WRITE = '''
+with tempfile.TemporaryDirectory() as temp:"""
+TRANSIENT_VALIDATOR_WRITE = """
     if data.get("stage") == "sol":
         probe = Path("validator-probe.tmp")
         emit("step_start", {"id": "probe-start", "type": "step-start", "snapshot": "a" * 40})
@@ -31,7 +32,7 @@ TRANSIENT_VALIDATOR_WRITE = '''
                                                                "cache": {"read": 0, "write": 0}}})
         probe.unlink()
         emit("step_start", {"id": "probe-restored", "type": "step-start", "snapshot": "a" * 40})
-'''
+"""
 
 
 NATIVE_BOUNDARY = "--native-boundary"
@@ -61,10 +62,13 @@ def checked_fixture(executable="opencode", *, env=None):
         raise RuntimeError("Offline bootstrap requires the known fake OpenCode bundle")
     selected = Path(selected).resolve()
     original = (TOOLS / "fake_opencode.py").read_bytes()
-    allowed = (original, original.replace(b"with tempfile.TemporaryDirectory() as temp:",
-                                         TIMEOUT_ONCE.encode()),
-               original.replace(b"    final = report.read_text()",
-                                TRANSIENT_VALIDATOR_WRITE.encode() + b"    final = report.read_text()"))
+    allowed = (
+        original,
+        original.replace(b"with tempfile.TemporaryDirectory() as temp:", TIMEOUT_ONCE.encode()),
+        original.replace(
+            b"    final = report.read_text()", TRANSIENT_VALIDATOR_WRITE.encode() + b"    final = report.read_text()"
+        ),
+    )
     if selected.read_bytes() not in allowed:
         raise RuntimeError("Offline bootstrap refuses an unknown OpenCode executable")
     for name, source in (("codex", "fake_codex.py"), ("goal_fixtures.py", "goal_fixtures.py")):
@@ -101,6 +105,7 @@ def main():
                 args = [str(fake), *args[1:]]
             with original(args, *positional, **kwargs) as child:
                 yield child
+
         return launch
 
     def simulated_prepare(original):
@@ -117,6 +122,7 @@ def main():
                     raise RuntimeError("Simulated transport must not claim native containment")
                 worker["test_transport"] = {"simulated": True, "kernel_protected": False}
             return result
+
         return prepare
 
     if native:

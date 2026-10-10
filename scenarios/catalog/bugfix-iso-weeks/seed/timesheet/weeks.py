@@ -2,6 +2,7 @@
 
 Weeks start on Monday and are labelled like ``2025-W07``.
 """
+
 from __future__ import annotations
 
 from datetime import date

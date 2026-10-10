@@ -1,6 +1,7 @@
 """Faithful to the approved design: the specified modules, classes and signatures
 exist, time comes only from the injected clock, the hidden behavior tests pass,
 and the design document itself is untouched."""
+
 import ast
 
 from harness.oracle import (
@@ -15,10 +16,20 @@ from harness.oracle import (
 )
 
 SIGNATURES = {
-    "ratelimit/bucket.py": {"TokenBucket": {"__init__": ["self", "capacity", "refill_per_second", "clock"],
-                                            "try_acquire": ["self", "tokens"], "available": ["self"]}},
-    "ratelimit/registry.py": {"LimiterRegistry": {"__init__": ["self", "capacity", "refill_per_second", "clock"],
-                                                  "for_key": ["self", "key"], "keys": ["self"]}},
+    "ratelimit/bucket.py": {
+        "TokenBucket": {
+            "__init__": ["self", "capacity", "refill_per_second", "clock"],
+            "try_acquire": ["self", "tokens"],
+            "available": ["self"],
+        }
+    },
+    "ratelimit/registry.py": {
+        "LimiterRegistry": {
+            "__init__": ["self", "capacity", "refill_per_second", "clock"],
+            "for_key": ["self", "key"],
+            "keys": ["self"],
+        }
+    },
 }
 
 
@@ -30,10 +41,12 @@ def structure(project):
             checks.append(Check(f"module_exists[{rel}]", False, "missing"))
             continue
         tree = ast.parse(path.read_text())
-        imports = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import)
-                   for alias in node.names}
-        imports |= {node.module.split(".")[0] for node in ast.walk(tree)
-                    if isinstance(node, ast.ImportFrom) and node.module}
+        imports = {
+            alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+        }
+        imports |= {
+            node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
+        }
         checks.append(Check(f"no_time_import[{rel}]", "time" not in imports, "imports time"))
         found = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
         for name, methods in classes.items():

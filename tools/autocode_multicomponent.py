@@ -29,6 +29,7 @@ This is a new layer, not a modification of the single-task engine: it drives
 task runs only through `autocode_taskrun.TaskRun` and never imports the
 runner's internals or reads state.json.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -56,8 +57,12 @@ except ImportError:
 
 _WORKTREE_LOCK = threading.Lock()
 GIT_IDENTITY = ("-c", "user.name=AutoCode", "-c", "user.email=autocode@localhost")
-EXCLUDE = (":(exclude).autocode", ":(exclude).autocode-ui", ":(exclude,glob)**/__pycache__/**",
-          ":(exclude,glob)**/*.pyc")
+EXCLUDE = (
+    ":(exclude).autocode",
+    ":(exclude).autocode-ui",
+    ":(exclude,glob)**/__pycache__/**",
+    ":(exclude,glob)**/*.pyc",
+)
 # Explicit --whitespace, so the user's or repository's apply.whitespace (error, fix)
 # can neither refuse nor silently rewrite a component's lines.
 APPLY = ("git", "apply", "--binary", "--whitespace=nowarn")
@@ -71,8 +76,10 @@ SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 def _check_safe_name(kind: str, name: str) -> str:
     if not isinstance(name, str) or not SAFE_NAME.fullmatch(name) or ".." in name:
-        raise ArchitectureError(f"{kind} {name!r} must be a plain name (letters, digits, '.', '_', '-', "
-                                f"no '..', max 64 chars) — it becomes a directory, branch and file name")
+        raise ArchitectureError(
+            f"{kind} {name!r} must be a plain name (letters, digits, '.', '_', '-', "
+            f"no '..', max 64 chars) — it becomes a directory, branch and file name"
+        )
     return name
 
 
@@ -149,9 +156,15 @@ class Architecture:
             except ValueError as error:
                 raise ArchitectureError(f"component {component_id} runtime: {error}") from None
             components[component_id] = Component(
-                id=component_id, description=row.get("description", ""),
-                requirements=tuple(row.get("requirements", [])), depends_on=tuple(row.get("depends_on", [])),
-                publishes_contracts=publishes, consumes_contracts=consumes, design=design, runtime=runtime)
+                id=component_id,
+                description=row.get("description", ""),
+                requirements=tuple(row.get("requirements", [])),
+                depends_on=tuple(row.get("depends_on", [])),
+                publishes_contracts=publishes,
+                consumes_contracts=consumes,
+                design=design,
+                runtime=runtime,
+            )
         for component in components.values():
             unknown = [dep for dep in component.depends_on if dep not in components]
             if unknown:
@@ -234,22 +247,28 @@ def component_brief(component: Component, architecture: Architecture) -> str:
     lines += brief_lines(component.id, architecture.runtimes)
     for name in component.publishes_contracts:
         schema = _read_json(architecture.contracts_dir / f"{name}.schema.json")
-        lines.append(f"This component publishes the `{name}` contract. Other components will send or store data "
-                     f"matching this JSON Schema: {json.dumps(schema)}")
+        lines.append(
+            f"This component publishes the `{name}` contract. Other components will send or store data "
+            f"matching this JSON Schema: {json.dumps(schema)}"
+        )
     for name in component.consumes_contracts:
         schema = _read_json(architecture.contracts_dir / f"{name}.schema.json")
-        lines.append(f"This component consumes the `{name}` contract, published by another component being built "
-                     f"separately. Assume only this JSON Schema about it, nothing about its implementation: "
-                     f"{json.dumps(schema)}")
+        lines.append(
+            f"This component consumes the `{name}` contract, published by another component being built "
+            f"separately. Assume only this JSON Schema about it, nothing about its implementation: "
+            f"{json.dumps(schema)}"
+        )
     lines.append("Do not implement or stub another component's directory; integration happens separately.")
-    lines.append("The child's mandatory end_to_end_flow must be executable and verified in this component run: "
-                 "start this component locally, exercise its public interface, and check its result. "
-                 "Keep a service's real subprocess health and request/response flow local to this component. "
-                 "The integration owner separately builds containers, runs Compose and checks cross-service smoke; "
-                 "do not put those deferred integration operations in the child's mandatory flow. "
-                 "Deliver the component's Dockerfile when requested, without requiring an image build in a child "
-                 "whose permissions prohibit it. Read-only design and interface inputs outside the owned directory "
-                 "remain inputs, not deliverable or affected paths.")
+    lines.append(
+        "The child's mandatory end_to_end_flow must be executable and verified in this component run: "
+        "start this component locally, exercise its public interface, and check its result. "
+        "Keep a service's real subprocess health and request/response flow local to this component. "
+        "The integration owner separately builds containers, runs Compose and checks cross-service smoke; "
+        "do not put those deferred integration operations in the child's mandatory flow. "
+        "Deliver the component's Dockerfile when requested, without requiring an image build in a child "
+        "whose permissions prohibit it. Read-only design and interface inputs outside the owned directory "
+        "remain inputs, not deliverable or affected paths."
+    )
     return " ".join(lines)
 
 
@@ -268,8 +287,16 @@ class MultiComponentBuild:
 
     MANIFEST_VERSION = 1
 
-    def __init__(self, repo: Path, architecture: Architecture, *, options: tuple[str, ...] = (),
-                 env: dict | None = None, timeout: float | None = None, max_advances: int = 20):
+    def __init__(
+        self,
+        repo: Path,
+        architecture: Architecture,
+        *,
+        options: tuple[str, ...] = (),
+        env: dict | None = None,
+        timeout: float | None = None,
+        max_advances: int = 20,
+    ):
         self.repo = Path(repo).resolve()
         self.architecture = architecture
         self.options, self.env, self.timeout, self.max_advances = options, env, timeout, max_advances
@@ -298,16 +325,19 @@ class MultiComponentBuild:
         if not isinstance(saved, dict) or saved.get("version") != self.MANIFEST_VERSION:
             raise ArchitectureError(f"{self.manifest_path} is not a version {self.MANIFEST_VERSION} build manifest")
         if saved.get("architecture_fingerprint") != self._architecture_fingerprint:
-            raise ArchitectureError(f"the architecture changed since the build saved in {self.manifest_path}; "
-                                    f"its components were built against the old contracts or designs. Remove "
-                                    f".autocode-components/ to rebuild from scratch.")
-        return {cid: entry for cid, entry in saved.get("components", {}).items()
-                if cid in self.architecture.components}
+            raise ArchitectureError(
+                f"the architecture changed since the build saved in {self.manifest_path}; "
+                f"its components were built against the old contracts or designs. Remove "
+                f".autocode-components/ to rebuild from scratch."
+            )
+        return {cid: entry for cid, entry in saved.get("components", {}).items() if cid in self.architecture.components}
 
     def _check_architecture(self) -> None:
         if self.architecture.fingerprint() != self._architecture_fingerprint:
-            raise ArchitectureError("the architecture or accepted component design changed during this build; "
-                                    "saved component runs still use the original inputs")
+            raise ArchitectureError(
+                "the architecture or accepted component design changed during this build; "
+                "saved component runs still use the original inputs"
+            )
 
     def record_evidence_report(self, anchor: dict) -> None:
         """Attach canonical report digests to this coordinator's owned manifest."""
@@ -360,8 +390,13 @@ class MultiComponentBuild:
         for cid, entry in saved.items():
             if cid not in self.results and Path(entry["workspace"]).is_dir():
                 self.results[cid] = ComponentResult(
-                    self.architecture.components[cid], Path(entry["workspace"]), entry.get("base_commit"),
-                    branch=entry.get("branch"), error=entry.get("error"), resumed=True)
+                    self.architecture.components[cid],
+                    Path(entry["workspace"]),
+                    entry.get("base_commit"),
+                    branch=entry.get("branch"),
+                    error=entry.get("error"),
+                    resumed=True,
+                )
         for batch in self.architecture.batches():
             pending = [c for c in batch if not (c.id in self.results and self.results[c.id].ready_to_integrate)]
             if not pending:
@@ -381,14 +416,20 @@ class MultiComponentBuild:
                 self._new_worktree(result)
                 self._record(result)
             if result.run is None:
-                result.run = TaskRun.attach(result.workspace, options=self.options, env=self.env,
-                                            timeout=self.timeout)
+                result.run = TaskRun.attach(result.workspace, options=self.options, env=self.env, timeout=self.timeout)
             if result.run is None:
-                result.run = TaskRun.start(result.workspace, component_brief(component, self.architecture),
-                                           options=self.options,
-                                           start_options=("--test-root", component.owned_prefix,
-                                                          *(component.design.start_options() if component.design else ())),
-                                           env=self.env, timeout=self.timeout)
+                result.run = TaskRun.start(
+                    result.workspace,
+                    component_brief(component, self.architecture),
+                    options=self.options,
+                    start_options=(
+                        "--test-root",
+                        component.owned_prefix,
+                        *(component.design.start_options() if component.design else ()),
+                    ),
+                    env=self.env,
+                    timeout=self.timeout,
+                )
                 self._record(result)
             result.view = self._drive(result.run, auto_approve)
             result.error = None if result.view["done"] else f"stopped needing {result.view['needs']}"
@@ -429,12 +470,23 @@ class MultiComponentBuild:
         under the same lock that writes it out."""
         with self._manifest_lock:
             self.results[result.component.id] = result
-            entries = {cid: {"workspace": str(r.workspace), "branch": r.branch, "base_commit": r.base_commit,
-                             "run_dir": str(r.run.run_dir) if r.run else None, "status": r.status,
-                             "error": r.error}
-                       for cid, r in sorted(self.results.items())}
-            document = {"version": self.MANIFEST_VERSION, "architecture": str(self.architecture.directory),
-                        "architecture_fingerprint": self._architecture_fingerprint, "components": entries}
+            entries = {
+                cid: {
+                    "workspace": str(r.workspace),
+                    "branch": r.branch,
+                    "base_commit": r.base_commit,
+                    "run_dir": str(r.run.run_dir) if r.run else None,
+                    "status": r.status,
+                    "error": r.error,
+                }
+                for cid, r in sorted(self.results.items())
+            }
+            document = {
+                "version": self.MANIFEST_VERSION,
+                "architecture": str(self.architecture.directory),
+                "architecture_fingerprint": self._architecture_fingerprint,
+                "components": entries,
+            }
             keep_out_of_git(self.repo, ".autocode-components")
             scratch = self.manifest_path.with_name(f".manifest-{uuid.uuid4().hex}.json")
             scratch.write_text(json.dumps(document, indent=2) + "\n")
@@ -467,8 +519,7 @@ class MultiComponentBuild:
         finished = sorted((r for r in self.results.values() if r.ready_to_integrate), key=lambda r: r.component.id)
         integrated: list[str] = []
         already_applied: list[str] = []
-        outcome = {"target": str(target), "integrated": integrated, "already_applied": already_applied,
-                   "failed": None}
+        outcome = {"target": str(target), "integrated": integrated, "already_applied": already_applied, "failed": None}
         if not finished:
             return {**outcome, "detail": "no finished component"}
         for result in finished:
@@ -483,11 +534,17 @@ class MultiComponentBuild:
                 already_applied.append(cid)
             elif unheld and len(unheld) < len(changed):
                 held = sorted(set(changed) - set(unheld))
-                return {**outcome, "failed": cid, "detail": self._conflict(
-                    result, target, changed, f"{target} already holds {cid}'s version of {held} but not of {unheld}")}
+                return {
+                    **outcome,
+                    "failed": cid,
+                    "detail": self._conflict(
+                        result, target, changed, f"{target} already holds {cid}'s version of {held} but not of {unheld}"
+                    ),
+                }
             elif unheld:
-                patch = _git_bytes(result.workspace, "diff-tree", "-r", "-p", "--binary", "--no-renames",
-                                   result.base_commit, snapshot)
+                patch = _git_bytes(
+                    result.workspace, "diff-tree", "-r", "-p", "--binary", "--no-renames", result.base_commit, snapshot
+                )
                 check = subprocess.run([*APPLY, "--check", "-"], cwd=target, input=patch, capture_output=True)
                 if check.returncode != 0:
                     reason = check.stderr.decode(errors="replace")[-800:].strip() or "git apply --check failed"
@@ -509,11 +566,15 @@ class MultiComponentBuild:
             return reason
         moved = sorted(set(changed) & set(_changed_paths(self.repo, base, "HEAD", prefix)))
         if moved:
-            return (f"{reason}; HEAD changed {moved} since {cid} was built, so a new target made from HEAD "
-                    f"would not take {cid} either: rebuild it on the current HEAD by removing its worktree "
-                    f".autocode-components/{cid} and running the build again")
-        return (f"{reason}; {target} differs at {off_base} from the commit {cid} was built on (changed there, "
-                f"or checked out at another commit): integrate into a new target")
+            return (
+                f"{reason}; HEAD changed {moved} since {cid} was built, so a new target made from HEAD "
+                f"would not take {cid} either: rebuild it on the current HEAD by removing its worktree "
+                f".autocode-components/{cid} and running the build again"
+            )
+        return (
+            f"{reason}; {target} differs at {off_base} from the commit {cid} was built on (changed there, "
+            f"or checked out at another commit): integrate into a new target"
+        )
 
 
 def _serve(run: TaskRun, need: dict) -> dict:
@@ -531,8 +592,9 @@ def _serve(run: TaskRun, need: dict) -> dict:
             run.approve_review(criterion, need["token"])
         return run.status()
     if kind == "planning_budget":
-        return run.feedback("The previous planning cycle used up its review budget. "
-                            "Produce a complete final plan now and finalize it.")
+        return run.feedback(
+            "The previous planning cycle used up its review budget. Produce a complete final plan now and finalize it."
+        )
     raise TaskRunError(f"no automatic way to serve a {kind!r} need")
 
 
@@ -542,8 +604,13 @@ def _snapshot_commit(workspace: Path) -> str:
     index lives outside the workspace: inside it, `git add -A` would pick up the
     index file itself as an untracked change before it could be removed."""
     index = Path(tempfile.gettempdir()) / f"autocode-multicomponent-index-{uuid.uuid4().hex}"
-    env = {"GIT_INDEX_FILE": str(index), "GIT_AUTHOR_NAME": "AutoCode", "GIT_AUTHOR_EMAIL": "autocode@localhost",
-          "GIT_COMMITTER_NAME": "AutoCode", "GIT_COMMITTER_EMAIL": "autocode@localhost"}
+    env = {
+        "GIT_INDEX_FILE": str(index),
+        "GIT_AUTHOR_NAME": "AutoCode",
+        "GIT_AUTHOR_EMAIL": "autocode@localhost",
+        "GIT_COMMITTER_NAME": "AutoCode",
+        "GIT_COMMITTER_EMAIL": "autocode@localhost",
+    }
     try:
         _git(workspace, "read-tree", "HEAD", env=env)
         _git(workspace, "add", "-A", "--", ".", *EXCLUDE, env=env)
@@ -607,14 +674,16 @@ def _differences(target: Path, commit: str, paths: list[str], prefix: str) -> li
 
 def _git(cwd: Path, *args: str, env: dict | None = None) -> str:
     full_env = {**os.environ, **env} if env else {**os.environ}
-    return subprocess.run(["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env,
-                          capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env, capture_output=True, text=True
+    ).stdout.strip()
 
 
 def _git_bytes(cwd: Path, *args: str, env: dict | None = None, input: bytes | None = None) -> bytes:
     full_env = {**os.environ, **env} if env else None
-    return subprocess.run(["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env, input=input,
-                          capture_output=True).stdout
+    return subprocess.run(
+        ["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env, input=input, capture_output=True
+    ).stdout
 
 
 def _read_json(path: Path):

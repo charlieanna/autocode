@@ -1,4 +1,5 @@
 """The invoice the customer receives: the single source of every billed amount."""
+
 from dataclasses import dataclass
 from decimal import Decimal
 

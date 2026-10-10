@@ -11,8 +11,10 @@ the run verdicts, the runs whose diagnosis was exercised (``diagnosed``: the sta
 on the planted failure) and how many of those were CORRECT, INCORRECT and UNSCORED. Those
 verdicts come from word lists, so a live CORRECT is read by a person before it is cited.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import statistics
 from pathlib import Path
@@ -38,10 +40,8 @@ def load_results(root: Path) -> list[dict]:
         if directory.is_symlink() or not directory.is_dir():
             continue
         result = None
-        try:
+        with contextlib.suppress(OSError, ValueError):
             result = json.loads((directory / "result.json").read_text())
-        except (OSError, ValueError):
-            pass
         if not (isinstance(result, dict) and result.get("scenario") and result.get("verdict")):
             result = attempts.unfinished(directory)
         if result is not None:
@@ -64,49 +64,99 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
                 break
             streak += 1
         measured = [result for result in runs if result.get("verdict") not in ("SKIPPED", PENDING_UNGRADED)]
-        diagnoses = [result["diagnosis"].get("verdict") for result in measured if isinstance(result.get("diagnosis"), dict)]
-        classes = [result.get("stop_class")
-                   or stop_class(result.get("verdict", ""), result.get("status") or result.get("runner_status") or "",
-                                 result.get("summary") or "")
-                   for result in runs]
-        rows.append({
-            "scenario": scenario, "mode": run_mode, "runs": len(measured),
-            "attempts": len(runs),
-            "passes": sum(result["verdict"] == PASS for result in measured), "streak": streak,
-            "interrupted": sum(result["verdict"] == INTERRUPTED_UNGRADED for result in runs),
-            "pending": sum(result["verdict"] == PENDING_UNGRADED for result in runs),
-            "usage_unknown": sum(result.get("usage_status") == "unknown"
-                                 or result["verdict"] in (INTERRUPTED_UNGRADED, PENDING_UNGRADED) for result in runs),
-            # Runs that never reached the stage the scenario exists to test (issue #59).
-            "not_exercised": sum(result["verdict"] == NOT_EXERCISED for result in measured),
-            "last": runs[-1]["verdict"],
-            # Why each attempt is not a pass (issue #455), beside the verdict.
-            "stop_classes": {name: classes.count(name) for name in STOP_CLASSES if classes.count(name)},
-            # Diagnosis verdicts, never mixed into the run verdicts above; None when no run was scored for one.
-            "diagnosed": _count(diagnoses, CORRECT, INCORRECT, UNSCORED), "correct": _count(diagnoses, CORRECT),
-            "incorrect": _count(diagnoses, INCORRECT), "unscored": _count(diagnoses, UNSCORED),
-            "median_wall_minutes": _median([result.get("wall_seconds") for result in measured], scale=60),
-            "median_model_stages": _median([_model_stages(result) for result in measured]),
-            "median_model_minutes": _median([(result.get("metrics") or {}).get("model_seconds")
-                                             for result in measured], scale=60),
-        })
+        diagnoses = [
+            result["diagnosis"].get("verdict") for result in measured if isinstance(result.get("diagnosis"), dict)
+        ]
+        classes = [
+            result.get("stop_class")
+            or stop_class(
+                result.get("verdict", ""),
+                result.get("status") or result.get("runner_status") or "",
+                result.get("summary") or "",
+            )
+            for result in runs
+        ]
+        rows.append(
+            {
+                "scenario": scenario,
+                "mode": run_mode,
+                "runs": len(measured),
+                "attempts": len(runs),
+                "passes": sum(result["verdict"] == PASS for result in measured),
+                "streak": streak,
+                "interrupted": sum(result["verdict"] == INTERRUPTED_UNGRADED for result in runs),
+                "pending": sum(result["verdict"] == PENDING_UNGRADED for result in runs),
+                "usage_unknown": sum(
+                    result.get("usage_status") == "unknown"
+                    or result["verdict"] in (INTERRUPTED_UNGRADED, PENDING_UNGRADED)
+                    for result in runs
+                ),
+                # Runs that never reached the stage the scenario exists to test (issue #59).
+                "not_exercised": sum(result["verdict"] == NOT_EXERCISED for result in measured),
+                "last": runs[-1]["verdict"],
+                # Why each attempt is not a pass (issue #455), beside the verdict.
+                "stop_classes": {name: classes.count(name) for name in STOP_CLASSES if classes.count(name)},
+                # Diagnosis verdicts, never mixed into the run verdicts above; None when no run was scored for one.
+                "diagnosed": _count(diagnoses, CORRECT, INCORRECT, UNSCORED),
+                "correct": _count(diagnoses, CORRECT),
+                "incorrect": _count(diagnoses, INCORRECT),
+                "unscored": _count(diagnoses, UNSCORED),
+                "median_wall_minutes": _median([result.get("wall_seconds") for result in measured], scale=60),
+                "median_model_stages": _median([_model_stages(result) for result in measured]),
+                "median_model_minutes": _median(
+                    [(result.get("metrics") or {}).get("model_seconds") for result in measured], scale=60
+                ),
+            }
+        )
     return rows
 
 
 def format_table(rows: list[dict]) -> str:
-    header = ("scenario", "mode", "runs", "passes", "streak", "not exercised", "interrupted", "pending", "usage unknown",
-              "last", "wall min", "model stages",
-              "model min", "diagnosed", "correct", "incorrect", "unscored")
-    lines = [header] + [(row["scenario"], row["mode"], str(row["runs"]), str(row["passes"]), str(row["streak"]),
-                         str(row["not_exercised"]), *(str(row.get(key, 0)) for key in ("interrupted", "pending", "usage_unknown")),
-                         row["last"], _show(row["median_wall_minutes"]), _show(row["median_model_stages"]),
-                         _show(row["median_model_minutes"]),
-                         *(_show(row.get(key)) for key in ("diagnosed", "correct", "incorrect", "unscored")))
-                        for row in rows]
+    header = (
+        "scenario",
+        "mode",
+        "runs",
+        "passes",
+        "streak",
+        "not exercised",
+        "interrupted",
+        "pending",
+        "usage unknown",
+        "last",
+        "wall min",
+        "model stages",
+        "model min",
+        "diagnosed",
+        "correct",
+        "incorrect",
+        "unscored",
+    )
+    lines = [header] + [
+        (
+            row["scenario"],
+            row["mode"],
+            str(row["runs"]),
+            str(row["passes"]),
+            str(row["streak"]),
+            str(row["not_exercised"]),
+            *(str(row.get(key, 0)) for key in ("interrupted", "pending", "usage_unknown")),
+            row["last"],
+            _show(row["median_wall_minutes"]),
+            _show(row["median_model_stages"]),
+            _show(row["median_model_minutes"]),
+            *(_show(row.get(key)) for key in ("diagnosed", "correct", "incorrect", "unscored")),
+        )
+        for row in rows
+    ]
     widths = [max(len(line[column]) for line in lines) for column in range(len(header))]
-    text = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths)).rstrip() for line in lines]
-    return "\n".join([text[0], "(medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
-                      *text[1:]])
+    text = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=False)).rstrip() for line in lines]
+    return "\n".join(
+        [
+            text[0],
+            "(medians exclude pending and skipped attempts; wall time is only recorded since 2026-09-28)",
+            *text[1:],
+        ]
+    )
 
 
 def _count(diagnoses: list, *verdicts: str):

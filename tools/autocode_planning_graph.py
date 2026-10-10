@@ -1,4 +1,5 @@
 """Deterministic, data-only milestone dependency graph validation."""
+
 from __future__ import annotations
 
 import hashlib
@@ -44,6 +45,7 @@ def derive(body):
         if len(dependencies) != len(set(dependencies)) or any(dep not in edges for dep in dependencies):
             raise ValueError(f"Milestone {node} depends on an unknown or duplicate milestone")
     visiting, visited = set(), set()
+
     def visit(node):
         if node in visiting:
             raise ValueError("Milestone dependencies contain a cycle")
@@ -53,6 +55,7 @@ def derive(body):
                 visit(dependency)
             visiting.remove(node)
             visited.add(node)
+
     for node in edges:
         visit(node)
     criteria = {row["id"] for row in body.get("acceptance_criteria", [])}
@@ -65,7 +68,7 @@ def derive(body):
     nodes = [{"id": row["id"], "boundaries": sorted(_boundaries(row))} for row in milestones]
     pairs, shared = [], []
     for index, left in enumerate(milestones):
-        for right in milestones[index + 1:]:
+        for right in milestones[index + 1 :]:
             a, b = left["id"], right["id"]
             if _reachable(edges, a, b) or _reachable(edges, b, a):
                 continue
@@ -75,11 +78,14 @@ def derive(body):
                 shared.append({**pair, "boundaries": overlap})
             else:
                 pairs.append(pair)
-    return {"nodes": nodes, "edges": [{"from": node, "to": dependency}
-            for node in sorted(edges) for dependency in sorted(edges[node])],
-            "parallel_eligible": pairs, "shared_boundaries": shared,
-            "validation": {"acyclic": True, "criteria_covered": True},
-            "automatic_execution": False}
+    return {
+        "nodes": nodes,
+        "edges": [{"from": node, "to": dependency} for node in sorted(edges) for dependency in sorted(edges[node])],
+        "parallel_eligible": pairs,
+        "shared_boundaries": shared,
+        "validation": {"acyclic": True, "criteria_covered": True},
+        "automatic_execution": False,
+    }
 
 
 def validate(body, supplied=None):
@@ -103,8 +109,7 @@ def sealed_bytes(body, final_token):
 
 def identity(body, final_token):
     data = sealed_bytes(body, final_token)
-    return {"path": GRAPH_PATH, "sha256": hashlib.sha256(data).hexdigest(),
-            "final_token": final_token}, data
+    return {"path": GRAPH_PATH, "sha256": hashlib.sha256(data).hexdigest(), "final_token": final_token}, data
 
 
 def consume(state, run_dir):
