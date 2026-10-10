@@ -7,6 +7,7 @@ every workspace, prompt, report and process log rather than delete temp fixtures
 import contextlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -651,13 +652,16 @@ class BuildBlackbox(unittest.TestCase):
         # unchanged, and the unique anchor refuses a silently different fixture.
         provider = self.root / "bin/codex"
         provider_source = provider.read_text()
-        anchor = "        record('repair')\n"
-        self.assertEqual(1, provider_source.count(anchor))
+        # Anchor on the statement, not its exact quote style or surrounding
+        # bytes: the formatter rewrites both, and an exact-byte anchor would
+        # silently stop matching. Exactly one match is required.
+        anchor = re.compile(r"^        record\((['\"])repair\1\)$", re.MULTILINE)
+        self.assertEqual(1, len(anchor.findall(provider_source)))
         provider.write_text(
-            provider_source.replace(
-                anchor,
-                "        record('repair', results=result.get('results'), commands_run=result.get('commands_run'))\n",
-                1,
+            anchor.sub(
+                "        record('repair', results=result.get('results'), commands_run=result.get('commands_run'))",
+                provider_source,
+                count=1,
             )
         )
         self.invoke(
