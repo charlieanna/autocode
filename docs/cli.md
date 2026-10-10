@@ -64,15 +64,29 @@ as if you had passed `--run-dir RUN`.
 
 ### Keeping authorization tokens out of argv
 
-The authorization tokens — `--resolver-token`, `--job-retry-token`, `--recover-job-report`,
-`--approve-goal` and `--review-token` — accept the value `-` to read the secret from their paired
-environment variable instead (`AUTOCODE_RESOLVER_TOKEN`, `AUTOCODE_JOB_RETRY_TOKEN`,
-`AUTOCODE_RECOVER_JOB_REPORT`, `AUTOCODE_APPROVE_GOAL_TOKEN`, `AUTOCODE_REVIEW_TOKEN`).
+These options accept `-` to read their paired environment variable:
+
+| Token option | Environment variable |
+| --- | --- |
+| `--resolver-token` | `AUTOCODE_RESOLVER_TOKEN` |
+| `--job-retry-token` | `AUTOCODE_JOB_RETRY_TOKEN` |
+| `--recover-job-report` | `AUTOCODE_RECOVER_JOB_REPORT` |
+| `--approve-goal` | `AUTOCODE_APPROVE_GOAL_TOKEN` |
+| `--review-token` | `AUTOCODE_REVIEW_TOKEN` |
+| `--expected-goal-token` | `AUTOCODE_EXPECTED_GOAL_TOKEN` |
+| `--expected-recovery-token` | `AUTOCODE_EXPECTED_RECOVERY_TOKEN` |
+| `checkpoint --expected-token` | `AUTOCODE_CHECKPOINT_EXPECTED_TOKEN` |
+| `program approve --token` | `AUTOCODE_PROGRAM_APPROVAL_TOKEN` |
+
 Prefer this on shared machines: Linux exposes `/proc/<pid>/cmdline` to every local user, while
 `/proc/<pid>/environ` is readable only by the owner, and a typed token also lands in shell
 history. The environment variable alone never authorizes anything — the flag must still be
-present. `TaskRun` (the documented entry point for agents and the dashboard) already passes its
-tokens through the child's environment and never puts them in argv.
+present. `TaskRun`, dashboard actions and the trial driver pass these tokens through
+each CLI child's environment. Their process arguments and saved command records contain
+`-`. Literal CLI tokens remain supported. The controller always removes all nine
+variables before launching a provider or test command, even if named in `AUTOCODE_PASS_ENV`.
+Programmatic command builders require full token option names; abbreviated token
+options are refused before recording or launch.
 
 With several unfinished runs the command changes nothing, exits 2 and lists them with the
 `--run-dir` command for each. With no run it says where it looked; with only finished

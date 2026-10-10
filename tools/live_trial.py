@@ -40,6 +40,7 @@ import autocode_process as processes  # noqa: E402
 import autocode_util as util  # noqa: E402
 import live_profiles as profiles  # noqa: E402
 import live_scenarios as scenarios  # noqa: E402
+from autocode_control_tokens import private_command  # noqa: E402
 from autopilot_testkit import Bundle, source_revision  # noqa: E402
 from score_autocode_run import usage_summary  # noqa: E402
 
@@ -170,6 +171,8 @@ def autocode_command(
 
 
 def invoke(cmd: list[str], env: dict, cwd: Path, timeout: float) -> subprocess.CompletedProcess:
+    cmd, private_env = private_command(cmd, argument_offset=2)
+    env = {**env, **private_env}
     # Files avoid pipe backpressure and EOF waits on orphaned descendants.
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         child = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=stdout, stderr=stderr, start_new_session=True)
@@ -219,6 +222,7 @@ def drive(
 
     # 0 = finished, 2 = paused for a human gate. Both are successful CLI exits.
     def step(kind: str, cmd: list[str], *, allow_codes=(0, 2)) -> subprocess.CompletedProcess:
+        cmd, private_env = private_command(cmd, argument_offset=2)
         remaining = deadline - time.monotonic()
         record = {"kind": kind, "cmd": cmd, "remaining_seconds": max(0, remaining)}
         try:
@@ -227,7 +231,7 @@ def drive(
             if len(steps) >= budget_stages:
                 raise TrialError("CLI invocation budget exhausted before launch")
             bundle.log("cli_step", **record)
-            proc = invoke(cmd, env, root, remaining)
+            proc = invoke(cmd, {**env, **private_env}, root, remaining)
         except (TrialError, subprocess.TimeoutExpired, OSError, processes.ProcessError) as error:
 
             def text(value):
@@ -505,13 +509,14 @@ def drive_program(
     started = time.monotonic()
 
     def step(kind: str, cmd: list[str], *, allow_codes=(0, 2)) -> subprocess.CompletedProcess:
+        cmd, private_env = private_command(cmd, argument_offset=2)
         remaining = timeout - (time.monotonic() - started)
         if remaining <= 0:
             raise TrialError(f"wall-clock budget exceeded after {len(steps)} CLI steps")
         if len(steps) >= budget_stages:
             raise TrialError(f"stage budget exceeded after {len(steps)} CLI steps")
         bundle.log("cli_step", kind=kind, cmd=cmd)
-        proc = invoke(cmd, env, root, remaining)
+        proc = invoke(cmd, {**env, **private_env}, root, remaining)
         record = {
             "kind": kind,
             "cmd": cmd,

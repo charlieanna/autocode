@@ -443,7 +443,8 @@ class ProgramModeTest(unittest.TestCase):
     def fake_invoke(self, cmd, env, cwd, timeout):
         self.calls.append(cmd)
         if cmd[2:4] == ["program", "approve"]:
-            if cmd[cmd.index("--token") + 1] != self.TOKEN:  # the real command refuses any other token
+            self.assertEqual("-", cmd[cmd.index("--token") + 1])
+            if env.get("AUTOCODE_PROGRAM_APPROVAL_TOKEN") != self.TOKEN:  # still requires the exact token
                 return subprocess.CompletedProcess(cmd, 2, "", "approve only the exact token")
             self.agreement_approved = True
             return subprocess.CompletedProcess(
@@ -624,7 +625,8 @@ class ProgramModeTest(unittest.TestCase):
         approve = self.calls[1]
         self.assertEqual(["program", "approve", str(self.root / "program.json")], approve[2:5])
         self.assertEqual(str(self.project), approve[approve.index("--workspace") + 1])
-        self.assertEqual(self.TOKEN, approve[approve.index("--token") + 1])
+        self.assertEqual("-", approve[approve.index("--token") + 1])
+        self.assertNotIn(self.TOKEN, approve)
         self.assertEqual(["program run", "program approve", "program run"], self.kinds()[:3])
 
         # A live profile stops at the agreement without approving it; nothing ran, so the product is the project.

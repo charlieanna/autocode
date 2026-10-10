@@ -29,6 +29,8 @@ try:
     from . import autocode_workflows as workflows
     from . import autopilot
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+    from .autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
+    from .autocode_control_tokens import resolve_placeholders
 except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_run_finder as run_finder
@@ -36,6 +38,8 @@ except ImportError:
     import autocode_workflows as workflows
     import autopilot
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+    from autocode_control_tokens import TOKEN_ENV_VARS as TOKEN_ENV_VARS
+    from autocode_control_tokens import resolve_placeholders
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
 NEW_RUN_INPUTS = (
@@ -57,34 +61,21 @@ READ_ACTIONS = ("--status", "--explain", "--dry-run")
 COMMAND_WORDS = ("resume", "status", "explain")
 COMMAND_MARK = "\0command-word"
 
+
 # Authorization tokens accept the value `-` to read the secret from the paired
 # environment variable, keeping it out of argv: on Linux /proc/<pid>/cmdline is
 # world-readable (0444) while /proc/<pid>/environ is owner-only (0400). A token
 # given as a literal argv value still works; an ambient variable alone never
 # acts as authorization because the option itself must be present.
-TOKEN_ENV_VARS = {
-    "resolver_token": "AUTOCODE_RESOLVER_TOKEN",
-    "job_retry_token": "AUTOCODE_JOB_RETRY_TOKEN",
-    "recover_job_report": "AUTOCODE_RECOVER_JOB_REPORT",
-    "approve_goal": "AUTOCODE_APPROVE_GOAL_TOKEN",
-    "review_token": "AUTOCODE_REVIEW_TOKEN",
-}
-
-
 def resolve_token_env_placeholders(args, parser, environ=os.environ) -> None:
     """Replace a `-` token value with the token from its environment variable."""
     if getattr(args, "resolver_token", None) == "-" and not (
-        getattr(args, "answer", None) or getattr(args, "resolver_request", None)
+        getattr(args, "answer", None) or getattr(args, "resolver_request", None) or getattr(args, "delegate", None)
     ):
         # The resolver token is only consumed by an answer or an operational response;
         # refuse the sentinel early instead of silently resolving a token nothing uses.
-        parser.error("--resolver-token - requires --answer or --resolver-request to name its consumer")
-    for attribute, variable in TOKEN_ENV_VARS.items():
-        if getattr(args, attribute, None) == "-":
-            value = environ.get(variable)
-            if not value:
-                parser.error(f"token value `-` requires {variable} in the environment")
-            setattr(args, attribute, value)
+        parser.error("--resolver-token - requires --answer, --delegate or --resolver-request to name its consumer")
+    resolve_placeholders(args, parser, environ)
 
 
 def commands_help() -> str:

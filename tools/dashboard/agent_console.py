@@ -23,12 +23,14 @@ from urllib.parse import parse_qs, urlparse
 sys.dont_write_bytecode = True
 try:
     from .. import autocode_resolver_human as resolver_human
+    from ..autocode_control_tokens import private_command
     from ..autocode_role_names import CATALOGUE as ROLE_NAMES
 except ImportError:
     tools = str(Path(__file__).resolve().parents[1])
     if tools not in sys.path:
         sys.path.insert(0, tools)
     import autocode_resolver_human as resolver_human
+    from autocode_control_tokens import private_command
     from autocode_role_names import CATALOGUE as ROLE_NAMES
 CODEX_DEFAULT_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -775,6 +777,12 @@ class LegacyConsole:
         return x
 
     def enqueue(self, ws, run, label, extra, on_complete=None):
+        cmd = (
+            [sys.executable, self.runner, "--workspace", str(ws)]
+            + (["--run-dir", str(run)] if run else [])
+            + list(extra)
+        )
+        cmd, private_env = private_command(cmd, argument_offset=2)
         isolated = run is None
         key = str(run) if run else str(ws) + ":new:" + uuid.uuid4().hex
         with self.lock:
@@ -783,17 +791,12 @@ class LegacyConsole:
             self.pending.add(key)
             if not isolated:
                 self.workspace_busy.add(str(ws))
-        cmd = (
-            [sys.executable, self.runner, "--workspace", str(ws)]
-            + (["--run-dir", str(run)] if run else [])
-            + list(extra)
-        )
         x = self._record(str(run or ws), label, cmd)
         x["isolated_task"] = isolated
-        self.pool.submit(self._execute, key, str(ws), x, on_complete)
+        self.pool.submit(self._execute, key, str(ws), x, on_complete, private_env)
         return x
 
-    def _execute(self, key, ws, x, on_complete=None):
+    def _execute(self, key, ws, x, on_complete=None, private_env=None):
         x["status"] = "running"
         x["started_at"] = time.time()
         try:
@@ -808,7 +811,12 @@ class LegacyConsole:
                 os.chmod(out_path, 0o600)
                 os.chmod(err_path, 0o600)
                 p = subprocess.Popen(
-                    x["command"], stdin=subprocess.DEVNULL, stdout=out, stderr=err, start_new_session=True
+                    x["command"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=err,
+                    start_new_session=True,
+                    env={**os.environ, **(private_env or {})},
                 )
                 x["pid"] = p.pid
                 (logs / "action.json").write_text(json.dumps(x), encoding="utf8")

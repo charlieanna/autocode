@@ -83,7 +83,8 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   browser('screenshot',path.join(evidence,viewport+'-quota-inspected.png'));
   click(button('abandon'));wait('latestRun.status==="PAUSED_STAGE_ABANDONED"&&!!document.querySelector('+JSON.stringify(button('resume'))+')');
   const quotaCommand=data('()=>latestRun.actions.at(-1).command');
-  assert.deepEqual(quotaCommand.slice(-5),['--no-chat','--expected-recovery-token',quotaToken,'--abandon-stage','031/builder-02']);
+  assert.deepEqual(quotaCommand.slice(-5),['--no-chat','--expected-recovery-token','-','--abandon-stage','031/builder-02']);
+  assert.equal(quotaCommand.includes(quotaToken),false);
   assert.equal(quotaCommand.includes('--resume-paused'),false);
   const quotaRecovered=JSON.parse(fs.readFileSync(quotaFile));
   assert.equal(quotaRecovered.active_stage,undefined);
