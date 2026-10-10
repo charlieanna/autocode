@@ -134,6 +134,11 @@ def cli(argv: list[str] | None = None) -> int:
         "(needs --integrate, Docker Compose 2.17 or newer and a Docker daemon on this machine)",
     )
     parser.add_argument(
+        "--runtime-evidence-provenance",
+        choices=("fake", "live", "unknown"),
+        help="With --run-local, disclose real or simulated runtime smoke; default unknown",
+    )
+    parser.add_argument(
         "--health-timeout",
         type=float,
         metavar="SECONDS",
@@ -171,6 +176,8 @@ def cli(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--timeout", type=int, metavar="SECONDS", help="wall-clock budget per component")
     args = parser.parse_args(argv)
+    if args.runtime_evidence_provenance and not args.run_local:
+        parser.error("--runtime-evidence-provenance needs --run-local")
 
     workspace = args.workspace.resolve()
     if not (workspace / ".git").exists():
@@ -253,6 +260,85 @@ def cli(argv: list[str] | None = None) -> int:
             if summary["local_run"]["status"] != "passed":
                 exit_code = max(exit_code, 1)
 
+    if exit_code == 0:
+        try:
+            from . import autocode_evidence_aggregate as evidence_aggregate, autocode_source_snapshot as source_snapshot
+        except ImportError:
+            import autocode_evidence_aggregate as evidence_aggregate, autocode_source_snapshot as source_snapshot
+        try:
+            child_runs = []
+            for cid, result in results.items():
+                run = result.run or mc.TaskRun(result.workspace, Path(saved[cid]["run_dir"]))
+                child_runs.append((cid, run))
+            product = target if args.integrate else workspace
+            local = summary.get("local_run") or {}
+            runtime_kind = args.runtime_evidence_provenance or "unknown"
+            runtime_checks, gaps = [], []
+            if local:
+                try:
+                    from . import autocode_util as util
+                except ImportError:
+                    import autocode_util as util
+                smoke = {
+                    "provenance": {
+                        "kind": runtime_kind,
+                        "basis": "caller_declared" if args.runtime_evidence_provenance else "unavailable",
+                    },
+                    "status": local.get("status"),
+                    "steps": [
+                        {key: row.get(key) for key in ("index", "name", "service", "method", "path", "status", "ok")}
+                        for row in local.get("steps", [])
+                    ],
+                }
+                smoke_path = build.manifest_path.parent / "local-smoke-evidence.json"
+                util.atomic_json(smoke_path, smoke)
+                for row in smoke["steps"]:
+                    runtime_checks.append(
+                        {
+                            "command": f"HTTP {row['method']} {row['service']} {row['path']} ({row['name']})",
+                            "purpose": "local runtime smoke",
+                            "output": str(smoke_path),
+                            "output_sha256": util.file_hash(smoke_path),
+                            "results": {
+                                "http_status": row["status"],
+                                "ok": row["ok"],
+                                "runtime_provenance": smoke["provenance"],
+                            },
+                        }
+                    )
+                gaps.append(f"Local runtime smoke provenance: {runtime_kind}; caller disclosure is not attestation")
+                if runtime_kind == "fake":
+                    gaps.append(
+                        "Simulated runtime smoke does not prove real containers, SQL/database behavior or deployment"
+                    )
+                elif runtime_kind == "unknown":
+                    gaps.append("Local runtime smoke does not establish whether the runtime or database was simulated")
+            summary["evidence_report"] = evidence_aggregate.publish(
+                build.manifest_path.parent,
+                kind="components",
+                identity=architecture.directory.name,
+                status="COMPLETE",
+                child_runs=child_runs,
+                source_revision=source_snapshot.snapshot(product)["revision"],
+                outcome="Build " + architecture.directory.name,
+                checks=runtime_checks,
+                binding_values={
+                    "architecture": architecture.fingerprint(),
+                    "integration": summary.get("integration"),
+                    "local_run_status": local.get("status"),
+                },
+                not_verified=[
+                    *gaps,
+                    "Component completion/local smoke does not prove every integration or production deployment behavior",
+                ],
+            )
+        except (OSError, ValueError, mc.TaskRunError) as error:
+            summary["evidence_report"] = {
+                "availability": "export_failed",
+                "error": "Evidence report export failed: " + type(error).__name__,
+                "reasons": ["Evidence report export failed: " + type(error).__name__],
+            }
+        build.record_evidence_report(summary["evidence_report"])
     print(json.dumps(summary, indent=2, default=str))
     return exit_code
 

@@ -40,6 +40,7 @@ import time
 from pathlib import Path
 
 from .driver import DriveError, Driver, leaves_for_person, metrics
+from . import evidence_reports
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 
 # Program statuses the driver leaves as they are: done, or waiting for what only a person decides.
@@ -608,11 +609,14 @@ class ProgramDriver:
                 },
             }
         return {
+            "report_expected": True,
+            "provider_evidence": evidence_reports.declared(self.flags),
             "status": self.summary.get("status") or plan_state.get("status", ""),
             "program": self.summary,
             "plan": {
                 "status": plan_state.get("status", ""),
                 "view": plan_view,
+                "run_dir": str(self.plan.run_dir),
                 "stages": metrics(plan_state)["stage_names"],
                 "model_stages": metrics(plan_state)["model_stage_names"],
                 "answers": self.answers[: self.plan_answers],

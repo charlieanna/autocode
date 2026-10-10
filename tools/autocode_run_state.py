@@ -94,6 +94,7 @@ KEYS: frozenset[str] = frozenset(
         "engine",
         "error",
         "events",
+        "evidence_export",
         "evidence_locations",
         "execution_checkpoints",
         "failure_history",
@@ -103,6 +104,7 @@ KEYS: frozenset[str] = frozenset(
         "final_decision",
         "findings_ledger",
         "findings_seq",
+        "finished_at",
         "generated_sources_at_start",
         "goal_base_check",
         "goal_contract",
@@ -314,6 +316,8 @@ class RunState(TypedDict, total=False):
     turns: list  # follow-up turns of a conversation
     regression_proof: dict | None  # the bug-fix fail-before/pass-after proof
     active_runner_check: dict | None  # an in-flight runner-owned check
+    evidence_export: dict | None  # written only by evidence_export.record; read by public view/TaskRun
+    finished_at: str | None  # legacy completion time read by evidence_export; no new writer
 
     _authorized_bound_change: Any
     _fixture_accepted: Any

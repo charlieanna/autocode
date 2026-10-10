@@ -13,6 +13,8 @@ from pathlib import Path
 
 import autocode_github as github
 import autocode_issue as issue_cli
+import autocode_evidence_document as evidence_document
+import autocode_evidence_provenance as evidence_provenance
 from autocode_taskrun import TaskRun
 
 from tests import GIT_TEST_CONFIG
@@ -120,7 +122,18 @@ class PrBodyTests(unittest.TestCase):
         "base_commit": "0123456789abcdef",
     }
 
-    def test_body_reports_the_evidence(self):
+    def canonical(self, view):
+        return evidence_document.render(
+            evidence_document.build(
+                view,
+                run_identity="run-1",
+                completed_at=None,
+                provenance=evidence_provenance.configured({}, "fake"),
+                binding="bound",
+            )
+        )
+
+    def test_body_reports_the_exact_canonical_evidence(self):
         view = {
             "workflow": "bugfix",
             "evidence": {
@@ -147,11 +160,14 @@ class PrBodyTests(unittest.TestCase):
                 },
             },
         }
-        body = issue_cli.pr_body(self.RECORD, view, " dates.py | 2 +-")
+        markdown = self.canonical(view)
+        body = issue_cli.pr_body(self.RECORD, view, " dates.py | 2 +-", evidence_markdown=markdown)
         self.assertTrue(body.startswith("Resolves acme/widgets#7.\n"))
         self.assertIn("| AC1 | Parses a\\|b | passed, validator: PASS, accepted by a person | 3 passed |", body)
-        self.assertIn("verdict **PASS**", body)
-        self.assertIn("`test_dates`", body)
+        self.assertIn(markdown, body)
+        self.assertEqual(1, body.count(markdown))
+        self.assertIn("Runner verdict: PASS.", body)
+        self.assertIn("test_dates", body)
         self.assertIn("- F1 [resolved, minor]: Typo", body)
         self.assertIn("dates.py | 2 +-", body)
         self.assertIn("run `run-1` from base commit `0123456789ab`", body)
@@ -189,7 +205,7 @@ class PrBodyTests(unittest.TestCase):
                 "validator_source_revision": "abc",
             },
         }
-        body = issue_cli.pr_body(self.RECORD, view, "")
+        body = issue_cli.pr_body(self.RECORD, view, "", evidence_markdown=self.canonical(view))
         self.assertIn("unverified, validator: FAIL", body)
         self.assertIn("unverified, validator: NOT_VERIFIED", body)
         self.assertIn("no outcome recorded, validator: unchecked", body)
@@ -205,15 +221,20 @@ class PrBodyTests(unittest.TestCase):
                 "regression_proof": {"verdict": "FAIL", "case_tests": {"T1": ["tests.test_c.test_t1_once"], "T2": []}},
             },
         }
-        body = issue_cli.pr_body(self.RECORD, view, "")
+        body = issue_cli.pr_body(self.RECORD, view, "", evidence_markdown=self.canonical(view))
         self.assertIn("## Regression tests in plain English", body)
-        self.assertIn("| T1 | a timeout | renew() | 1 mutation | `tests.test_c.test_t1_once` |", body)
+        self.assertIn("| T1 | a timeout | renew() | 1 mutation | tests.test_c.test_t1_once |", body)
         self.assertIn("| T2 | no timeout | renew() | 1 mutation | not proven |", body)
 
-    def test_missing_evidence_says_so(self):
-        body = issue_cli.pr_body(self.RECORD, {"workflow": None}, "")
-        self.assertIn("## Acceptance criteria\n\nNone recorded.", body)
-        self.assertNotIn("Regression proof", body)
+    def test_missing_or_oversized_canonical_evidence_is_refused(self):
+        with self.assertRaisesRegex(issue_cli.IssueError, "missing"):
+            issue_cli.pr_body(self.RECORD, {"workflow": None}, "")
+        with self.assertRaisesRegex(issue_cli.IssueError, "silently truncated"):
+            issue_cli.pr_body(self.RECORD, {}, "", evidence_markdown="x" * issue_cli.MAX_PR_BODY)
+
+    def test_diffstat_does_not_become_active_html(self):
+        body = issue_cli.pr_body(self.RECORD, {}, "<script>bad</script>", evidence_markdown="## Exact report\n")
+        self.assertIn("<pre>&lt;script&gt;bad&lt;/script&gt;</pre>", body)
 
 
 class NextStepsTests(unittest.TestCase):
@@ -352,6 +373,20 @@ class IssueCliTests(unittest.TestCase):
         self.assertEqual(0, continued.returncode, continued.stderr)
         self.assertIn("The run is complete.", continued.stdout)
 
+        canonical = run.evidence_report()
+        report_path = Path(canonical["markdown_path"])
+        original = report_path.read_bytes()
+        worktree = Path(record["worktree"])
+        head_before = self.git("rev-parse", "HEAD", cwd=worktree)
+        index_before = self.git("diff", "--cached", "--name-only", cwd=worktree)
+        report_path.write_text("invented PASS")
+        refused_report = self.cli("pr", "#7")
+        self.assertEqual(1, refused_report.returncode, refused_report.stdout)
+        self.assertIn("invalid", refused_report.stderr)
+        self.assertEqual(head_before, self.git("rev-parse", "HEAD", cwd=worktree))
+        self.assertEqual(index_before, self.git("diff", "--cached", "--name-only", cwd=worktree))
+        report_path.write_bytes(original)
+
         prepared = self.cli("pr", "#7")
         self.assertEqual(0, prepared.returncode, prepared.stderr)
         self.assertIn("Nothing has been pushed", prepared.stdout)
@@ -363,7 +398,18 @@ class IssueCliTests(unittest.TestCase):
         body = (self.project / ".autocode/issues/acme-widgets-7-pr.md").read_text()
         self.assertTrue(body.startswith("Resolves acme/widgets#7."))
         self.assertIn("## Acceptance criteria\n\n| ID |", body)
+        self.assertIn(canonical["markdown"], body)
+        self.assertEqual(original.decode(), run.evidence_report(require_current=False)["markdown"])
         self.assertEqual([], _FakeGitHub.pulls)
+
+        source_path = worktree / "greet.py"
+        tested_source = source_path.read_bytes()
+        source_path.write_bytes(tested_source + b"\n# changed after the delivery commit\n")
+        refused_delivery = self.cli("pr", "#7", "--open")
+        self.assertEqual(1, refused_delivery.returncode, refused_delivery.stdout)
+        self.assertIn("Source bytes", refused_delivery.stderr)
+        self.assertEqual([], _FakeGitHub.pulls)
+        source_path.write_bytes(tested_source)
 
         opened = self.cli("pr", "#7", "--open")
         self.assertEqual(0, opened.returncode, opened.stderr)

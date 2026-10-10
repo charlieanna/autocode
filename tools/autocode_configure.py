@@ -110,6 +110,11 @@ def check_subscription(identity):
 
 
 def configure(args, state, *, planning, milestones, autopilot, opencode=None):
+    try:
+        from . import autocode_evidence_provenance as evidence_provenance
+    except ImportError:
+        import autocode_evidence_provenance as evidence_provenance
+    provenance = evidence_provenance.configured(state.get("settings") or {}, getattr(args, "evidence_provenance", None))
     if opencode is None:
         opencode = autocode_opencode
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
@@ -256,6 +261,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError("For OpenCode use --<role>-model instead of --<role>-provider")
     if state.get("settings"):
         settings = json.loads(json.dumps(state["settings"]))
+        settings["evidence_provenance"] = provenance
         retired_token_budget.retire_settings(settings)
         settings.setdefault("provider", provider_name)
         # v0.5.4 introduced bounded report-only repairs.  Existing runs retain
@@ -429,6 +435,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             "max_parallel": getattr(args, "max_parallel_builders", None) or 2,
         },
         "report_repair": {"max_attempts": 2},
+        "evidence_provenance": provenance,
         "milestone_checkpoints": {
             **milestones.DEFAULTS,
             "max_seconds": getattr(args, "max_milestone_seconds", None)
