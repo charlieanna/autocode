@@ -187,6 +187,7 @@ KEYS: frozenset[str] = frozenset(
         "progressive",
         "project_worked_in_place",
         "project_workspace",
+        "prompts_hash",
         "reasoning_escalations",
         "reconciliation_notes",
         "recovery",
@@ -277,6 +278,7 @@ class RunState(TypedDict, total=False):
     stages: list  # saved stage records; written by the runner
     active_stage: dict | None  # the in-flight stage record
     settings: dict  # roles, budgets, engine, workflow mode
+    prompts_hash: str  # written once by run_setup; read by run_view/evidence_export; launch prompt set
     acceptance_criteria: list  # the approved criteria; written by goals
     criteria_revision: str  # hash of the criteria definition
     goal_contract: dict | None  # the approved contract; written by goals

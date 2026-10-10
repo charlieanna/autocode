@@ -7,6 +7,12 @@ discuss workflow's ``answer_question`` (autocode_discuss_job: answer a question 
 weigh a tradeoff from the repository, building nothing), and ``investigate_stuck``
 (autocode_stuck_job: why a stage stopped converging, before the run pauses)."""
 
+try:
+    from .. import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 import json
 from pathlib import Path
@@ -340,33 +346,16 @@ def prepare(state, stage, state_path, schema_dir):
     schema["properties"]["recovery_change"] = copy.deepcopy(novelty.CHANGE_SCHEMA)
     schema["required"].append("diagnosis")
     prompt = (
-        "You are AUTORESOLVER, a read-only failure diagnostician, not a Builder or completion owner. "
-        "Inspect the source report, rejected build, review findings and exact evidence. "
-        "When resolution_request.provenance is source_report_not_accepted_review, its source_report "
-        "is a Builder or Validator proposal, not accepted independent validation. Do not promote "
-        "its checks, criterion statuses, or claims into accepted review evidence. Return a nonempty diagnosis "
-        "and one bounded REWORK next_task with defect evidence and concrete validation_plan retests. "
+        prompts.get("fragments/autoresolver/prepare-03.md")
         + verification_plan.EXPECTED_FAILURE_RULE
         + " "
         + verification_plan.GIT_STATUS_RULE
         + " "
         + verification_plan.SHELL_SYNTAX_RULE
-        + " "
-        "Use kind=implement for a source correction, or kind=validate when the remaining defect is "
-        "missing or invalid independent verification of unchanged work. A validate task dispatches "
-        "the Validator; it neither authorizes source edits nor accepts prior evidence as current. "
-        "The runner exports this task as a one-node repair DAG. Preserve the whole integrated batch. "
-        "Return the complete unchanged acceptance_criteria list from the handoff; select the repair subset only in next_task.acceptance_criteria. "
-        "Criterion statuses and evidence remain owned by the reviewer, not the resolver. "
-        "Do not approve work, change requirements, weaken tests, or modify source. "
-        "Resolve ordinary technical blockers within the approved scope before asking. If no safe "
-        "bounded repair is available, explain the investigated evidence and remaining smallest "
-        "decision in BLOCKED with a structured user_request. If scope or permission must change, "
-        "return BLOCKED; never grant it yourself. This only proposes a human question, not execution authority.\n"
+        + prompts.get("fragments/autoresolver/prepare-02.md")
         + novelty.INSTRUCTION
         + instruction
-        + "\nResolver constraint overrides completion choices: only REWORK or BLOCKED; "
-        "validation-only repairs use REWORK with next_task.kind=validate.\n"
+        + prompts.get("fragments/autoresolver/prepare.md")
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(data, indent=2)
     )
@@ -447,22 +436,10 @@ def prepare_diagnosis(state, stage, state_path, schema_dir):
         execution_engine=state["settings"]["roles"]["resolver"].get("engine", state["settings"].get("engine", "codex")),
     )
     prompt = (
-        "You are AUTORESOLVER, a read-only failure diagnostician, not a Builder or completion owner. "
-        "A stage has failed the same way repeatedly (see diagnosis_request.repeated_count) and the runner has "
-        "stopped its own deterministic recovery for it. "
-        "Inspect diagnosis_request (the repeated failure identity, its evidence, and how many times it "
-        "recurred) plus the current handoff data. Return a nonempty diagnosis explaining the likely cause. "
-        'Recommend "retry" only when you can name a concrete, different action or guidance the next '
-        'Builder attempt should follow; recommend "escalate" whenever the cause is unclear, out of scope, '
-        "or needs a human decision -- never guess. You cannot approve work, change requirements, weaken "
-        "tests, modify source, dispatch a task, or claim completion yourself; this recommendation is "
-        "advisory only, and the runner independently validates and bounds it before any retry proceeds.\n"
+        prompts.get("fragments/autoresolver/prepare-diagnosis-02.md")
         + novelty.INSTRUCTION
         + instruction
-        + "\nDiagnosis constraint overrides completion choices: return diagnosis, recommendation and any bounded recovery_change. "
-        "The Builder receives your diagnosis and recommendation; put the concrete steps it should follow in "
-        "recommendation.guidance. This incident is the failed stage, not a check command, so a recovery_change "
-        "the incident packet cannot attest reaches the Builder only as unattested advice.\n"
+        + prompts.get("fragments/autoresolver/prepare-diagnosis.md")
         + "CURRENT HANDOFF DATA\n"
         + json.dumps(data, indent=2)
     )

@@ -90,6 +90,13 @@
             "null"
           ]
         },
+        "prompts_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "interaction_timing": {
           "type": "object",
           "additionalProperties": false,
@@ -539,6 +546,13 @@
               "object",
               "null"
             ]
+          },
+          "prompts_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
           }
         }
       }

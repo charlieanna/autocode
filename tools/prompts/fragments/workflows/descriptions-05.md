@@ -1,0 +1,1 @@
+A question, a tradeoff or an investigation: 'should we use X or Y', 'why does the code do this', 'what would break if'. The user wants an answer with evidence, not code. Steps: investigate, answer.

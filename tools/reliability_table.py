@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from statistics import median
 
@@ -24,6 +25,7 @@ COLUMNS = (
     "date",
     "profile",
     "master",
+    "prompts_hash",
     "mode",
     "runs",
     "passed",
@@ -53,6 +55,11 @@ def load_rows(path) -> list[dict]:
             raise ValueError(f"counts must be non-negative: {row}")
         if row["passed"] + row["false_completions"] > row["runs"]:
             raise ValueError(f"passed + false_completions exceed runs: {row}")
+        prompts_hash = row.get("prompts_hash")
+        if prompts_hash is not None and (
+            not isinstance(prompts_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", prompts_hash)
+        ):
+            raise ValueError("prompts_hash must be a SHA-256 digest or unknown")
         samples = row.get("interaction_timings")
         if samples is not None:
             if not isinstance(samples, list):
@@ -94,6 +101,8 @@ def markdown(rows: list[dict]) -> str:
         lines += [
             f"## {title}",
             "",
+            "| Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Note |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
             "| Date | Profile | Master | Runs | Passed | False completions | Median (min) | First question (s) | First plan (s) | First Builder (s) | Note |",
             "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
@@ -109,6 +118,8 @@ def markdown(rows: list[dict]) -> str:
                 first.append("" if not known else str(median(known)))
             lines.append(
                 f"| {row['date']} | {row['profile']} | `{row['master']}` | "
+                f"{row.get('prompts_hash') or 'not recorded'} | {row['runs']} | {row['passed']} | {row['false_completions']} | "
+                f"{median} | {row['note']} |"
                 f"{row['runs']} | {row['passed']} | {row['false_completions']} | "
                 f"{completion_median} | {' | '.join(first)} | {row['note']} |"
             )

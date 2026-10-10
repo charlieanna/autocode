@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 import json
 import re
@@ -189,23 +195,7 @@ for _schema in (LEGACY_BODY_SCHEMA, REQUIREMENTS_BODY_SCHEMA, BODY_SCHEMA, PLANN
     _schema["properties"]["brief_acceptance"] = {"type": "object"}
     _schema["properties"]["risk_acceptance"] = {"type": "object"}
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
-JOB_TYPE_POLICY = """
-JOB TYPE. task_kind is "bugfix" when the request reports existing behavior that is wrong
-(a crash, a wrong result, a missed validation, a regression) and asks for it to be corrected;
-otherwise "build". The Requirements Gatherer proposes it and says why in its summary; the
-Planner sets contract.task_kind; the Plan Reviewer confirms or challenges it. The user sees it
-at approval. For a bugfix, keep the plan to the defect: reproduction, root cause, the smallest
-correct fix, and a regression test in the project's own test suite that fails on the current
-code and passes after the fix. One milestone is usually enough; do not add features or
-unrelated refactors, and keep review concerns to whether the plan fixes the root cause and
-proves it. Before completion the runner itself runs the new or changed tests against the
-original code (they must fail) and the fixed code (they must pass), then the project suite.
-A bugfix regression test must build and run on the original code and fail there because of the
-bug: do not plan it around a hook, package variable or other seam the fix adds (on the original
-code it cannot compile or import, which proves nothing). Plan it to drive the real failure path
-through public APIs that exist before the fix and to assert the behavior (the returned error, the
-result, the saved state); a log line or message alone does not prove the behavior.
-"""
+JOB_TYPE_POLICY = prompts.get("fragments/goals/job-type-policy.md")
 try:
     from .autocode_role_schema import USER_REQUEST as USER_REQUEST
     from .autocode_role_schema import role_schema as role_schema
@@ -1449,147 +1439,11 @@ def approve_review(state, criterion, selected, current):
         state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
 
 
-DECISION_PROVENANCE = """Decision provenance is mandatory for every contract:
-- Explicit requirements and corrections inside task/original conversation context use
-  basis=original_request with answer_id="". Conversation IDs and message labels are not saved feedback IDs.
-- Use basis=user_answer only for IDs present in saved_answers/answers; delegated
-  requires a saved answer explicitly marked delegated.
-- Use basis=user_feedback only for an exact saved brief_feedback event ID that also
-  exists in user_events. If no such event exists, do not use user_feedback.
-- Your suggestions and model-written drafts are basis=agent_proposed, answer_id="";
-  they are not user approval. Never invent an answer ID or a feedback event.
-- delegated_decisions may contain ONLY basis=delegated rows tied to actual saved
-  delegated answers. Otherwise return delegated_decisions=[]. Put proposed defaults
-  (layout, file structure, question counts, etc.) in accepted_assumptions with
-  basis=agent_proposed, not in delegated_decisions.
-"""
+DECISION_PROVENANCE = prompts.get("fragments/goals/decision-provenance.md")
 
-CONTRACT_REFERENCES = """Contract reference rules:
-Define acceptance_criteria as objects with stable IDs (for example AC1, AC2).
-For each covered requirement_trace entry, evidence may be an exact required_behaviors
-string, an exact acceptance criterion ID, or a short explanation citing a defined
-criterion ID as a case-sensitive whole token (for example 'AC1 verifies this').
-'AC1' does not match 'AC10', 'XAC1', or 'ac1'. Unknown IDs from a defined ID
-family, including a mixture such as 'AC1 and AC99', do not establish coverage.
-For superseded requirements, evidence must cite an exact saved answer or feedback
-event ID as a whole token; an explanation around that ID is allowed. Retain the
-replacement requirement as covered. Do not mark both sides superseded just to
-resolve a conflict. A question-free plan may resolve a two-sided conflict by
-superseding the old side with a saved correction and covering the replacement.
-A superseded trace does not neutralize a contradictory active required_behaviors entry:
-reword that entry using the saved correction and an exact contract_changes record.
-Keep the old wording in the historical handoff, not as an unconditional active rule.
-If saved user feedback or an answer already settles a handoff conflict, record it
-in conflict_resolutions: the exact requirement_ids of that conflict, basis
-(user_answer or user_feedback), its saved answer_id, a source_quote copied verbatim
-from that event, and a substantive resolution explaining how it settles the conflict.
-Keep valid requirements covered in requirement_trace; they need not all be superseded.
-Preserve these resolutions in later planner/reviewer reports. Use [] when none apply.
-An explicit resolution may cite a conflict recorded in requirements_history after a
-refreshed handoff removes it, but only when all its requirement IDs still have the
-same verbatim source quotes. Do not transfer a resolution to reused or changed IDs.
-If no matching current or historical conflict exists, retain the saved decision in
-accepted_assumptions instead; an empty conflict_resolutions list then is valid.
-Agent assumptions and unrelated user events cannot resolve a conflict. Carry genuinely
-unresolved conflicts into open_blocking_questions; do not ask again for a saved decision.
-When revising, copy required_behaviors, scope_exclusions, constraints, important_failure_cases, acceptance_criteria (including verification
-methods), and permission_boundaries verbatim from goal_contract.body. In a draft without an approval receipt,
-you may correct a planner-generated verification_method that was never approved or user-set, retaining
-exact behavior, ID and human_review. Test:/guard: proofs cannot become prose or suite commands without a saved user basis.
-An unapproved planner draft may add human review. Approved/user-set review changes and removals need a saved basis.
-Use contract_changes=[] only for allowed draft corrections. Add new
-items when review identifies a gap; revise technical_approach, milestones, paths,
-tests and dependencies as needed. Do not rewrite an existing protected item for
-style or detail. Except numeric draft stdout repairs with a reviewer receipt, changes need a saved user answer
-or feedback event and an exact contract_changes entry naming the previous item.
-Use contract_changes=[] when those protected fields are unchanged. Reviewer
-concerns and agent proposals are not saved user authorization.
-Each milestones[].acceptance_criteria must contain ONLY those existing ID strings,
-for example ["AC1", "AC2"], never descriptions of checks or shell commands.
-Every milestone needs a nonempty objective and at least one acceptance criterion ID;
-together the milestones must cover all defined acceptance criteria.
-Exception for clarification-only discovery: while blocking questions remain,
-technical_approach=[] and milestones=[]; retain known requirements and questions.
-Do not invent an implementation to fill those arrays before scope is settled.
-Set depends_on on EVERY milestone. Use [] when it can start independently from
-the same approved contract, and IDs of prerequisite milestones otherwise.
-Check shared interfaces, ownership and validation boundaries before declaring
-milestones independent. The dependency graph must have no cycles.
-Declare affected_paths for every milestone as literal repository-relative files or
-directories covering all writes, including tests. Do not use globs, parent paths,
-or repository-wide '.'. Shared writes or interface/read dependencies need ordering
-edges; disjoint writes alone do not establish semantic independence. If ownership
-cannot be established, use [] for affected_paths; the Orchestrator will run it serially.
-An implement initial_task still lists in affected_paths the files or directories it writes;
-a validate initial_task, which writes nothing, may leave [] and checks its milestone's paths.
-initial_task must target a milestone with depends_on []; later tasks may start a
-milestone only after all of its depends_on milestones are accepted.
-Put the check descriptions in acceptance_criteria[].criterion and verification_method.
-"""
+CONTRACT_REFERENCES = prompts.get("fragments/goals/contract-references.md")
 
 
-DISCOVERY_PROMPT = """You are the Requirements Gatherer, the product lead, technical planner and final reviewer.
-The Builder implements. The Validator independently validates. First help the user define what to build.
-Read the rough idea, saved answers, brief feedback, current artifacts and project instructions.
-Explain your understanding of the intended outcome in plain English in summary.
-Identify decisions that materially affect product, scope, user experience or success.
-Ask only material unresolved questions,
-usually 2–3 at a time, using stable IDs. Never repeat answered questions. Do not use a
-generic mandatory questionnaire. Stop asking once scope and success are clear.
-Challenge unnecessary complexity. Prefer the smallest end-to-end version that proves
-the central idea. Propose sensible defaults for reversible technical choices instead
-of asking the user to decide every implementation detail.
-Examine relevant happy paths, failures, permissions, persistence, dependencies and
-qualitative expectations. Mark inferred preferences agent_proposed. Reference real answer
-IDs for user_answer or delegated decisions; for original_request or agent_proposed rows the
-answer_id must be the empty string. Do not invent user approval or delegation.
-For user_feedback decisions, use the saved brief_feedback event id as answer_id.
-Propose defaults with consequences. If investigation is required, propose a bounded
-discovery deliverable and its limits for separate goal approval. Read-only inspection
-is allowed; no implementation. Preserve existing work. All criteria are required;
-optional enhancements belong in the deferred backlog. Include a verification method
-per stable criterion ID and flag criteria needing actual human review.
-The versioned brief must include intended_user and intended_outcome; the ordered
-end_to_end_flow; deliverables and scope_exclusions; constraints, permissions and
-assumptions; observable acceptance criteria with verification methods; a minimal
-technical_approach; and substantial, coherent milestones with IDs, objectives and acceptance_criteria
-IDs. Every required criterion must belong to at least one milestone. Include depends_on
-on each milestone: [] for work that can begin independently, or prerequisite milestone IDs.
-Use source evidence and shared interface decisions to justify independent work; put
-unresolved boundaries in the blocking questions rather than guessing.
-Return the complete revised contract, including at most three open blocking questions.
-The user can send feedback to revise your draft. Use that feedback without inventing
-answers; ask a focused follow-up if a consequential decision is still unresolved.
-An empty question list asks the runner to present the actual brief for explicit approval,
-never to execute. Do not start implementation before that approval.
-"""
+DISCOVERY_PROMPT = prompts.get("fragments/goals/discovery-prompt.md")
 
-EXECUTION_PROMPT = """
-The EXACT approved goal below controls scope and success. Echo its revision and hash.
-Read saved_answers before raising any permission or scope question. A recorded user
-answer remains authoritative within its stated scope; cite its answer ID and proceed
-when it already covers the work. Preserve denials, conditions and explicit exclusions.
-Routine reversible implementation and test-harness corrections needed for the approved
-outcome do not need a new approval unless they cross an explicit boundary. Do not turn
-each discovered repair into a separate permission request. Diagnose within authorized
-scope first; when a real boundary remains, present the concrete minimal scope delta.
-Restate acceptance_criteria entries byte-identical from the contract (same ids, criterion
-text, verification methods, human_review flags); any rewording is rejected as a criteria
-change. Do not weaken criteria, change required behavior or expand scope. The Plan Reviewer may change the
-plan inside the goal; a validation task sends preserved implementation straight to the Validator.
-The Builder implements only the authorized batch. The Validator validates the actual current artifact
-and reports evidence for every criterion and an explicit blocking flag on each finding.
-Echo current_task.id as task_id, or the empty string when no task exists yet.
-A CONTINUE/REWORK next_task must set milestone_id to an approved milestone id whose
-acceptance_criteria list contains every criterion id the task cites; requirements,
-acceptance_criteria and validation_plan must all be nonempty.
-Human approvals come only from runner user events. Tests alone do not prove behaviors
-they do not cover. Unknown/untested/skipped is NOT_VERIFIED, never PASS.
-Put optional improvements in deferred_backlog; they cannot delay completion.
-If a material ambiguity, contradiction, infeasible constraint, permission need or goal
-change appears, STOP at a safe checkpoint and set user_request with the discovery,
-impact, smallest decision, options/consequences and proposed contract delta. Do not
-continue on an assumed answer. The Builder and Validator send that request to the Plan Reviewer; the Plan Reviewer decides
-whether a user decision is needed and presents it with BLOCKED. With no user decision needed use kind=none and empty
-strings/lists. Correct an incorrect test only with a documented goal-consistent reason.
-"""
+EXECUTION_PROMPT = prompts.get("fragments/goals/execution-prompt.md")

@@ -12,6 +12,12 @@ only words its refusal (``refusal``) for any other row.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 FIELDS = frozenset(("id", "disposition", "evidence"))
 REVIEW_SOURCES = {"sol": "sol", "astra_review": "astra", "astra_plan": "astra"}
 # These original outcomes already reach disposition application. A BLOCKED
@@ -23,14 +29,7 @@ APPLICABLE_OUTCOMES = {
 # The report-repair prompt's rule for these rows. In #459's live run a repair
 # "corrected" the evidence citation inside a closure row, was refused, and the
 # next repair dropped the closure, which cost another validation cycle.
-REPAIR_INSTRUCTION = (
-    "Never introduce or change finding resolutions or retractions. Copy each finding_dispositions row you keep "
-    "byte-for-byte from the original completed, nonblocked review (the handoff's original_report when it is "
-    "set, otherwise its rejected_report): the same id, disposition and evidence text, even where you correct "
-    "a citation elsewhere in the report. Never copy a row that a later repair changed or added. A row that "
-    "differs by one character cannot close its finding and the repair is rejected; omit a row rather than edit it. "
-    "Also omit a row whose evidence cites a check (check:N) that you corrected, removed or renumbered. "
-)
+REPAIR_INSTRUCTION = prompts.get("fragments/report-findings/repair-instruction.md")
 
 
 def _rows(report):

@@ -1,0 +1,1 @@
+Use independent screenshot and node comparisons plus functional/accessibility checks as the visual acceptance gate. Do not add a human visual approval requirement unless the user explicitly requests it; use human_review=false for criteria verified this way. Do not invent a human approval event.

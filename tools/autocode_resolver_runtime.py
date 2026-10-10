@@ -5,6 +5,12 @@ authorize a retry, mutate the contract, grant permission, or declare success.
 """
 
 try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
+try:
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_source_scope as source_scope
@@ -49,14 +55,7 @@ except ImportError:
 
 REVIEW_STAGES = ("astra_challenge", "astra_finalize")
 MAX_PLANNING_RECOVERY_GRANTS = 2
-OPERATIONAL_INSTRUCTION = (
-    "AutoResolver authorized only this read-only planning report recovery. Reuse retained "
-    "evidence and the saved planning exchange; do not repeat exploratory tools or restart "
-    "repository discovery. Finish the required structured report promptly. If evidence is "
-    "insufficient, state the concern or unresolved question in the report. Do not change "
-    "requirements, permissions, models, deadlines or budgets, fabricate approval, or add "
-    "another debate round. The exact final plan still requires human approval."
-)
+OPERATIONAL_INSTRUCTION = prompts.get("fragments/resolver-runtime/operational-instruction.md")
 
 
 def _operational_stop(message):

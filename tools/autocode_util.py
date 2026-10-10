@@ -43,7 +43,7 @@ def sleep(seconds: float) -> None:
 _RUN_PROCESS_HANDLERS: dict = {}
 
 
-def run_process(cmd, *, input=None, env=None):
+def run_process(cmd, *, input=None, env=None, cwd=None):
     """The one process spawn (#704 slice 3).
 
     Delegates to subprocess.run. When AUTOCODE_RUN_PROCESS names an importable
@@ -64,8 +64,8 @@ def run_process(cmd, *, input=None, env=None):
             else:
                 loaded = importlib.import_module(handler)
             _RUN_PROCESS_HANDLERS[handler] = module = loaded
-        return module.run_process(cmd, input=input, env=env)
-    return subprocess.run(cmd, input=input, env=env)
+        return module.run_process(cmd, input=input, env=env, cwd=cwd)
+    return subprocess.run(cmd, input=input, env=env, cwd=cwd)
 
 
 def slug(task: str) -> str:

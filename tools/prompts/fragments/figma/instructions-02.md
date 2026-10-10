@@ -1,0 +1,1 @@
+Include a human visual review criterion after independent technical validation.

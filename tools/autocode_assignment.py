@@ -13,6 +13,12 @@ runner (AGENTS.md rule 2); callers pass the stage history.
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import json
 import os
 import subprocess
@@ -148,11 +154,7 @@ def undo_created(paths, stages, record, workspace) -> str:
     return message
 
 
-BUILD_OUTPUT_NOTE = """
-BUILD OUTPUT: do not leave compiled programs or other build output in the workspace. Build to a scratch path
-under .autocode/ or discard the output (for example `go build -o .autocode/build/app ./...`, `go vet ./...`,
-`cargo build --target-dir .autocode/target`), not `go build .`, which writes a binary into the repository root.
-"""
+BUILD_OUTPUT_NOTE = prompts.get("fragments/assignment/build-output-note.md")
 
 # Headers of native executables: ELF (Linux), Mach-O (macOS, both byte orders, 32/64-bit and fat), PE (Windows).
 EXECUTABLE_HEADERS = (
