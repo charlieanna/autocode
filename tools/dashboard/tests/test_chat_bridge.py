@@ -81,9 +81,10 @@ else:
    if (root/'answer-fails').exists():
     print('fixture answer rejected',file=sys.stderr);raise SystemExit(1)
    ident,text=arg('--answer').split('=',1) if '--answer' in args else (arg('--delegate'),'delegated')
-   supplied=arg('--resolver-token')
-   if supplied == '-': supplied=os.environ.get('AUTOCODE_RESOLVER_TOKEN')
-   assert supplied == state['resolver_human_request']['request_token']
+   assert arg('--resolver-token') == '-'
+   token=os.environ['AUTOCODE_RESOLVER_TOKEN']
+   assert token == state['resolver_human_request']['request_token']
+   assert token not in args
    state.setdefault('answers',{})[ident]=text
    state['pending_questions']=[q for q in state.get('pending_questions',[]) if q['id']!=ident]
    state.pop('resolver_human_request',None)
