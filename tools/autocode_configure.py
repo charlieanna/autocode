@@ -562,6 +562,7 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
             "provider": None,
             "model": single_model
             or getattr(args, "requirements_model", None)
+            or getattr(args, "glm_model", None)
             or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
             "reasoning_effort": getattr(args, "requirements_reasoning_effort", None),
         }
