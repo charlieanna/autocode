@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Verify through the public CLI that an exhausted report-repair allowance buys
+  no third provider call, even when successive errors differ (#846).
+
 - Recovery browser fixtures can import core modules when launched directly
   with no checkout-specific PYTHONPATH, as in CI (#856).
 
