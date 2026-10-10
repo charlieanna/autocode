@@ -37,6 +37,8 @@ class PlanningTests(unittest.TestCase):
                 self.assertIn("not one milestone per slice", prompt)
                 self.assertIn("contract.initial_task executes only slices[0]", prompt)
                 self.assertIn("each check's criterion_ids must be a subset", prompt)
+                self.assertIn("Follow the provider output contract for reporting", prompt)
+                self.assertNotIn("return the report, the runner saves it", prompt)
 
     def test_revision_prompt_requires_each_citation_and_a_safe_protected_conflict_exit(self):
         state = self.state()

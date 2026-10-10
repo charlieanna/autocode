@@ -28,6 +28,8 @@ try:
     from . import autocode_member_stop as member_stop
     from . import autocode_operational_information as operational_information
     from . import autocode_output_policy as output_policy
+    from . import autocode_pause_category as pause_category
+    from . import autocode_pause_command as pause_command
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_limits as recovery_limits
@@ -50,6 +52,8 @@ except ImportError:
     import autocode_member_stop as member_stop
     import autocode_operational_information as operational_information
     import autocode_output_policy as output_policy
+    import autocode_pause_category as pause_category
+    import autocode_pause_command as pause_command
     import autocode_progressive_plan as progressive_rules
     import autocode_quota_route as quota_route
     import autocode_recovery_limits as recovery_limits
@@ -77,9 +81,14 @@ def view(
     liveness=None,
     runner_check_liveness=None,
     verification_obligation=None,
+    run_dir=None,
+    workspace=None,
 ) -> dict:
     """Caller supplies fresh completion, evidence, repair and supervision inspections."""
     status = state.get("status", "")
+    need = needs(state, stale_report_repair=stale_report_repair)
+    category = pause_category.category(status, need)
+    terminal = any(row.get("kind") == "stop" for row in state.get("applied_interventions", []) if isinstance(row, dict))
     task = state.get("current_task") or {}
     active = state.get("active_stage")
     supervision = active.get("supervision") if isinstance(active, dict) else None
@@ -98,11 +107,25 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        "pause_category": category,
+        "pause_category_label": pause_category.LABELS.get(category) if category else None,
         "status": status,
+        "next_command": pause_command.command(
+            need,
+            run_dir=run_dir or state.get("run_dir"),
+            workspace=workspace or state.get("workspace"),
+            # This status also names novelty/source holds; only its bound hold needs a larger limit.
+            resume_flags=None
+            if status == "PAUSED_NO_PROGRESS" and not recovery_limits.no_progress_bound_holds(state)
+            else operational_information.resume_flags(state, (need or {}).get("pause_origin") or status),
+            terminal=terminal,
+        )
+        if category
+        else None,
         "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE,
-        "needs": needs(state, stale_report_repair=stale_report_repair),
-        "recovery": recovery_view.project(state, needs(state, stale_report_repair=stale_report_repair)),
+        "needs": need,
+        "recovery": recovery_view.project(state, need),
         "verification": verification_view.project(state),
         "code_checkpoints": code_checkpoints.project(state),
         "phase": state.get("phase"),
@@ -113,7 +136,7 @@ def view(
         "explanation": stop_explanations.explain(
             status,
             stop_reason=state.get("stop_reason") or "",
-            needs=needs(state, stale_report_repair=stale_report_repair),
+            needs=need,
         ),
         "current_task": {key: task.get(key) for key in ("id", "objective", "milestone_id")} if task else None,
         # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);
@@ -671,6 +694,9 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             answer["resolver_request_id"] = published.get("request_id")
             answer["resolver_token"] = published.get("request_token")
             answer["resolver_scope"] = published.get("scope")
+            if answer["resolver_scope"] in ("blocker", "operational_exhaustion"):
+                origin = ((entry.get("identity") or {}).get("proposal") or {}).get("origin") or {}
+                answer["pause_origin"] = origin.get("pause_status")
         # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
         # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
         # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the

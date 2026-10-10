@@ -75,7 +75,7 @@ class QuotaRouteCliTests(unittest.TestCase):
         surfaces = [paused["stop_reason"], published["request"]["decision_needed"], *published["request"]["options"]]
         flags = {flag for text in surfaces for flag in ADVERTISED_FLAGS.findall(text)}
         self.assertTrue({"--answer", "--resolver-token", "--resume-paused", "--abandon-stage", "--sol-model"} <= flags)
-        known = set(ADVERTISED_FLAGS.findall(self.launch(["--help"], 0).stdout))
+        known = set(ADVERTISED_FLAGS.findall(self.launch(["--help-all"], 0).stdout))
         self.assertEqual(set(), flags - known, "a stop must never advertise a flag the CLI does not have")
         state_file = self.run_dir / "state.json"
         before = state_file.read_bytes()
