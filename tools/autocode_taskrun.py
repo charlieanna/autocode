@@ -200,16 +200,23 @@ class TaskRun:
             "--resume-paused",
             "--retry-failed-stage",
             "--job-retry-token",
-            token,
+            "-",
             "--no-chat",
             *self.options,
             advancing=True,
+            secret_env={"AUTOCODE_JOB_RETRY_TOKEN": token},
         )
         return self.status()
 
     def recover_job_report(self, token: str) -> dict:
         """Adopt an inspected owner-lost Investigator report; never launch a model."""
-        self._invoke("recover job report", "--recover-job-report", token, *self.options)
+        self._invoke(
+            "recover job report",
+            "--recover-job-report",
+            "-",
+            *self.options,
+            secret_env={"AUTOCODE_RECOVER_JOB_REPORT": token},
+        )
         return self.status()
 
     def grant_recovery(self, amount: int) -> dict:
@@ -312,7 +319,14 @@ class TaskRun:
                     f"no current AutoResolver request carries {question_id}; "
                     "advance the run to publish one, then answer"
                 )
-        return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
+        return self._act(
+            "answer",
+            "--answer",
+            f"{question_id}={text}",
+            "--resolver-token",
+            "-",
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": resolver_token},
+        )
 
     def assign_model(
         self, role: str, model: str, *, resolver_token: str | None = None, job_retry_token: str | None = None
@@ -332,7 +346,14 @@ class TaskRun:
             if need.get("kind") == "retry_job" and (need.get("route") or {}).get("role") == role:
                 job_retry_token = need.get("job_retry_token")
         if job_retry_token is not None:
-            view = self._act("assign model", "--answer", f"route-{role}={model}", "--job-retry-token", job_retry_token)
+            view = self._act(
+                "assign model",
+                "--answer",
+                f"route-{role}={model}",
+                "--job-retry-token",
+                "-",
+                secret_env={"AUTOCODE_JOB_RETRY_TOKEN": job_retry_token},
+            )
         else:
             view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
         flag = "--" + role.replace("_", "-") + "-model"
@@ -350,18 +371,26 @@ class TaskRun:
             "--resolver-request",
             request_id,
             "--resolver-token",
-            request_token,
+            "-",
             "--resolver-response",
             "provide_information",
             "--resolver-message",
             text,
+            secret_env={"AUTOCODE_RESOLVER_TOKEN": request_token},
         )
 
     def approve_plan(self, token: str) -> dict:
-        return self._act("approve plan", "--approve-goal", token)
+        return self._act("approve plan", "--approve-goal", "-", secret_env={"AUTOCODE_APPROVE_GOAL_TOKEN": token})
 
     def approve_review(self, criterion: str, token: str) -> dict:
-        return self._act("approve review", "--approve-review", criterion, "--review-token", token)
+        return self._act(
+            "approve review",
+            "--approve-review",
+            criterion,
+            "--review-token",
+            "-",
+            secret_env={"AUTOCODE_REVIEW_TOKEN": token},
+        )
 
     def feedback(self, text: str) -> dict:
         return self._act("feedback", "--feedback", text)
@@ -370,12 +399,19 @@ class TaskRun:
         """Say the next thing to a finished run; continue it afterwards."""
         return self._act("follow-up", "--follow-up", text)
 
-    def _act(self, name: str, *args: str) -> dict:
+    def _act(self, name: str, *args: str, secret_env: dict[str, str] | None = None) -> dict:
         """User actions exit 0 once saved; anything else means AutoCode rejected them."""
-        self._invoke(name, *args)
+        self._invoke(name, *args, secret_env=secret_env)
         return self.status()
 
-    def _invoke(self, name: str, *args: str, advancing: bool = False, with_run_dir: bool = True):
+    def _invoke(
+        self,
+        name: str,
+        *args: str,
+        advancing: bool = False,
+        with_run_dir: bool = True,
+        secret_env: dict[str, str] | None = None,
+    ):
         cmd = [*self.command, *args, "--workspace", str(self.workspace)]
         if with_run_dir:
             cmd += ["--run-dir", str(self.run_dir)]
@@ -384,7 +420,9 @@ class TaskRun:
         if self.timeout is not None:
             options["timeout"] = self.timeout
         try:
-            environment = {**os.environ, **(self.env or {})}
+            # secret_env carries authorization tokens in the child's environment
+            # instead of argv: /proc/<pid>/cmdline is world-readable, environ is not.
+            environment = {**os.environ, **(self.env or {}), **(secret_env or {})}
             if advancing:
                 proc = run_captured(cmd, env=environment, **options)
             else:
