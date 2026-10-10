@@ -37,6 +37,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Strict macOS tool containment permits accented and CJK workspace paths while
   retaining protected-path denials and quote/backslash escaping (#812).
+- Preserve review scenario seed context so the supplied PR patch applies and
+  both regression mutation checks execute after repository formatting (#853).
+
 - Keep native inventory fixture injection at its requested output indentation
   when formatted report-repair code contains the same output statement (#851).
 
