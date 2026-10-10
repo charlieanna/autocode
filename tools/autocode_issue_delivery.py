@@ -3,17 +3,19 @@
 The issue adapter supplies public TaskRun facts and owns the receipt. Nothing
 here opens a run's state, changes completion or calls a provider.
 """
-from copy import deepcopy
 import hashlib
 import html
 import os
-from pathlib import Path
 import subprocess
+from copy import deepcopy
+from pathlib import Path
 
 try:
-    from . import autocode_source_snapshot as source, autocode_util as util
+    from . import autocode_source_snapshot as source
+    from . import autocode_util as util
 except ImportError:
-    import autocode_source_snapshot as source, autocode_util as util
+    import autocode_source_snapshot as source
+    import autocode_util as util
 
 
 def git(root, *args, binary=False):

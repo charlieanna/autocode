@@ -2,16 +2,18 @@
 
 This is a report of supplied public facts, never a verifier or completion gate.
 """
-from copy import deepcopy
-from pathlib import Path
-import json
 import html
+import json
+from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 
 try:
-    from . import autocode_roles as roles, autocode_util as util
+    from . import autocode_roles as roles
+    from . import autocode_util as util
 except ImportError:
-    import autocode_roles as roles, autocode_util as util
+    import autocode_roles as roles
+    import autocode_util as util
 
 SCHEMA_PATH = Path(__file__).parent / "autocode-schemas/evidence-report.schema.json"
 
@@ -138,9 +140,8 @@ def sanitize(value):
         return item
     result = visit(value)
     formatted = _render(result)
-    if result != value or util.redact(formatted) != formatted:
-        if REDACTION_NOTICE not in result["unverified"]:
-            result["unverified"].append(REDACTION_NOTICE)
+    if (result != value or util.redact(formatted) != formatted) and REDACTION_NOTICE not in result["unverified"]:
+        result["unverified"].append(REDACTION_NOTICE)
     return result
 
 
