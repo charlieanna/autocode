@@ -37,6 +37,11 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Match the parallel quota fixture recognizer by syntax so formatting cannot
   silently omit its required clarity field before worker recovery tests (#854).
+- Recovery browser fixtures can import core modules when launched directly
+  with no checkout-specific PYTHONPATH, as in CI (#856).
+
+- Preserve review scenario seed context so the supplied PR patch applies and
+  both regression mutation checks execute after repository formatting (#853).
 
 - Keep native inventory fixture injection at its requested output indentation
   when formatted report-repair code contains the same output statement (#851).
