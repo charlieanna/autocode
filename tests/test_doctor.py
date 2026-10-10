@@ -48,12 +48,21 @@ class KeeperDependencyTests(unittest.TestCase):
             self.assertIn("site-packages", check["fix"])
             self.assertIn("PYTHONPATH", check["fix"])
 
+    def test_workspace_psutil_module_does_not_shadow_the_keeper_dependency(self):
+        import contextlib
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "psutil.py").write_text("raise RuntimeError('workspace shadow')\n")
+            with contextlib.chdir(folder):
+                check = doctor.psutil_check()
+            self.assertEqual(doctor.OK, check.status)
+
     def test_a_ready_keeper_environment_passes(self):
         self.assertEqual(doctor.OK, doctor.psutil_check().status)
 
     def test_a_failed_keeper_probe_is_actionable_without_exposing_stderr(self):
-        def runner(cmd):
+        def runner(cmd, cwd=None):
             self.assertEqual([sys.executable, "-E", "-c", "import psutil"], cmd)
+            self.assertEqual(Path(doctor.__file__).resolve().parent, cwd)
             return subprocess.CompletedProcess(cmd, -1, "", "private setup detail")
         check = doctor.psutil_check(runner=runner)
         self.assertEqual(doctor.MISSING, check.status)

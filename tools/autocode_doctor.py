@@ -77,13 +77,14 @@ def psutil_check(runner=run) -> Check:
     # The keeper ignores PYTHON* variables with -E. The -I bootstrap uses only
     # the standard library, so it does not need a separate psutil probe.
     try:
-        probe = runner([sys.executable, "-E", "-c", "import psutil"])
+        probe = runner([sys.executable, "-E", "-c", "import psutil"],
+                       cwd=Path(__file__).resolve().parent)
     except (OSError, subprocess.TimeoutExpired):
         probe = None
     if probe is None or probe.returncode != 0:
         return Check("psutil", MISSING,
                      "psutil is not available to the process keeper's -E interpreter",
-                     "install psutil into this virtualenv's site-packages, rather than relying on PYTHONPATH; "
+                     "install psutil into a virtualenv's site-packages and use that interpreter, rather than relying on PYTHONPATH; "
                      "reinstall AutoCode with pipx or use the project's .venv/bin/python")
     return Check("psutil", OK, "psutil importable by the controller and the -E process keeper")
 
