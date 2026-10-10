@@ -20,7 +20,7 @@ from dashboard_chat import planning_messages
 from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
 
 FAKE_RUNNER = r"""
-import json, sys
+import json, os, sys
 from pathlib import Path
 sys.path.insert(0, FIXTURE_IMPORT_PATH)
 from test_pending_decisions import publish, resolver_human
@@ -81,7 +81,9 @@ else:
    if (root/'answer-fails').exists():
     print('fixture answer rejected',file=sys.stderr);raise SystemExit(1)
    ident,text=arg('--answer').split('=',1) if '--answer' in args else (arg('--delegate'),'delegated')
-   assert arg('--resolver-token') == state['resolver_human_request']['request_token']
+   supplied=arg('--resolver-token')
+   if supplied == '-': supplied=os.environ.get('AUTOCODE_RESOLVER_TOKEN')
+   assert supplied == state['resolver_human_request']['request_token']
    state.setdefault('answers',{})[ident]=text
    state['pending_questions']=[q for q in state.get('pending_questions',[]) if q['id']!=ident]
    state.pop('resolver_human_request',None)
