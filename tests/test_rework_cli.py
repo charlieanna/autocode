@@ -9,11 +9,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness import catalog, verdict
-from harness.driver import DriveError, Driver, default_autocode, fake_setup
-from harness.project import materialize
-
 from scenarios import run as scenario_run
+from scenarios.harness import catalog, verdict
+from scenarios.harness.driver import DriveError, Driver, default_autocode, fake_setup
+from scenarios.harness.project import materialize
 
 
 class SavedRoutesDriver(Driver):
