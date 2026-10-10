@@ -185,7 +185,9 @@ def _service(cid: str, runtime: ComponentRuntime, runtimes: Mapping[str, Compone
         for dep in sorted(runtime.runtime_depends_on):
             dependency = runtimes[dep]
             depends_on[dep] = {
-                "condition": "service_healthy" if (dependency is not None and dependency.health_command) else "service_started"
+                "condition": "service_healthy"
+                if (dependency is not None and dependency.health_command)
+                else "service_started"
             }
         service["depends_on"] = depends_on
     return service

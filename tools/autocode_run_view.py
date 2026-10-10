@@ -490,20 +490,31 @@ def evidence(state: dict) -> dict:
 
 def workflow_result(state):
     """Bounded job outcome facts; job completion is separate from code checks."""
-    kind = (state.get('workflow') or {}).get('kind')
-    if kind == 'review' and state.get('review'):
-        row = state['review']
-        return {'outcome': row.get('verdict'), 'artifact': row.get('report_path'),
-                'artifact_sha256': None, 'summary': f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings"}
-    if kind == 'design' and (state.get('design_review') or {}).get('mode') == 'review':
-        row = state['design_review']
-        return {'outcome': row.get('verdict'), 'artifact': row.get('report_path'),
-                'artifact_sha256': row.get('report_sha256'),
-                'summary': f"Design revision {row.get('revision')}; {row.get('blocking', 0)} blocking concerns"}
-    if kind == 'discuss' and state.get('answer'):
-        row = state['answer']
-        return {'outcome': 'answered', 'artifact': row.get('note_path') or row.get('output'),
-                'artifact_sha256': None, 'summary': 'Analyst answer recorded; code correctness is not established by an answer'}
+    kind = (state.get("workflow") or {}).get("kind")
+    if kind == "review" and state.get("review"):
+        row = state["review"]
+        return {
+            "outcome": row.get("verdict"),
+            "artifact": row.get("report_path"),
+            "artifact_sha256": None,
+            "summary": f"{row.get('blocking', 0)} blocking, {row.get('advisory', 0)} advisory findings",
+        }
+    if kind == "design" and (state.get("design_review") or {}).get("mode") == "review":
+        row = state["design_review"]
+        return {
+            "outcome": row.get("verdict"),
+            "artifact": row.get("report_path"),
+            "artifact_sha256": row.get("report_sha256"),
+            "summary": f"Design revision {row.get('revision')}; {row.get('blocking', 0)} blocking concerns",
+        }
+    if kind == "discuss" and state.get("answer"):
+        row = state["answer"]
+        return {
+            "outcome": "answered",
+            "artifact": row.get("note_path") or row.get("output"),
+            "artifact_sha256": None,
+            "summary": "Analyst answer recorded; code correctness is not established by an answer",
+        }
     return None
 
 

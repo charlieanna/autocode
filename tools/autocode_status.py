@@ -193,9 +193,9 @@ def persist(path, state):
         import autocode_evidence_export as evidence_export
         import autocode_evidence_provenance as evidence_provenance
         import autocode_run_view as run_view
-    if state.get('status') in evidence_export.COMPLETE and evidence_export.publish(
-            util.Path(path).parent, state, run_view.view(state),
-            evidence_provenance.projection(state.get("settings") or {})):
+    if state.get("status") in evidence_export.COMPLETE and evidence_export.publish(
+        util.Path(path).parent, state, run_view.view(state), evidence_provenance.projection(state.get("settings") or {})
+    ):
         util.atomic_json(path, state)
     if entry:
         print(entry["text"], file=sys.stderr, flush=True)

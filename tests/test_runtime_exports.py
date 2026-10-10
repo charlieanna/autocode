@@ -1,4 +1,5 @@
 """Exercise the real controller interfaces in package and direct-script imports."""
+
 import json
 import subprocess
 import sys
@@ -19,14 +20,18 @@ EXPORTS = {
         "autocode_report_source": ["original_report_for_repair"],
         "autocode_report_findings": [["retained_dispositions", "retained"]],
         "autocode_stage_recovery": [
-            "MAX_AUTOMATIC_CAPACITY_RECOVERIES", "abandon_stage",
-            "archive_stale_report_repair", "authorize_failure_retry",
+            "MAX_AUTOMATIC_CAPACITY_RECOVERIES",
+            "abandon_stage",
+            "archive_stale_report_repair",
+            "authorize_failure_retry",
             "automatically_recover_capacity_stage",
             "automatically_recover_external_directory_denial",
             "automatically_recover_timed_out_stage",
             "prepare_abandoned_completion_revalidation",
-            "prepare_exhausted_execution_report_retry", "prepare_planning_retry",
-            "recover_legacy_report_repair", "retry_format_failed_report",
+            "prepare_exhausted_execution_report_retry",
+            "prepare_planning_retry",
+            "recover_legacy_report_repair",
+            "retry_format_failed_report",
         ],
     },
     "autocode_goals": {
@@ -38,10 +43,16 @@ EXPORTS = {
         "autocode_baseline": ["BASELINE_POLICY"],
         "autocode_legacy_process": ["assert_no_legacy_process"],
         "autocode_report_schema": [
-            "hydrate_review_report", "review_generation_schema", "review_validation_schema",
+            "hydrate_review_report",
+            "review_generation_schema",
+            "review_validation_schema",
         ],
         "autocode_util": [
-            "changed_paths", "model_output_schema", "run_lock", "snapshot", "workspace_lock",
+            "changed_paths",
+            "model_output_schema",
+            "run_lock",
+            "snapshot",
+            "workspace_lock",
         ],
     },
     "dashboard.planner_dispatch": {
@@ -74,7 +85,10 @@ class RuntimeExportsTests(unittest.TestCase):
                 with self.subTest(import_mode=prefix or "direct script"):
                     result = subprocess.run(
                         [sys.executable, "-B", "-c", PROBE, str(path), prefix, json.dumps(EXPORTS)],
-                        cwd=directory, capture_output=True, text=True, timeout=60,
+                        cwd=directory,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
                     )
                     self.assertEqual(0, result.returncode, result.stderr)
                     self.assertEqual([], json.loads(result.stdout), result.stdout)
@@ -83,8 +97,11 @@ class RuntimeExportsTests(unittest.TestCase):
         for entry in ([str(TOOLS / "autocode.py")], ["-m", "tools.autocode"]):
             with self.subTest(entry=entry):
                 result = subprocess.run(
-                    [sys.executable, "-B", *entry, "--help"], cwd=ROOT,
-                    capture_output=True, text=True, timeout=60,
+                    [sys.executable, "-B", *entry, "--help"],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                 )
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("--workspace", result.stdout)

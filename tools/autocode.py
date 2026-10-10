@@ -622,9 +622,7 @@ def run_role(
     record["engine"] = engine
     record["reasoning_effort"] = effort
     record["launch_route"] = {key: route.get(key) for key in ("engine", "provider", "model", "reasoning_effort")}
-    record["output_mode"] = (
-        getattr(opencode, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
-    )
+    record["output_mode"] = getattr(opencode, "OUTPUT", "opencode_events") if engine == "opencode" else "codex_events"
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:

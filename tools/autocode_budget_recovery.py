@@ -493,10 +493,7 @@ def recover(state, *, kind, now) -> bool:
             )
             and isinstance(changed, list)
             and changed
-            and (
-                kind != "milestone_max_seconds"
-                or (isinstance(task, dict) and row.get("task_id") == task.get("id"))
-            )
+            and (kind != "milestone_max_seconds" or (isinstance(task, dict) and row.get("task_id") == task.get("id")))
             and all(isinstance(path, str) and path.strip() for path in changed)
             and isinstance(row.get("output"), str)
             and row["output"]
