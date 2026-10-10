@@ -3,8 +3,8 @@
 Issue #843 found that master protection required no status checks. A PR could
 merge while the suite was failing or still running.
 
-Master should require `suite (ubuntu-latest)` and `local-compose`, both from
-GitHub Actions (app ID 15368), with the branch up to date before merging. The
+Master should require `suite (ubuntu-latest)`, `lint` and `local-compose`, all
+from GitHub Actions (app ID 15368), with the branch up to date before merging. The
 Compose workflow runs on every PR so a required check cannot be left pending
 by path filtering. Its job failures propagate to the workflow result.
 
