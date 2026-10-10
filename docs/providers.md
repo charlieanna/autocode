@@ -45,9 +45,23 @@ against actual completed bash events; the runner then re-runs a passing Validato
 checks itself in a clean copy ([Execution](execution.md#the-runner-re-runs-the-validators-checks)). Raw events, session IDs and stage-local
 permission overrides are saved alongside the checkpoint. Token limits include cache
 reads/writes and reasoning tokens. Malformed or uncertain results pause; the runner
-does not automatically replay the provider request. The one exception is a Validator or
-Completion Owner response cut off by the output-token limit: when the process exited
-cleanly with the source unchanged, the runner archives the attempt and queues a bounded
+does not automatically replay an ambiguous provider request. An explicitly retryable
+native `APIError` with `ECONNRESET`, `ETIMEDOUT`, `EPIPE`, or HTTP 500/502/503/504 may
+receive one fresh same-stage, same-model retry when its entire event stream contains
+only that error, its collected failed process exited normally with verified owned
+cleanup, and its source, Git index, task, settings and route are unchanged. The
+failed attempt, raw events and usage remain charged and retained. The existing
+run-wide automatic-recovery limit still applies; restarts, abandonment and route
+changes do not renew a failed chain's allowance. Session continuations, partial
+turns/tools/reports, uncertain cleanup, human gates, quota/auth failures and output
+limits keep their ordinary recovery policy. Saved attempts without the launch
+binding and non-native transports remain unsupported by this automatic retry.
+The supported native error fields follow [OpenCode 1.18.33's conversion](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/session/message-v2.ts#L600)
+and [HTTP error metadata](https://github.com/anomalyco/opencode/blob/v1.18.33/packages/opencode/src/provider/error.ts#L160);
+unknown metadata keeps the ordinary hold.
+
+When a Validator or Completion Owner response is cut off by the output-token limit and the process
+exited cleanly with the source unchanged, the runner archives the attempt and queues a bounded
 report-only repair from the saved partial response and check evidence rather than
 replaying the provider request.
 
