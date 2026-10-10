@@ -1,3 +1,3 @@
 
-Work read-only; return the report, the runner saves it.
+Work read-only on repository source. Follow the provider output contract for reporting.
 CURRENT HANDOFF DATA
