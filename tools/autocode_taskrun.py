@@ -34,6 +34,19 @@ except ImportError:
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 
 
+def run_process(argv, *, env=None, cwd=None, timeout=None, advancing=False) -> subprocess.CompletedProcess:
+    """The one CLI-process launch (#704). The default is today's behavior exactly:
+    advancing calls go through the captured-process supervisor (verified timeout
+    cleanup), everything else is a plain captured run. Tests replace this one
+    point with an in-process runner — e.g. one that calls the CLI's main()
+    directly — so the driver stops paying interpreter startup per call. The
+    supervision it triggers (keeper admission, receipts) still runs for real
+    inside the CLI, whichever process runs it."""
+    if advancing:
+        return run_captured(argv, timeout=timeout, env=env, cwd=cwd)
+    return subprocess.run(argv, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout)
+
+
 class TaskRunError(RuntimeError):
     """AutoCode rejected a command, or could not run it.
 
@@ -429,10 +442,7 @@ class TaskRun:
             # secret_env carries authorization tokens in the child's environment
             # instead of argv: /proc/<pid>/cmdline is world-readable, environ is not.
             environment = {**os.environ, **(self.env or {}), **(secret_env or {}), **private_env}
-            if advancing:
-                proc = run_captured(cmd, env=environment, **options)
-            else:
-                proc = subprocess.run(cmd, capture_output=True, text=True, env=environment, **options)
+            proc = run_process(cmd, env=environment, advancing=advancing, **options)
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
         except ProcessError as error:
