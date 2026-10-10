@@ -36,6 +36,12 @@ criteria of its own milestone and of those already accepted
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import contextlib
 import re
 
@@ -105,20 +111,12 @@ SUMMARY_KEYS = (
 # instead of re-running the same tests, and never override it.
 PROMPT_NOTES = {
     "passed": {
-        "validator": "\nREGRESSION PROOF: regression_proof records that the runner already ran the new or changed "
-        "tests (failing on the original code, passing now) and the project suite; case_tests names the test for each English test case (the diagnosis's, or the plan's criteria marked test:): read each one and report FAIL if it does not assert exactly the case's given, when and then. Do not re-run the "
-        "whole suite. Run the regression command once as your own executed check, then spend your "
-        "effort on what those tests do not cover in the acceptance criteria. To close a finding the proof settles, cite regression_proof's verdict and source_revision as the evidence.\n",
-        "owner": "\nREGRESSION PROOF: regression_proof and the Validator's report are executed evidence for this "
-        "exact source. At a milestone checkpoint, PASS covers case_scope. Continue the approved remaining "
-        "milestones; final completion still needs every case. Do not re-run tests to re-establish them; "
-        "decide from the recorded evidence.\n",
+        "validator": prompts.get("fragments/regression/prompt-notes.md"),
+        "owner": prompts.get("fragments/regression/prompt-notes-02.md"),
     },
     "open": {
-        "validator": "\nREGRESSION PROOF: regression_proof is not PASS for this source. The fix is not proven; "
-        "report FAIL and cite its failures or unverified reasons as findings.\n",
-        "owner": "\nREGRESSION PROOF: regression_proof is not PASS, so the runner will refuse completion. Do not "
-        "request COMPLETE; return REWORK whose findings are the proof's failures or unverified reasons.\n",
+        "validator": prompts.get("fragments/regression/prompt-notes-03.md"),
+        "owner": prompts.get("fragments/regression/prompt-notes-04.md"),
     },
 }
 

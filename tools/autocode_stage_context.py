@@ -8,6 +8,12 @@ prompt text (STABLE, COMMON, ...) stays in autocode_support, where the planning 
 from __future__ import annotations
 
 try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
+try:
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_source_scope as source_scope
@@ -59,7 +65,7 @@ def context_packet(state, stage, state_path):
         "recovery_context": state.get("recovery_context"),
         "evidence_locations": state.get("evidence_locations", []),
         "private_source_exceptions": state.get("private_source_exceptions", []),
-        "context_policy": "Full artifacts remain on disk; retrieve relevant exact evidence on demand.",
+        "context_policy": prompts.get("fragments/stage-context/context-packet.md"),
     }
     current = source_scope.snapshot(Path(state["workspace"]), state, base_snapshot=support.snapshot)
     base.update(
@@ -74,16 +80,7 @@ def context_packet(state, stage, state_path):
         base["builder_artifact_policy"] = {
             "evidence_directory": (state.get("recovery_context") or {}).get("diagnostic_directory")
             or str(Path(state_path).parent / "evidence"),
-            "instruction": "Source writes must stay within current_task.affected_paths. "
-            "Shell commands start in workspace; use relative source paths there. "
-            "When a file tool requires an absolute path, derive it from the exact workspace "
-            "value in this packet. Never reconstruct or shorten that root from a run name. "
-            "Do not create a top-level evidence/ directory or other unassigned source files. "
-            "Command events are already retained by the runner; extra evidence files are optional. "
-            "If needed, write only under evidence_directory above using a unique filename, "
-            "never runner state/config. Cite bare event: IDs or exact existing paths in evidence_refs; "
-            "put explanations in summary/results, not in paths. Create missing assigned outputs "
-            "rather than treating them as missing prerequisites.",
+            "instruction": prompts.get("fragments/stage-context/context-packet-04.md"),
         }
     protected = protected_oracles.context(
         state["settings"], (state.get("current_task") or {}).get("affected_paths", [])
@@ -99,11 +96,7 @@ def context_packet(state, stage, state_path):
     prerequisites = state["settings"].get("task_preflight", {}).get("body", {})
     if prerequisites.get("design"):
         base["design_readiness"] = prerequisites["design"]
-        base["design_readiness_instruction"] = (
-            "Read every context_parts file in order: concatenated bytes are the complete "
-            "verbatim decoded design context, validated against the raw reference. Use the declared canvas/fonts. "
-            "Prerequisite readiness establishes access/setup only, never visual fidelity or acceptance."
-        )
+        base["design_readiness_instruction"] = prompts.get("fragments/stage-context/context-packet-02.md")
     figma_file = state["settings"].get("figma_file")
     if figma_file:
         base["figma_file"] = figma_file
@@ -118,13 +111,7 @@ def context_packet(state, stage, state_path):
         source = "sol" if stage == "sol" else "astra"
         base["review_identity_policy"] = {
             "own_open_finding_ids": [r["id"] for r in findings_ledger.open_entries(state, source)],
-            "instruction": "Only reuse your own open IDs. Use an empty id for a new finding, "
-            "including a defect also found by the other reviewer. Give every finding a nonempty title. "
-            "Resolve only with passing evidence for its scope; unavailable execution remains NOT_VERIFIED. "
-            "Do not bypass sandbox or browser restrictions. Missing devices, credentials, tools, "
-            "permissions or human judgment are verification blockers, NOT implementation defects: "
-            "record them in unverified_criteria/user_request with BLOCKED/NOT_VERIFIED, not as findings. "
-            "Retain independently evidenced code defects even when other checks are blocked.",
+            "instruction": prompts.get("fragments/stage-context/context-packet-05.md"),
         }
     if stage == "terra":
         base.update(
@@ -200,32 +187,13 @@ def context_packet(state, stage, state_path):
             import autocode_verification_plan as verification_plan
         progressive = progressive_state.context(state)
         base["verification_obligations"] = verification_plan.obligations(state, progressive_context=progressive)
-        instruction += (
-            "\nVERIFICATION OBLIGATIONS: declared commands retain their distinct purposes. "
-            "Builder feedback is not independent acceptance. Unknown test inventory or execution setup "
-            "is not proof of coverage. Only runner-authenticated scheduling receipts may establish reuse; "
-            "do not omit approved commands, fresh final checks, or required image review.\n"
-        )
+        instruction += prompts.get("fragments/stage-context/context-packet-03.md")
         if progressive:
             base["progressive_verification"] = {
                 **progressive,
                 "required_commands": verification_plan.approved_commands(state, progressive_context=progressive),
             }
-            instruction += (
-                "\nPROGRESSIVE VERIFICATION: progressive_verification is the authoritative approved "
-                "active slice, not a tentative proposal. required_checks and required_commands are due for "
-                "this intermediate task; checkpoint_checks is the full cumulative checklist required at the "
-                "slice boundary. Keep the stable whole-product contract. Retained earlier demonstrations "
-                "remain mandatory. At a slice checkpoint every checkpoint check needs fresh independent "
-                "proof on the current source; historical PASS is not a substitute. "
-                "Historical PASS is not current proof. A contributes_to check is only a contribution, never "
-                "full proof of its product criterion. Outstanding criteria are expected deferred product work; "
-                "a fully_verify obligation is due even if its criterion is still outstanding. Report actual "
-                "FAIL honestly; never change FAIL to PASS or PASS to FAIL to advance a slice. "
-                "Do not invent defects solely because that declared future work is not built. Never relabel "
-                "a real finding or a failed due check as future work: all product findings retain their normal "
-                "ownership, severity and closure rules. A verified slice is not product acceptance or completion.\n"
-            )
+            instruction += prompts.get("fragments/stage-context/context-packet-06.md")
     if figma_file:
         try:
             from . import autocode_figma as figma
@@ -269,20 +237,9 @@ def context_packet(state, stage, state_path):
         base["current_milestone"] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
         if state.get("current_task", {}).get("milestone_ids"):
-            milestone_policy += (
-                "\nThe current task is an integrated batch of independent milestones. "
-                "Validate EVERY member in current_milestone.members on the combined workspace, "
-                "including interactions. The Validator must provide milestone_results with each milestone_id, "
-                "status, summary and evidence_refs, alongside evidence for every criterion. "
-                "The completion owner must retain the whole batch during rework. Choose a member "
-                "milestone_id for rework and an outside milestone_id only after all members pass. "
-                "Builder outputs are implementation provenance, not validation evidence.\n"
-            )
+            milestone_policy += prompts.get("fragments/stage-context/context-packet-07.md")
         elif stage == "sol":
-            milestone_policy += (
-                "\nDo not include milestone_results for this non-batch task, including final "
-                "whole-product validation. Follow the current schema, not a previous batch report.\n"
-            )
+            milestone_policy += prompts.get("fragments/stage-context/context-packet-10.md")
         checkpoint = base["milestone_checkpoint"]
         pending_replan = replan.constraint(checkpoint["current"], checkpoint["limits"])
         if pending_replan and stage in ("astra_plan", "astra_review"):
@@ -299,9 +256,7 @@ def context_packet(state, stage, state_path):
         if stage == "astra_checkpoint":
             instruction = workflow.CHECKPOINT + goals.EXECUTION_PROMPT
         elif stage == "sol":
-            instruction += (
-                "\nAddress the targeted_consultation only, inspecting actual evidence. Do not broaden the task.\n"
-            )
+            instruction += prompts.get("fragments/stage-context/context-packet-11.md")
         if workflow.final_only(state):
             milestone_policy = workflow.FINAL_POLICY
             base["final_audit_request"] = state.get("final_audit_request")
@@ -316,15 +271,7 @@ def context_packet(state, stage, state_path):
         artifact = bug_job.diagnosis_artifact(state, state["workspace"])
         if artifact:
             base["runner_artifacts"] = [artifact]
-            instruction += (
-                "\nRUNNER-WRITTEN DIAGNOSIS: runner_artifacts identifies the exact unchanged note "
-                "the runner wrote from the accepted investigation before the Builder task. It remains in the "
-                "raw source diff and regression proof, but is investigation evidence, not an out-of-scope "
-                "Builder edit. Do not demand its deletion, a scope expansion or rework solely because its "
-                "path is outside current_task.affected_paths. This classification grants no write permission "
-                "and does not apply to modified notes or other files under docs/bugs/. A diagnosis note is "
-                "not a product-code fix or proof that the bug is fixed.\n"
-            )
+            instruction += prompts.get("fragments/stage-context/context-packet-08.md")
     try:
         from . import autocode_context
     except ImportError:
@@ -341,7 +288,7 @@ def context_packet(state, stage, state_path):
     )
     return prompt, {
         "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
-        "estimate_method": "UTF-8 bytes / 4; excludes resumed history and tool output",
+        "estimate_method": prompts.get("fragments/stage-context/context-packet-09.md"),
         "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
         "externalized_fields": externalized,
         "handoff_bytes_saved": full_data_bytes - len(json.dumps(base).encode()),

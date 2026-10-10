@@ -30,6 +30,7 @@ except ImportError:
     import autocode_source_snapshot as source_snapshot
 
 import contextlib
+import hashlib
 import json
 import os
 import posixpath
@@ -52,6 +53,7 @@ try:
     from . import autocode_go_tests as go_tests
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_node_tests as node_tests
+    from . import autocode_prompts as prompts
     from . import autocode_proof_seam as proof_seam
     from . import autocode_python_tests as python_tests
     from . import autocode_scratch_overlay as scratch_overlay
@@ -70,6 +72,7 @@ except ImportError:
     import autocode_go_tests as go_tests
     import autocode_investigation_workspace as investigation_workspace
     import autocode_node_tests as node_tests
+    import autocode_prompts as prompts
     import autocode_proof_seam as proof_seam
     import autocode_python_tests as python_tests
     import autocode_scratch_overlay as scratch_overlay
@@ -2098,6 +2101,7 @@ def execution_identity(
         for p in runtime_root.rglob(pattern)
         if not _ignored(str(p.relative_to(runtime_root))) and "node_modules" not in p.parts
     }
+    runtime.update({"prompts/" + name: hashlib.sha256(data).hexdigest() for name, data in prompts.CONTENTS.items()})
     generated = {
         p: schedule.tree_identity(workspace / p)
         for p in _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split(

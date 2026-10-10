@@ -1,0 +1,1 @@
+Only reuse open IDs belonging to this reviewer; use an empty id for new findings. Copy exact commands and exits from original_executed_checks when citing those events. Never change an exit code.

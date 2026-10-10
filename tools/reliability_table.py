@@ -11,10 +11,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 # One sweep: a dated, named campaign on one profile and one master commit.
-COLUMNS = ("date", "profile", "master", "mode", "runs", "passed", "false_completions", "median_minutes", "note")
+COLUMNS = (
+    "date",
+    "profile",
+    "master",
+    "prompts_hash",
+    "mode",
+    "runs",
+    "passed",
+    "false_completions",
+    "median_minutes",
+    "note",
+)
 
 
 def load_rows(path) -> list[dict]:
@@ -36,6 +48,11 @@ def load_rows(path) -> list[dict]:
             raise ValueError(f"counts must be non-negative: {row}")
         if row["passed"] + row["false_completions"] > row["runs"]:
             raise ValueError(f"passed + false_completions exceed runs: {row}")
+        prompts_hash = row.get("prompts_hash")
+        if prompts_hash is not None and (
+            not isinstance(prompts_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", prompts_hash)
+        ):
+            raise ValueError("prompts_hash must be a SHA-256 digest or unknown")
         rows.append({key: row.get(key) if key != "median_minutes" else row.get(key) for key in COLUMNS})
     return rows
 
@@ -57,14 +74,14 @@ def markdown(rows: list[dict]) -> str:
         lines += [
             f"## {title}",
             "",
-            "| Date | Profile | Master | Runs | Passed | False completions | Median (min) | Note |",
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+            "| Date | Profile | Master | Prompts (SHA-256) | Runs | Passed | False completions | Median (min) | Note |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
         ]
         for row in subset:
             median = "" if row.get("median_minutes") is None else str(row["median_minutes"])
             lines.append(
                 f"| {row['date']} | {row['profile']} | `{row['master']}` | "
-                f"{row['runs']} | {row['passed']} | {row['false_completions']} | "
+                f"{row.get('prompts_hash') or 'not recorded'} | {row['runs']} | {row['passed']} | {row['false_completions']} | "
                 f"{median} | {row['note']} |"
             )
         lines.append("")

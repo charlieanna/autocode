@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+try:
+    from .. import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 import json
 import os
@@ -55,65 +61,13 @@ except ImportError:
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
 # gathering; every planning stage gets this rule and the design's binding decisions.
-APPROVED_DESIGN_RULE = """
-APPROVED DESIGN: approved_design in the handoff data is a design the user has already approved, checked
-against this repository with no conflicts. It is a constraint, not a suggestion: plan exactly what it
-specifies (module and file layout, names, signatures, rules, rejected alternatives). Do not redesign it,
-do not revisit its rejected alternatives, and do not ask the user about decisions it already makes; ask
-only about something it genuinely leaves open. Trace each of its constraints to a milestone.
-Write no criterion, example or test case whose expected result contradicts it: a value, an error, an order
-or a call count the design rules out. The Plan Reviewer checks each one against approved_design and raises
-any that contradicts it as a blocking concern before approval: once the plan is approved, changing such a
-criterion needs the user, so the build would have to stop and ask.
-"""
+APPROVED_DESIGN_RULE = prompts.get("fragments/autoplanner/approved-design-rule.md")
 # A reproduced bug the Investigator sized large (autocode_bug_job.large_correction)
 # uses the diagnosis as technical evidence; the human task remains authoritative.
-BUG_DIAGNOSIS_RULE = """
-BUG FIX: bug_diagnosis in the handoff data is the Investigator's technical evidence about a reproduced bug,
-saved in the repository at its note_path. The task and saved user answers and events define the requested
-outcome and constraints; the diagnosis does not replace, narrow or override them. Plan the correction of
-its root_cause while preserving every applicable user obligation, including ones absent from the diagnosis.
-Its fix_plan is a proposed approach, not a user decision. Check its invariant and test_cases against those
-obligations before using them. A conflicting diagnosis-derived behavior is a blocking plan concern, not
-authorization to change the requested outcome. The Plan Reviewer checks that comparison independently.
-After that consistency check, every plan must uphold its invariant as an acceptance criterion, checked as exactly as the invariant states it
-(never "to 2 decimal places" or "within 0.001" when the rule is exact), with a regression test that fails on the
-original code and passes after the fix, and must keep the project's existing tests passing. Its test_cases
-are those regression tests in plain English: make each one an acceptance criterion quoting its given, when
-and then, and require one test per case named test_<id>_<what it checks> (T1 -> test_t1_...); the runner
-refuses the fix unless every restore case (the default kind) has such a test that fails on the original code
-because of the bug and passes after the fix. A preserve case describes behavior that already works: its test
-must pass on the original code and after the fix. Keep each case's kind when planning its verification.
-Reconcile technical_approach and validation_plan with every retained test_cases ID, including preserve cases.
-Give each diagnosis case an acceptance criterion with verification_method="test: <its named test>" for a
-restore case, or "guard: <its named test>" for a preserve case. Each named test must identify one diagnosis
-case. These approved names bind cases to milestones: a milestone proves its own and previously accepted
-cases, and final completion proves every case. Without a complete unambiguous binding all cases are due.
-A fix_plan that omits a named guard is incomplete: plan its independent named assertions explicitly, even when
-an existing differently named test already covers that behavior. Keep existing tests unchanged; do not rename
-or remove them to satisfy the new case binding. The Plan Reviewer checks this coverage before approval.
-Fix the cause,
-not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user to repeat
-a clear requested outcome. Ask only about a genuinely unresolved choice in the task and saved user answers;
-missing or conflicting diagnosis text is not permission to redefine it.
-Cite the diagnosis in code_refs as exactly its note_path; explanations go in summaries, never inside a path.
-"""
+BUG_DIAGNOSIS_RULE = prompts.get("fragments/autoplanner/bug-diagnosis-rule.md")
 # A follow-up that acts on an earlier review in the same run (autocode_follow_up) is planned
 # from the review's findings; requirements gathering is skipped.
-REVIEW_FINDINGS_RULE = """
-REVIEW FOLLOW-UP: review_findings in the handoff data are the findings of a review the user asked for earlier
-in this conversation, saved in the repository at report_path. The user's request (task) now asks to act on
-them, and they are the requirements: plan a fix for each blocking finding, with an acceptance criterion and a
-regression test that fails on the reviewed change and passes after the fix. When the reviewed change is a patch
-file (change_patch) that is not applied yet, the plan applies it first and fixes the findings on top of it, so
-the change the user asked to land keeps everything else it does. Behavior the reviewed change already has and
-must keep (what its own tests cover, what no finding says is broken) is a "guard:" criterion, never "test:": it
-cannot fail on the reviewed change. The runner proves each regression test itself,
-against the base code with change_patch applied (the change the review judged): do not add a criterion or task
-to capture the tests failing without the fixes. Leave the advisory findings as they are
-unless the request asks for them. Do not ask the user what the findings mean; ask only about a genuine choice
-they leave open. Cite the review in code_refs as exactly its report_path.
-"""
+REVIEW_FINDINGS_RULE = prompts.get("fragments/autoplanner/review-findings-rule.md")
 # Features get the bug-fix proof too: the plan states testable criteria as concrete
 # examples marked "test:", and the runner proves each one at its milestone (autocode_test_cases).
 # A test: criterion must be new behavior: a live parallel-diamond plan made "the contract package is
@@ -121,194 +75,49 @@ they leave open. Cite the review in code_refs as exactly its report_path.
 # be proven and the run stalled on it (2026-09-29).
 # Tests must check behavior, not the repository's file listing: a live port-policy-go plan turned
 # "deliver these four files" into a test that failed once its checker built policy.bin (2026-09-29).
-EXAMPLE_CRITERIA_RULE = (
-    """
-TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one concrete example a person can
-check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
-then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Work each
-literal result out from the criterion's own rule (count the items, do the arithmetic), never estimate it. Set its
-verification_method to "test: <exact supported test name>" when the request already names the test.
-Preserve that name, including a native Go name; do not substitute a criterion-ID alias. Otherwise use
-"test: test_<criterion id in lowercase>_<what it checks>" (C2 -> test_c2_...). The Builder writes that test; the runner itself checks that it passes with the change and did not pass before the
-run began, and refuses the milestone and completion otherwise. With several milestones, list each test
-criterion under the milestone that delivers it: the runner checks a milestone's tests, and those of milestones
-already accepted, at that milestone's checkpoint, so a test must not depend on a later milestone. Keep criteria
-a test cannot check (documentation, visual design, performance under real load) with an ordinary
-verification_method.
-A test checks what the program does, never which files the repository contains. Do not write a test that lists
-the repository or working directory and asserts which files exist, or that no other file exists: whoever runs the
-tests (a build, the runner's own checks, CI, a reviewer) adds files there, so such a test fails on correct code.
-Which files are delivered, and that no build output is left behind, is checked by the Validator reading the
-repository: give that criterion an ordinary verification_method, not "test:".
-A "test:" criterion describes behavior that does not exist before the run, so its test fails (or cannot run) on
-the code as it is. Something that already holds, or holds as soon as a directory exists, is not: in Python 3 a
-package directory imports without __init__.py, so "the package is importable" passes before the change and the
-runner can never prove it. Make the "test:" criteria the behavior the new code adds or fixes (a function's
-result, a command's output, a refused input).
-A command that must fail (a usage error, a refused input) is checked inside the criterion's test; if a
-verification_method does name such a command, end it with "and assert exit N" right after the commands (N/M with
-one status per command for several), because the runner replays every command a method names as a check that
-must exit 0 unless that declaration says otherwise.
-Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
-same kind of example, with verification_method "guard: <exact supported test name>" when the request
-already names the test; otherwise use "guard: test_<criterion id in lowercase>_<what it checks>".
-The runner checks that its test passes both before and after the change. Coverage of behavior the product already
-implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
-such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;
-something trivially true (a package that imports, a file that exists) gets an ordinary verification_method.
-For independent parallel milestones, use distinct milestone-specific criterion IDs as well as disjoint
-affected_paths: the scheduler serializes milestones that share criterion IDs. Scope each criterion to its
-own milestone; put cross-component integration checks in a dependent milestone. Do not weaken coverage or
-rename protected criteria in an existing contract without the required user-backed change.
-TEST COMMAND PREREQUISITES: include every missing package marker required by your validation command in
-affected_paths before approval. `python3 -m unittest discover -s tests -t .` needs tests/__init__.py;
-assign that file explicitly (or tests/) when it does not exist. Never leave the Builder to expand scope.
-ERROR PATHS: inject failures after staged or transactional work begins; verify the public error contract,
-unchanged persistent state and complete cleanup across the relevant underlying failure modes.
-"""
-    + test_cases.NAMED_PROOF_NOTE
-)
+EXAMPLE_CRITERIA_RULE = prompts.get("fragments/autoplanner/example-criteria-rule.md") + test_cases.NAMED_PROOF_NOTE
 # Two live ladder runs (Claude models, 2026-09-30) approved an example that contradicted its own rule: "2024-02-28
 # to 2024-03-01 is 4 dates", and an entry with a TTL of 2**63 still present at time 1e300. Both plan reviews passed
 # it, the Builder bent its test to fit, and the run stopped for a person after the build.
-EXAMPLE_CHECK_RULE = """
-CHECK EVERY WORKED EXAMPLE: recompute the literal result of each acceptance criterion's example from its own rule
-and the request: count the items in a range, do the arithmetic, apply the stated expiry, ordering or rounding rule
-to the example's inputs. An example whose stated result does not follow is a blocking concern naming the
-correct result: no implementation can satisfy both the rule and the example.
-An example whose spacing depends on padding (a column aligned to the longest label, a right-aligned number) is
-counted space by space from the rule, never eyeballed: a miscounted run of spaces is a blocking concern naming the
-spaces the rule gives (#676, a live run approved ten spaces where the rule gives twelve).
-"""
+EXAMPLE_CHECK_RULE = prompts.get("fragments/autoplanner/example-check-rule.md")
 # A live greenfield run (2026-10-01, docs/bugs/2026-10-01-reliability-live-cases.md) transcribed the brief's
 # literal "ID TEXT [open|done]" into examples without the brackets; the Builder, the tests, the Validator and
 # the completion gate then all honestly served the corrupted criteria and the run completed falsely. Every
 # other handoff has an independent check; the brief-to-criteria transcription had none. The runner now
 # rejects a draft that drops a backticked brief literal (autocode_brief_literals); this rule asks the
 # reviewer whether the examples agree with it, which no mechanical check can decide.
-BRIEF_TRACE_RULE = """
-CHECK EVERY EXAMPLE AGAINST THE BRIEF: re-read the user's brief and re-derive each worked example's literal
-result from the brief's own words, not from the criterion next to it. Every literal the brief states — an
-exact output format, a field name, an exit code, a file name, an error name — must appear verbatim in at
-least one example. An example whose literal drops, normalizes or rewrites what the brief states is a
-blocking concern quoting the brief's sentence and the example's deviation: the plan review approves
-criteria against the brief, and whatever literal the criteria carry will be built, tested, validated and
-completed exactly as written. An example consistent with its own rule but not with the brief is still wrong.
-"""
+BRIEF_TRACE_RULE = prompts.get("fragments/autoplanner/brief-trace-rule.md")
 # A live cent-drift plan (2026-09-30) required a 175,712-cart enumeration to "finish in under about 10 seconds". The
 # Builder asserted elapsed time, the test took 10.39 s on a loaded machine, and the run stopped after two retries
 # with correct billing code: no code change could make the criterion hold.
-NO_TIMING_RULE = """
-NO TIMING CRITERIA: no acceptance criterion, verification method or test may depend on elapsed time or machine
-speed ("finishes in under 10 seconds", a timing assertion, a benchmark threshold). It passes on an idle machine and
-fails on a loaded one, and the Builder cannot fix that by fixing code. Bound the work instead: state the size of an
-enumeration and keep it to a few thousand cases that run in seconds. A plan reviewer raises a blocking concern for one.
-"""
+NO_TIMING_RULE = prompts.get("fragments/autoplanner/no-timing-rule.md")
 # A design job delivers documents only (autocode_test_cases.design_only), so it gets this instead of the
 # example-criteria rule, which made a live design run plan every criterion as a test and add tests/.
-DESIGN_DELIVERABLES_RULE = """
-DESIGN DELIVERABLES: this job delivers a design, not code. Deliver exactly the files the request names and
-nothing else: no application code, no test files, no scripts. Every milestone's affected_paths and the
-initial_task's affected_paths list only those files (or their directory). Never mark a verification_method
-"test:" or "guard:". Verify each criterion by what the Validator can check directly in the delivered files: read them,
-and run read-only commands against them (for example python3 -c that loads a JSON file and checks a field),
-without adding any file to the repository. A file an earlier turn of this conversation wrote (the task names
-what it wrote) is read, not rewritten, unless the user's newest message asks for that file: keep it out of
-affected_paths. The runner refuses a design plan that would let the Builder change it.
-"""
+DESIGN_DELIVERABLES_RULE = prompts.get("fragments/autoplanner/design-deliverables-rule.md")
 # Planning is otherwise never told how execution captures test evidence, so plans invented
 # scratch copies outside the workspace and reviewers blocked them for a "missing capture
 # command" (bugfix-cent-drift, 2026-09-28: three planning rounds).
 EVIDENCE_FACTS = (
-    """
-TEST EVIDENCE (how execution works; plan within it, do not re-derive it): the runner gives every Builder
-and Validator the capture_command shown in the handoff. It runs a command in the workspace and saves the
-full output as evidence in the run's own directory under .autocode/, which the runner owns: evidence is
-never a deliverable, never an affected path and needs no permission. A fail-first criterion is met in the
-workspace itself: add the regression test, capture it failing against the unmodified code, make the fix,
-capture it passing. Do not plan scratch copies outside the workspace, and do not treat capture as a
-missing prerequisite or ask the user to authorize it. Running the project's tests also creates files
-(__pycache__/, *.pyc, caches) and the runner keeps its own files under .autocode/: never cite these as
-evidence, and any check of which files changed must ignore them.
-"""
+    prompts.get("fragments/autoplanner/evidence-facts-02.md")
     + verification_plan.GIT_STATUS_RULE
     + "\n"
     + verification_plan.SHELL_SYNTAX_RULE
-    + """
-CONTRACT DELTA: contract_changes describes only changes from the current goal_contract revision in this
-handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
-retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.
-If no protected item changes against the current revision, return contract_changes=[].
-Use exact protected item identities: an acceptance criterion ID such as AC1, or the previous verbatim
-protected list/permission string. Do not use field labels such as "AC1 verification_method",
-"AC8 (new criterion added)", "technical_approach", "M1" or "initial_task" as contract_changes.item.
-Allowed draft proof corrections, new criteria and implementation proposal edits need no delta;
-return [] for them. This does not authorize changing existing behavior, permissions or approved proofs.
-SOURCE CITATIONS: code_refs contains existing repository source paths, optionally :line, never a runner
-state file, .autocode/ artifact, cache, or explanatory sentence. state_file is context to read, not source
-to cite. Read the workspace_inventory candidates; a citation repair changes citations, not requirements.
-SETTLED REQUIREMENTS: preserve literal inputs and outputs from the task, approved design and saved answers.
-Create examples that match those literals. The DRAFT EXAMPLE CORRECTIONS rule is the sole exception for
-numeric stdout in model-written drafts; other protected criterion changes need a saved user basis and delta.
-Verification changes follow the narrow draft-proof policy. Gather remaining decisions before drafting;
-do not reopen answered questions or invent extra clarification cycles for report wording.
-Keep existing test names and assertions. A planned case needs a separate new test if matching its id
-would otherwise require renaming an existing test; a guard must keep the original coverage as well.
-"""
+    + prompts.get("fragments/autoplanner/evidence-facts.md")
 )
-REVISION_CONFLICT_RULE = """
-PROTECTED REVISION CONFLICTS: outside the narrow allowed draft proof/example corrections, a
-reviewer's requested behavior change still needs a saved user answer or feedback event, even in
-an unapproved model-written draft. Without that basis, retain the protected text and add a blocking decision
-to contract.open_blocking_questions, explaining the conflict and proposed correction in the response/summary.
-Set contract.initial_task.kind=none, technical_approach=[] and milestones=[] while blocked; do not claim the
-conflict is resolved or the plan ready.
-Do not use agent_proposed or original_request as authorization for a protected revision, or invent a user event.
-Allowed proof-only corrections do not require a new question.
-"""
-RESPONSE_EVIDENCE_RULE = """
-Each responses[].evidence_refs must be nonempty and cite evidence actually investigated for that response.
-Top-level code_refs does not satisfy this per-response requirement. Use existing source paths you read,
-explain their relevance in response, and never invent citations or cite not-yet-created implementation files.
-"""
+REVISION_CONFLICT_RULE = prompts.get("fragments/autoplanner/revision-conflict-rule.md")
+RESPONSE_EVIDENCE_RULE = prompts.get("fragments/autoplanner/response-evidence-rule.md")
 # A live review-then-fix plan (2026-09-29) marked "the diff touches only the two fixes" for human
 # review although its own verification method was "Validator reads git diff"; the run then
 # stopped for an approval nobody needed.
-HUMAN_REVIEW_NOTE = (
-    "true only when nothing the Validator can run or read settles the criterion: a visual, "
-    "audible or subjective judgement that needs a person. A criterion checked from the diff, "
-    "tests, command receipts or files is false. Every true criterion stops the run for the "
-    "user's approval before it can complete."
-)
+HUMAN_REVIEW_NOTE = prompts.get("fragments/autoplanner/human-review-note.md")
 
 
-CONTRACT_FIELDS_RULE = (
-    """
-CONTRACT LISTS: when open_blocking_questions is empty, the runner refuses a contract whose deliverables,
-required_behaviors or permission_boundaries is an empty list, and the report is sent back for repair. Give each at
-least one entry: deliverables are the files or artifacts produced; required_behaviors is what the finished work must
-do; permission_boundaries is what it may and may not touch (for example "Edit only pager/ and tests/; no network; no
-writes outside the workspace"). important_failure_cases, scope_exclusions and constraints may be empty when there is
-nothing to say: do not invent entries. While open_blocking_questions is non-empty, empty lists are allowed.
-HUMAN REVIEW: an acceptance criterion's human_review is """
-    + HUMAN_REVIEW_NOTE
-    + "\n"
-)
+CONTRACT_FIELDS_RULE = prompts.get("fragments/autoplanner/contract-fields-rule.md") + HUMAN_REVIEW_NOTE + "\n"
 # Planner reports were sent back for repair with "Planner dropped requirements with no trace" in
 # several live runs (Claude models, 2026-09-29): the report's requirement_trace was [] although the
 # handoff listed R1..Rn, buried in requirements_handoff. The stages that must trace them get the
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
-REQUIREMENT_TRACE_RULE = """
-REQUIREMENT TRACE: requirement_trace_rows in the handoff data lists every requirement from the requirements
-handoff, and any feedback on a plan the user was shown that no Requirements report has read yet (its
-requirement_id is the feedback event ID). requirement_trace must contain exactly one row for each of those
-requirement_id values, no more and no fewer; an empty requirement_trace is refused. disposition is covered,
-excluded or superseded. For covered, evidence is an acceptance criterion ID of this contract (for example "AC3",
-or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. For excluded,
-evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
-the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
-row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.
-"""
+REQUIREMENT_TRACE_RULE = prompts.get("fragments/autoplanner/requirement-trace-rule.md")
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
 
 
@@ -340,13 +149,7 @@ def trace_rows(state, stage):
 # A late question (the final review returned an unresolved concern to the user, usually permission to change
 # a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
 # 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
-REREVIEW_RULE = """
-RE-REVIEW AFTER THE USER'S ANSWERS. Your previous review of this plan ended with questions to the user.
-previous_review holds your earlier concerns, your final decisions on them, and each question with the user's
-answer. Check that this draft applies those answers exactly as given. A concern you resolved before stays
-resolved unless an answer or this draft reopens it; do not raise it again. Mark a concern blocking only for what
-the answers changed or for what is still wrong in this draft.
-"""
+REREVIEW_RULE = prompts.get("fragments/autoplanner/rereview-rule.md")
 
 
 def previous_review(state):
@@ -572,14 +375,12 @@ for _stage in ("astra_challenge", "astra_finalize", "plan_finalize"):
 # draft that still has open_blocking_questions, where empty lists are legitimate. The model is told what each
 # list is for, in the schema it is given and in CONTRACT_FIELDS_RULE. Descriptions do not affect validation.
 CONTRACT_FIELD_NOTES = {
-    "deliverables": "The files or artifacts the work produces. At least one unless open_blocking_questions is non-empty.",
-    "required_behaviors": "What the finished work must do. At least one unless open_blocking_questions is non-empty.",
-    "permission_boundaries": "What the work may and may not touch, for example: Edit only pager/ and tests/; no "
-    "network; no writes outside the workspace. At least one unless open_blocking_questions "
-    "is non-empty.",
-    "important_failure_cases": "Failure cases that matter. May be empty; do not invent entries.",
-    "scope_exclusions": "Work that is explicitly out of scope. May be empty; do not invent entries.",
-    "constraints": "Constraints the user or the project imposes. May be empty; do not invent entries.",
+    "deliverables": prompts.get("fragments/autoplanner/contract-field-notes.md"),
+    "required_behaviors": prompts.get("fragments/autoplanner/contract-field-notes-02.md"),
+    "permission_boundaries": prompts.get("fragments/autoplanner/contract-field-notes-03.md"),
+    "important_failure_cases": prompts.get("fragments/autoplanner/contract-field-notes-04.md"),
+    "scope_exclusions": prompts.get("fragments/autoplanner/contract-field-notes-05.md"),
+    "constraints": prompts.get("fragments/autoplanner/contract-field-notes-06.md"),
 }
 
 
@@ -938,117 +739,11 @@ def _coverage(rows, concerns):
 
 
 PROMPTS = {
-    "requirements_gather": """You are the Requirements Gatherer, in your own read-only session.
-Inspect the user's idea and relevant workspace source. Return only a requirements handoff:
-intended outcome, stated behaviors, constraints, acceptance tests, source references,
-up to three genuinely blocking questions, and clearly labeled proposed assumptions.
-Do not create a technical approach, milestone, dependency graph, or implementation plan.
-Do not treat a proposed default as a user answer. Do not implement.
-When previous_requirements_handoff exists, retain its still-relevant requirements and
-unanswered questions with stable IDs. A scope correction does not answer unrelated
-questions (for example where the real backend lives). Prioritize those blockers over
-new optional choices; do not silently replace them when refreshing the handoff.
-The approved contract and current Builder task are inherited obligations, not new user
-statements. Do not create a new requirement by quoting their milestone objectives,
-Builder instructions, or test descriptions. Keep those obligations in the approved
-contract. New requirements must quote the original task or an exact saved user event;
-use requirement_coverage_checklist for the statements that need fresh coverage.
-Preserve the user's literal requested outcome, even if infeasible. Never translate an
-absolute guarantee into a weaker measurable promise without asking whether the user
-accepts that change. Keep the original in requirements/required_behaviors; put each
-suggested replacement in proposed_reframes (requirement_id, proposal, question_id)
-with an explicit acceptance question in open_questions. Otherwise use proposed_reframes=[].
-Distinguish the desired outcome from implementation instructions. Preserve explicitly
-requested technology (for example Redis and three workers); if it appears to be a
-suggested solution to a performance goal, ask whether it is mandatory or negotiable.
-Do not silently discard it or assume it is the only way to achieve the outcome.
-A later explicit correction can supersede an earlier statement: cite the saved event
-and ask only about what remains ambiguous. Do not ask the user to repeat a clear correction.
-proposed_reframes is only for agent-proposed changes, never user-authored corrections.
-A narrow correction leaves unrelated exclusions in force: adding named actions permits
-those actions, not every possible control. Do not ask permission to expand beyond them.
-Use workspace_inventory to locate relevant existing code, then READ 4-6 key files
-before making claims about current behavior. Do not explore indefinitely — read
-enough to understand the architecture, then produce your structured output.
-A missing package.json or src/ directory does not mean no application exists.
-source_refs must include the actual repository-relative files read (optional :line),
-not only 'task'; do not claim inspected behavior from filenames alone. A truncated
-inventory is not evidence of absence. Use source_refs=[] only for an empty workspace.
-Return requirements: each has an id, the requirement text, and a source_quote copied
-verbatim from the task or a saved user event. Put requirement-like sentences you are
-not carrying (must, must not, never, only, required, exactly) in ignored_statements
-with the reason. Put unresolved contradictions in conflicts with the requirement ids.
-Do not label an explicit saved clarification or a historical/current distinction as
-an unresolved conflict. Preserve the applicable requirements and their provenance.
-The runner saves this report as a separate artifact for the Planner.
-The requirement_coverage_checklist contains the exact task sentences checked by
-the runner. Account for every entry in requirements using a verbatim source_quote,
-or in ignored_statements with the exact statement and a substantive reason.
-Include requirements from the rest of the task and saved user events as well.
-""",
-    "astra_discovery": """You are the Planner, in a session separate from the Requirements Gatherer.
-For a new run, use requirements_handoff and its saved artifact as your input; do not silently
-replace its stated requirements or convert its proposed assumptions into user decisions.
-Carry unresolved requirements questions into open_blocking_questions unless saved answers
-resolve them. Older saved runs may lack a requirements handoff; only then gather missing
-requirements yourself.
-Read 5-8 key source files to understand the architecture, then STOP exploring and return
-your structured output (code_refs, alternatives, uncertainties, contract). Do not read
-every file — the workspace_inventory lists candidates; pick the most relevant ones.
-First assess readiness. If any blocking question remains, return a clarification-only
-contract: preserve known requirements and questions, set technical_approach=[] and
-milestones=[], and do not invent a product, architecture, files, task DAG or initial task.
-Only after blocking questions are answered, originate the concrete technical approach,
-milestones and acceptance tests. Proposed defaults are not answers.
-Mocks may support tests, but cannot replace the real behavior requested by the user.
-If the real integration interface or implementation is missing, inspect or ask for it;
-do not invent a mock-only deliverable or label real functionality as an accepted limitation.
-For every milestone, state depends_on as prerequisite milestone IDs or [] when it can
-start independently. Base those edges on actual interfaces, shared files, sequencing
-and validation needs. Do not turn milestones into parallel jobs or launch any work.
-Declare affected_paths for each milestone, including its tests and shared files.
-Autopilot dispatches the Builder scheduler using approved dependencies and disjoint path ownership.
-Do not implement. You may challenge assumptions and propose better approaches.
-""",
-    "astra_challenge": """You are the independent Plan Reviewer, challenging the Planner's draft (first review stage).
-Inspect additional source when needed. Check every dependency edge, missing prerequisite,
-cycle and claimed independent milestone against source evidence and interface ownership.
-Check affected_paths for every milestone; overlapping writes must not be called independent.
-Identify missing requirements, unsupported assumptions, unnecessary complexity and weak tests.
-Compare the original task and saved user events with the handoff and contract, not just
-the contract with itself. Flag weakened guarantees, unaccepted reframes, missed existing
-functionality and proposed solutions treated as settled choices. Require explicit user
-acceptance for changes to the requested outcome; useful suggestions alone cannot resolve them.
-If real functionality is demonstrated only by a mock, raise a blocking concern requiring
-the actual integration plan or a user decision about scope. An 'unverified' assumption
-does not authorize replacing real behavior with a prototype.
-Give concise, numbered concerns, evidence references,
-requested changes and acceptance tests. Do not manufacture objections or write a second essay.
-""",
-    "glm_revise": """You are the Planner, investigating the Plan Reviewer's concerns. Respond to EVERY concern by ID
-with evidence_refs, reasoning, the concrete change (or evidence-backed pushback) and a test.
-Revise the complete contract, including depends_on for every milestone, and identify what changed.
-You are a planning partner, not merely
-a coder: retain your approach where source evidence supports it. Never hide unresolved questions.
-If a concern exposes an unknown real integration or a proposed reduction to mock-only
-scope, ask a blocking question. Do not settle it by adding an agent_proposed assumption
-that the requested real behavior will remain unverified. Testing mocks is not implementing
-the real requirement. Preserve the user's outcome until they explicitly change it.
-"""
-    + RESPONSE_EVIDENCE_RULE,
-    "astra_finalize": """You are the independent Plan Reviewer, making the final planning decision (final review stage).
-Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
-Confirm that milestone dependencies are complete and acyclic, and that [] is used only
-for genuinely independent work. Do not schedule or launch milestones.
-Return the proposed final contract and concise decisions/rationales/tests. Include contract.initial_task
-inside contract, never at the report root: objective, affected_paths, kind (implement or validate), milestone_id,
-requirements, acceptance_criteria IDs, validation_plan. Its milestone must have depends_on [].
-Make it a substantial, coherent,
-executable milestone including related changes, tests, local fixes and evidence.
-If blocked with no safe first task, use kind=none and empty task strings/lists.
-Unresolved decisions MUST appear in open_blocking_questions, never silently become assumptions.
-There is no further debate round. The user must approve this exact plan before implementation.
-""",
+    "requirements_gather": prompts.get("requirements-gather.md"),
+    "astra_discovery": prompts.get("discovery.md"),
+    "astra_challenge": prompts.get("plan-challenge.md"),
+    "glm_revise": prompts.get("requirements-revise.md") + RESPONSE_EVIDENCE_RULE,
+    "astra_finalize": prompts.get("plan-finalize.md"),
 }
 PROMPTS.update(
     {
@@ -1073,59 +768,14 @@ Do not implement.
 )
 
 
-QUESTION_POLICY = """
-QUESTION CLASSIFICATION. Every question object carries kind, category and delegable.
-kind="discoverable" only when the answer is a fact in the workspace you have not read yet
-(where something is configured, which interface exists). Prefer reading it now; the runner
-never shows a discoverable question to the user. kind="decision" for a choice only the user
-can make. category names what the answer changes: cost, quota, permission,
-external_side_effect, requested_outcome, behavior, technical or other.
-delegable=true only when proposed_default is a safe choice the user may accept wholesale;
-always false for cost, quota, permission, external_side_effect and requested_outcome.
-Where the report has machine_resolutions and access_blockers, use [] unless
-investigation_request is present.
-"""
+QUESTION_POLICY = prompts.get("fragments/autoplanner/question-policy.md")
 
-ASSUMPTION_POLICY = """
-ASSUMPTIONS. Each proposed_assumptions entry is {id, text, kind, category, convention_ref,
-rationale, supports}. Give it a stable id (A1, A2, ...) and keep ids across refreshes.
-Use kind="inferable" with a convention_ref (repository path:line, or a saved event id) and a
-rationale that establish the convention. supports lists the requirement ids it underpins.
-Never mark cost, quota, permission, external_side_effect or requested_outcome inferable; ask a
-decision question instead. When previous_requirements_handoff exists and you drop one of its
-requirements, list it in ignored_requirements as {requirement_id, reason, basis, event_id}
-citing the saved user answer or feedback event that authorizes it; otherwise use [].
-"""
+ASSUMPTION_POLICY = prompts.get("fragments/autoplanner/assumption-policy.md")
 
-INVESTIGATION_POLICY = """
-INVESTIGATION PASS. investigation_request lists discoverable questions from your previous
-report (prior_report), bound to handoff_hash. This is the only investigation pass in this
-clarification episode. For each question, do exactly one of:
-- read the workspace and add a machine_resolutions entry {question_id, resolution,
-  source_refs (existing repository files you read, optional :line), handoff_hash}, and remove
-  the question from your questions (only for category technical or other);
-- keep it as a kind="decision" question when it is really the user's choice;
-- if the source needed is missing or unreadable, keep it as a kind="decision" question and add
-  an access_blockers entry {question_id, reason}.
-Anything still discoverable after this pass is shown to the user as a decision. Otherwise
-return the complete report as before.
-"""
+INVESTIGATION_POLICY = prompts.get("fragments/autoplanner/investigation-policy.md")
 
 
-OBLIGATION_POLICY = """
-REJECTED ASSUMPTIONS. deferred_obligations lists assumptions the user rejected; never rely on a
-rejected assumption again, even reworded. An open obligation of kind human_decision must be asked
-as a kind="decision" question whose id is the obligation id; the plan stays clarification-only
-until the user answers it. For an open remediation obligation, the Planner may add a
-remediation_records entry {obligation_id, assumption_id, approach, evidence_refs,
-covered_requirements (exactly the obligation's supports, each covered in requirement_trace),
-episode_id (clarification_episode.id)}. The Plan Reviewer must add one obligation_decisions entry
-{obligation_id, remediation_hash, resolved, rationale, evidence_refs} for every pending_review
-obligation, using its current remediation_hash; resolved=false in the first review needs a
-blocking concern citing the obligation id. At final review, any obligation still unresolved is
-asked as a decision question under its id, and initial_task.kind must be "none". Otherwise use
-[] for remediation_records and obligation_decisions.
-"""
+OBLIGATION_POLICY = prompts.get("fragments/autoplanner/obligation-policy.md")
 
 
 def obligation_policy(stage):
@@ -1146,61 +796,7 @@ the finalization report does not propose remediations.
 """
 
 
-PROGRESSIVE_POLICY = """
-When revising a previously approved progressive product goal, retain prior check obligations by
-default. A removal requires an exact visible scope_exclusions string:
-'Progressive check retirement: ' + canonical JSON {check_id,check_hash,removes}, with sorted keys
-and separators (',',':'). check_hash is the old check definition identity; removes must name an
-exact old required behavior or criterion text removed from the revised product. Never retire an
-unrelated check, infer removal from changed IDs, or claim a model approval. Ordinary independent
-review and explicit user approval of the new goal token are required before retirement takes effect.
-The runner mirrors the exact scope_exclusions retirement declaration into visible constraints
-before independent review and user approval; retain that exact line, never a conflicting mirror.
-PROGRESSIVE PLANNING (optional). When the goal only succeeds as several genuinely useful end-to-end
-slices, propose a progressive plan instead of one long build: progressive_proposal
-{version: 1, needed_because, shared_decisions, outstanding_criteria, done_slices, slices}. The report
-schema always includes progressive_proposal; when the goal does not need progressive planning return
-its empty form (version 0, empty strings and lists, no slices), which means no proposal. Propose
-it only when those slices and their boundaries can be stated from the requirements and repository
-evidence; never for a small or tightly coupled task, and never to paper over an ambiguous outcome
-(clarify that instead). The product outcome stays fixed: slices deliver it progressively.
-For a version 1 proposal, contract.milestones must contain exactly one whole-product milestone,
-not one milestone per slice and not an extra final-checkpoint milestone. That milestone has
-depends_on=[], all product acceptance criterion IDs, and affected_paths covering every slice's paths.
-Delivery order belongs in progressive_proposal.slices and their depends_on edges, not extra milestones.
-contract.initial_task executes only slices[0], using the whole-product milestone's ID but only the
-first slice's objective, paths, criteria and checks. One product milestone does not mean one long task.
-Every acceptance criterion ID must be planned on at least one slice or listed in outstanding_criteria;
-a revision may split, reorder or replace future slices but may never drop a criterion from that map.
-A criterion planned on a slice must not also appear in outstanding_criteria; that list contains
-criteria not planned on any slice.
-slices[0] is the first slice: the main user journey across the essential layers, with an observable
-useful result, bounded writable paths (paths), the product criteria it touches (criterion_ids) and
-nonempty checks and tentative: false. All later slices, including any whole-product verification
-slice, are marked tentative: true: not dispatchable until a reviewed slice
-revision promotes them. Investigation or setup work may be tasks inside a slice, but is never
-reported as delivery.
-A check is {id, method, relation, criterion_ids}: relation is contributes_to (the slice demonstrates
-part of the criterion; the criterion stays open) or fully_verify (this proof can establish the
-criterion). In every slice, each check's criterion_ids must be a subset of that slice's criterion_ids;
-a full-suite command does not authorize references to criteria absent from the slice.
-method must contain an explicit supported command the runner can replay at the
-checkpoint, for example `python -m pytest tests/test_journey.py -q`; prose that merely describes
-verification is refused, and the command must use repository source or fixtures, never run/session
-state. The commands need not pass before the slice is built.
-initial_task.validation_plan must contain plain executable commands copied from slices[0].checks,
-not prose describing test preparation, implementation or inspection. For example, use
-"python3 -m unittest test_journey.Skeleton" as an entry, not "Add tests and capture ...".
-Every initial-task command must be covered by a reviewed first-slice check; future-slice commands
-are not authorized. A prose-only validation entry is refused before approval can activate a slice.
-The runner generates the plan-card disclosure from your proposal into constraints and
-technical_approach (the delegation, its limits and the slice sequence). Never write lines starting
-"Progressive delegation:", "Progressive slice:" or "Product criteria explicitly outstanding:";
-mismatched hand-written disclosure is refused. Initial approval delegates continuation within the
-agreed outcome, constraints and permissions; product changes, new permissions and unresolved product
-decisions still return to the user, and every slice still gets independent plan review and
-verification.
-"""
+PROGRESSIVE_POLICY = prompts.get("fragments/autoplanner/progressive-policy.md")
 
 
 def repair_rules(stage, schema):
@@ -1274,7 +870,7 @@ def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
     return {
         "files": [name for _, name in candidates[:limit]],
         "truncated": truncated or len(candidates) > limit,
-        "instruction": "File names are navigation hints, not evidence of behavior. Read relevant files.",
+        "instruction": prompts.get("fragments/autoplanner/workspace-inventory.md"),
     }
 
 
@@ -1286,40 +882,11 @@ def capture_command():
     return shlex.join([sys.executable, str(Path(s.__file__).with_name("autocode.py")), "capture"])
 
 
-BRIEF_OBSERVATION_REVIEW_RULE = """
-BRIEF DECLARATIONS. brief_declaration_inventory comes from the user's authenticated brief.
-Check every supported declaration against the plan. When this report schema includes
-brief_observations, cover every supported declaration with an observation: declaration_id,
-criterion_ids from the contract, steps with argv, observe_step, and bindings with placeholder,
-step and argument. Propose commands that exercise the declared program and match its literal arguments and output;
-do not weaken an expectation or invent an observation the brief does not support. Reuse the
-existing observation for an unchanged declaration. Changes require brief_observation_changes
-entries naming previous_hash, declaration_id and the authenticated source_event_id that
-changes that declaration. A concern-only review reports any coverage gap as a blocking
-concern; the final reviewer supplies the complete observations before user approval.
-"""
-BRIEF_ACCEPTANCE_CARRY_RULE = """
-brief_acceptance in a contract is runner-owned. Omit it from model reports; the runner
-carries the existing value unchanged. Never create or edit its source, expectation,
-observation, or reviewer provenance fields. Planner
-stages cannot author brief_observations or brief_observation_changes. The independent Plan
-Reviewer proposes observations in those report fields; the runner seals their binding.
-"""
+BRIEF_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/brief-observation-review-rule.md")
+BRIEF_ACCEPTANCE_CARRY_RULE = prompts.get("fragments/autoplanner/brief-acceptance-carry-rule.md")
 
 
-RISK_OBSERVATION_REVIEW_RULE = """
-LIFECYCLE DECLARATIONS. risk_declaration_inventory derives explicit durability and
-fencing promises from authenticated human source and initial public modules.
-When the schema includes risk_observations, cover each supported declaration with
-{declaration_id, criterion_ids, module}. Select an allowed original public module;
-never invent expected values, API aliases, scripts or protocol schedules. Missing
-source facts are blocking concerns, not permission to assume a stronger contract.
-Reuse unchanged observations. A genuine later human amendment needs an exact
-risk_observation_changes entry with previous_hash, declaration_id, source_event_id.
-The runner executes a fixed bounded process-lifecycle protocol in clean replay;
-ordinary unit tests or callback exceptions cannot replace actual process death.
-risk_acceptance is runner-owned: omit it from model contracts, never create/edit it.
-"""
+RISK_OBSERVATION_REVIEW_RULE = prompts.get("fragments/autoplanner/risk-observation-review-rule.md")
 
 
 def context(state, stage, state_path):
@@ -1365,9 +932,7 @@ def context(state, stage, state_path):
         "saved_answers": state.get("answers", {}),
         "brief_feedback": state.get("brief_feedback", []),
         "planning": exchange,
-        "budget": f"{review_call_limit(state) or 'Unlimited'} plan-review calls in this cycle, including failed attempts; "
-        "only an explicit operator action can extend the allowance; "
-        "separate one-use AutoResolver operational recovery grants do not reset this allowance",
+        "budget": prompts.get("fragments/autoplanner/context.md").format(review_call_limit(state) or "Unlimited"),
         "recovery_context": state.get("recovery_context"),
     }
     turn = requirement_cues.new_workflow_turn(state)
@@ -1490,12 +1055,7 @@ def context(state, stage, state_path):
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     design_rule += task_authority.instruction(state.get("investigation"))
     if turn:
-        design_rule += (
-            "\nCURRENT REQUEST: task is the new user request. previous_turn is completed context, not the current deliverable. "
-            "Use its decisions and reports as context; do not reopen its output paths or no-code conditions as new requirements. "
-            "Produce what this request asks for, following the repository's artifact conventions. "
-            "The current contract and approved_design, when present, remain binding.\n"
-        )
+        design_rule += prompts.get("fragments/autoplanner/context-02.md")
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
         # #498: the Go tests the user named are declared under those names; the runner refuses a prose alias.
@@ -1528,7 +1088,7 @@ def context(state, stage, state_path):
         + clarification_policy
         + progressive_policy
         + s.COMMON
-        + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
+        + prompts.get("fragments/autoplanner/context-03.md")
         + json.dumps(packet, indent=2)
     )
     return prompt, {
@@ -1600,14 +1160,7 @@ def prepare(state, stage, state_path, schema_dir):
             "current_task": state.get("current_task"),
             "saved_answers": state.get("answers", {}),
         }
-        prompt = (
-            "Detail/review the next useful slice within the unchanged approved product contract. "
-            "Do not implement or replace the contract. Retain done_slices and cumulative obligations. "
-            "The Planner returns a concrete first slice plus its initial_task; the independent Reviewer "
-            "must inspect the exact persisted candidate and accept only in-bounds technical changes. "
-            "Product/permission changes or unresolved product decisions cannot be automatically activated.\nCURRENT HANDOFF DATA\n"
-            + json.dumps(packet, indent=2)
-        )
+        prompt = prompts.get("fragments/autoplanner/prepare.md") + json.dumps(packet, indent=2)
         role = role_for(state, stage)
         return ModelRequest(
             role,

@@ -5,6 +5,7 @@ This is a report of supplied public facts, never a verifier or completion gate.
 
 import html
 import json
+import re
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,8 @@ def accounting_facts(accounting, *, role_context=None):
                 "request_coverage_complete",
             ),
         )
+        if "prompts_hash" in row:
+            attempt["prompts_hash"] = deepcopy(row["prompts_hash"])
         attempt["role"] = roles.screen_name(row.get("stage") or "", role_context) or row.get("role") or "Runner"
         attempts.append(attempt)
     return {
@@ -131,6 +134,7 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
             "turn": view.get("turn"),
             "started_at": started_at,
             "elapsed_seconds": elapsed,
+            "prompts_hash": view.get("prompts_hash"),
         },
         "provenance": deepcopy(provenance),
         "plan": {
@@ -161,6 +165,11 @@ def build(view, *, run_identity, completed_at, provenance, binding, kind="task",
 
 def validate(document):
     util.validate_schema(document, json.loads(SCHEMA_PATH.read_text()))
+    # The local schema validator handles types; enforce digest syntax here too.
+    for row in [document["run"], *document["attempts"]]:
+        value = row.get("prompts_hash")
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)):
+            raise ValueError("Prompt identity must be a SHA-256 digest or unknown")
     # Also reject non-JSON numbers (NaN/Infinity) in nested public accounting.
     json.dumps(document, allow_nan=False)
 
@@ -169,7 +178,9 @@ REDACTION_NOTICE = (
     "Text matching the shared credential policy was masked. Artifact hashes still "
     "identify the original raw evidence bytes."
 )
-_AUTH_FIELDS = frozenset(("binding", "contract_token", "criteria_revision", "source_revision", "base_commit"))
+_AUTH_FIELDS = frozenset(
+    ("binding", "contract_token", "criteria_revision", "source_revision", "base_commit", "prompts_hash")
+)
 
 
 def sanitize(value):
@@ -233,6 +244,7 @@ def _render(document):
         "",
         f"Agreed plan: {text(plan['contract_token'])}. Completed: {text(run['completed_at'])}.",
         f"Elapsed wall time (including input waits): {text(run['elapsed_seconds'])} seconds.",
+        *([f"Launch prompt set (SHA-256): {text(run['prompts_hash'])}."] if "prompts_hash" in run else []),
         f"Checked source snapshot: {text(revision['source_revision'])}; base commit: {text(revision['base_commit'])}.",
         revision["meaning"],
         "",
@@ -309,13 +321,16 @@ def _render(document):
         "",
         "## Roles and models",
         "",
-        "| Job | Engine | Model | Seconds | Result |",
-        "| --- | --- | --- | --- | --- |",
+        "| Job | Engine | Model | Prompt set (SHA-256) | Seconds | Result |"
+        if "prompts_hash" in run
+        else "| Job | Engine | Model | Seconds | Result |",
+        "| --- | --- | --- | --- | --- | --- |" if "prompts_hash" in run else "| --- | --- | --- | --- | --- |",
     ]
     for row in document["attempts"]:
         result = "interrupted" if row["interrupted"] else "rejected" if row["rejected"] else f"exit {row['exit_code']}"
+        prompt_cell = f" {text(row.get('prompts_hash'))} |" if "prompts_hash" in run else ""
         lines.append(
-            f"| {text(row['role'])} | {text(row['engine'])} | {text(row['model'])} | {text(row['duration_seconds'])} | {text(result)} |"
+            f"| {text(row['role'])} | {text(row['engine'])} | {text(row['model'])} |{prompt_cell} {text(row['duration_seconds'])} | {text(result)} |"
         )
     lines += [
         "",

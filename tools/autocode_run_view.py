@@ -98,6 +98,8 @@ def view(
         "dependency": state.get("dependency_wait"),
         "verification_obligation": deepcopy(verification_obligation),
         "schema": SCHEMA,
+        # Saved launch identity, never inferred from current installed resources.
+        "prompts_hash": state.get("prompts_hash"),
         "status": status,
         "liveness": liveness_policy.classify(supervision, liveness),
         "done": status in COMPLETE,

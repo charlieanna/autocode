@@ -33,6 +33,7 @@ try:
     from . import autocode_pause_authority as pause_authority
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_prompts as prompts
     from . import autocode_protected_oracles as protected_oracles
     from . import autocode_quota_route as quota_route
     from . import autocode_recovery_view as recovery_view
@@ -64,6 +65,7 @@ except ImportError:
     import autocode_pause_authority as pause_authority
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_prompts as prompts
     import autocode_protected_oracles as protected_oracles
     import autocode_quota_route as quota_route
     import autocode_recovery_view as recovery_view
@@ -216,6 +218,8 @@ def resolve(runner, args, parser):
             "task": task,
             "workspace": str(workspace),
             "created_at": runner.now(),
+            # Launch-fixed identity; older runs keep an unknown launch prompt set.
+            "prompts_hash": prompts.HASH,
             "iteration": 1,
             "status": "RUNNING",
             "sessions": {},

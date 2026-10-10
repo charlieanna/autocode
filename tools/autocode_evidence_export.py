@@ -63,6 +63,9 @@ def binding(state, accounting):
             "orchestration_batch",
         )
     }
+    # Preserve authentication of historical reports that never recorded this field.
+    if "prompts_hash" in state:
+        stable["prompts_hash"] = state["prompts_hash"]
     return util.digest(
         {"state": stable, "accounting": document.accounting_facts(accounting, role_context=_role_context(state))}
     )

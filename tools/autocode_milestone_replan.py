@@ -21,24 +21,24 @@ Pure functions over one milestone progress row and the milestone checkpoint limi
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 REQUIRED = "required"
 EXHAUSTED = "exhausted"
 
 # The general decision rule in autocode_support.ASTRA_DECISIONS that a pending replan overrides,
 # and what the Completion Owner reads in its place while the replan is required or spent.
-GENERAL_VALIDATE_RULE = "Use kind=validate\nwith CONTINUE when existing work only needs Validator revalidation."
-REPLAN_VALIDATE_RULE = (
-    "Use kind=validate\nwhen existing work only needs Validator revalidation; while MILESTONE "
-    "REPLAN REQUIRED below applies,\nthat task is a REWORK, never a CONTINUE."
-)
+GENERAL_VALIDATE_RULE = prompts.get("fragments/milestone-replan/general-validate-rule.md")
+REPLAN_VALIDATE_RULE = prompts.get("fragments/milestone-replan/replan-validate-rule.md")
 # The user_request kinds whose BLOCKED review waits for the user at once. Every other kind, like a REWORK,
 # first calls the Resolver: autopilot queues it for blocker and clarification, and the AutoResolver human
 # gate (autocode_goal_lifecycle.wait_for_user, scope "blocker") defers contradiction and infeasible to it.
 ASKS_USER_DIRECTLY = ("permission", "goal_change")
-SPENT_VALIDATE_RULE = (
-    "Use kind=validate\nwith CONTINUE when existing work only needs Validator revalidation, "
-    "except on any milestone\nnamed in MILESTONE REPLANS SPENT below, where no further task runs."
-)
+SPENT_VALIDATE_RULE = prompts.get("fragments/milestone-replan/spent-validate-rule.md")
 
 
 def pending(row, limits):
@@ -86,47 +86,24 @@ def constraint(row, limits):
         f"{row.get('reviews_without_progress', 0)} validations without progress (limit {limits['stalled_reviews']})"
     )
     if row.get("builder_reassessment"):
-        counts = "a diagnosed approach failure, not independent validation: " + str(row["builder_reassessment"])
+        counts = prompts.get("fragments/milestone-replan/constraint-06.md") + str(row["builder_reassessment"])
     if row.get("milestone_ids"):
         # An integrated batch's id (batch:<digest>) is no milestone a next task can name; the gate refuses its members.
         on = _either(members(row))
         stalled = f"Integrated batch {milestone} has had {counts}"
-        scope = f"A next task is on this batch when next_task.milestone_id is {on}.\n"
+        scope = prompts.get("fragments/milestone-replan/constraint-02.md").format(on)
         subject, other = "the batch", "a milestone outside the batch"
     else:
         on = subject = milestone
         stalled, scope, other = f"Milestone {milestone} has had {counts}", "", "another milestone"
     if gate == EXHAUSTED:
-        return (
-            "\nMILESTONE REPLANS SPENT (the current gate, not a historical attempt)\n"
-            f"{stalled} and its replans are spent ({row.get('replans', 0)} made, limit {cap}).\n{scope}"
-            f"The runner accepts no further task on {on}: a next task on {on} with any status, "
-            "REWORK or CONTINUE,\nincluding a kind=validate revalidation, pauses the run (PAUSED_MILESTONE_STALLED) "
-            "for the operator to decide.\n"
-            "This overrides any instruction in this prompt or in checkpoint_reason to choose a REWORK or a "
-            f"CONTINUE\non {on}.\nBefore the run pauses, the Resolver is called first for a REWORK on {on} "
-            f"(it cannot get {on} another task)\nand for a BLOCKED whose user_request.kind is not "
-            f"{' or '.join(ASKS_USER_DIRECTLY)}; a CONTINUE on {on} pauses without the Resolver.\n"
-            "Whatever you decide, report in evidence and findings what still fails and why the replanned approach\n"
-            f"did not fix it. Advancing to {other} still needs milestone_checkpoint.current_evidence_ready;\n"
-            "BLOCKED and COMPLETE keep their usual rules, including which user_request.kind to choose.\n"
+        return prompts.get("fragments/milestone-replan/constraint-03.md").format(
+            stalled, row.get("replans", 0), cap, scope, on, on, on, on, on, " or ".join(ASKS_USER_DIRECTLY), on, other
         )
     if cap is not None and cap > 0:
-        budget = (
-            f"This REWORK uses replan {row.get('replans', 0) + 1} of {cap}; if {subject} stalls again "
-            "after it, the run pauses PAUSED_MILESTONE_STALLED."
+        budget = prompts.get("fragments/milestone-replan/constraint-04.md").format(
+            row.get("replans", 0) + 1, cap, subject
         )
     else:
-        budget = "Replans are unbounded, but each one needs this changed REWORK."
-    return (
-        "\nMILESTONE REPLAN REQUIRED (the current gate, not a historical attempt)\n"
-        f"{stalled}.\n{scope}The runner now accepts a next task on {on} only "
-        "with status REWORK, nonempty evidence and a changed approach:\na next_objective, requirements or "
-        "validation_plan that differs from the current task, or a smaller batch.\n"
-        f"A CONTINUE on {on}, including a kind=validate revalidation, is refused, and repeated refusals pause\n"
-        "the run (PAUSED_MILESTONE_REPLAN). This overrides any instruction in this prompt or in checkpoint_reason\n"
-        "to answer CONTINUE with a validate task. When existing work only needs revalidation, return REWORK with\n"
-        "next_task.kind=validate: cite the evidence of what is still unverified and change how it is verified.\n"
-        f"{budget}\nAdvancing to {other} still needs milestone_checkpoint.current_evidence_ready;\n"
-        "BLOCKED and COMPLETE keep their usual rules.\n"
-    )
+        budget = prompts.get("fragments/milestone-replan/constraint-05.md")
+    return prompts.get("fragments/milestone-replan/constraint.md").format(stalled, scope, on, on, budget, other)

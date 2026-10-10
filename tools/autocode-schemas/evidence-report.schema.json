@@ -89,6 +89,13 @@
             "number",
             "null"
           ]
+        },
+        "prompts_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },
@@ -479,6 +486,13 @@
               "object",
               "null"
             ]
+          },
+          "prompts_hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
           }
         }
       }

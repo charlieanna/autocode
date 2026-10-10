@@ -1,0 +1,1 @@
+Full artifacts remain on disk; retrieve relevant exact evidence on demand.

@@ -8,6 +8,12 @@ caller supplies test classification, framework discovery and scratch execution.
 from __future__ import annotations
 
 try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
+try:
     from . import autocode_source_scope as source_scope
 except ImportError:
     import autocode_source_scope as source_scope
@@ -157,10 +163,7 @@ def context(settings, affected_paths=()):
     return {key: copy.deepcopy(record.get(key)) for key in ("binding_hash", "root", "inventory_path", "command")} | {
         "total_files": len(record["files"]),
         "assigned_tests": copy.deepcopy(assigned),
-        "instruction": "These original test files are the pre-build gate. The runner independently executes them "
-        "against your implementation if you edit, rename, skip or delete a protected test. Added coverage is allowed; "
-        "weakening a failing assertion cannot earn PASS. Fix the implementation within the approved scope. "
-        "Only an explicit saved user CLI revision may replace the gate; never edit its retained bundle.",
+        "instruction": prompts.get("fragments/protected-oracles/context.md"),
     }
 
 

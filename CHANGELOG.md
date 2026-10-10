@@ -20,6 +20,9 @@ PR template asks for an entry here; a change without one is incomplete.
   Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash`) on the operator's own plan, and DeepSeek,
   GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
   producer it checks.
+- Version stage prompts and shared instruction fragments as packaged Markdown resources.
+  New runs and model attempts record their prompt-set hash in status and evidence;
+  prompt edits require scoped live-run evidence or an exemption in the pull request (#713).
 
 ### Removed
 

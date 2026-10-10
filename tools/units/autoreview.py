@@ -2,6 +2,12 @@
 workflow's Reviewer stage (autocode_review_job) and the design workflow's
 Architect stage (autocode_design_job)."""
 
+try:
+    from .. import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -36,14 +42,7 @@ PROBE_TIMEOUT = 120  # seconds per design probe; a probe checks one fact about t
 COMPLETION_REVIEW_STOP = (
     "All required criteria already pass; request completion instead of another implementation batch"
 )
-SEND_BACK_NOTE = (
-    "You returned CONTINUE, but every required acceptance criterion already has current, passing, "
-    "independent evidence for this exact artifact and no finding is open. Return TASK_COMPLETE, or keep "
-    "CONTINUE only by naming the criterion that is not met and the evidence that shows it. Re-running "
-    "validation that already passed is not a reason to continue. An original human obligation omitted "
-    "from the brief is not established by those passing criteria: report the concrete in-scope defect "
-    "or request the necessary contract correction, rather than completing an incomplete outcome."
-)
+SEND_BACK_NOTE = prompts.get("fragments/autoreview/send-back-note.md")
 JOBS = {
     review_job.STAGE: review_job,
     design_job.STAGE: design_job,
@@ -123,14 +122,7 @@ def prepare(state, stage, state_path, schema_dir):
             schema = deepcopy(request.schema)
             schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}
             request = replace(request, schema=schema)
-            note += (
-                "PROGRESSIVE SLICE CHECKPOINT: Set progressive_checkpoint=true with status CONTINUE "
-                "and next_task.kind=none only when the active slice's entire cumulative required-check "
-                "set has independently replayed passing evidence on the current source. This requests "
-                "the runner's slice checkpoint, not product acceptance. Do not invent a task to advance. "
-                "Otherwise set false and use the ordinary defect/rework/validation decision. COMPLETE "
-                "still requires the whole original product criteria and full user flow proven now.\n"
-            )
+            note += prompts.get("fragments/autoreview/prepare.md")
         prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", note + "\nCURRENT HANDOFF DATA\n", 1)
         request = replace(
             request,

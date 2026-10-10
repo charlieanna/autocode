@@ -49,6 +49,12 @@ State keys written by callers from these decisions:
 
 from __future__ import annotations
 
+try:
+    from . import autocode_prompts as prompts
+except ImportError:
+    import autocode_prompts as prompts
+
+
 import copy
 
 SETTING = "adaptive_planning"
@@ -59,71 +65,22 @@ LARGE_PLAN_REVIEW_LIMIT = 3
 # With an unlimited allowance (0), stop re-reviewing after this many challenges.
 MAX_CHALLENGES = 3
 
-RECOGNIZER_RULE = """
-Also judge how clear the request is, from its text alone. "clarity" is "clear" when the request says what
-to build or change and how to tell it is done, and leaves no product choice open (who it is for, what it
-must and must not do, which of several behaviors). It is "vague" when it names a goal but leaves scope,
-behavior or acceptance to be worked out ("make onboarding better", "add analytics"). Length is not
-clarity: a long request can still leave the key choice open. When unsure, answer "vague". For any kind
-other than build, answer "clear". Add "clarity" to the JSON you return.
-"""
+RECOGNIZER_RULE = prompts.get("fragments/adaptive-planning/recognizer-rule.md")
 
-PLANNER_RULE = """
-ADAPTIVE PLANNING. Include initial_task in your contract now, with the same fields the final plan uses:
-objective, affected_paths, kind (implement or validate), milestone_id, requirements, acceptance_criteria IDs,
-validation_plan; its milestone has depends_on []. While a blocking question remains, use kind=none with empty
-strings and lists. If the Plan Reviewer raises no blocking concern, this contract goes to the user for approval
-exactly as you wrote it, with no further planning round, so make it complete. A progressive_proposal
-delegating future slices still needs revision and final independent review before user approval.
-"""
+PLANNER_RULE = prompts.get("fragments/adaptive-planning/planner-rule.md")
 
-NO_REQUIREMENTS_RULE = """
-No Requirements stage ran: the request was judged clear enough to plan from directly. Take the requirements
-from the task text and saved user events yourself, keep the user's literal outcome, and ask a blocking question
-only for a choice the request genuinely leaves open.
-"""
+NO_REQUIREMENTS_RULE = prompts.get("fragments/adaptive-planning/no-requirements-rule.md")
 
-REVIEW_RULE = """
-ADAPTIVE PLANNING. Mark a concern blocking only when the plan must change before anyone builds it: a missing or
-weakened requirement, a wrong dependency or ownership claim, an untestable criterion, an unsafe or incoherent
-initial_task. If none of your concerns is blocking, your review approves the plan as drafted: it goes to the user
-with your non-blocking concerns as notes, and there is no revise or final round. Progressive delegations retain
-revision and final independent review even without blocking concerns. Do not raise a blocking concern
-only to get another round. If planning.reports already holds a glm_revise report, this is a re-review of the
-revised plan: judge whether the Planner's responses settled your earlier concerns, and raise only what remains
-or what the revision introduced.
-"""
+REVIEW_RULE = prompts.get("fragments/adaptive-planning/review-rule.md")
 
 # Feedback on a shown plan. The rows are requirement_trace_rows whose requirement_id is a feedback event ID.
-FEEDBACK_RULE = """
-FEEDBACK ON THE PLAN THE USER SAW. The user was shown goal_contract for approval and asked for a change instead:
-the requirement_trace_rows whose requirement_id is a feedback event ID quote what they said. No Requirements stage
-ran for it. Revise goal_contract to apply that feedback: start from it, change only what the feedback needs, and
-keep every other requirement, criterion and milestone as it is. Record each protected item you change or remove
-in contract_changes with basis user_feedback and that feedback ID as answer_id. Trace each feedback row like any
-requirement: covered by the acceptance criterion or required_behaviors entry that now delivers it. Where the feedback
-contradicts part of the shown plan, change that item and record it in contract_changes; leave conflict_resolutions
-empty, since they settle only conflicts a Requirements report recorded. Ask a blocking question only for a choice the
-feedback leaves open.
-"""
+FEEDBACK_RULE = prompts.get("fragments/adaptive-planning/feedback-rule.md")
 
-RERUN_RULE = """
-If the feedback changes what is being built, so that the requirements must be gathered again (a different
-product, user or outcome, not an added or changed behavior), do not revise: set requirements_rerun to one sentence
-saying why. The runner then discards this draft and runs the Requirements stage. Otherwise leave it empty.
-"""
+RERUN_RULE = prompts.get("fragments/adaptive-planning/rerun-rule.md")
 
-FEEDBACK_TRACE_RULE = """
-FEEDBACK ROWS. requirement_trace_rows whose requirement_id is a feedback event ID are the user's feedback on a plan
-they were shown. Trace them like any requirement: covered by an acceptance criterion or required_behaviors entry.
-"""
+FEEDBACK_TRACE_RULE = prompts.get("fragments/adaptive-planning/feedback-trace-rule.md")
 
-FEEDBACK_REVIEW_RULE = """
-FEEDBACK REVISION. This draft revises a plan the user was shown, to apply their feedback: the
-requirement_trace_rows whose requirement_id is a feedback event ID. Check that each is applied as the user said
-it, without reading more into it, and that nothing they asked for earlier was lost. A feedback row the plan does
-not deliver is a blocking concern.
-"""
+FEEDBACK_REVIEW_RULE = prompts.get("fragments/adaptive-planning/feedback-review-rule.md")
 FEEDBACK = "revises_plan"
 
 

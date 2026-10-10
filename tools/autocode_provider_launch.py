@@ -12,12 +12,14 @@ try:
     from . import autocode_agent_env as agent_env
     from . import autocode_containment_policy as containment_policy
     from . import autocode_output_cap as output_cap
+    from . import autocode_prompts as prompts
     from . import autocode_util as util
     from . import autocode_verification_copy as verification_copy
 except ImportError:
     import autocode_agent_env as agent_env
     import autocode_containment_policy as containment_policy
     import autocode_output_cap as output_cap
+    import autocode_prompts as prompts
     import autocode_util as util
     import autocode_verification_copy as verification_copy
 
@@ -184,7 +186,9 @@ def prepare(
 def stage_record(worker):
     """Launch facts, distinguishing capture isolation from a kernel boundary."""
     engine = worker.get("engine", "opencode")
-    record = {"provider": worker["provider"]} if engine == "opencode" and worker.get("configured") else {}
+    record = {"prompts_hash": prompts.HASH}
+    if engine == "opencode" and worker.get("configured"):
+        record["provider"] = worker["provider"]
     if worker.get("verification_copy"):
         checks = "Codex sandbox" if engine == "codex" else "Configured-provider permission checks"
         record.update(
@@ -196,13 +200,15 @@ def stage_record(worker):
         return record
     if worker.get("configured"):
         return {**record, "isolation": "Config-tool sandbox flag and workspace snapshot checks"}
-    record = {
-        "isolation": "Kernel-constrained native shell; other tools disabled"
-        if worker.get("tool_containment")
-        else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
-        "tool_containment": worker.get("tool_containment"),
-        "output_token_cap": worker.get("output_token_cap"),
-    }
+    record.update(
+        {
+            "isolation": "Kernel-constrained native shell; other tools disabled"
+            if worker.get("tool_containment")
+            else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
+            "tool_containment": worker.get("tool_containment"),
+            "output_token_cap": worker.get("output_token_cap"),
+        }
+    )
     if worker.get("uncontained_tools"):
         record.update(
             uncontained_tools=True,
@@ -229,15 +235,7 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
         raise ValueError("Contained tool launch requires a structured handoff")
     data = json.loads(after)
     data["tool_containment"] = policy
-    instruction = (
-        "\nNATIVE TOOL BOUNDARY: commands run in a kernel-constrained subprocess. "
-        "Use only the shell tool and approved commands. Application files remain read-only "
-        "unless this stage is the Builder. Temporary test output and captured evidence must "
-        "go below tool_containment.scratch, never an external /tmp directory or another "
-        "stage's state, events, or receipts. It is the only place under .autocode/ this stage "
-        "can write, so it replaces any other evidence or scratch directory named above. "
-        "A denial is a blocker, not permission to bypass.\n"
-    )
+    instruction = prompts.get("fragments/provider-launch/containment-prompt.md")
     if stage == "sol":
         # Bind the entire presented projection, including JSON types, not only its source revision.
         regression_proof_current = (
@@ -247,28 +245,11 @@ def containment_prompt(prompt, worker, *, stage=None, regression_proof_current=F
             == json.dumps(regression_handoff, sort_keys=True)
         )
         data["runner_regression_proof_current"] = regression_proof_current
+        instruction += prompts.get("fragments/provider-launch/containment-prompt-04.md")
         instruction += (
-            "\nCONTAINED TESTER: this launch cannot bind or connect sockets. "
-            "This overrides the earlier instruction to run the regression command once when that "
-            "command needs network access: do not re-execute HTTP tests inside this boundary. "
-            "Inspect the named case_tests and the runner checks to confirm they assert the approved "
-            "flow, not just health or static behavior. Cite regression_proof verdict, source_revision, "
-            "case_tests, checks and artifact path as runner-executed evidence, never as your own execution. "
-            "Only a current runner-authenticated PASS covering that behavior can establish HTTP PASS; "
-            "missing, stale, incomplete, failed, skipped or zero-test evidence cannot. "
-            "A mock or static check cannot replace required real HTTP/end-to-end proof. "
-            "Still execute permitted independent non-network checks, focusing on uncovered acceptance "
-            "criteria, and capture their receipts under tool_containment.scratch using capture_command "
-            "and the check schema. Cite runner proof directly, not a check command that reads run files: "
-            "clean replay has no runner artifacts. Uncovered required network behavior remains "
-            "BLOCKED/NOT_VERIFIED. Do not fabricate checks or relax verification/completion requirements.\n"
-        )
-        instruction += (
-            "The runner authenticated the current regression PASS at launch; inspect its coverage before citing it.\n"
+            prompts.get("fragments/provider-launch/containment-prompt-06.md")
             if regression_proof_current
-            else "No current runner-authenticated regression PASS is available in this handoff. "
-            "Do not report HTTP PASS; report FAIL for an unproven required regression and "
-            "record unavailable execution as BLOCKED/NOT_VERIFIED.\n"
+            else prompts.get("fragments/provider-launch/containment-prompt-07.md")
         )
     return before + instruction + marker + json.dumps(data, indent=2)
 

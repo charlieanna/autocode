@@ -1,0 +1,1 @@
+Judge an existing change: a patch, a pull request, a diff, a branch. The user wants findings, not edits. Steps: read the change and its context, test where useful, report findings.
