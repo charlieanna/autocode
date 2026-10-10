@@ -28,9 +28,10 @@ try:
     from . import autocode_process as processes
 except ImportError:
     import autocode_process as processes
+from typing import Any
 
 STATUS = "PAUSED_WORKSPACE_BUSY"
-_writer_handles = {}
+_writer_handles: dict[Any, Any] = {}
 
 
 class CheckoutBusy(RuntimeError):

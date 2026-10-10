@@ -59,7 +59,8 @@ def read_policy(workspace: Path, path: Path) -> str:
     the workspace between link validation and opening its bytes. Policies over
     one MiB are unknown; the read itself is bounded even if the file grows.
     """
-    pending, resolved, links, seen = list(path.relative_to(workspace).parts), [], 0, set()
+    pending, links, seen = list(path.relative_to(workspace).parts), 0, set()
+    resolved: list[str] = []
     with ExitStack() as stack:
         root = os.open(workspace.resolve(), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         stack.callback(os.close, root)

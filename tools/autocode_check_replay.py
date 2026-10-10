@@ -35,6 +35,7 @@ import json
 import re
 import uuid
 from pathlib import Path
+from typing import Any
 
 try:
     from . import autocode_acceptance_policy as acceptance_policy
@@ -220,7 +221,9 @@ def replay(
         )
         else None
     )
-    rows, seen, contexts = [], {}, {}
+    rows: list[Any] = []
+    seen: dict[Any, Any] = {}
+    contexts: dict[Any, Any] = {}
     for check in checks:
         command = check["command"]
         key = (command, check.get("repetition", 1))

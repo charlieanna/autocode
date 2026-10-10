@@ -8,7 +8,7 @@ GitHub Actions (app ID 15368), with the branch up to date before merging. The
 Compose workflow runs on every PR so a required check cannot be left pending
 by path filtering. Its job failures propagate to the workflow result.
 
-Lint remains advisory pending #803. Each diagnostic runs after a successful
+Lint is blocking after #803. Each diagnostic runs after a successful
 dependency installation even if another diagnostic fails; cancellation still
 stops them.
 

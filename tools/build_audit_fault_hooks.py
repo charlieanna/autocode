@@ -74,5 +74,5 @@ if mode and root and Path(sys.argv[0]).name == "autocode_build.py":
             crash()
         return result
 
-    subprocess.Popen = launch
-    subprocess.run = execute
+    subprocess.Popen = launch  # type: ignore  # deliberate fault injection
+    subprocess.run = execute  # type: ignore  # deliberate fault injection

@@ -37,6 +37,7 @@ PR template asks for an entry here; a change without one is incomplete.
 
 - Run all lint diagnostics after a failed lint/format check, and report the real
   Compose gate on every pull request so master can require both suite and Compose (#843).
+- Doctor checks psutil in the process keeper’s isolated interpreter and explains how to fix PYTHONPATH-only installations (#815).
 - Recovery browser fixtures can import core modules when launched directly
   with no checkout-specific PYTHONPATH, as in CI (#856).
 
