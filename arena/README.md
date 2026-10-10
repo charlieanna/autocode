@@ -65,3 +65,10 @@ lists the bounded test scopes and source-local setup helpers.
 
 See [the Arena guide](../docs/arena.md) for running cases, provider options,
 comparison gates, and the limits of public historical exercises.
+
+## Planned reliability protocol
+
+[`campaign.json`](campaign.json) pins 13 existing tasks and 26 scheduled attempts
+for the first bounded slice of #634. It is PLANNED and contains no results or
+execution command. See [the protocol](../docs/reliability-campaign.md) for its
+original limits, complete attempt accounting and public-holdout restrictions.
