@@ -52,7 +52,7 @@ class GraderExitObservationTests(unittest.TestCase):
         with (
             patch.object(grader.psutil, "Process", side_effect=observations),
             patch.object(grader.os, "getpgid", side_effect=ProcessLookupError),
-            patch.object(grader.time, "sleep"),
+            patch.object(grader.util, "sleep"),
         ):
             row = grader._leader(SimpleNamespace(pid=77))
         self.assertEqual(grader.psutil.STATUS_ZOMBIE, row["state"])
@@ -76,7 +76,7 @@ class GraderProcessTests(unittest.TestCase):
             patch.object(grader, "_leader", return_value=root),
             patch.object(processes, "identity", return_value=root),
             patch.object(grader, "_capture_group") as capture,
-            patch.object(grader.time, "monotonic", side_effect=interrupt),
+            patch.object(grader.util, "monotonic", side_effect=interrupt),
         ):
             with self.assertRaises(KeyboardInterrupt):
                 grader.wait(child, 10)
@@ -130,18 +130,25 @@ class GraderProcessTests(unittest.TestCase):
             cleanup = processes.ProcessTree(child.pid, lambda rows: None)
             cleanup.capture_root()
             cleanup.sample()
-            real_time = grader.time
-            clock = Mock(wraps=real_time)
+            original_monotonic = grader.util.monotonic
+            state = {"fired": False}
 
             def interrupt():
-                signal.raise_signal(signal.SIGTERM)
-                return real_time.monotonic()
+                # Only the grader's FIRST clock read raises; the cleanup path's
+                # reads go through the same shared seam and must stay real.
+                if not state["fired"]:
+                    state["fired"] = True
+                    signal.raise_signal(signal.SIGTERM)
+                return original_monotonic()
 
-            clock.monotonic.side_effect = interrupt
-            with processes.interruption_handler(), patch.object(grader, "time", clock):
+            with (
+                processes.interruption_handler(),
+                patch.object(grader.util, "monotonic", side_effect=interrupt) as clock,
+            ):
                 with self.assertRaises(KeyboardInterrupt):
                     grader.wait(child, 10)
-            self.assertEqual(1, clock.monotonic.call_count)
+            self.assertTrue(state["fired"])
+            self.assertGreaterEqual(clock.call_count, 2)
             self.assertIn(helper_pid, cleanup.known)
             self.assertEqual([], processes.live_processes(list(cleanup.known.values())))
             self.assertIsNotNone(child.returncode)
