@@ -350,6 +350,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the run's final status as the same JSON payload --status prints, instead of the summary text",
+    )
+    parser.add_argument(
         "--explain",
         action="store_true",
         help="Print a plain-English explanation of why the run stopped and what each offered command does (#715)",

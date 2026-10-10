@@ -1841,6 +1841,28 @@ def rotate_if_needed(state, role, run_dir):
         write_json(run_dir / "state.json", state)
 
 
+def print_completion(state, args, workspace, run_dir):
+    """Deliver a completed task worktree, then print the outcome: with ``--json``,
+    the same payload ``--status`` prints; otherwise the human completion summary.
+    Delivery runs in both modes — it commits the branch, it is not just text."""
+    delivery = worktrees.deliver(state, workspace)
+    if getattr(args, "json", False):
+        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+    else:
+        print(jobs.render(state, goals.render_completion) + delivery)
+
+
+def print_pause(state, args, workspace, run_dir, rendered):
+    """Print a non-complete outcome: with ``--json``, the same payload ``--status``
+    prints; otherwise the prose view. The caller renders the prose BEFORE writing
+    state — present() has a deliberate state effect (it drops a stale
+    displayed_goal), and that effect must land before the state is persisted."""
+    if getattr(args, "json", False):
+        status_command.render(sys.modules[__name__], state, args, workspace, run_dir)
+    else:
+        print(rendered)
+
+
 def main(unit=None) -> int:
     """Resolve this invocation's provider, then restore the shared global on the
     way out — main() can run more than once per process in tests, and a real
@@ -1917,7 +1939,7 @@ def _main_body(unit=None) -> int:
             print(f"{state['status']}: {error}", file=sys.stderr)
             return 2
         if state["status"] == "TASK_COMPLETE":
-            print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
+            print_completion(state, args, workspace, run_dir)
         else:
             if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
                 if not chat_checkpoint(state, run_dir):
@@ -1925,11 +1947,11 @@ def _main_body(unit=None) -> int:
                     return 2
                 write_json(state_path, state)
                 if state["status"] == "TASK_COMPLETE":
-                    print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
+                    print_completion(state, args, workspace, run_dir)
                     return 0
             rendered = lifecycle.present(state, run_dir)
             write_json(state_path, state)
-            print(rendered)
+            print_pause(state, args, workspace, run_dir, rendered)
         return 0 if state["status"] == "TASK_COMPLETE" else 2
 
 
