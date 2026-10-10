@@ -9,9 +9,36 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ## [Unreleased]
 
+### Added
+
+- Task, program and component runs now publish a shared evidence report with
+  explicit model provenance; TaskRun and issue pull requests use the same
+  canonical report (#692).
+- **KiloCode Alibaba Token Plan route**: the bundled `kilocode` provider now declares an
+  `[[auth.routes]]` entry for `alibaba-token-plan/`, so a run using those models verifies the login
+  is present in `api` mode before it launches, as it already does for `openai/`. That route serves
+  Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash`) on the operator's own plan, and DeepSeek,
+  GLM, Kimi and MiniMax on the same login, so a verifier can come from a different vendor than the
+  producer it checks.
+
+### Removed
+
+- The unreleased `--engine qwen` transport. It could not complete a run: provider
+  selection resolved its built-in OpenCode default and the engine's own conflict
+  check then refused every run; a run that did start compared Codex's settings with
+  its saved Qwen identity and paused at the first stage boundary; the transport
+  asked for an output format whose single JSON array the event log cannot read; no
+  adapter was wired into the event reader; and `doctor` and `autopilot` had no case
+  for it at all. Qwen models remain reachable through the bundled KiloCode
+  provider's Alibaba Token Plan route. A saved run that used the engine now pauses
+  with `PAUSED_TRANSPORT_CHANGED`, the same retirement path `gocode` uses.
+
 ### Fixed
 
 - Doctor checks psutil in the process keeper’s isolated interpreter and explains how to fix PYTHONPATH-only installations (#815).
+- Keep native inventory fixture injection at its requested output indentation
+  when formatted report-repair code contains the same output statement (#851).
+
 - Registered Codex artifact providers refuse workspace relocation and malformed
   or conflicting config overrides before launch, preserving runner-bound paths (#811).
 - Refuse malformed legacy command receipts, including timed-out, interrupted,

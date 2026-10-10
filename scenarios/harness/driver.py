@@ -47,6 +47,8 @@ FAKE_PROVIDER = Path(__file__).resolve().parent / "fake_codex.py"
 # Codex-engine flags for fake runs. The fake ignores models, but AutoCode's
 # Codex path wants bare GPT names and distinct builder and verifier models.
 FAKE_FLAGS = [
+    "--evidence-provenance",
+    "fake",
     "--engine",
     "codex",
     "--joint-planning",
@@ -162,10 +164,9 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
             }
         )
     )
-    return [*FAKE_FLAGS, *scenario.fake_flags], {
-        "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
-        "SCENARIO_FAKE_CONFIG": str(config),
-    }
+    flags = [*FAKE_FLAGS, *scenario.fake_flags]
+    flags[flags.index("--evidence-provenance") + 1] = "mixed" if scenario.fake_live_calls else "fake"
+    return flags, {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}", "SCENARIO_FAKE_CONFIG": str(config)}
 
 
 # Flags only a new run takes (docs/cli.md): the public CLI refuses each on a saved run, even when it names the
@@ -188,7 +189,11 @@ def saved_run_flags(flags: list[str]) -> list[str]:
 
 
 def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str], dict]:
-    return profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)), {}
+    return [
+        *profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)),
+        "--evidence-provenance",
+        "live",
+    ], {}
 
 
 class Driver:

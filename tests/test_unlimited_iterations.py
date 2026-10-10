@@ -52,6 +52,11 @@ class UnlimitedTests(unittest.TestCase):
         expected["limits"]["iteration_ceiling"] = None
         expected["report_repair"] = {"max_attempts": 2}
         expected["provider"] = "opencode"
+        expected["evidence_provenance"] = {
+            "kind": "unknown",
+            "basis": "unavailable",
+            "declaration": "No declaration; provider/model names cannot distinguish a fixture from live models",
+        }
         # The explicit flag is recorded as user-owned so AutoResolver never rewrites it.
         expected["budget_origins"] = {"iteration_ceiling": "user_explicit"}
         expected["roles"]["completion"] = {

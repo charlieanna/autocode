@@ -462,16 +462,29 @@ forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
 models = "openai/"
 pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
 expect = "oauth"
+
+[[auth.routes]]
+models = "alibaba-token-plan/"
+pattern = "^\\s*[●•]\\s+Alibaba Token Plan\\s+(\\S+)\\s*$"
+expect = "api"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
 reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
 Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
-above runs `kilo auth list` before an `openai/` role and pauses with
-`PAUSED_BILLING_ROUTE` unless that login is `oauth`, and also when
+above runs `kilo auth list` before an `openai/` or `alibaba-token-plan/` role and
+pauses with `PAUSED_BILLING_ROUTE` unless that login is `oauth` or `api`
+respectively, and also when
 `OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set. Kilo has no
 sandbox flag, so a read-only stage that edits files is caught afterwards by the
 workspace snapshot check and pauses.
+
+The `alibaba-token-plan/` route serves that login's own plan rather than the
+Gateway: Qwen (`qwen3.8-max`, `qwen3.7-plus`, `qwen3.6-flash` and the rest of
+`kilo models`' `alibaba-token-plan/` list), and on the same login DeepSeek, GLM,
+Kimi and MiniMax. Because one login reaches several vendors, a Builder and the
+Tester that checks it can be different model families, which is what the
+cross-model guard is for.
 
 ### Default provider
 
