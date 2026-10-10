@@ -143,7 +143,7 @@ def proof_cases(state: dict, *, all_due: bool = False) -> list[dict]:
         return cases
     # Only the approved, explicit test names establish a case's milestone.
     # Legacy, incomplete or ambiguous mappings keep the whole proof required.
-    bindings = {case["id"]: set() for case in cases}
+    bindings: dict[str, set[str]] = {case["id"]: set() for case in cases}
     for criterion in contract_cases(state, all_due=True):
         name = criterion.get("test_name")
         if not name:
