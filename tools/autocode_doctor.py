@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -338,6 +339,46 @@ def opencode_checks(checks: list[Check], workspace: Path, wanted: str | None, re
     return engine_verdict(checks, wanted, provider)
 
 
+def shared_host_check(passwd_lines=None, uid=None) -> Check:
+    """#818: on a shared machine, other local accounts can read /proc/<pid>/cmdline
+    (world-readable) while /proc/<pid>/environ is owner-only — so authorization
+    tokens passed as argv values are exposed to co-tenants. Advisory only: the
+    env channel (`--resolver-token -` with AUTOCODE_RESOLVER_TOKEN set) is not
+    affected. Non-POSIX hosts (no /etc/passwd) skip the advisory."""
+    if uid is None and hasattr(os, "getuid"):
+        uid = os.getuid()
+    if passwd_lines is None:
+        try:
+            with open("/etc/passwd", encoding="utf-8") as handle:
+                passwd_lines = handle.readlines()
+        except OSError:
+            return Check("shared-host", OK, "no local account database readable; shared-host advisory skipped")
+    others = set()
+    for line in passwd_lines:
+        fields = line.strip().split(":")
+        if len(fields) < 7:
+            continue
+        try:
+            account_uid = int(fields[2])
+        except ValueError:
+            continue
+        if account_uid < 1000 or account_uid == uid:
+            continue
+        if fields[6] in ("/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"):
+            continue
+        others.add(fields[0])
+    if not others:
+        return Check("shared-host", OK, "no other interactive local accounts; argv tokens are not co-tenant readable")
+    return Check(
+        "shared-host",
+        WARN,
+        f"shared host: {len(others)} other interactive local account(s) can read /proc/<pid>/cmdline; "
+        "tokens passed as argv values are visible to them",
+        "pass tokens by environment instead: set the AUTOCODE_* variable and use the `-` value "
+        "(e.g. --resolver-token -); see docs/cli.md, Keeping authorization tokens out of argv",
+    )
+
+
 def all_checks(
     workspace: Path, engine: str | None = None, which=shutil.which, runner=run, resolve=autocode_providers.resolve
 ) -> list[Check]:
@@ -354,6 +395,7 @@ def all_checks(
         verdict,
         *workspace_check(workspace, runner),
         *local_compose_checks(which, runner),
+        shared_host_check(),
     ]
 
 
