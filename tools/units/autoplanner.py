@@ -1528,7 +1528,7 @@ def context(state, stage, state_path):
         + clarification_policy
         + progressive_policy
         + s.COMMON
-        + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
+        + "\nWork read-only on repository source. Follow the provider output contract for reporting.\nCURRENT HANDOFF DATA\n"
         + json.dumps(packet, indent=2)
     )
     return prompt, {
