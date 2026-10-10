@@ -48,6 +48,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- OpenCode request intervals now pair starts and finishes within the same
+  message; ambiguous timing stays unknown while known usage remains available.
 - Reuse a successful new-run model inventory for its immediate route validation,
   removing a duplicate provider catalogue subprocess before the first interaction.
   Resumes and later validation still fetch a fresh inventory (#727).
