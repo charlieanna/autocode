@@ -35,6 +35,8 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Match the parallel quota fixture recognizer by syntax so formatting cannot
+  silently omit its required clarity field before worker recovery tests (#854).
 - Guard the OpenCode, planning and orchestrator compatibility exports in flat
   and installed-package modes against removal by import cleanup (#845).
 - Strict macOS tool containment permits accented and CJK workspace paths while
