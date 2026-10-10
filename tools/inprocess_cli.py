@@ -32,6 +32,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
+# Entry scripts the runner may host in-process, by filename. A wrapper entry
+# (a bootstrap script that instruments the CLI's own interpreter) is NOT one:
+# its monkeypatch belongs to a real child process.
+ENTRY_SCRIPTS = frozenset({"autocode.py", "autocode_build.py", "autoplanner.py"})
+
 
 @contextlib.contextmanager
 def _environment(env: dict | None) -> Iterator[None]:
@@ -59,25 +64,35 @@ def _directory(cwd) -> Iterator[None]:
 
 
 def _entry(script: str):
-    """Resolve a tools/ entry script to its callable: main() when it has one
-    (autocode.py's is designed for repeat in-process calls), else cli()."""
+    """Resolve a tools/ entry script to its ``cli()`` — the same wrapper a real
+    child enters, including its OSError/ValueError/RuntimeError catch (a forced
+    registry failure must exit cleanly, not raise into the driver) and its stdout
+    handling. The SystemExit it raises on completion is converted by ``run()``."""
     module = importlib.import_module(Path(script).stem)
-    return getattr(module, "main", None) or module.cli
+    return module.cli
 
 
-def run(argv, *, env=None, cwd=None, timeout=None, advancing=False) -> subprocess.CompletedProcess:
+def run(argv, *, env=None, cwd=None, timeout=None, advancing=False, input=None) -> subprocess.CompletedProcess:
     """Run an AutoCode entry-point script in this process; a drop-in for
     ``taskrun.run_process``.
 
     Returns the same text ``CompletedProcess`` shape the real seam returns, with
     stdout/stderr captured from the entry point's writes. The script is resolved
     by filename (autocode.py, autocode_build.py, autoplanner.py, …), so the
-    driver's unit selection is preserved. A ``SystemExit`` escaping the entry
+    driver's unit selection is preserved. ``input`` feeds the script's stdin the
+    way ``subprocess.run(input=…)`` would. A ``SystemExit`` escaping the entry
     point is converted to its code, matching a process exit's returncode.
     """
     del timeout, advancing  # no child to time out or supervise; see module docstring
     out, err = io.StringIO(), io.StringIO()
-    with _environment(env), _directory(cwd), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+    feed = io.StringIO(input) if input is not None else io.StringIO()
+    with (
+        _environment(env),
+        _directory(cwd),
+        contextlib.redirect_stdout(out),
+        contextlib.redirect_stderr(err),
+        mock.patch.object(sys, "stdin", feed),
+    ):
         # argv is the spawned form [interpreter, script, *args]; the script's argv0
         # is itself. A real child sees sys.argv == [script, *args]; reproduce that
         # exactly, or the script path arrives as the first CLI argument.

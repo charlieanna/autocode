@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import inprocess_cli
+
 
 def with_resolver_token(args):
     """Answer the way a user does: with the token AutoResolver published for the current request.
@@ -91,15 +93,24 @@ class SubprocessFlow(unittest.TestCase):
         if "--run-dir" not in args and "--in-place" not in args:
             args = [*args, "--in-place"]
         args = with_resolver_token(args)
-        result = subprocess.run(
-            [*self.entry, "--workspace", str(self.project), *args],
-            cwd=self.root,
-            env=self.env,
-            input=answers,
-            capture_output=True,
-            text=True,
-            timeout=240,
-        )
+        command = [*self.entry, "--workspace", str(self.project), *args]
+        # In-process (#704) for the plain entry — same parser, handlers, receipts;
+        # provider/git children the CLI spawns stay real subprocesses. Wrapper
+        # entries (a bootstrap script that instruments the CLI's own process, e.g.
+        # quota_worker's Popen-counting entry) MUST stay real subprocesses: their
+        # monkeypatch belongs to the child's interpreter, not this shared one.
+        if len(self.entry) == 2 and Path(self.entry[1]).name in inprocess_cli.ENTRY_SCRIPTS:
+            result = inprocess_cli.run(command, cwd=self.root, env=self.env, input=answers)
+        else:
+            result = subprocess.run(
+                command,
+                cwd=self.root,
+                env=self.env,
+                input=answers,
+                capture_output=True,
+                text=True,
+                timeout=240,
+            )
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 
