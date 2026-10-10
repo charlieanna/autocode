@@ -8,6 +8,7 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 if sys.argv[1:] == ["--version"]:
     print("1.18.31")
@@ -39,7 +40,7 @@ if os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS") and prompt.startswith(
     "Your previous final message could not be parsed as the report:"
 ):
     # Same-session serialization correction deliberately has no full handoff.
-    data = {
+    data: dict[str, Any] = {
         "execution_engine": "opencode",
         "report_repair": True,
         "stage": "sol_report_repair",
@@ -144,8 +145,8 @@ with tempfile.TemporaryDirectory() as temp:
         "stage"
     ):
         # Like OpenCode 1.x: use the output cap this process actually received.
-        cap = os.environ.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", "")
-        cap = int(cap) if cap.isdigit() and int(cap) > 0 else 32000
+        cap_text = os.environ.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", "")
+        cap = int(cap_text) if cap_text.isdigit() and int(cap_text) > 0 else 32000
         emit("text", {"id": "prt_text", "type": "text", "text": final[:-1], "time": {"end": 1}})
         emit(
             "step_finish",
