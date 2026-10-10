@@ -84,8 +84,13 @@ def drive(scenario, args, out, project, flags, env):
             str(max(1, int(driver.deadline - time.monotonic()))),
         ]
         if local:
-            command += ["--run-local", "--health-timeout", "30", '--runtime-evidence-provenance',
-                        'live' if getattr(args, 'local_docker', False) else 'fake']
+            command += [
+                "--run-local",
+                "--health-timeout",
+                "30",
+                "--runtime-evidence-provenance",
+                "live" if getattr(args, "local_docker", False) else "fake",
+            ]
         remaining = driver.deadline - time.monotonic()
         if remaining <= 0:
             raise InterruptedDrive("components time budget exhausted; remaining work ungraded")

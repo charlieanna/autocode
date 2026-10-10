@@ -143,8 +143,10 @@ class TaskRun:
         report = view.get("evidence_report") or {}
         allowed = ("current",) if require_current else ("current", "recorded", "stale")
         if report.get("availability") not in allowed or not report.get("markdown") or not report.get("document"):
-            raise TaskRunError("Canonical evidence report is unavailable or not current: " +
-                               "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"]))
+            raise TaskRunError(
+                "Canonical evidence report is unavailable or not current: "
+                + "; ".join(report.get("reasons") or ["Complete/revalidate the owned run first"])
+            )
         return report
 
     def revise_design(self, manifest: Path, expected_hash: str, reason: str) -> dict:
