@@ -35,6 +35,9 @@ PR template asks for an entry here; a change without one is incomplete.
 
 ### Fixed
 
+- Guard the OpenCode, planning and orchestrator compatibility exports in flat
+  and installed-package modes against removal by import cleanup (#845).
+
 - Preserve review scenario seed context so the supplied PR patch applies and
   both regression mutation checks execute after repository formatting (#853).
 
